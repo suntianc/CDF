@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01 of 1 (foundation workspace)
-status: Milestone complete
-last_updated: "2026-05-19T16:36:48.887Z"
+current_phase: 02 of 4 (ai-chat-engine)
+status: Context gathered, ready for planning
+last_updated: "2026-05-20T01:00:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
@@ -15,7 +15,7 @@ progress:
 # Project State: pi-workbench
 
 **Created:** 2026-05-19
-**Current phase:** 01 of 1 (foundation workspace)
+**Current phase:** 02 of 4 (ai-chat-engine)
 **Milestone:** v1
 
 ## Project Reference
@@ -29,15 +29,15 @@ See: `.planning/PROJECT.md` (updated 2026-05-19)
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | Foundation & Workspace | ✓ 3/3 plans complete |
-| 2 | AI Chat Engine | ○ Pending |
+| 2 | AI Chat Engine | ○ Context gathered, ready for planning |
 | 3 | Skills System | ○ Pending |
 | 4 | MCP Integration | ○ Pending |
 
 ## Current Focus
 
-Phase 01 execution complete. Ready for verification.
+Phase 01 execution complete. Phase 02 context gathered.
 
-**Resume file:** `.planning/phases/01-foundation-workspace/03-SUMMARY.md`
+**Resume file:** `.planning/phases/02-ai-chat-engine/02-CONTEXT.md`
 
 ## Blockers
 
@@ -59,3 +59,4 @@ None
 | shadcn/ui components (button, card, dialog, input, badge, separator, sheet, tabs, tooltip) | UI 组件库选择 | ✓ Implemented |
 | Tailwind v4 dark mode with CSS custom properties | 主题系统 | ✓ Implemented |
 | Provider preset templates (Anthropic, OpenAI, Google) + Custom | 模型提供商配置 | ✓ Implemented |
+| pi SDK SessionManager for conversation persistence | 对话历史持久化 | ✓ Decided (Phase 02) |
