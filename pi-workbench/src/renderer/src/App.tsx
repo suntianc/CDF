@@ -14,8 +14,6 @@ function App(): React.ReactElement {
 
   return (
     <div className="flex h-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white">
-      {/* macOS window drag region */}
-      <div className="fixed top-0 left-0 right-0 h-[10px] z-50" style={{ WebkitAppRegion: 'drag' } as any} />
       <Sidebar
         activeNav={activeNav}
         onNavigate={handleNavigate}
@@ -24,13 +22,17 @@ function App(): React.ReactElement {
         onSwitchWorkspace={switchWorkspace}
       />
 
-      <main className="flex-1 flex">
-        {activeNav === 'welcome' && (
-          <div className="flex-1 flex items-center justify-center">
-            <WelcomeDialog />
-          </div>
-        )}
-        {activeNav === 'settings' && <SettingsPage />}
+      <main className="flex-1 flex flex-col">
+        {/* Main content drag region */}
+        <div className="h-[38px] w-full shrink-0 window-drag-region" />
+        <div className="flex-1 flex">
+          {activeNav === 'welcome' && (
+            <div className="flex-1 flex items-center justify-center">
+              <WelcomeDialog />
+            </div>
+          )}
+          {activeNav === 'settings' && <SettingsPage />}
+        </div>
       </main>
     </div>
   )
