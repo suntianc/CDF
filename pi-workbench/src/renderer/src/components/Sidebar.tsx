@@ -46,11 +46,14 @@ interface SidebarProps {
 export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onSwitchWorkspace }: SidebarProps) {
   return (
     <aside className="w-[256px] h-full flex flex-col bg-white dark:bg-[#1a1a1a] border-r border-[#ebebeb] dark:border-[#2a2a2a] shadow-sidebar select-none">
-      {/* New Chat Button (placeholder for Phase 2) */}
+      {/* App title - click to go home */}
       <div className="px-3 pt-3 pb-2">
-        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#4d4d4d] hover:bg-[#f5f5f5] dark:hover:bg-[#252525] rounded-[6px] transition-colors">
+        <button
+          onClick={() => onNavigate('welcome')}
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#171717] dark:text-white hover:bg-[#f5f5f5] dark:hover:bg-[#252525] rounded-[6px] transition-colors"
+        >
           <MessageSquare className="w-4 h-4" />
-          <span>新对话</span>
+          <span>pi-workbench</span>
         </button>
       </div>
 

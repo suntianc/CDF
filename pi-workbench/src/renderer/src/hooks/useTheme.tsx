@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -18,12 +18,14 @@ function getSystemTheme(): 'light' | 'dark' {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('system')
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
+  const initialized = useRef(false)
 
   // Load saved theme on mount
   useEffect(() => {
     window.electronAPI.themeGet().then((saved) => {
-      const t = saved || 'system'
-      setThemeState(t as Theme)
+      const t = (saved as Theme) || 'system'
+      setThemeState(t)
+      initialized.current = true
     })
   }, [])
 
@@ -35,8 +37,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Apply class to html element for Tailwind v4 dark mode
     document.documentElement.classList.toggle('dark', effective === 'dark')
 
-    // Persist theme preference
-    window.electronAPI.themeSet(theme)
+    // Persist theme preference (only after initial load to avoid overwrite)
+    if (initialized.current) {
+      window.electronAPI.themeSet(theme)
+    }
   }, [theme])
 
   // Listen for system theme changes
