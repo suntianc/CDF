@@ -5,10 +5,14 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin({
+      exclude: ['electron-store', 'conf', 'atomically', 'debounce-fn', 'dot-prop', 'env-paths']
+    })]
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin({
+      exclude: ['electron-store', 'conf', 'atomically', 'debounce-fn', 'dot-prop', 'env-paths']
+    })]
   },
   renderer: {
     resolve: {
