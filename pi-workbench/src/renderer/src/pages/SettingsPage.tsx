@@ -38,12 +38,12 @@ export function SettingsPage() {
     setEditingProvider(type)
   }
 
-  function handleProviderSave(type: string, data: { apiKey: string; defaultModel: string }) {
+  function handleProviderSave(type: string, data: { apiKey: string; defaultModel: string; providerName?: string }) {
     const existing = getProvider(type)
     saveProvider({
       id: existing?.id,
       type: type as 'anthropic' | 'openai' | 'google' | 'custom',
-      name: presets.find(p => p.type === type)?.name || type,
+      name: data.providerName || (type === 'custom' ? 'Custom OpenAI' : (presets.find(p => p.type === type)?.name || type)),
       apiKey: data.apiKey,
       models: data.defaultModel ? [data.defaultModel] : [],
       defaultModel: data.defaultModel || undefined
@@ -123,10 +123,28 @@ export function SettingsPage() {
               <ProviderForm
                 type="custom"
                 name="Custom OpenAI"
+                initialProviderName=""
                 onSave={(data) => handleProviderSave('custom', data)}
                 onCancel={() => setShowCustomForm(false)}
               />
             )}
+
+            {/* Custom provider: edit form, card, or add button */}
+            {editingProvider === 'custom' && isConfigured('custom') && (() => {
+              const cp = getProvider('custom')!
+              return (
+                <ProviderForm
+                  key="custom-edit"
+                  type="custom"
+                  name={cp.name || 'Custom OpenAI'}
+                  initialApiKey={cp.apiKey}
+                  initialModel={cp.defaultModel}
+                  initialProviderName={cp.name}
+                  onSave={(data) => handleProviderSave('custom', data)}
+                  onCancel={() => setEditingProvider(null)}
+                />
+              )
+            })()}
 
             {!showCustomForm && !editingProvider && (
               isConfigured('custom') ? (

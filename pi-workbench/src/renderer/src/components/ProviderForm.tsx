@@ -1,32 +1,68 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 
+interface ProviderFormData {
+  apiKey: string
+  defaultModel: string
+  providerName?: string
+}
+
 interface ProviderFormProps {
   type: string
   name: string
   initialApiKey?: string
   initialModel?: string
-  onSave: (data: { apiKey: string; defaultModel: string }) => void
+  initialProviderName?: string
+  onSave: (data: ProviderFormData) => void
   onCancel: () => void
 }
 
-export function ProviderForm({ type, name, initialApiKey, initialModel, onSave, onCancel }: ProviderFormProps) {
+export function ProviderForm({
+  type,
+  name,
+  initialApiKey,
+  initialModel,
+  initialProviderName,
+  onSave,
+  onCancel
+}: ProviderFormProps) {
   const [apiKey, setApiKey] = useState(initialApiKey || '')
   const [defaultModel, setDefaultModel] = useState(initialModel || '')
+  const [providerName, setProviderName] = useState(initialProviderName || '')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave({ apiKey, defaultModel })
+    onSave({
+      apiKey,
+      defaultModel,
+      ...(type === 'custom' ? { providerName } : {})
+    })
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-white dark:bg-[#1a1a1a] rounded-[8px] p-6 shadow-card space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-[#171717] dark:text-white">配置 {name}</h3>
+        <h3 className="text-sm font-medium text-[#171717] dark:text-white">
+          {type === 'custom' ? '配置自定义提供商' : `配置 ${name}`}
+        </h3>
         <button type="button" onClick={onCancel} className="text-[#888] hover:text-[#171717]">
           <X className="w-4 h-4" />
         </button>
       </div>
+
+      {type === 'custom' && (
+        <div>
+          <label className="block text-xs text-[#4d4d4d] dark:text-[#888] mb-1">提供商名称</label>
+          <input
+            type="text"
+            value={providerName}
+            onChange={(e) => setProviderName(e.target.value)}
+            placeholder="例如：DeepSeek, Ollama, Groq..."
+            className="w-full h-10 px-3 text-sm bg-white dark:bg-[#1a1a1a] border border-[#ebebeb] dark:border-[#2a2a2a] rounded-[6px] text-[#171717] dark:text-white placeholder:text-[#888] focus:outline-none focus:ring-2 focus:ring-[#171717] dark:focus:ring-white"
+            required
+          />
+        </div>
+      )}
 
       <div>
         <label className="block text-xs text-[#4d4d4d] dark:text-[#888] mb-1">API Key</label>
@@ -46,7 +82,7 @@ export function ProviderForm({ type, name, initialApiKey, initialModel, onSave, 
           type="text"
           value={defaultModel}
           onChange={(e) => setDefaultModel(e.target.value)}
-          placeholder={type === 'anthropic' ? 'claude-sonnet-4-20250514' : type === 'openai' ? 'gpt-4o' : 'gemini-2.0-flash'}
+          placeholder={type === 'anthropic' ? 'claude-sonnet-4-20250514' : type === 'openai' ? 'gpt-4o' : type === 'google' ? 'gemini-2.0-flash' : 'deepseek-chat'}
           className="w-full h-10 px-3 text-sm bg-white dark:bg-[#1a1a1a] border border-[#ebebeb] dark:border-[#2a2a2a] rounded-[6px] text-[#171717] dark:text-white placeholder:text-[#888] focus:outline-none focus:ring-2 focus:ring-[#171717] dark:focus:ring-white"
         />
       </div>
