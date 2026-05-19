@@ -17,11 +17,13 @@
 
 ### Phase 1: Foundation & Workspace
 
+**Progress:** ██░░░░░░░░ 1/3 plans (1 complete)
+
 **Goal:** 搭好 Electron 应用骨架，完成可用的工作台界面框架
 
 **Requirements:** WS-01, WS-02, WS-03, WS-04, PROV-01, PROV-02, PROV-03, PROV-04, PROV-05, UI-01, UI-02, UI-03, UI-04, UI-05
 
-**Success Criteria:**
+**Success Criteria:
 1. 应用启动后显示侧边栏 + 主内容区布局
 2. 可通过对话框选择工作区文件夹
 3. 最近工作区列表持久化，可快速切换
