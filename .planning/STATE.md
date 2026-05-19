@@ -21,7 +21,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-19)
 
 ## Current Focus
 
-Phase 1 尚未开始。下一步：讨论 Phase 1 的具体实现方案。
+Phase 1 上下文已收集。下一步：执行 Phase 1 规划。
+
+**Resume file:** `.planning/phases/01-foundation-workspace/01-CONTEXT.md`
 
 ## Blockers
 
