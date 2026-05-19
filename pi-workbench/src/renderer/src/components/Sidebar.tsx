@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Settings, Code2, Puzzle, Plus, MessageSquare } from 'lucide-react'
 import type { ReactNode } from 'react'
 

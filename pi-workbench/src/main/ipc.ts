@@ -4,14 +4,14 @@ import store from './store'
 export function registerIpcHandlers(): void {
   // Store operations
   ipcMain.handle('store:get', (_event, key: string) => {
-    return store.get(key)
+    return store.get(key as any)
   })
   ipcMain.handle('store:set', (_event, key: string, value: unknown) => {
-    store.set(key, value)
+    store.set(key as any, value)
     return true
   })
   ipcMain.handle('store:delete', (_event, key: string) => {
-    store.delete(key)
+    store.delete(key as any)
     return true
   })
 

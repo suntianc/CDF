@@ -63,7 +63,6 @@ app.whenReady().then(() => {
 
   // Auto-initialize workspace on first launch
   const workspaces = store.get('workspaces', [])
-  const lastWorkspace = store.get('lastWorkspace') as string | undefined
 
   if (workspaces.length === 0) {
     const cwd = process.cwd()

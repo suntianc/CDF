@@ -5,7 +5,7 @@ import { ProviderForm } from '../components/ProviderForm'
 import { useProviders } from '../hooks/useProviders'
 import { useTheme } from '../hooks/useTheme'
 
-const PROVIDER_ICONS: Record<string, JSX.Element> = {
+const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   anthropic: <Sparkles className="w-4 h-4 text-[#171717] dark:text-white" />,
   openai: <Bot className="w-4 h-4 text-[#171717] dark:text-white" />,
   google: <Globe className="w-4 h-4 text-[#171717] dark:text-white" />,

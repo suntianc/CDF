@@ -4,7 +4,7 @@ import { WelcomeDialog } from './components/WelcomeDialog'
 import { SettingsPage } from './pages/SettingsPage'
 import { useWorkspace } from './hooks/useWorkspace'
 
-function App(): JSX.Element {
+function App(): React.ReactElement {
   const [activeNav, setActiveNav] = useState('welcome')
   const { workspaces, addWorkspace, switchWorkspace } = useWorkspace()
 

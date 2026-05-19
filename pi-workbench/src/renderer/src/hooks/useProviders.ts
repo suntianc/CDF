@@ -33,7 +33,7 @@ export function useProviders() {
       ...provider,
       id: provider.id || `${provider.type}-${Date.now()}`
     }
-    await window.electronAPI.providersSave(p)
+    await window.electronAPI.providersSave(p as unknown as Record<string, unknown>)
     const updated = await window.electronAPI.providersList()
     setProviders(updated)
     return p.id
