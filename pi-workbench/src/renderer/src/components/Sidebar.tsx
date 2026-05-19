@@ -46,6 +46,8 @@ interface SidebarProps {
 export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onSwitchWorkspace }: SidebarProps) {
   return (
     <aside className="w-[256px] h-full flex flex-col bg-white dark:bg-[#1a1a1a] border-r border-[#ebebeb] dark:border-[#2a2a2a] shadow-sidebar select-none">
+      {/* macOS traffic light spacer */}
+      <div className="h-[38px] w-full shrink-0" />
       {/* App title - click to go home */}
       <div className="px-3 pt-3 pb-2">
         <button

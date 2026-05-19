@@ -14,6 +14,7 @@ function createWindow(): void {
       ? { x: windowState.x, y: windowState.y }
       : {}),
     show: false,
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

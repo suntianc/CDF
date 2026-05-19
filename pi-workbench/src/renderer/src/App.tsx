@@ -14,6 +14,8 @@ function App(): React.ReactElement {
 
   return (
     <div className="flex h-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white">
+      {/* macOS window drag region */}
+      <div className="fixed top-0 left-0 right-0 h-[10px] z-50" style={{ WebkitAppRegion: 'drag' } as any} />
       <Sidebar
         activeNav={activeNav}
         onNavigate={handleNavigate}
