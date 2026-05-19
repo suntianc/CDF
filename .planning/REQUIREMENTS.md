@@ -92,8 +92,22 @@
 
 ## Traceability
 
-*(由 roadmap 生成时填充)*
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| WS-01~04 | Phase 1 | Pending |
+| PROV-01~05 | Phase 1 | Pending |
+| UI-01~05 | Phase 1 | Pending |
+| CHAT-01~05 | Phase 2 | Pending |
+| GSD-01 | Phase 2 | Pending |
+| SKILL-01~06 | Phase 3 | Pending |
+| GSD-02~03 | Phase 3 | Pending |
+| MCP-01~06 | Phase 4 | Pending |
+
+**Coverage:**
+- v1 requirements: 30 total
+- Mapped to phases: 30
+- Unmapped: 0 ✅
 
 ---
 *Requirements defined: 2026-05-19*
-*Last updated: 2026-05-19 after initial definition*
+*Last updated: 2026-05-19 after roadmap creation*
