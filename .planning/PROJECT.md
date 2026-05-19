@@ -14,12 +14,13 @@
 
 ### Validated
 
-（暂无——上线后验证）
+- [x] **WS-01**: 用户可以选择本地文件夹作为工作区 *(Validated in Phase 1)*
+- [x] **WS-02**: 应用基于工作区加载对应的 skills 和 GSD 工作流 *(Validated in Phase 1)*
+- [x] **PROV-01**: 用户可以配置 AI 模型提供商（API Key、Model 选择） *(Validated in Phase 1)*
+- [x] **PROV-02**: 模型配置持久化到本地存储 *(Validated in Phase 1)*
 
 ### Active
 
-- [ ] **WS-01**: 用户可以选择本地文件夹作为工作区
-- [ ] **WS-02**: 应用基于工作区加载对应的 skills 和 GSD 工作流
 - [ ] **CHAT-01**: 用户可以与 AI agent 进行对话交互
 - [ ] **CHAT-02**: 对话消息实时流式显示（streaming）
 - [ ] **CHAT-03**: 对话历史可以持久化和恢复
@@ -30,8 +31,6 @@
 - [ ] **SKILL-02**: 用户可以从 GitHub 仓库下载安装 skills
 - [ ] **SKILL-03**: 用户可以在 UI 中查看已安装的 skills 列表
 - [ ] **SKILL-04**: 用户可以在 UI 中点击执行某个 skill
-- [ ] **PROV-01**: 用户可以配置 AI 模型提供商（API Key、Model 选择）
-- [ ] **PROV-02**: 模型配置持久化到本地存储
 - [ ] **GSD-01**: 应用集成 pi-gsd 工作流，支持 `discuss → plan → execute → verify` 循环
 - [ ] **GSD-02**: GSD 的子 agent（executor、planner、debugger 等）可通过 skills 驱动自动生成
 
@@ -63,10 +62,10 @@
 
 | Decision | Rationale | Outcome |
 | -------- | --------- | ------- |
-| Electron（非 Tauri） | 前端生态丰富，与 pi SDK 同为 Node.js/TS 原生兼容 | - Pending |
-| pi SDK 主进程直接集成 | 无需子进程桥接，IPC 仅传输事件到渲染层 | - Pending |
-| V1 轻量工作台 | 降低首次交付门槛，先验证核心价值 | - Pending |
-| Skills 驱动多 agent | GSD 已有完整的子 agent 机制，复用而非重建 | - Pending |
+| Electron（非 Tauri） | 前端生态丰富，与 pi SDK 同为 Node.js/TS 原生兼容 | ✓ Implemented |
+| pi SDK 主进程直接集成 | 无需子进程桥接，IPC 仅传输事件到渲染层 | - Pending (Phase 2) |
+| V1 轻量工作台 | 降低首次交付门槛，先验证核心价值 | ✓ Phase 1 complete |
+| Skills 驱动多 agent | GSD 已有完整的子 agent 机制，复用而非重建 | - Pending (Phase 3) |
 
 ---
-*Last updated: 2026-05-19 after initialization*
+*Last updated: 2026-05-19 after Phase 1 completion*
