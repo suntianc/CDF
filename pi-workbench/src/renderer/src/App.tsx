@@ -1,35 +1,49 @@
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+import { useState, useEffect, useCallback } from 'react'
+import { Sidebar } from './components/Sidebar'
+import { WelcomeDialog } from './components/WelcomeDialog'
 
-function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+function App(): JSX.Element {
+  const [activeNav, setActiveNav] = useState('welcome')
+  const [workspaces, setWorkspaces] = useState<Array<{ path: string; name: string }>>([])
+
+  // Load workspaces on mount
+  useEffect(() => {
+    window.electronAPI.workspaceList().then(setWorkspaces)
+  }, [])
+
+  const handleNavigate = useCallback((page: string) => {
+    setActiveNav(page)
+  }, [])
+
+  const handleAddWorkspace = useCallback(async () => {
+    const folderPath = await window.electronAPI.selectFolder()
+    if (folderPath) {
+      const updated = await window.electronAPI.workspaceAdd(folderPath)
+      setWorkspaces(updated)
+    }
+  }, [])
+
+  const handleSwitchWorkspace = useCallback(async (path: string) => {
+    await window.electronAPI.workspaceSwitch(path)
+  }, [])
 
   return (
-    <>
-      <h1 className="text-3xl font-bold text-emerald-600">Hello World</h1>
-      <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div>
-      <Versions></Versions>
-    </>
+    <div className="flex h-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white">
+      <Sidebar
+        activeNav={activeNav}
+        onNavigate={handleNavigate}
+        workspaces={workspaces}
+        onAddWorkspace={handleAddWorkspace}
+        onSwitchWorkspace={handleSwitchWorkspace}
+      />
+
+      <main className="flex-1 flex items-center justify-center">
+        {activeNav === 'welcome' && <WelcomeDialog />}
+        {activeNav === 'settings' && (
+          <div className="p-8 text-[#888]">设置页面（由 Plan 03 实现）</div>
+        )}
+      </main>
+    </div>
   )
 }
 
