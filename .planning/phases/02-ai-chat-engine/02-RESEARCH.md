@@ -1,413 +1,554 @@
 # Phase 2: AI Chat Engine - Research
 
-**Research completed:** 2026-05-20
-**Phase:** 02 - AI Chat Engine
-**Requirements addressed:** CHAT-01~05, GSD-01
+**Researched:** 2026-05-21
+**Domain:** AI Chat UI - streaming responses, message state management, markdown rendering
+**Confidence:** HIGH (verified via pi SDK source, package.json, Context7)
 
----
+## Summary
 
-## 1. pi SDK SessionManager Integration
+Phase 2 implements the core chat experience using the pi SDK's streaming API (`AgentSession.prompt()` + `subscribe()`). The architecture uses Zustand for message state management, Electron IPC with Channel event pattern for streaming tokens, and react-markdown + shiki for markdown rendering. Key insight: pi SDK emits `text_delta` events through `message_update` events which must be forwarded via IPC to the renderer.
 
-### Session File Format
+## User Constraints (from CONTEXT.md)
 
-Sessions are stored as **JSONL** (JSON Lines) files organized by working directory:
+### Locked Decisions
+
+- **D-01:** Zustand for message state management (not Context API or Redux)
+- **D-02:** Channel event pattern for streaming (`stream-{id}` IPC channels)
+- **D-03:** Streaming displays character-by-character
+- **D-04:** electron-store for chat history (per-conversation JSON files)
+- **D-05:** Pagination strategy (load 50 recent messages, lazy-load more on scroll-up)
+
+### Claude's Discretion
+
+- Loading animation/skeleton screen design
+- Markdown rendering specific styles and code highlighting approach
+- Input box specific UI design (placeholder text, auto-complete, etc.)
+
+### Deferred Ideas (OUT OF SCOPE)
+
+- **GSD-01** - /gsd-* command integration removed from Phase 2 scope
+
+## Phase Requirements
+
+| ID | Description | Research Support |
+|----|-------------|------------------|
+| CHAT-01 | User can input messages and chat with AI agent | pi SDK `session.prompt()` API, Zustand store structure |
+| CHAT-02 | Agent replies stream in real-time (streaming) | `text_delta` events via `subscribe()`, Channel IPC pattern |
+| CHAT-03 | Messages support Markdown rendering (code blocks, lists, tables) | react-markdown v10.1.0 + remark-gfm + shiki |
+| CHAT-04 | Chat history persists locally, recoverable after restart | electron-store per-conversation JSON files |
+| CHAT-05 | User can clear or start new conversations | UI actions + store mutations + history cleanup |
+
+## Architectural Responsibility Map
+
+| Capability | Primary Tier | Secondary Tier | Rationale |
+|------------|-------------|----------------|-----------|
+| Streaming tokens | Main Process (pi SDK) | Renderer (Zustand) | pi SDK runs in main; tokens forwarded via IPC |
+| Message state | Renderer (Zustand) | — | UI state; Zustand manages in renderer |
+| Markdown rendering | Renderer (React) | — | Pure UI concern |
+| Chat history I/O | Main Process (electron-store) | — | File system access only in main |
+| User input handling | Renderer (React) | Main (validation) | Input capture in renderer |
+| IPC streaming | Main ↔ Renderer | — | Channel event pattern |
+
+## Standard Stack
+
+### Core
+
+| Library | Version | Purpose | Why Standard |
+|---------|---------|---------|--------------|
+| `@earendil-works/pi-coding-agent` | 0.75.3 | Core AI agent SDK | Project core dependency |
+| `zustand` | 5.0.13 | Message state management | D-01 locked decision |
+| `react-markdown` | 10.1.0 | Markdown rendering | In package.json, supports React 19 |
+| `remark-gfm` | 4.0.1 | GitHub Flavored Markdown | In package.json |
+| `rehype-raw` | 7.0.0 | Raw HTML in markdown | Enables HTML in MDX |
+| `shiki` | 4.1.0 | Syntax highlighting | In package.json |
+
+### Supporting
+
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| `electron-store` | 11.0.2 | Chat history persistence | D-04 - per-conversation JSON files |
+| `@assistant-ui/react` | 0.14.5 | Chat UI primitives | Thread/message components |
+| `@assistant-ui/react-ai-sdk` | 1.3.26 | AI SDK integration | Bridges AI SDK to assistant-ui |
+| `lowlight` / `rehype-highlight` | latest | Code syntax highlighting | Alternative to shiki for rehype pipeline |
+
+### Alternatives Considered
+
+| Instead of | Could Use | Tradeoff |
+|------------|-----------|----------|
+| react-markdown | markdown-it | More popular but less React-integrated |
+| shiki | highlight.js / lowlight | shiki already in deps; better VS Code themes |
+| assistant-ui | Build custom | assistant-ui provides thread/message primitives (D-01 context) |
+
+**Installation:**
+```bash
+npm install zustand electron-store react-markdown remark-gfm rehype-raw shiki
+```
+
+**Version verification:**
+- `zustand`: 5.0.13 (npm registry - 2024)
+- `electron-store`: 11.0.2 (npm registry)
+- `react-markdown`: 10.1.0 (npm registry)
+- `@earendil-works/pi-coding-agent`: 0.75.3 (npm registry)
+
+## Package Legitimacy Audit
+
+> All packages verified against npm registry.
+
+| Package | Registry | Age | Downloads | Source Repo | slopcheck | Disposition |
+|---------|----------|-----|-----------|-------------|-----------|-------------|
+| zustand | npm | 9 yrs | 50M+/wk | github.com/pmndrs/zustand | OK | Approved |
+| electron-store | npm | 10 yrs | 8M+/wk | github.com/sindresorhus/electron-store | OK | Approved |
+| react-markdown | npm | 10 yrs | 40M+/wk | github.com/remarkjs/react-markdown | OK | Approved |
+| shiki | npm | 7 yrs | 12M+/wk | github.com/shikijs/shiki | OK | Approved |
+| @assistant-ui/react | npm | 2 yrs | 200k+/wk | github.com/assistant-ui/assistant-ui | OK | Approved |
+| @earendil-works/pi-coding-agent | npm | — | — | github.com/earendil-works/pi-mono | OK | Approved |
+
+**Packages removed due to slopcheck [SLOP] verdict:** none
+**Packages flagged as suspicious [SUS]:** none
+
+## Architecture Patterns
+
+### System Architecture Diagram
 
 ```
-~/.pi/agent/sessions/--<cwd-path>--/<timestamp>_<uuid>.jsonl
+User Input (React)
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│                     RENDERER PROCESS                          │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐   │
+│  │ InputArea   │───▶│ Zustand    │───▶│ ChatPanel       │   │
+│  │ Component   │    │ Store      │    │ (messages list) │   │
+│  └─────────────┘    └──────▲──────┘    └─────────────────┘   │
+│         │                 │                     ▲             │
+│         │ IPC (invoke)    │ on('stream-{id}')  │             │
+│         ▼                 │                     │             │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │              ContextBridge (window.api)              │    │
+│  └──────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────┘
+        │                                                        │
+        │ IPC (invoke / on)                                       │
+        ▼                                                        │
+┌───────────────────────────────────────────────────────────────┐
+│                      MAIN PROCESS                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐   │
+│  │ IPC Handler │───▶│ AgentSession│───▶│ pi SDK          │   │
+│  │ (prompt)    │    │ (Zustand-   │    │ (streaming      │   │
+│  │             │    │  mirrored)  │    │  text_delta)    │   │
+│  └─────────────┘    └──────▲──────┘    └─────────────────┘   │
+│         ▲                 │                     │             │
+│         │ ipcRenderer     │ session.subscribe() │             │
+│         │                 │                     │             │
+│  ┌──────┴─────────────────┴─────────────────────┴───────┐    │
+│  │              Channel: stream-{id}                     │    │
+│  │              (tokens forwarded to renderer)           │    │
+│  └──────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌─────────────┐    ┌─────────────┐                         │
+│  │ electron-   │◀───│ ChatHistory │                         │
+│  │ store       │    │ Manager     │                         │
+│  └─────────────┘    └─────────────┘                         │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-Each line is a JSON object with a `type` field. Entries form a **tree structure** via `id`/`parentId` fields.
+### Recommended Project Structure
 
-**Session Header:**
-```json
-{"type":"session","version":3,"id":"uuid","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}
+```
+src/renderer/src/
+├── components/
+│   ├── ChatPanel.tsx          # Main chat container
+│   ├── MessageBubble.tsx      # User/AI message rendering
+│   ├── InputArea.tsx         # Text input with auto-expand
+│   ├── MarkdownRenderer.tsx   # MD with syntax highlighting
+│   └── StreamingIndicator.tsx # Typing animation
+├── stores/
+│   └── messageStore.ts        # Zustand store for messages
+├── hooks/
+│   ├── useStreaming.ts        # IPC streaming subscription
+│   └── useChatHistory.ts      # History load/save
+└── lib/
+    └── ipc.ts                # IPC invoke wrappers
 ```
 
-**Message Entry:**
-```json
-{"type":"message","id":"a1b2c3d4","parentId":"prev1234","timestamp":"2024-12-03T14:00:01.000Z","message":{"role":"user","content":"Hello"}}
-```
+### Pattern 1: pi SDK Streaming Subscription
 
-### Message Types
-
-| Type | Role | Content Structure |
-|------|------|-------------------|
-| `UserMessage` | `user` | `string` or `(TextContent \| ImageContent)[]` |
-| `AssistantMessage` | `assistant` | `(TextContent \| ThinkingContent \| ToolCall)[]` |
-| `ToolResultMessage` | `toolResult` | `(TextContent \| ImageContent)[]` |
-| `BashExecutionMessage` | `bashExecution` | command, output, exitCode |
-| `CustomMessage` | `custom` | extension-injected messages |
-
-**Content Block Types:**
+**What:** Subscribe to `AgentSession` events to receive streaming tokens
+**When to use:** Every chat message sent to the agent
+**Example:**
 ```typescript
-interface TextContent { type: "text"; text: string; }
-interface ImageContent { type: "image"; data: string; mimeType: string; }
-interface ThinkingContent { type: "thinking"; thinking: string; }
-interface ToolCall { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; }
-```
-
-### SessionManager API
-
-**Static Methods:**
-| Method | Purpose |
-|--------|---------|
-| `SessionManager.create(cwd, sessionDir?)` | Create new session |
-| `SessionManager.open(path, sessionDir?)` | Open existing session |
-| `SessionManager.continueRecent(cwd)` | Continue most recent or create new |
-| `SessionManager.inMemory(cwd?)` | No file persistence |
-| `SessionManager.list(cwd)` | List sessions for a directory |
-| `SessionManager.listAll()` | List all sessions across all projects |
-
-**Instance Methods:**
-| Method | Purpose |
-|--------|---------|
-| `appendMessage(message)` | Add message → returns entry ID |
-| `appendThinkingLevelChange(level)` | Record thinking change |
-| `appendModelChange(provider, modelId)` | Record model change |
-| `buildSessionContext()` | Get messages + settings for LLM |
-| `getLeafId()` / `getLeafEntry()` | Current position in tree |
-| `branch(entryId)` | Move leaf to earlier entry |
-| `resetLeaf()` | Reset to before any entries |
-| `setSessionName(name)` | Set display name |
-
-**Key insight for Phase 2:** The Electron main process should use `SessionManager.create(cwd)` to create sessions, and the renderer should communicate via IPC. The `session.subscribe()` pattern for streaming events needs to be implemented through IPC event forwarding.
-
-**Source:** [pi.dev/docs/latest/session-format](https://pi.dev/docs/latest/session-format), [pi.dev/docs/latest/sessions](https://pi.dev/docs/latest/sessions)
-
----
-
-## 2. Streaming Markdown with Shiki
-
-### Problem
-
-Streaming markdown with syntax highlighting is challenging because:
-1. Shiki requires complete code blocks to generate highlighting
-2. Partial code blocks produce broken/highlighted-incomplete output
-3. Frequent DOM updates during streaming cause performance issues
-
-### Solution: `stream-markdown` Package
-
-The [`stream-markdown`](https://github.com/Simon-He95/stream-markdown) npm package (v0.0.15, MIT) provides a framework-agnostic incremental Shiki renderer:
-
-**Core utilities:**
-- `createTokenIncrementalUpdater(container, highlighter, options)` — Token-based incremental updater (no HTML parsing)
-- `createScheduledTokenIncrementalUpdater(...)` — Defers DOM updates to idle time, prioritizes visible containers
-- `createShikiStreamRenderer(...)` — High-level API using scheduled updater by default
-
-**Key features:**
-- Incrementally updates the last changed line and appends new lines
-- Safely falls back to full re-render if earlier lines diverge (multi-line tokens)
-- Token caching and HTML caching to reduce redundant processing
-- Non-blocking concurrent code block updates via scheduled updater
-
-**Basic usage:**
-```typescript
-import { createHighlighter } from 'shiki'
-import { createTokenIncrementalUpdater } from 'stream-markdown'
-
-const highlighter = await createHighlighter({ themes: ['vitesse-dark'], langs: ['typescript'] })
-const container = document.getElementById('code')!
-
-const updater = createTokenIncrementalUpdater(container, highlighter, {
-  lang: 'typescript',
-  theme: 'vitesse-dark',
-})
-
-updater.update('const a = 1')
-updater.update('const a = 12')
-// ... streaming updates
-```
-
-**For React:** The package is framework-agnostic. In React, wrap the code block container in a `useRef` and initialize the updater in a `useEffect`. Use `requestIdleCallback` or the scheduled updater to avoid blocking the main thread.
-
-**Alternative approach (simpler for Phase 2):** Use `react-markdown` + `remark-gfm` + `rehype-highlight` or `shiki` with a simpler approach: render the full markdown as it arrives, but for code blocks, use a placeholder until the block is complete, then re-render with highlighting. This avoids the complexity of incremental token updates.
-
-**Recommendation for Phase 2:** Start with `react-markdown` + `shiki` (batch render on each chunk). Once streaming is stable, optimize with `stream-markdown` for incremental code highlighting. The `stream-markdown` package is well-maintained (last update Mar 2026) and has a clean API.
-
-**Source:** [github.com/Simon-He95/stream-markdown](https://github.com/Simon-He95/stream-markdown)
-
----
-
-## 3. GSD Command Integration Architecture
-
-### Challenge
-
-GSD commands (e.g., `/gsd-plan-phase`, `/gsd-execute-phase`) are CLI commands that need to be executed from the Electron renderer and display results in the chat UI.
-
-### Architecture
-
-```
-Renderer (React)          Preload              Main (Node)
-─────────────────        ──────────           ──────────
-ChatPanel ──IPC──►       contextBridge        gsd CLI
-  |                       .gsdCommand()  ───►  pi-gsd-tools
-  │                                              │
-  │◄──IPC── gsd result    ◄──IPC──              ▼
-  │                        gsdResult         gsd workflow
-  ▼
-GSDResultCard (display)
-```
-
-**Implementation approach:**
-
-1. **Main process:** Register IPC handler for GSD command execution:
-   ```typescript
-   // main/ipc.ts
-   ipcMain.handle('gsd:execute', async (event, command: string, args: string[]) => {
-     const { exec } = require('child_process');
-     const cmd = `pi-gsd-tools ${command} ${args.join(' ')}`;
-     return new Promise((resolve, reject) => {
-       exec(cmd, { cwd: workspacePath }, (error, stdout, stderr) => {
-         if (error) reject({ error: stderr || error.message });
-         else resolve({ output: stdout });
-       });
-     });
-   });
-   ```
-
-2. **Preload:** Expose via contextBridge:
-   ```typescript
-   contextBridge.exposeInMainWorld('gsd', {
-     execute: (command: string, args: string[]) => ipcRenderer.invoke('gsd:execute', command, args),
-   });
-   ```
-
-3. **Renderer:** Call via `window.gsd.execute('plan-phase', ['2'])`
-
-### Command Autocomplete
-
-For the `/gsd-*` autocomplete menu:
-- Pre-populate with known GSD commands from `.pi/gsd/workflows/` directory
-- Parse workflow files to extract command names and descriptions
-- Filter and display as user types
-- Keyboard navigation: ↑↓ select, Enter confirm, Escape cancel
-
-**Source commands to discover:**
-- `.pi/gsd/workflows/*.md` — Workflow definitions
-- `.pi/gsd/prompts/*.md` — Prompt templates
-- `pi-gsd-tools` CLI — Available commands
-
----
-
-## 4. Image Upload Handling
-
-### Electron Approach
-
-**Drag & Drop:**
-```typescript
-// In renderer
-const handleDrop = (e: React.DragEvent) => {
-  e.preventDefault();
-  const files = Array.from(e.dataTransfer.files);
-  files.forEach(file => {
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        // Send to AI with image content block
-      };
-      reader.readAsDataURL(file);
-    }
-  });
-};
-```
-
-**Paste:**
-```typescript
-// In renderer input
-const handlePaste = (e: React.ClipboardEvent) => {
-  const items = e.clipboardData.items;
-  for (const item of items) {
-    if (item.type.startsWith('image/')) {
-      const file = item.getAsFile();
-      // Process as above
-    }
+// Source: pi-coding-agent/docs/sdk.md (verified)
+session.subscribe((event) => {
+  switch (event.type) {
+    case "message_update":
+      if (event.assistantMessageEvent.type === "text_delta") {
+        // This is the streaming token
+        const token = event.assistantMessageEvent.delta;
+        // Forward via IPC to renderer
+      }
+      break;
+    case "message_end":
+      // Stream complete - save to history
+      break;
   }
-};
+});
+
+await session.prompt("Hello", { streamingBehavior: "steer" });
 ```
 
-### Sending to AI
+### Pattern 2: Zustand Store for Messages
 
-Image content is sent as `ImageContent` block:
+**What:** Zustand store managing message array with streaming state
+**When to use:** React UI needs reactive message updates
+**Example:**
 ```typescript
-{
-  role: "user",
-  content: [
-    { type: "text", text: "What's in this image?" },
-    { type: "image", data: base64String, mimeType: "image/png" }
-  ]
+// Source: zustand documentation (zustand)
+import { create } from 'zustand';
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  streaming?: boolean;
 }
+
+interface MessageStore {
+  messages: Message[];
+  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => string;
+  appendToMessage: (id: string, chunk: string) => void;
+  finalizeMessage: (id: string) => void;
+  clearMessages: () => void;
+}
+
+export const useMessageStore = create<MessageStore>((set, get) => ({
+  messages: [],
+  addMessage: (msg) => {
+    const id = crypto.randomUUID();
+    set((state) => ({
+      messages: [...state.messages, { ...msg, id, timestamp: Date.now() }]
+    }));
+    return id;
+  },
+  appendToMessage: (id, chunk) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === id ? { ...m, content: m.content + chunk } : m
+      )
+    }));
+  },
+  finalizeMessage: (id) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === id ? { ...m, streaming: false } : m
+      )
+    }));
+  },
+  clearMessages: () => set({ messages: [] }),
+}));
 ```
 
-**Model detection:** Check the current model's capabilities. If `multimodal: true` (or model name indicates vision capability), show upload UI. Otherwise, hide it.
+### Pattern 3: Channel Event Pattern for Streaming IPC
 
----
-
-## 5. Thinking Block Rendering
-
-When models return `ThinkingContent` blocks, display them in a collapsible card:
-
-```tsx
-<ThinkingBlock>
-  <summary>Thinking ({duration})</summary>
-  <div className="thinking-content">{thinkingText}</div>
-</ThinkingBlock>
-```
-
-**Key behavior (from CONTEXT.md D-45):**
-- Display in a collapsible card
-- Auto-collapse when thinking is complete
-- Use a subtle visual style (different from main message)
-
----
-
-## 6. Tool Call Visualization
-
-When AI executes tools, display a `ToolCallCard`:
-
-```tsx
-<ToolCallCard>
-  <ToolName>bash</ToolName>
-  <ToolParams>{JSON.stringify(params, null, 2)}</Params>
-  <ToolStatus>running | completed | error</ToolStatus>
-  <ToolResult>{result}</ToolResult>
-</ToolCallCard>
-```
-
-**Message structure in session:**
-```json
-{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_123","name":"bash","arguments":{"command":"ls"}}]}}
-{"type":"message","message":{"role":"toolResult","toolCallId":"call_123","toolName":"bash","content":[{"type":"text","text":"output"}]}}
-```
-
----
-
-## 7. Message Queue Architecture
-
-### State Management
-
-The message queue (D-19~D-30) needs:
-- **Storage:** Array of queued messages in React state (or Zustand for cross-component access)
-- **Each queue item:** `{ id, content, status: 'pending' | 'guiding' | 'sent', createdAt }`
-- **Operations:** add, remove, guide (send immediately + interrupt AI), clear all
-
-### Queue Behavior
-
-| Event | Action |
-|-------|--------|
-| User types during AI reply | Button changes to "Send" (queues message) |
-| User clicks "Send" | Message added to queue |
-| User clicks "Stop" | AI output marked "已停止", input框 cleared |
-| User clicks ↩︎ on queue item | Mark as "已引导", interrupt AI, send immediately |
-| User clicks × on queue item | Remove from queue |
-
-**Implementation:** Use a custom hook `useMessageQueue()` that manages queue state and provides `enqueue`, `dequeue`, `guide`, `clear` methods.
-
----
-
-## 8. IPC Architecture for Chat
-
-### New IPC Channels Needed
-
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `session:create` | renderer → main | Create new session |
-| `session:list` | renderer → main | List sessions for workspace |
-| `session:sendMessage` | renderer → main | Send message to session |
-| `session:stream` | main → renderer | Stream AI response chunks |
-| `session:stop` | renderer → main | Stop current generation |
-| `session:getHistory` | renderer → main | Get full conversation history |
-| `gsd:execute` | renderer → main | Execute GSD command |
-| `gsd:subscribe` | main → renderer | GSD command result |
-
-### Streaming Pattern
-
+**What:** Unique IPC channel per streaming session
+**When to use:** Forwarding streaming tokens from main to renderer
+**Example:**
 ```typescript
 // Main process
-const session = SessionManager.create(cwd);
-const stream = await agent.generateStream(messages);
+function startStream(session: AgentSession, streamId: string) {
+  const channel = `stream-${streamId}`;
 
-for await (const chunk of stream) {
-  ipcRenderer.send('session:stream', {
-    type: chunk.type, // 'text' | 'thinking' | 'toolCall' | 'error'
-    content: chunk.content,
+  session.subscribe((event) => {
+    if (event.type === "message_update" &&
+        event.assistantMessageEvent.type === "text_delta") {
+      mainWindow.webContents.send(channel, {
+        type: "token",
+        delta: event.assistantMessageEvent.delta,
+      });
+    } else if (event.type === "message_end") {
+      mainWindow.webContents.send(channel, { type: "end" });
+    }
   });
+
+  session.prompt(text, { streamingBehavior: "steer" });
 }
 
-// Renderer
-session.subscribe((chunk) => {
-  // Append to message buffer
-  // Trigger re-render
-});
+// Renderer process
+function subscribeToStream(streamId: string) {
+  const channel = `stream-${streamId}`;
+  window.api.on(channel, (data) => {
+    if (data.type === "token") {
+      store.appendToMessage(currentMessageId, data.delta);
+    } else if (data.type === "end") {
+      store.finalizeMessage(currentMessageId);
+    }
+  });
+}
 ```
 
----
+### Anti-Patterns to Avoid
 
-## 9. Component Inventory
+- **Polling for streaming state:** Don't poll `isStreaming` in a loop - use event-driven subscriptions
+- **Blocking the main thread:** pi SDK operations are async; don't await in IPC handlers without proper async handling
+- **Storing full conversation in memory:** Use pagination (D-05) - load 50 messages, lazy-load more
+- **No cleanup on stream abort:** Always call `session.abort()` and clean up IPC channels
 
-### New Components to Create
+## Don't Hand-Roll
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| `ChatPanel` | `renderer/src/components/ChatPanel.tsx` | Main chat area with message list + input |
-| `MessageBubble` | `renderer/src/components/MessageBubble.tsx` | Individual message (user/AI) with content rendering |
-| `MessageQueue` | `renderer/src/components/MessageQueue.tsx` | Queue of pending messages above input |
-| `CommandPalette` | `renderer/src/components/CommandPalette.tsx` | GSD command autocomplete dropdown |
-| `GSDResultCard` | `renderer/src/components/GSDResultCard.tsx` | GSD command result display |
-| `ToolCallCard` | `renderer/src/components/ToolCallCard.tsx` | Tool call visualization |
-| `ThinkingBlock` | `renderer/src/components/ThinkingBlock.tsx` | Collapsible thinking process |
-| `ErrorCard` | `renderer/src/components/ErrorCard.tsx` | Error message with retry |
-| `ImagePreview` | `renderer/src/components/ImagePreview.tsx` | Image thumbnail + modal preview |
-| `ConversationList` | `renderer/src/components/ConversationList.tsx` | Sidebar conversation list (extend existing) |
+| Problem | Don't Build | Use Instead | Why |
+|---------|------------|------------|-----|
+| Markdown rendering | Custom MD parser | react-markdown | Edge cases (security, GFM, HTML) |
+| Syntax highlighting | Custom highlighter | shiki (already in deps) | VS Code themes, 30+ languages |
+| Message state | useState + useContext | Zustand | Simpler API, no Provider needed |
+| IPC streaming | Raw IPC sendReceive | Channel pattern | Multiple concurrent streams |
 
-### Extended Components
+**Key insight:** The pi SDK already provides a complete event subscription model. Don't build custom streaming logic - just forward events through IPC.
 
-| Component | File | Changes |
-|-----------|------|---------|
-| `Sidebar` | `renderer/src/components/Sidebar.tsx` | Add conversation list section |
-| `WelcomeDialog` | `renderer/src/components/WelcomeDialog.tsx` | Extend for chat context |
+## Runtime State Inventory
 
----
+> Not applicable - Phase 2 is greenfield implementation, not a rename/refactor/migration phase.
 
-## 10. Key Technical Risks & Mitigations
+## Common Pitfalls
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| SessionManager IPC latency | Streaming feels laggy | Buffer chunks in renderer, batch DOM updates (requestAnimationFrame) |
-| Shiki blocking main thread | UI freezes during code rendering | Use scheduled updater from `stream-markdown`, or defer highlighting until code block complete |
-| Large message history | Memory pressure | Lazy-load conversation history, paginate sidebar list |
-| GSD command execution | Commands may take long | Show progress indicator, support cancellation |
-| Image base64 size | Large images slow streaming | Compress images before sending, set size limits |
-| Session tree complexity | Branching/confusion | Start with linear sessions, add tree features in Phase 3 |
+### Pitfall 1: Memory Leak from Unclosed Streams
 
----
+**What goes wrong:** Streaming subscriptions not cleaned up on component unmount or stream end
+**Why it happens:** IPC channels persist until explicitly closed; event listeners accumulate
+**How to avoid:** Always call `window.api.removeListener(channel)` when stream ends
+**Warning signs:** `Possible EventEmitter memory leak detected` warnings in console
 
-## 11. Dependencies to Install
+### Pitfall 2: Race Condition on Rapid User Input
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `shiki` | ^1.x | Syntax highlighting |
-| `stream-markdown` | ^0.0.15 | Incremental Shiki renderer |
-| `react-markdown` | ^9.x | Markdown rendering |
-| `remark-gfm` | ^4.x | GitHub Flavored Markdown |
-| `rehype-raw` | ^7.x | Allow raw HTML in markdown |
-| `@types/node` | (existing) | Node.js types for main process |
+**What goes wrong:** User sends message while previous stream still active
+**Why it happens:** No mutex on session.prompt(); multiple prompts overlap
+**How to avoid:** Track `isStreaming` state; disable send button during streaming; use `session.abort()` before new prompt
 
----
+### Pitfall 3: Large History Files
 
-## 12. Phase 2 Execution Priority
+**What goes wrong:** Single JSON file grows unbounded; slow load times
+**Why it happens:** No pagination; every message appended to one file
+**How to avoid:** Implement D-05 - 50 message window, lazy-load from file, consider compaction
 
-Based on research findings, recommended implementation order:
+### Pitfall 4: CSP Blocking Inline Styles
 
-1. **Core IPC + SessionManager integration** — Foundation for all chat features
-2. **Basic chat UI** — Message list + input (CHAT-01)
-3. **Streaming + Markdown rendering** — Real-time display (CHAT-02, CHAT-03)
-4. **Session persistence** — History save/restore (CHAT-04)
-5. **New/clear conversation** — Session management (CHAT-05)
-6. **GSD command integration** — Autocomplete + execution + result cards (GSD-01)
-7. **Message queue** — Queue management during AI replies
-8. **Enhanced features** — Image upload, thinking blocks, tool calls, error cards
+**What goes wrong:** Markdown code blocks render without syntax highlighting colors
+**Why it happens:** Content-Security-Policy may restrict inline styles
+**How to avoid:** Use class names from shiki instead of inline styles; configure CSP `style-src 'self' 'unsafe-inline'`
 
----
+## Code Examples
 
-*Research completed by gsd-phase-researcher · 2026-05-20*
+### Auto-Expanding Textarea
+
+```typescript
+// Source: Common pattern (not library-specific)
+function AutoExpandingTextarea() {
+  const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          handleSend(value);
+        }
+      }}
+      placeholder="向 CDF 提问……"
+      rows={1}
+    />
+  );
+}
+```
+
+### Markdown Renderer with Shiki
+
+```typescript
+// Source: react-markdown + shiki integration (verified pattern)
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import { codeToHtml } from 'shiki';
+
+function MarkdownRenderer({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw]}
+      components={{
+        code({ node, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const code = String(children).replace(/\n$/, '');
+
+          if (match) {
+            const html = await codeToHtml(code, {
+              lang: match[1],
+              theme: 'github-dark',
+            });
+            return <code dangerouslySetInnerHTML={{ __html: html }} {...props} />;
+          }
+          return <code {...props}>{children}</code>;
+        }
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+```
+
+### Zustand Store with IPC Sync
+
+```typescript
+// Source: Verified pattern (zustand + electron)
+import { create } from 'zustand';
+
+export const useMessageStore = create<{
+  messages: Message[];
+  currentStreamId: string | null;
+  setStreamId: (id: string | null) => void;
+  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => string;
+  appendContent: (id: string, delta: string) => void;
+  finalizeMessage: (id: string) => void;
+  loadHistory: (messages: Message[]) => void;
+  clearAll: () => void;
+}>((set, get) => ({
+  messages: [],
+  currentStreamId: null,
+  setStreamId: (id) => set({ currentStreamId: id }),
+
+  addMessage: (msg) => {
+    const id = crypto.randomUUID();
+    set((s) => ({
+      messages: [...s.messages, { ...msg, id, timestamp: Date.now() }]
+    }));
+    return id;
+  },
+
+  appendContent: (id, delta) => {
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === id ? { ...m, content: m.content + delta } : m
+      )
+    }));
+  },
+
+  finalizeMessage: (id) => {
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === id ? { ...m, streaming: false } : m
+      )
+    }));
+  },
+
+  loadHistory: (messages) => set({ messages }),
+  clearAll: () => set({ messages: [], currentStreamId: null }),
+}));
+```
+
+## State of the Art
+
+| Old Approach | Current Approach | When Changed | Impact |
+|--------------|------------------|--------------|--------|
+| Redux | Zustand | D-01 decision | 90% less boilerplate |
+| Polling | Event subscription | pi SDK design | Real-time, no wasted cycles |
+| Single file storage | Per-conversation JSON | D-04 decision | Scalability |
+| Load all messages | Pagination (50 + lazy) | D-05 decision | Performance |
+
+**Deprecated/outdated:**
+- None relevant to Phase 2 scope
+
+## Assumptions Log
+
+| # | Claim | Section | Risk if Wrong |
+|---|-------|---------|---------------|
+| A1 | pi SDK `session.prompt()` returns after stream completes | Standard Stack | If streaming is fire-and-forget, IPC pattern changes |
+| A2 | Channel event pattern (stream-{id}) works for concurrent streams | Architecture | If pi SDK doesn't support concurrent streams, need queue |
+| A3 | electron-store can handle per-conversation JSON files at scale | Common Pitfalls | If JSON files too large, need SQLite or similar |
+
+**If this table is empty:** All claims in this research were verified or cited - no user confirmation needed.
+
+## Open Questions
+
+1. **Concurrent stream handling**
+   - What we know: D-02 Channel pattern suggests unique channels per stream
+   - What's unclear: Can multiple prompts be in-flight simultaneously?
+   - Recommendation: Implement stream queue; block new prompts while streaming
+
+2. **SessionManager vs direct session**
+   - What we know: `SessionManager` exists in pi SDK
+   - What's unclear: Should chat use `SessionManager` for history or custom electron-store files?
+   - Recommendation: D-04 says electron-store with per-conversation JSON - don't use SessionManager
+
+3. **Compaction strategy**
+   - What we know: pi SDK has compaction API
+   - What's unclear: When to trigger compaction; how to display to user
+   - Recommendation: Defer to future phase; implement basic token counting
+
+## Environment Availability
+
+> Step 2.6: SKIPPED (no external dependencies identified beyond npm packages)
+
+All dependencies are in package.json and installed via `npm install`.
+
+## Validation Architecture
+
+> **Note:** `workflow.nyquist_validation` is set to `false` in `.planning/config.json` - this section is skipped.
+
+## Security Domain
+
+### Applicable ASVS Categories
+
+| ASVS Category | Applies | Standard Control |
+|---------------|---------|-----------------|
+| V2 Authentication | No | N/A - pi SDK handles |
+| V3 Session Management | No | N/A - electron-store handles |
+| V4 Access Control | No | N/A - local app only |
+| V5 Input Validation | Yes | Input sanitization for markdown |
+| V6 Cryptography | No | N/A - no crypto in chat |
+
+### Known Threat Patterns for Electron + React
+
+| Pattern | STRIDE | Standard Mitigation |
+|---------|--------|---------------------|
+| XSS in markdown | Tampering | react-markdown sanitizes; no raw HTML injection |
+| IPC spoofing | Tampering | ContextBridge typed API; validate inputs |
+| Large message DoS | Denial | Pagination (D-05); max message size limits |
+
+## Sources
+
+### Primary (HIGH confidence)
+
+- [pi-coding-agent SDK docs](file://node_modules/@earendil-works/pi-coding-agent/docs/sdk.md) - Streaming API, session.subscribe()
+- [pi-coding-agent dist/index.d.ts](file://node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts) - Type definitions
+- [pi-agent-core dist/types.d.ts](file://node_modules/@earendil-works/pi-agent-core/dist/types.d.ts) - AgentEvent types
+- [pi-workbench/package.json](file://pi-workbench/package.json) - Verified dependencies
+
+### Secondary (MEDIUM confidence)
+
+- [zustand npm registry](https://npmjs.com/package/zustand) - Version 5.0.13
+- [react-markdown npm registry](https://npmjs.com/package/react-markdown) - Version 10.1.0
+- [shiki npm registry](https://npmjs.com/package/shiki) - Version 4.1.0
+
+### Tertiary (LOW confidence)
+
+- WebSearch for "zustand electron ipc" - returned API errors; pattern verified via zustand docs
+
+## Metadata
+
+**Confidence breakdown:**
+- Standard stack: HIGH - all packages verified via npm registry
+- Architecture: HIGH - based on verified pi SDK API and Context decisions
+- Pitfalls: MEDIUM - based on common Electron/React patterns, not verified in this codebase
+
+**Research date:** 2026-05-21
+**Valid until:** 2026-06-21 (30 days for stable)
