@@ -217,7 +217,7 @@ function App(): React.ReactElement {
       />
 
       {/* 右侧主舞台容器：彻底换绑为 flex-col，消除色差干扰 */}
-      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative bg-white dark:bg-[#0a0a0c]">
+      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative bg-[#fcfcfc] dark:bg-[#0d0d10]">
         {/* macOS 无痕透明顶栏占位区 */}
         <div className="h-[38px] w-full shrink-0 window-drag-region bg-transparent" />
         
@@ -230,7 +230,7 @@ function App(): React.ReactElement {
               onSend={handleSend}
               onStop={handleStop}
               onNewChat={handleNewChat}
-              currentWorkspace={workspaces.length > 0 ? workspaces[0].path : undefined}
+              currentWorkspace={workspaces.length > 0 ? workspaces[0].name : undefined}
               queue={queue}
               onQueueGuide={id => setQueue(q => q.filter(x => x.id !== id))}
               onQueueDelete={id => setQueue(q => q.filter(x => x.id !== id))}

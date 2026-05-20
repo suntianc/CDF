@@ -16,16 +16,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
   return (
-    <div className={`flex flex-col w-full ${isUser ? 'items-end' : 'items-start'} group font-sans`}>
-      
-      {/* 核心气泡控制层 */}
+    <div className="flex flex-col w-full items-center justify-center group font-sans">
       <div
         className={`
           text-[14px] leading-relaxed break-words tracking-wide w-full
           ${isUser
-            ? 'max-w-[80%] rounded-2xl px-4 py-2 bg-neutral-100 text-neutral-900 dark:bg-neutral-800/70 dark:text-neutral-100 shadow-2xs self-end text-left'
-            : 'max-w-full bg-transparent text-neutral-800 dark:text-neutral-200 py-1 px-0'
-            /* AI 内容彻底回归原始，剥离背景色块与多余间距线 */
+            ? 'rounded-2xl px-4 py-2 bg-neutral-200/50 text-neutral-900 dark:bg-neutral-800/60 dark:text-neutral-100 border border-neutral-200/30 dark:border-neutral-800/20 text-left'
+            : 'bg-transparent text-neutral-800 dark:text-neutral-200 py-1 px-0 text-left'
+            /* AI 内容彻底回归无边界印刷感 */
           }
         `}
       >
@@ -38,14 +36,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
       </div>
 
-      {/* 微型时间戳（仅在鼠标悬停在这一行消息时精致显现，防止画面杂乱） */}
-      <div 
-        className={`
-          text-[10px] font-mono tracking-tight text-neutral-400 dark:text-neutral-500 mt-1
-          opacity-0 group-hover:opacity-100 transition-opacity duration-200 select-none
-          ${isUser ? 'pr-2' : 'pl-0'}
-        `}
-      >
+      {/* 微型悬停提示线 */}
+      <div className="text-[10px] font-mono tracking-tight text-neutral-400 dark:text-neutral-500 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 select-none w-full text-left pl-1">
         <span>{message.timestamp || '刚刚'}</span>
       </div>
     </div>

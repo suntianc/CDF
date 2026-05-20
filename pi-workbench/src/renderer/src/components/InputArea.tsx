@@ -125,7 +125,7 @@ export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand
     <>
       <CommandPalette open={showCommandPalette} onOpenChange={setShowCommandPalette} onSelect={handleGSDSelect} commands={gsdCommands} filter={gsdFilter} />
 
-      <div className="bg-white dark:bg-[#111115] p-2.5 sm:p-3 rounded-xl border border-neutral-200/70 dark:border-neutral-800/80 shadow-sm focus-within:border-neutral-400 dark:focus-within:border-neutral-600 transition-all w-full min-w-0">
+      <div className="bg-white dark:bg-[#121216] p-3 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 shadow-elevated focus-within:border-neutral-400 dark:focus-within:border-neutral-600 focus-within:ring-1 focus-within:ring-neutral-400/20 transition-all w-full min-w-0">
         
         {/* 图片资产预览流式环绕 */}
         {pendingImages.length > 0 && (
