@@ -52,23 +52,20 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
     }
   }, [messages])
 
-  // ── 空白状态：精致的极简主义 Dialog ──
+  // ── 空白状态：Claude / Vercel 风格无缝居中引导 ──
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col bg-neutral-50 dark:bg-[#0b0b0b] transition-colors duration-300">
-        <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-2xl mx-auto w-full">
-          <div className="text-center mb-8 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="inline-flex p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 mb-2 shadow-sm">
-              <Sparkles className="w-6 h-6 animate-pulse text-indigo-500" />
+      <div className="flex-1 flex flex-col bg-neutral-50/50 dark:bg-[#0a0a0c] transition-colors duration-300">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-xl mx-auto w-full">
+          <div className="text-center mb-6 space-y-2">
+            <div className="inline-flex p-2.5 rounded-xl bg-white dark:bg-neutral-900 text-indigo-500 shadow-sm border border-neutral-100 dark:border-neutral-800">
+              <Sparkles className="w-5 h-5 animate-pulse" />
             </div>
-            <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+            <h2 className="text-lg font-medium tracking-tight text-neutral-900 dark:text-neutral-100">
               今天想构建什么系统？
             </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-md">
-              输入消息直接开始对话，或者使用键盘触发 <code className="px-1.5 py-0.5 rounded font-mono bg-neutral-200 dark:bg-neutral-800 text-[11px]">/gsd-</code> 指令调度工程状态。
-            </p>
           </div>
-          <div className="w-full shadow-xl shadow-neutral-200/50 dark:shadow-none border border-neutral-200/60 dark:border-neutral-800/80 rounded-2xl bg-white dark:bg-[#121212] overflow-hidden">
+          <div className="w-full shadow-elevated rounded-xl">
             <InputArea
               onSend={onSend}
               onStop={onStop}

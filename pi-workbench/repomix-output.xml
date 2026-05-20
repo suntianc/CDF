@@ -2133,6 +2133,7 @@ import { MessageBubble } from './MessageBubble'
 import { MessageQueue } from './MessageQueue'
 import { InputArea } from './InputArea'
 import { GSDResultCard } from './GSDResultCard'
+import { Sparkles } from 'lucide-react'
 
 interface Message {
   id: string
@@ -2175,19 +2176,29 @@ interface ChatPanelProps {
 export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, currentWorkspace, queue, onQueueGuide, onQueueDelete, onGSDCommand, gsdCommands, onQueueAdd }: ChatPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
     }
   }, [messages])
 
-  // ── Empty state: centered input area as dialog ──
+  // ── 空白状态：精致的极简主义 Dialog ──
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col bg-[#fafafa] dark:bg-[#171717]">
-        <div className="flex-1 flex flex-col items-center justify-center px-6">
-          <div className="w-full max-w-xl">
+      <div className="flex-1 flex flex-col bg-neutral-50 dark:bg-[#0b0b0b] transition-colors duration-300">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-2xl mx-auto w-full">
+          <div className="text-center mb-8 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="inline-flex p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 mb-2 shadow-sm">
+              <Sparkles className="w-6 h-6 animate-pulse text-indigo-500" />
+            </div>
+            <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+              今天想构建什么系统？
+            </h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-md">
+              输入消息直接开始对话，或者使用键盘触发 <code className="px-1.5 py-0.5 rounded font-mono bg-neutral-200 dark:bg-neutral-800 text-[11px]">/gsd-</code> 指令调度工程状态。
+            </p>
+          </div>
+          <div className="w-full shadow-xl shadow-neutral-200/50 dark:shadow-none border border-neutral-200/60 dark:border-neutral-800/80 rounded-2xl bg-white dark:bg-[#121212] overflow-hidden">
             <InputArea
               onSend={onSend}
               onStop={onStop}
@@ -2203,69 +2214,86 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
     )
   }
 
-  // ── Active state: messages + InputArea at bottom ──
+  // ── 活跃对话状态 ──
   return (
-    <div className="flex-1 flex flex-col bg-[#fafafa] dark:bg-[#171717]">
-      {/* Messages list */}
+    <div className="flex-1 flex flex-col bg-white dark:bg-[#0b0b0b] transition-colors duration-300 relative">
+      {/* 消息区域 */}
       <div
         ref={listRef}
-        className="flex-1 overflow-y-auto px-6 pt-16 pb-4 space-y-4"
+        className="flex-1 overflow-y-auto px-4 md:px-8 pt-6 pb-32 space-y-6 no-scrollbar"
       >
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div className="max-w-[720px]">
-              {(() => {
-                try {
-                  const parsed = JSON.parse(msg.content)
-                  if (parsed.type === 'gsd') {
-                    return (
-                      <GSDResultCard
-                        command={parsed.command}
-                        success={parsed.success}
-                        output={parsed.output}
-                        error={parsed.error}
-                      />
-                    )
-                  }
-                } catch {}
-                return <MessageBubble message={msg} />
-              })()}
+        <div className="max-w-3xl mx-auto space-y-6">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in duration-200`}
+            >
+              <div className="w-full max-w-2xl">
+                {(() => {
+                  try {
+                    const parsed = JSON.parse(msg.content)
+                    if (parsed.type === 'gsd') {
+                      return (
+                        <div className="my-2 shadow-sm">
+                          <GSDResultCard
+                            command={parsed.command}
+                            success={parsed.success}
+                            output={parsed.output}
+                            error={parsed.error}
+                          />
+                        </div>
+                      )
+                    }
+                  } catch {}
+                  return <MessageBubble message={msg} />
+                })()}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {/* "思考中..." animation when generating but no content yet */}
-        {isGenerating && messages.filter(m => m.role === 'assistant').length === (messages[messages.length - 1]?.id === 'streaming' ? 1 : 0) && !messages.some(m => m.id === 'streaming') && (
-          <div className="flex justify-start">
-            <div className="max-w-[720px] bg-white dark:bg-[#1a1a1a] rounded-lg px-4 py-2">
-              <span className="text-sm text-[#888] animate-pulse">思考中...</span>
+          {/* 细腻的流式等待加载动画 */}
+          {isGenerating && messages.filter(m => m.role === 'assistant').length === (messages[messages.length - 1]?.id === 'streaming' ? 1 : 0) && !messages.some(m => m.id === 'streaming') && (
+            <div className="flex justify-start items-center gap-3 animate-pulse pl-2">
+              <div className="flex space-x-1.5 items-center">
+                <div className="w-1.5 h-1.5 bg-neutral-400 dark:bg-neutral-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-1.5 h-1.5 bg-neutral-400 dark:bg-neutral-600 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-1.5 h-1.5 bg-neutral-400 dark:bg-neutral-600 rounded-full animate-bounce"></div>
+              </div>
+              <span className="text-xs font-medium tracking-wide text-neutral-400 dark:text-neutral-500 font-sans">Agent 正在组织架构...</span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Message Queue */}
-      {queue && onQueueGuide && onQueueDelete && queue.length > 0 && (
-        <MessageQueue
-          items={queue}
-          onGuide={onQueueGuide}
-          onDelete={onQueueDelete}
-        />
-      )}
+      {/* 底部悬浮式输入框与队列区容器 */}
+      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-white via-white/95 to-transparent dark:from-[#0b0b0b] dark:via-[#0b0b0b]/95 p-4 md:p-6 pointer-events-none">
+        <div className="max-w-3xl mx-auto w-full pointer-events-auto space-y-3">
+          
+          {/* 消息队列 */}
+          {queue && onQueueGuide && onQueueDelete && queue.length > 0 && (
+            <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800 bg-white/80 dark:bg-[#121212]/80 backdrop-blur-md shadow-lg overflow-hidden max-h-36">
+              <MessageQueue
+                items={queue}
+                onGuide={onQueueGuide}
+                onDelete={onQueueDelete}
+              />
+            </div>
+          )}
 
-      {/* Input area at bottom */}
-      <InputArea
-        onSend={onSend}
-        onStop={onStop}
-        isGenerating={isGenerating}
-        disabled={false}
-        onGSDCommand={onGSDCommand}
-        gsdCommands={gsdCommands}
-        onQueueAdd={onQueueAdd}
-      />
+          {/* 拟物浮雕效果的现代化输入区 */}
+          <div className="shadow-lg border border-neutral-200/70 dark:border-neutral-800/80 rounded-2xl bg-white dark:bg-[#121212] focus-within:ring-1 focus-within:ring-neutral-400 dark:focus-within:ring-neutral-700 transition-all">
+            <InputArea
+              onSend={onSend}
+              onStop={onStop}
+              isGenerating={isGenerating}
+              disabled={false}
+              onGSDCommand={onGSDCommand}
+              gsdCommands={gsdCommands}
+              onQueueAdd={onQueueAdd}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -2980,27 +3008,27 @@ function CodeBlock({ className, children, blockId }: CodeBlockProps) {
   }, [codeText, lang])
 
   return (
-    <div className="relative group my-2 rounded-md border border-[#ebebeb] dark:border-[#2a2a2a] overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#f5f5f5] dark:bg-[#252525] border-b border-[#ebebeb] dark:border-[#2a2a2a]">
-        <span className="text-[11px] font-mono text-[#888] uppercase">{lang}</span>
+    <div className="relative group my-3 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2 bg-neutral-50 dark:bg-[#181818] border-b border-neutral-200 dark:border-neutral-800">
+        <span className="text-[11px] font-mono text-neutral-500 dark:text-neutral-500 uppercase tracking-wider">{lang}</span>
         <button
           onClick={() => copy(codeText, blockId || '')}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[#ebebeb] dark:hover:bg-[#333]"
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700"
           title="复制"
         >
           {copiedId === blockId
-            ? <Check className="w-3.5 h-3.5 text-[#16a34a]" />
-            : <Copy className="w-3.5 h-3.5 text-[#888]" />
+            ? <Check className="w-3.5 h-3.5 text-emerald-500" />
+            : <Copy className="w-3.5 h-3.5 text-neutral-500" />
           }
         </button>
       </div>
       {useFallback ? (
-        <pre className="text-[13px] leading-5 overflow-x-auto p-3 m-0 font-mono text-[#4d4d4d] dark:text-[#ebebeb]">
+        <pre className="text-[13px] leading-5 overflow-x-auto p-4 m-0 font-mono text-neutral-700 dark:text-neutral-300 bg-white dark:bg-[#0d0d0d]">
           <code>{codeText}</code>
         </pre>
       ) : (
         <div
-          className="text-[13px] leading-5 overflow-x-auto p-3 [&>pre]:m-0 [&>pre]:bg-transparent"
+          className="text-[13px] leading-5 overflow-x-auto p-4 bg-white dark:bg-[#0d0d0d] [&>pre]:m-0 [&>pre]:bg-transparent"
           dangerouslySetInnerHTML={{ __html: html }}
         />
       )}
@@ -3016,7 +3044,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   const blockCounter = { current: 0 }
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none [&>p]:text-[14px] [&>p]:leading-5 [&>p]:mb-2">
+    <div className="prose prose-sm dark:prose-invert max-w-none [&>p]:text-[14px] [&>p]:leading-6 [&>p]:mb-2 [&>p]:text-neutral-800 dark:[&>p]:text-neutral-200">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
@@ -3034,25 +3062,45 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
               )
             }
             return (
-              <code className="bg-[#f5f5f5] dark:bg-[#252525] px-1 py-0.5 rounded text-[13px] font-mono" {...props}>
+              <code className="bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded text-[13px] font-mono text-neutral-800 dark:text-neutral-200" {...props}>
                 {children}
               </code>
             )
           },
           table({ children }) {
             return (
-              <div className="overflow-x-auto my-2">
-                <table className="min-w-full text-sm border-collapse border border-[#ebebeb] dark:border-[#2a2a2a]">
+              <div className="overflow-x-auto my-3 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-sm">
+                <table className="min-w-full text-sm border-collapse">
                   {children}
                 </table>
               </div>
             )
           },
           th({ children }) {
-            return <th className="border border-[#ebebeb] dark:border-[#2a2a2a] px-3 py-1.5 bg-[#f5f5f5] dark:bg-[#252525] text-left font-medium">{children}</th>
+            return <th className="px-4 py-2 bg-neutral-50 dark:bg-[#181818] text-left font-medium text-xs uppercase tracking-wider text-neutral-600 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-800">{children}</th>
           },
           td({ children }) {
-            return <td className="border border-[#ebebeb] dark:border-[#2a2a2a] px-3 py-1.5">{children}</td>
+            return <td className="px-4 py-2 text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60 last:border-b-0">{children}</td>
+          },
+          a({ children, href }) {
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline underline-offset-2">
+                {children}
+              </a>
+            )
+          },
+          ul({ children }) {
+            return <ul className="list-disc pl-5 space-y-1 my-2 text-neutral-800 dark:text-neutral-200">{children}</ul>
+          },
+          ol({ children }) {
+            return <ol className="list-decimal pl-5 space-y-1 my-2 text-neutral-800 dark:text-neutral-200">{children}</ol>
+          },
+          blockquote({ children }) {
+            return (
+              <blockquote className="border-l-2 border-neutral-300 dark:border-neutral-700 pl-4 italic text-neutral-600 dark:text-neutral-400 my-3">
+                {children}
+              </blockquote>
+            )
           }
         }}
       >
@@ -3064,8 +3112,8 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 </file>
 
 <file path="src/renderer/src/components/MessageBubble.tsx">
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { User, Bot } from 'lucide-react'
 
 interface Message {
   id: string
@@ -3080,51 +3128,64 @@ interface MessageBubbleProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  sending: 'text-[#f59e0b]',     // warning amber
-  sent: 'text-[#16a34a]',        // success green
-  guided: 'text-[#0070f3]',       // info blue
-  stopped: 'text-[#ee0000]',      // destructive red
+  sending: 'text-amber-500 dark:text-amber-400',
+  sent: 'text-emerald-500 dark:text-emerald-400',
+  guided: 'text-blue-500 dark:text-blue-400',
+  stopped: 'text-rose-500 dark:text-rose-400',
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  sending: '发送中',
-  sent: '已发送',
-  guided: '已引导',
-  stopped: '已停止',
+  sending: '同步中',
+  sent: '已就绪',
+  guided: '已介入',
+  stopped: '被拦截',
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
   return (
-    <div className="flex flex-col gap-1">
-  {/* Bubble content */}
-      <div
-        className={`
-          rounded-lg px-4 py-2
-          ${isUser
-            ? 'bg-[#171717] text-white dark:bg-white dark:text-[#171717]'
-            : 'bg-white text-[#4d4d4d] dark:bg-[#1a1a1a] dark:text-[#ebebeb]'
-          }
-        `}
-      >
-        {isUser ? (
-          <p className="text-sm leading-5 whitespace-pre-wrap">{message.content}</p>
-        ) : (
-          <MarkdownRenderer content={message.content} />
-        )}
+    <div className={`flex flex-col gap-2 ${isUser ? 'items-end' : 'items-start'} group w-full`}>
+      <div className={`flex gap-3 max-w-full ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+        
+        {/* 精致的微型角色 Icon 标志 */}
+        <div className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 text-xs shadow-sm select-none
+          ${isUser 
+            ? 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400' 
+            : 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-100 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400'
+          }`}
+        >
+          {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+        </div>
+
+        {/* 气泡本体 */}
+        <div
+          className={`
+            text-[14px] leading-6 break-words tracking-wide
+            ${isUser
+              ? 'rounded-2xl rounded-tr-sm px-4 py-2 bg-neutral-100 text-neutral-900 dark:bg-neutral-800/80 dark:text-neutral-100 shadow-sm'
+              : 'px-1 py-0.5 text-neutral-800 dark:text-neutral-200 w-full'
+            }
+          `}
+        >
+          {isUser ? (
+            <p className="whitespace-pre-wrap font-sans font-normal">{message.content}</p>
+          ) : (
+            <div className="prose-custom">
+              <MarkdownRenderer content={message.content} />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Status tag (user messages only) + timestamp */}
-      <div className={`flex items-center gap-2 ${isUser ? 'justify-end' : 'justify-start'} px-1`}>
+      {/* 元信息面板 */}
+      <div className={`flex items-center gap-2 px-10 text-[11px] font-mono tracking-tight text-neutral-400 dark:text-neutral-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200`}>
         {isUser && message.status && (
-          <span className={`text-[11px] leading-[14px] ${STATUS_STYLES[message.status] || ''}`}>
+          <span className={`font-medium ${STATUS_STYLES[message.status] || ''}`}>
             {STATUS_LABELS[message.status]}
           </span>
         )}
-        <span className="text-[11px] leading-[14px] text-[#888888]">
-          {message.timestamp}
-        </span>
+        <span>{message.timestamp}</span>
       </div>
     </div>
   )
@@ -3236,35 +3297,31 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
   const [deleting, setDeleting] = useState(false)
 
   return (
-    <div className="bg-white dark:bg-[#1a1a1a] rounded-[8px] p-6 shadow-card space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="w-8 h-8 flex items-center justify-center rounded-[6px] bg-[#f5f5f5] dark:bg-[#252525]">
-            {icon}
-          </span>
-          <div>
-            <h3 className="text-sm font-medium text-[#171717] dark:text-white">{name}</h3>
-            <span className="text-xs text-[#888]">{type}</span>
-          </div>
-        </div>
-        {configured && (
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="w-8 h-8 flex items-center justify-center rounded-[6px] bg-neutral-100 dark:bg-neutral-800 shrink-0">
+          {icon}
+        </span>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[#0070f3]" />
-            <span className="text-xs text-[#0070f3]">已配置</span>
+            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{name}</h3>
+            {configured && (
+              <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            )}
           </div>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{type}</span>
+        </div>
+        {configured && defaultModel && (
+          <span className="hidden md:inline text-[11px] font-mono text-neutral-400 dark:text-neutral-500 ml-2 truncate">
+            默认: {defaultModel}
+          </span>
         )}
       </div>
 
-      {configured && defaultModel && (
-        <p className="text-xs text-[#4d4d4d] dark:text-[#888]">
-          默认模型：{defaultModel}
-        </p>
-      )}
-
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={onConfigure}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#171717] text-white text-xs font-medium rounded-[100px] hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 text-xs font-medium rounded-full hover:opacity-90 transition-all"
         >
           <Key className="w-3 h-3" />
           {configured ? '编辑' : '配置'}
@@ -3272,7 +3329,7 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
         {configured && onDelete && (
           <button
             onClick={() => setDeleting(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#ee0000] hover:bg-[#f7d4d6] rounded-[6px] transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-full transition-colors"
           >
             <Trash2 className="w-3 h-3" />
             删除
@@ -3282,23 +3339,25 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
 
       {/* Delete confirmation dialog */}
       {deleting && (
-        <div className="bg-[#f7d4d6] dark:bg-[#3a1a1a] rounded-[6px] p-3 space-y-2">
-          <p className="text-xs text-[#c50000]">
-            删除提供商：{name} — 此操作不可撤销。确定要删除吗？
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { onDelete?.(); setDeleting(false) }}
-              className="px-3 py-1 bg-[#ee0000] text-white text-xs rounded-[100px]"
-            >
-              确定删除
-            </button>
-            <button
-              onClick={() => setDeleting(false)}
-              className="px-3 py-1 text-xs text-[#4d4d4d] hover:bg-white rounded-[6px]"
-            >
-              取消
-            </button>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 dark:bg-black/40 rounded-xl z-10">
+          <div className="bg-white dark:bg-neutral-900 rounded-xl p-4 shadow-xl max-w-sm mx-4 space-y-3">
+            <p className="text-xs text-neutral-700 dark:text-neutral-300">
+              删除提供商：<strong>{name}</strong> — 此操作不可撤销。确定要删除吗？
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { onDelete?.(); setDeleting(false) }}
+                className="px-4 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-full hover:bg-rose-700 transition-colors"
+              >
+                确定删除
+              </button>
+              <button
+                onClick={() => setDeleting(false)}
+                className="px-4 py-1.5 text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors"
+              >
+                取消
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3914,24 +3973,24 @@ export function cn(...inputs: ClassValue[]) {
 
 <file path="src/renderer/src/pages/SettingsPage.tsx">
 import { useState } from 'react'
-import { Globe, Bot, Sparkles, Plus, Sun, Moon, Monitor } from 'lucide-react'
+import { Globe, Bot, Sparkles, Plus, Sun, Moon, Monitor, ShieldCheck } from 'lucide-react'
 import { ProviderCard } from '../components/ProviderCard'
 import { ProviderForm } from '../components/ProviderForm'
 import { useProviders } from '../hooks/useProviders'
 import { useTheme } from '../hooks/useTheme'
 
 const PROVIDER_ICONS: Record<string, React.ReactNode> = {
-  anthropic: <Sparkles className="w-4 h-4 text-[#171717] dark:text-white" />,
-  openai: <Bot className="w-4 h-4 text-[#171717] dark:text-white" />,
-  google: <Globe className="w-4 h-4 text-[#171717] dark:text-white" />,
-  custom: <Globe className="w-4 h-4 text-[#171717] dark:text-white" />
+  anthropic: <Sparkles className="w-4 h-4 text-orange-500" />,
+  openai: <Bot className="w-4 h-4 text-emerald-500" />,
+  google: <Globe className="w-4 h-4 text-blue-500" />,
+  custom: <Globe className="w-4 h-4 text-indigo-500" />
 }
 
 const PROVIDER_DISPLAY_TYPES: Record<string, string> = {
-  anthropic: 'Anthropic API',
-  openai: 'OpenAI API',
-  google: 'Google AI',
-  custom: 'OpenAI Compatible'
+  anthropic: 'Anthropic LLM Engine',
+  openai: 'OpenAI Core Platform',
+  google: 'Google Gemini Pro Cloud',
+  custom: 'Standard OpenAI Compatible'
 }
 
 export function SettingsPage() {
@@ -3940,7 +3999,6 @@ export function SettingsPage() {
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
   const [showCustomForm, setShowCustomForm] = useState(false)
 
-  // Find if preset is configured
   function isConfigured(type: string): boolean {
     return providers.some(p => p.type === type)
   }
@@ -3968,155 +4026,152 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-[#fafafa] dark:bg-[#171717]">
-      <div className="max-w-2xl mx-auto px-8 py-8 space-y-8">
-        {/* Page Title */}
-        <div>
-          <h1 className="text-[20px] font-semibold leading-[28px] tracking-[-0.6px] text-[#171717] dark:text-white">
-            设置
+    <div className="flex-1 h-full overflow-y-auto bg-neutral-50 dark:bg-[#0b0b0b] transition-colors duration-300">
+      <div className="max-w-xl mx-auto px-6 py-12 space-y-10">
+        
+        {/* 顶部标题区 */}
+        <div className="border-b border-neutral-200/60 dark:border-neutral-800/60 pb-5">
+          <h1 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+            控制台设置
           </h1>
-          <p className="text-sm text-[#4d4d4d] dark:text-[#888] mt-1">
-            配置模型提供商和应用偏好
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+            全局工作区引擎、API 密钥加密分发及视觉外观偏好配置。
           </p>
         </div>
 
-        {/* Model Providers Section */}
-        <section>
-          <h2 className="text-xs font-medium text-[#888] uppercase tracking-wide mb-3">
-            模型提供商
-          </h2>
-
-          {/* Empty state */}
-          {providers.length === 0 && !editingProvider && !showCustomForm && (
-            <div className="bg-white dark:bg-[#1a1a1a] rounded-[8px] p-8 text-center shadow-card">
-              <p className="text-sm text-[#4d4d4d] dark:text-[#888] mb-1">
-                暂无模型提供商
-              </p>
-              <p className="text-xs text-[#888] mb-4">
-                点击下方按钮添加你的第一个提供商
-              </p>
+        {/* 模型引擎分发控制区 */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+              模型核心提供商
+            </h2>
+            <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full">
+              <ShieldCheck className="w-3 h-3" /> AES-256 加密存储
             </div>
-          )}
+          </div>
 
-          {/* Preset provider cards */}
-          <div className="space-y-3">
+          <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-[#121212] overflow-hidden divide-y divide-neutral-100 dark:divide-neutral-800/60 shadow-sm">
             {presets.map((preset) => {
               const configured = isConfigured(preset.type)
               const provider = getProvider(preset.type)
 
-              // Show config form if editing this provider
               if (editingProvider === preset.type) {
                 return (
-                  <ProviderForm
-                    key={preset.type}
-                    type={preset.type}
-                    name={preset.name}
-                    initialApiKey={provider?.apiKey}
-                    initialModel={provider?.defaultModel}
-                    onSave={(data) => handleProviderSave(preset.type, data)}
-                    onCancel={() => setEditingProvider(null)}
-                  />
+                  <div key={preset.type} className="p-4 bg-neutral-50/50 dark:bg-[#161616]/30">
+                    <ProviderForm
+                      type={preset.type}
+                      name={preset.name}
+                      initialApiKey={provider?.apiKey}
+                      initialModel={provider?.defaultModel}
+                      onSave={(data) => handleProviderSave(preset.type, data)}
+                      onCancel={() => setEditingProvider(null)}
+                    />
+                  </div>
                 )
               }
 
               return (
-                <ProviderCard
-                  key={preset.type}
-                  icon={PROVIDER_ICONS[preset.type]}
-                  name={preset.name}
-                  type={PROVIDER_DISPLAY_TYPES[preset.type]}
-                  configured={configured}
-                  defaultModel={provider?.defaultModel}
-                  onConfigure={() => handleConfigure(preset.type)}
-                  onDelete={configured ? () => deleteProvider(provider!.id) : undefined}
-                />
+                <div key={preset.type} className="p-4 hover:bg-neutral-50/40 dark:hover:bg-[#161616]/20 transition-colors">
+                  <ProviderCard
+                    icon={PROVIDER_ICONS[preset.type]}
+                    name={preset.name}
+                    type={PROVIDER_DISPLAY_TYPES[preset.type]}
+                    configured={configured}
+                    defaultModel={provider?.defaultModel}
+                    onConfigure={() => handleConfigure(preset.type)}
+                    onDelete={configured ? () => deleteProvider(provider!.id) : undefined}
+                  />
+                </div>
               )
             })}
 
-            {/* Custom provider form or add button */}
+            {/* 自定义 OpenAI 提供商处理 */}
             {showCustomForm && (
-              <ProviderForm
-                type="custom"
-                name="Custom OpenAI"
-                initialProviderName=""
-                onSave={(data) => handleProviderSave('custom', data)}
-                onCancel={() => setShowCustomForm(false)}
-              />
+              <div className="p-4 bg-neutral-50/50 dark:bg-[#161616]/30">
+                <ProviderForm
+                  type="custom"
+                  name="Custom OpenAI"
+                  initialProviderName=""
+                  onSave={(data) => handleProviderSave('custom', data)}
+                  onCancel={() => setShowCustomForm(false)}
+                />
+              </div>
             )}
 
-            {/* Custom provider: edit form, card, or add button */}
             {editingProvider === 'custom' && isConfigured('custom') && (() => {
               const cp = getProvider('custom')!
               return (
-                <ProviderForm
-                  key="custom-edit"
-                  type="custom"
-                  name={cp.name || 'Custom OpenAI'}
-                  initialApiKey={cp.apiKey}
-                  initialModel={cp.defaultModel}
-                  initialProviderName={cp.name}
-                  onSave={(data) => handleProviderSave('custom', data)}
-                  onCancel={() => setEditingProvider(null)}
-                />
+                <div key="custom-edit" className="p-4 bg-neutral-50/50 dark:bg-[#161616]/30">
+                  <ProviderForm
+                    type="custom"
+                    name={cp.name || 'Custom OpenAI'}
+                    initialApiKey={cp.apiKey}
+                    initialModel={cp.defaultModel}
+                    initialProviderName={cp.name}
+                    onSave={(data) => handleProviderSave('custom', data)}
+                    onCancel={() => setEditingProvider(null)}
+                  />
+                </div>
               )
             })()}
 
-            {!showCustomForm && !editingProvider && (
+            {!showCustomForm && editingProvider !== 'custom' && (
               isConfigured('custom') ? (
                 (() => {
                   const cp = getProvider('custom')!
                   return (
-                    <ProviderCard
-                      key="custom"
-                      icon={PROVIDER_ICONS.custom}
-                      name={cp.name || 'Custom OpenAI'}
-                      type="OpenAI Compatible"
-                      configured
-                      defaultModel={cp.defaultModel}
-                      onConfigure={() => handleConfigure('custom')}
-                      onDelete={() => deleteProvider(cp.id)}
-                    />
+                    <div className="p-4">
+                      <ProviderCard
+                        icon={PROVIDER_ICONS.custom}
+                        name={cp.name || 'Custom OpenAI'}
+                        type="OpenAI Compatible"
+                        configured
+                        defaultModel={cp.defaultModel}
+                        onConfigure={() => handleConfigure('custom')}
+                        onDelete={() => deleteProvider(cp.id)}
+                      />
+                    </div>
                   )
                 })()
               ) : (
-                <button
-                  onClick={() => setShowCustomForm(true)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-[#ebebeb] dark:border-[#2a2a2a] rounded-[8px] text-sm text-[#4d4d4d] hover:bg-[#f5f5f5] dark:hover:bg-[#252525] transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  添加自定义 OpenAI 兼容提供商
-                </button>
+                <div className="p-3 bg-neutral-50/30 dark:bg-transparent text-center">
+                  <button
+                    onClick={() => setShowCustomForm(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors font-medium"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    添加自定义 OpenAI 兼容网关
+                  </button>
+                </div>
               )
             )}
           </div>
         </section>
 
-        {/* Theme Section */}
-        <section>
-          <h2 className="text-xs font-medium text-[#888] uppercase tracking-wide mb-3">
-            主题
+        {/* 外观设置控制区 */}
+        <section className="space-y-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+            视觉外观
           </h2>
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-[8px] p-4 shadow-card">
-            <div className="flex gap-2">
-              {[
-                { value: 'light' as const, icon: <Sun className="w-4 h-4" />, label: '亮色' },
-                { value: 'dark' as const, icon: <Moon className="w-4 h-4" />, label: '暗色' },
-                { value: 'system' as const, icon: <Monitor className="w-4 h-4" />, label: '跟随系统' }
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setTheme(opt.value)}
-                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-[6px] transition-colors ${
-                    theme === opt.value
-                      ? 'bg-[#f5f5f5] text-[#171717] font-medium dark:bg-[#252525] dark:text-white'
-                      : 'text-[#4d4d4d] hover:bg-[#f5f5f5] dark:hover:bg-[#252525]'
-                  }`}
-                >
-                  {opt.icon}
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+          <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-[#121212] p-1.5 shadow-sm flex gap-1">
+            {[
+              { value: 'light' as const, icon: <Sun className="w-3.5 h-3.5" />, label: 'Light' },
+              { value: 'dark' as const, icon: <Moon className="w-3.5 h-3.5" />, label: 'Dark' },
+              { value: 'system' as const, icon: <Monitor className="w-3.5 h-3.5" />, label: 'System' }
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setTheme(opt.value)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium rounded-lg transition-all duration-200 ${
+                  theme === opt.value
+                    ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-sm'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800/50'
+                }`}
+              >
+                {opt.icon}
+                {opt.label}
+              </button>
+            ))}
           </div>
         </section>
       </div>

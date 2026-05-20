@@ -16,9 +16,9 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
   const [deleting, setDeleting] = useState(false)
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full bg-transparent">
       <div className="flex items-center gap-3 min-w-0">
-        <span className="w-8 h-8 flex items-center justify-center rounded-[6px] bg-neutral-100 dark:bg-neutral-800 shrink-0">
+        <span className="w-8 h-8 flex items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 shrink-0">
           {icon}
         </span>
         <div className="min-w-0">
@@ -30,11 +30,6 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
           </div>
           <span className="text-xs text-neutral-500 dark:text-neutral-400">{type}</span>
         </div>
-        {configured && defaultModel && (
-          <span className="hidden md:inline text-[11px] font-mono text-neutral-400 dark:text-neutral-500 ml-2 truncate">
-            默认: {defaultModel}
-          </span>
-        )}
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
@@ -51,29 +46,22 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-full transition-colors"
           >
             <Trash2 className="w-3 h-3" />
-            删除
           </button>
         )}
       </div>
 
-      {/* Delete confirmation dialog */}
+      {/* Delete overlay */}
       {deleting && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 dark:bg-black/40 rounded-xl z-10">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 dark:bg-black/40 rounded-xl z-10 backdrop-blur-sm">
           <div className="bg-white dark:bg-neutral-900 rounded-xl p-4 shadow-xl max-w-sm mx-4 space-y-3">
             <p className="text-xs text-neutral-700 dark:text-neutral-300">
-              删除提供商：<strong>{name}</strong> — 此操作不可撤销。确定要删除吗？
+              删除 <strong>{name}</strong>？此操作不可撤销。
             </p>
             <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => { onDelete?.(); setDeleting(false) }}
-                className="px-4 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-full hover:bg-rose-700 transition-colors"
-              >
+              <button onClick={() => { onDelete?.(); setDeleting(false) }} className="px-4 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-full hover:bg-rose-700 transition-colors">
                 确定删除
               </button>
-              <button
-                onClick={() => setDeleting(false)}
-                className="px-4 py-1.5 text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors"
-              >
+              <button onClick={() => setDeleting(false)} className="px-4 py-1.5 text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors">
                 取消
               </button>
             </div>

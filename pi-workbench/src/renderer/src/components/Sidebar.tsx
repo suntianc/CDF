@@ -1,4 +1,4 @@
-import { Settings, Code2, Puzzle, Plus, MessageSquare } from 'lucide-react'
+import { Settings, Code2, Puzzle, Plus, MessageSquare, FolderGit2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ConversationList } from './ConversationList'
 
@@ -16,20 +16,20 @@ function NavItem({ icon, label, active, disabled, comingSoon, onClick }: NavItem
     <button
       onClick={disabled ? undefined : onClick}
       className={`
-        flex items-center gap-3 w-full px-3 py-1.5 text-sm rounded-sm transition-colors
+        flex items-center gap-2.5 w-full px-2.5 py-1.5 text-[13px] rounded-lg transition-all duration-200 font-sans
         ${disabled
-          ? 'text-[#888888] cursor-not-allowed'
+          ? 'text-neutral-400 dark:text-neutral-600 cursor-not-allowed opacity-60'
           : active
-            ? 'bg-[#f5f5f5] text-[#171717] font-medium dark:bg-[#252525] dark:text-white'
-            : 'text-[#4d4d4d] hover:bg-[#f5f5f5] dark:text-[#888] dark:hover:bg-[#252525]'
+            ? 'bg-neutral-200/60 text-neutral-900 font-medium dark:bg-neutral-800 dark:text-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
+            : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/30 dark:text-neutral-400 dark:hover:text-neutral-200 dark:hover:bg-neutral-800/40'
         }
       `}
     >
-      <span className="w-4 h-4 flex items-center justify-center shrink-0">{icon}</span>
-      <span className="flex-1 text-left">{label}</span>
+      <span className="w-4 h-4 flex items-center justify-center shrink-0 opacity-80">{icon}</span>
+      <span className="flex-1 text-left tracking-wide">{label}</span>
       {comingSoon && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#f5f5f5] text-[#888] dark:bg-[#252525]">
-          即将推出
+        <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-md bg-neutral-200/50 text-neutral-500 scale-90 dark:bg-neutral-800/60 dark:text-neutral-400">
+          Beta
         </span>
       )}
     </button>
@@ -42,7 +42,6 @@ interface SidebarProps {
   workspaces: Array<{ path: string; name: string }>
   onAddWorkspace: () => void
   onSwitchWorkspace: (path: string) => void
-  // New Phase 2 props
   conversations?: Array<{ id: string; name: string; createdAt: string }>
   activeConversationId?: string | null
   onSelectConversation?: (id: string) => void
@@ -51,84 +50,94 @@ interface SidebarProps {
 
 export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onSwitchWorkspace, conversations, activeConversationId, onSelectConversation, onNewConversation }: SidebarProps) {
   return (
-    <aside className="w-[256px] h-full flex flex-col bg-white dark:bg-[#1a1a1a] border-r border-[#ebebeb] dark:border-[#2a2a2a] shadow-sidebar select-none">
-      {/* macOS traffic light spacer + drag region */}
+    <aside className="w-[240px] h-full flex flex-col bg-[var(--sidebar)] border-r border-[var(--sidebar-border)] select-none">
+      {/* macOS 交通灯区安全顶部占位 */}
       <div className="h-[38px] w-full shrink-0 window-drag-region" />
-      {/* App title - click to go home */}
-      <div className="px-3 pt-3 pb-2">
+
+      {/* 优雅的主应用标志切换 */}
+      <div className="px-3.5 py-2">
         <button
           onClick={() => onNavigate('welcome')}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#171717] dark:text-white hover:bg-[#f5f5f5] dark:hover:bg-[#252525] rounded-[6px] transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/40 dark:hover:bg-neutral-800/40 rounded-lg transition-colors border border-transparent hover:border-neutral-200/40"
         >
-          <MessageSquare className="w-4 h-4" />
+          <div className="w-4 h-4 rounded bg-neutral-900 dark:bg-neutral-100 flex items-center justify-center text-white dark:text-neutral-900 font-serif text-[10px] font-bold">π</div>
           <span>pi-workbench</span>
         </button>
       </div>
 
-      {/* Conversation list (Phase 2) */}
-      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] mb-1" />
-      <ConversationList
-        conversations={conversations || []}
-        activeId={activeConversationId || null}
-        onSelect={onSelectConversation || (() => {})}
-        onNew={onNewConversation || (() => {})}
-      />
-      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] mb-1" />
-
-      {/* Navigation Items */}
-      <nav className="flex-1 px-3 space-y-0.5">
-        <NavItem
-          icon={<Code2 className="w-4 h-4" />}
-          label="Skills"
-          disabled
-          comingSoon
-        />
-        <NavItem
-          icon={<Puzzle className="w-4 h-4" />}
-          label="MCP"
-          disabled
-          comingSoon
-        />
-        <NavItem
-          icon={<Settings className="w-4 h-4" />}
-          label="设置"
-          active={activeNav === 'settings'}
-          onClick={() => onNavigate('settings')}
+      {/* 历史对话（动态收纳区域） */}
+      <div className="flex-1 overflow-y-auto no-scrollbar py-2 space-y-4">
+        <ConversationList
+          conversations={conversations || []}
+          activeId={activeConversationId || null}
+          onSelect={onSelectConversation || (() => {})}
+          onNew={onNewConversation || (() => {})}
         />
 
-        {/* Divider */}
-        <div className="my-2 border-t border-[#ebebeb] dark:border-[#2a2a2a]" />
-
-        {/* Workspace Section */}
-        <div className="flex items-center justify-between px-1 py-1">
-          <span className="text-xs font-medium text-[#888] uppercase tracking-wide">工作区</span>
-          <button
-            onClick={onAddWorkspace}
-            className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-[#f5f5f5] dark:hover:bg-[#252525] text-[#888] transition-colors"
-            title="添加工作区"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+        {/* 核心工作流菜单栏 */}
+        <div className="px-3.5 space-y-0.5">
+          <span className="px-2.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wider block mb-1.5">核心组件</span>
+          <NavItem
+            icon={<Code2 className="w-4 h-4" />}
+            label="Skills"
+            disabled
+            comingSoon
+          />
+          <NavItem
+            icon={<Puzzle className="w-4 h-4" />}
+            label="MCP Market"
+            disabled
+            comingSoon
+          />
+          <NavItem
+            icon={<Settings className="w-4 h-4" />}
+            label="偏好设置"
+            active={activeNav === 'settings'}
+            onClick={() => onNavigate('settings')}
+          />
         </div>
 
-        {/* Workspace List */}
-        <div className="space-y-0.5">
-          {workspaces.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-[#888]">尚未添加工作区</p>
-          ) : (
-            workspaces.map((ws) => (
-              <button
-                key={ws.path}
-                onClick={() => onSwitchWorkspace(ws.path)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-[#4d4d4d] hover:bg-[#f5f5f5] dark:hover:bg-[#252525] rounded-[6px] transition-colors truncate"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ebebeb] shrink-0" />
-                {ws.name}
-              </button>
-            ))
-          )}
+        {/* 分割线 */}
+        <div className="mx-6 border-t border-neutral-200/40 dark:border-neutral-800/40" />
+
+        {/* 工作区容器 */}
+        <div className="px-3.5 space-y-1">
+          <div className="flex items-center justify-between px-2.5 mb-1">
+            <span className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">本地工作区</span>
+            <button
+              onClick={onAddWorkspace}
+              className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"
+              title="添加工作区"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-0.5">
+            {workspaces.length === 0 ? (
+              <p className="px-2.5 py-1.5 text-[11px] text-neutral-400 italic">尚未加入工作目录</p>
+            ) : (
+              workspaces.map((ws) => {
+                const isActive = workspaces[0]?.path === ws.path
+                return (
+                  <button
+                    key={ws.path}
+                    onClick={() => onSwitchWorkspace(ws.path)}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[13px] rounded-lg transition-all truncate text-left
+                      ${isActive
+                        ? 'text-neutral-900 font-medium dark:text-neutral-100 bg-neutral-200/30 dark:bg-neutral-800/30'
+                        : 'text-neutral-500 hover:bg-neutral-200/20 dark:text-neutral-400 dark:hover:bg-neutral-800/20'
+                      }`}
+                  >
+                    <FolderGit2 className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-500' : 'text-neutral-400'}`} />
+                    <span className="truncate">{ws.name}</span>
+                  </button>
+                )
+              })
+            )}
+          </div>
         </div>
-      </nav>
+      </div>
     </aside>
   )
 }
