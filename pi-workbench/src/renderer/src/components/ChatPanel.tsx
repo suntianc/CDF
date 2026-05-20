@@ -1,7 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { MessageBubble } from './MessageBubble'
+import { MessageQueue } from './MessageQueue'
 import { InputArea } from './InputArea'
 import { WelcomeDialog } from './WelcomeDialog'
+import { GSDResultCard } from './GSDResultCard'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface Message {
   id: string
@@ -12,6 +15,20 @@ interface Message {
   timestamp: string
 }
 
+interface QueuedMessage {
+  id: string
+  content: string
+  createdAt: string
+}
+
+interface GSDCommand {
+  id: string
+  name: string
+  description: string
+  args: string
+  icon: string
+}
+
 interface ChatPanelProps {
   messages: Message[]
   isGenerating: boolean
@@ -19,9 +36,15 @@ interface ChatPanelProps {
   onStop: () => void
   onNewChat: () => void
   currentWorkspace?: string
+  queue?: QueuedMessage[]
+  onQueueGuide?: (id: string) => void
+  onQueueDelete?: (id: string) => void
+  onGSDCommand?: (command: string, args: string) => void
+  gsdCommands?: GSDCommand[]
+  onQueueAdd?: (content: string) => void
 }
 
-export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, currentWorkspace }: ChatPanelProps) {
+export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, currentWorkspace, queue, onQueueGuide, onQueueDelete, onGSDCommand, gsdCommands, onQueueAdd }: ChatPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new messages
@@ -53,11 +76,47 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div className="max-w-[720px]">
-              <MessageBubble message={msg} />
+              {/* Check if this is a GSD result message */}
+              {(() => {
+                try {
+                  const parsed = JSON.parse(msg.content)
+                  if (parsed.type === 'gsd') {
+                    return (
+                      <GSDResultCard
+                        command={parsed.command}
+                        success={parsed.success}
+                        output={parsed.output}
+                        error={parsed.error}
+                      />
+                    )
+                  }
+                } catch {}
+                return <MessageBubble message={msg} />
+              })()}
             </div>
           </div>
         ))}
+
+        {/* "思考中..." animation when generating but no content yet */}
+        {isGenerating && messages.filter(m => m.role === 'assistant').length === (messages[messages.length - 1]?.id === 'streaming' ? 1 : 0) && !messages.some(m => m.id === 'streaming') && (
+          <div className="flex justify-start">
+            <div className="max-w-[720px] bg-white dark:bg-[#1a1a1a] rounded-lg px-4 py-2">
+              <span className="text-sm text-[#888] animate-pulse">
+                思考中...
+              </span>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Message Queue */}
+      {queue && onQueueGuide && onQueueDelete && (
+        <MessageQueue
+          items={queue}
+          onGuide={onQueueGuide}
+          onDelete={onQueueDelete}
+        />
+      )}
 
       {/* Input area */}
       <InputArea
@@ -65,6 +124,9 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
         onStop={onStop}
         isGenerating={isGenerating}
         disabled={false}
+        onGSDCommand={onGSDCommand}
+        gsdCommands={gsdCommands}
+        onQueueAdd={onQueueAdd}
       />
     </div>
   )

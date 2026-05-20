@@ -201,4 +201,42 @@ export function registerIpcHandlers(): void {
     }
     event.sender.send('session:streamChunk', { type: 'stopped' })
   })
+
+  // ── GSD Command Channels (Phase 2) ──
+
+  ipcMain.handle('gsd:execute', async (_event, { command, args, cwd }) => {
+    const { exec } = await import('child_process')
+    const { promisify } = await import('util')
+    const execAsync = promisify(exec)
+
+    try {
+      const cmd = `npx --yes pi-gsd-tools ${command} ${(args || []).join(' ')}`
+      const { stdout, stderr } = await execAsync(cmd, {
+        cwd: cwd || process.cwd(),
+        timeout: 120000,
+        env: { ...process.env, PATH: process.env.PATH }
+      })
+      return { success: true, output: stdout, error: stderr || undefined }
+    } catch (err: any) {
+      return {
+        success: false,
+        output: err.stdout || '',
+        error: err.stderr || err.message
+      }
+    }
+  })
+
+  ipcMain.handle('gsd:listCommands', async () => {
+    return [
+      { id: 'plan-phase', name: 'plan-phase', description: '规划一个 phase', args: '<phase#>', icon: 'plan' },
+      { id: 'execute-phase', name: 'execute-phase', description: '执行一个 phase', args: '<phase#>', icon: 'execute' },
+      { id: 'discuss-phase', name: 'discuss-phase', description: '讨论一个 phase', args: '<phase#>', icon: 'discuss' },
+      { id: 'review', name: 'review', description: 'Review 一个 phase', args: '--phase #', icon: 'review' },
+      { id: 'new-project', name: 'new-project', description: '初始化新项目', args: '', icon: 'new' },
+      { id: 'new-phase', name: 'new-phase', description: '添加新 phase', args: '<name>', icon: 'new' },
+      { id: 'status', name: 'status', description: '查看项目状态', args: '', icon: 'status' },
+      { id: 'milestone', name: 'milestone', description: '管理里程碑', args: '<name> <phase#>', icon: 'milestone' },
+      { id: 'roadmap', name: 'roadmap', description: '查看 road map', args: '', icon: 'roadmap' },
+    ]
+  })
 }

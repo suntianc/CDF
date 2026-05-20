@@ -25,6 +25,14 @@ interface QueuedMessage {
   createdAt: string
 }
 
+interface GSDCommand {
+  id: string
+  name: string
+  description: string
+  args: string
+  icon: string
+}
+
 function App(): React.ReactElement {
   const [activeNav, setActiveNav] = useState('welcome')
   const { workspaces, addWorkspace, switchWorkspace } = useWorkspace()
@@ -37,6 +45,7 @@ function App(): React.ReactElement {
   const [streamingContent, setStreamingContent] = useState('')
   const [activeSessionPath, setActiveSessionPath] = useState<string | null>(null)
   const [queue, setQueue] = useState<QueuedMessage[]>([])
+  const [gsdCommands, setGSDCommands] = useState<GSDCommand[]>([])
   const cleanupRef = useRef<(() => void) | null>(null)
 
   const handleNavigate = useCallback((page: string) => {
@@ -214,7 +223,54 @@ function App(): React.ReactElement {
     loadConversations(path)
   }, [switchWorkspace, loadConversations])
 
-  // Queue handlers (Plan 05)
+  // GSD command execution
+  const handleGSDCommand = useCallback(async (command: string, args: string) => {
+    // Add user message showing the command
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: `/gsd-${command} ${args}`,
+      status: 'sent',
+      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    }
+    setMessages(prev => [...prev, userMsg])
+
+    // Execute GSD command
+    try {
+      const wsPath = workspaces[0]?.path
+      const result = await window.api.gsd.execute(command, args.split(/\s+/), wsPath)
+
+      // Add result as AI message with special type
+      const resultMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: JSON.stringify({ type: 'gsd', command, success: result.success, output: result.output, error: result.error }),
+        status: 'sent',
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      }
+      setMessages(prev => [...prev, resultMsg])
+    } catch (err: any) {
+      const errorMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: JSON.stringify({ type: 'gsd', command, success: false, output: '', error: err.message }),
+        status: 'sent',
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      }
+      setMessages(prev => [...prev, errorMsg])
+    }
+  }, [workspaces])
+
+  // Load GSD commands on mount
+  useEffect(() => {
+    if (window.api?.gsd?.listCommands) {
+      window.api.gsd.listCommands()
+        .then(setGSDCommands)
+        .catch(() => {})
+    }
+  }, [])
+
+  // Queue handlers
   const handleQueueAdd = useCallback((content: string) => {
     const item: QueuedMessage = {
       id: crypto.randomUUID(),
@@ -286,6 +342,12 @@ function App(): React.ReactElement {
               onStop={handleStop}
               onNewChat={handleNewChat}
               currentWorkspace={workspaces.length > 0 ? workspaces[0].path : undefined}
+              queue={queue}
+              onQueueGuide={handleQueueGuide}
+              onQueueDelete={handleQueueDelete}
+              onGSDCommand={handleGSDCommand}
+              gsdCommands={gsdCommands}
+              onQueueAdd={handleQueueAdd}
             />
           )}
           {activeNav === 'settings' && <SettingsPage />}
