@@ -21,9 +21,6 @@
 
 ### Active
 
-- [ ] **CHAT-01**: 用户可以与 AI agent 进行对话交互
-- [ ] **CHAT-02**: 对话消息实时流式显示（streaming）
-- [ ] **CHAT-03**: 对话历史可以持久化和恢复
 - [ ] **MCP-01**: 用户可以添加 MCP server 配置（名称、命令、参数）
 - [ ] **MCP-02**: 已连接的 MCP server 工具自动注入到 agent 的可用工具集
 - [ ] **MCP-03**: 用户可以管理 MCP server 的连接状态（连接/断开）
@@ -31,8 +28,16 @@
 - [ ] **SKILL-02**: 用户可以从 GitHub 仓库下载安装 skills
 - [ ] **SKILL-03**: 用户可以在 UI 中查看已安装的 skills 列表
 - [ ] **SKILL-04**: 用户可以在 UI 中点击执行某个 skill
-- [ ] **GSD-01**: 应用集成 pi-gsd 工作流，支持 `discuss → plan → execute → verify` 循环
 - [ ] **GSD-02**: GSD 的子 agent（executor、planner、debugger 等）可通过 skills 驱动自动生成
+
+### Validated in Phase 2
+
+- [x] **CHAT-01**: 用户可以与 AI agent 进行对话交互 *(Validated in Phase 2)*
+- [x] **CHAT-02**: 对话消息实时流式显示（streaming） *(Validated in Phase 2)*
+- [x] **CHAT-03**: 对话历史可以持久化和恢复 *(Validated in Phase 2)*
+- [x] **CHAT-04**: 对话历史持久化到 pi SDK SessionManager *(Validated in Phase 2)*
+- [x] **CHAT-05**: 新建/清空对话 *(Validated in Phase 2)*
+- [x] **GSD-01**: 应用集成 pi-gsd 工作流，支持 `discuss → plan → execute → verify` 循环 *(Validated in Phase 2)*
 
 ### Out of Scope
 
@@ -63,9 +68,15 @@
 | Decision | Rationale | Outcome |
 | -------- | --------- | ------- |
 | Electron（非 Tauri） | 前端生态丰富，与 pi SDK 同为 Node.js/TS 原生兼容 | ✓ Implemented |
-| pi SDK 主进程直接集成 | 无需子进程桥接，IPC 仅传输事件到渲染层 | - Pending (Phase 2) |
+| pi SDK 主进程直接集成 | 无需子进程桥接，IPC 仅传输事件到渲染层 | ✓ Implemented |
 | V1 轻量工作台 | 降低首次交付门槛，先验证核心价值 | ✓ Phase 1 complete |
 | Skills 驱动多 agent | GSD 已有完整的子 agent 机制，复用而非重建 | - Pending (Phase 3) |
+| SessionManager for conversation persistence | pi SDK SessionManager handles JSONL session format | ✓ Implemented (Phase 2) |
+| Streaming via IPC chunks | Real-time AI response streaming via IPC event forwarding | ✓ Implemented (Phase 2) |
+| shiki for markdown code highlighting | Syntax highlighting with github-light/dark themes | ✓ Implemented (Phase 2) |
+| GSD commands via child_process | /gsd-* commands executed via cmdk palette + child_process | ✓ Implemented (Phase 2) |
+| Message queuing during AI reply | Queue messages when typing during AI generation | ✓ Implemented (Phase 2) |
+| Image upload via paste | Paste/drag images, send as base64 data URLs | ✓ Implemented (Phase 2) |
 
 ---
-*Last updated: 2026-05-19 after Phase 1 completion*
+*Last updated: 2026-05-20 after Phase 2 completion*
