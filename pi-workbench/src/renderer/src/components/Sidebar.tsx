@@ -1,5 +1,6 @@
 import { Settings, Code2, Puzzle, Plus, MessageSquare } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { ConversationList } from './ConversationList'
 
 interface NavItemProps {
   icon: ReactNode
@@ -41,9 +42,14 @@ interface SidebarProps {
   workspaces: Array<{ path: string; name: string }>
   onAddWorkspace: () => void
   onSwitchWorkspace: (path: string) => void
+  // New Phase 2 props
+  conversations?: Array<{ id: string; name: string; createdAt: string }>
+  activeConversationId?: string | null
+  onSelectConversation?: (id: string) => void
+  onNewConversation?: () => void
 }
 
-export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onSwitchWorkspace }: SidebarProps) {
+export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onSwitchWorkspace, conversations, activeConversationId, onSelectConversation, onNewConversation }: SidebarProps) {
   return (
     <aside className="w-[256px] h-full flex flex-col bg-white dark:bg-[#1a1a1a] border-r border-[#ebebeb] dark:border-[#2a2a2a] shadow-sidebar select-none">
       {/* macOS traffic light spacer + drag region */}
@@ -58,6 +64,16 @@ export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onS
           <span>pi-workbench</span>
         </button>
       </div>
+
+      {/* Conversation list (Phase 2) */}
+      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] mb-1" />
+      <ConversationList
+        conversations={conversations || []}
+        activeId={activeConversationId || null}
+        onSelect={onSelectConversation || (() => {})}
+        onNew={onNewConversation || (() => {})}
+      />
+      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] mb-1" />
 
       {/* Navigation Items */}
       <nav className="flex-1 px-3 space-y-0.5">

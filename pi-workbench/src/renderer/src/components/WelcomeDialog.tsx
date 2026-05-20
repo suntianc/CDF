@@ -1,4 +1,9 @@
-export function WelcomeDialog() {
+interface WelcomeDialogProps {
+  onNewChat: () => void
+  hasWorkspace: boolean
+}
+
+export function WelcomeDialog({ onNewChat, hasWorkspace }: WelcomeDialogProps) {
   return (
     <div className="flex flex-col items-center justify-center text-center max-w-md mx-auto px-8 py-12">
       {/* Mesh gradient decorative element */}
@@ -15,12 +20,17 @@ export function WelcomeDialog() {
       </p>
 
       <div className="mt-8 flex gap-3">
-        <button className="px-3 py-1.5 bg-[#171717] text-white text-sm font-medium leading-5 rounded-[100px] hover:opacity-90 transition-opacity">
+        <button
+          onClick={onNewChat}
+          className="px-3 py-1.5 bg-[#171717] text-white text-sm font-medium leading-5 rounded-[100px] hover:opacity-90 transition-opacity"
+        >
           开始对话
         </button>
-        <button className="px-3 py-1.5 bg-white text-[#171717] text-sm font-medium leading-5 rounded-[100px] border border-[#ebebeb] hover:bg-[#fafafa] transition-colors dark:bg-[#1a1a1a] dark:text-white dark:border-[#2a2a2a]">
-          添加工作区
-        </button>
+        {!hasWorkspace && (
+          <button className="px-3 py-1.5 bg-white text-[#171717] text-sm font-medium leading-5 rounded-[100px] border border-[#ebebeb] hover:bg-[#fafafa] transition-colors dark:bg-[#1a1a1a] dark:text-white dark:border-[#2a2a2a]">
+            添加工作区
+          </button>
+        )}
       </div>
     </div>
   )
