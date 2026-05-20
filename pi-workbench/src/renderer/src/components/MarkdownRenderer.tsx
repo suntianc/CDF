@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { createHighlighter, type Highlighter } from 'shiki'
-import { Card } from '@/components/ui/card'
 import { Check, Copy } from 'lucide-react'
 
 // Singleton highlighter — initialized once
@@ -34,40 +33,48 @@ function useCopyCode() {
   return { copiedId, copy }
 }
 
+function getCodeText(children: React.ReactNode): string {
+  if (typeof children === 'string') return children.replace(/\n$/, '')
+  if (Array.isArray(children)) {
+    return children.map(c => (typeof c === 'string' ? c : '')).join('').replace(/\n$/, '')
+  }
+  return String(children || '').replace(/\n$/, '')
+}
+
 interface CodeBlockProps {
   className?: string
   children?: React.ReactNode
-  /** Unique id for the block, passed from renderer */
   blockId?: string
 }
 
 function CodeBlock({ className, children, blockId }: CodeBlockProps) {
   const [html, setHtml] = useState<string>('')
+  const [useFallback, setUseFallback] = useState(true) // Start with fallback, upgrade to shiki
   const { copiedId, copy } = useCopyCode()
 
-  // Extract language from className (format: "language-xxx")
   const lang = className?.replace('language-', '') || 'text'
-  const code = String(children || '').replace(/\n$/, '')
+  const codeText = getCodeText(children)
 
   useEffect(() => {
-    let cancelled = false
-    getHighlighter().then(highlighter => {
-      if (cancelled) return
-      const isDark = document.documentElement.classList.contains('dark')
-      const theme = isDark ? 'github-dark' : 'github-light'
-      const highlighted = highlighter.codeToHtml(code, { lang, theme })
-      setHtml(highlighted)
-    })
-    return () => { cancelled = true }
-  }, [code, lang])
+    getHighlighter()
+      .then(highlighter => {
+        const isDark = document.documentElement.classList.contains('dark')
+        const theme = isDark ? 'github-dark' : 'github-light'
+        const highlighted = highlighter.codeToHtml(codeText, { lang, theme })
+        setHtml(highlighted)
+        setUseFallback(false)
+      })
+      .catch(() => {
+        // shiki unavailable (browser dev mode) — stay with fallback
+      })
+  }, [codeText, lang])
 
   return (
-    <Card className="relative group my-2 overflow-hidden">
-      {/* Language badge + copy button */}
+    <div className="relative group my-2 rounded-md border border-[#ebebeb] dark:border-[#2a2a2a] overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 bg-[#f5f5f5] dark:bg-[#252525] border-b border-[#ebebeb] dark:border-[#2a2a2a]">
         <span className="text-[11px] font-mono text-[#888] uppercase">{lang}</span>
         <button
-          onClick={() => copy(code, blockId || '')}
+          onClick={() => copy(codeText, blockId || '')}
           className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[#ebebeb] dark:hover:bg-[#333]"
           title="复制"
         >
@@ -77,12 +84,17 @@ function CodeBlock({ className, children, blockId }: CodeBlockProps) {
           }
         </button>
       </div>
-      {/* Highlighted code */}
-      <div
-        className="text-[13px] leading-5 overflow-x-auto p-3 [&>pre]:m-0 [&>pre]:bg-transparent"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    </Card>
+      {useFallback ? (
+        <pre className="text-[13px] leading-5 overflow-x-auto p-3 m-0 font-mono text-[#4d4d4d] dark:text-[#ebebeb]">
+          <code>{codeText}</code>
+        </pre>
+      ) : (
+        <div
+          className="text-[13px] leading-5 overflow-x-auto p-3 [&>pre]:m-0 [&>pre]:bg-transparent"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+    </div>
   )
 }
 
@@ -99,8 +111,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
+          pre({ children }) {
+            return <>{children}</>
+          },
           code({ className, children, ...props }) {
-            // Determine if it's a code block (has language class) or inline code
             if (className) {
               blockCounter.current++
               return (
@@ -109,14 +123,12 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
                 </CodeBlock>
               )
             }
-            // Inline code
             return (
               <code className="bg-[#f5f5f5] dark:bg-[#252525] px-1 py-0.5 rounded text-[13px] font-mono" {...props}>
                 {children}
               </code>
             )
           },
-          // Override other markdown elements with proper styling
           table({ children }) {
             return (
               <div className="overflow-x-auto my-2">

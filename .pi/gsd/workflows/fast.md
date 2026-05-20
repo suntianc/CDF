@@ -1,4 +1,4 @@
-<gsd-version v="1.12.4" />
+<gsd-version v="2.1.4" />
 
 <purpose>
 Execute a trivial task inline without subagent overhead. No PLAN.md, no Task spawning,

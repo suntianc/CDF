@@ -92,6 +92,24 @@ function App(): React.ReactElement {
     setIsGenerating(true)
     setStreamingContent('')
 
+    // ── Dev mode fallback (browser, no Electron IPC) ──
+    if (!window.api?.session) {
+      setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
+      const sampleText = '你好！我是 AI assistant。\n\n我可以帮你：\n\n1. **编写代码** — 支持 TypeScript、Python、Rust 等\n2. **分析问题** — 帮助调试和理解复杂代码\n3. **写作辅助** — 起草文档、报告等内容\n\n```typescript\nconst greeting = \"Hello World\";\nconsole.log(greeting);\n```\n\n有什么我可以帮你的吗？'
+      setTimeout(() => {
+        setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: sampleText,
+          status: 'sent',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        }])
+        setIsGenerating(false)
+      }, 800)
+      return
+    }
+
+    // ── Real IPC path (Electron) ──
     try {
       const wsPath = workspaces[0]?.path
       if (!wsPath) return
@@ -106,7 +124,7 @@ function App(): React.ReactElement {
       }
 
       // Send message
-      const result = await window.api.session.sendMessage({ sessionPath, content, images })
+      await window.api.session.sendMessage({ sessionPath, content, images })
 
       // Update user message status to 'sent'
       setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
@@ -129,8 +147,6 @@ function App(): React.ReactElement {
           })
           setStreamingContent('')
           setIsGenerating(false)
-
-          // Auto-title on first AI response
           autoGenerateTitle(sessionPath!, content)
         } else if (chunk.type === 'error') {
           setMessages(prev => [...prev, {
@@ -146,8 +162,6 @@ function App(): React.ReactElement {
       })
 
       cleanupRef.current = cleanup
-
-      // Start streaming
       window.api.session.startStream(sessionPath)
 
     } catch (err) {
@@ -158,7 +172,7 @@ function App(): React.ReactElement {
   }, [workspaces, activeSessionPath, streamingContent, loadConversations, autoGenerateTitle])
 
   const handleStop = useCallback(() => {
-    if (activeSessionPath) {
+    if (activeSessionPath && window.api?.session) {
       window.api.session.stopStream(activeSessionPath)
     }
     // Finalize streaming content as stopped AI message
@@ -330,10 +344,10 @@ function App(): React.ReactElement {
         onNewConversation={handleNewChat}
       />
 
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col overflow-hidden">
         {/* Main content drag region */}
         <div className="h-[38px] w-full shrink-0 window-drag-region" />
-        <div className="flex-1 flex">
+        <div className="flex-1 flex overflow-hidden">
           {(activeNav === 'welcome' || activeNav === 'chat') && (
             <ChatPanel
               messages={chatMessages}

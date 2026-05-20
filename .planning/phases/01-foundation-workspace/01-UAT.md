@@ -68,4 +68,14 @@ blocked: 0
 
 ## Gaps
 
-[]
+- truth: "Custom provider edit opens form without disappearing"
+  status: resolved
+  reason: "User reported clicking 编辑 on custom provider caused it to disappear"
+  severity: major
+  test: 10
+  root_cause: "SettingsPage had no form rendering branch for editingProvider === 'custom'"
+  artifacts:
+    - path: "src/renderer/src/pages/SettingsPage.tsx"
+      issue: "Missing conditional render for custom provider edit form"
+  missing:
+    - "Add edit form rendering when editingProvider === 'custom'"

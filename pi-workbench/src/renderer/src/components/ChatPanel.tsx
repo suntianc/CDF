@@ -2,9 +2,7 @@ import { useRef, useEffect } from 'react'
 import { MessageBubble } from './MessageBubble'
 import { MessageQueue } from './MessageQueue'
 import { InputArea } from './InputArea'
-import { WelcomeDialog } from './WelcomeDialog'
 import { GSDResultCard } from './GSDResultCard'
-import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface Message {
   id: string
@@ -54,15 +52,28 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
     }
   }, [messages])
 
-  // Empty state — show WelcomeDialog
+  // ── Empty state: centered input area as dialog ──
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[#fafafa] dark:bg-[#171717]">
-        <WelcomeDialog onNewChat={onNewChat} hasWorkspace={!!currentWorkspace} />
+      <div className="flex-1 flex flex-col bg-[#fafafa] dark:bg-[#171717]">
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="w-full max-w-xl">
+            <InputArea
+              onSend={onSend}
+              onStop={onStop}
+              isGenerating={isGenerating}
+              disabled={false}
+              onGSDCommand={onGSDCommand}
+              gsdCommands={gsdCommands}
+              onQueueAdd={onQueueAdd}
+            />
+          </div>
+        </div>
       </div>
     )
   }
 
+  // ── Active state: messages + InputArea at bottom ──
   return (
     <div className="flex-1 flex flex-col bg-[#fafafa] dark:bg-[#171717]">
       {/* Messages list */}
@@ -76,7 +87,6 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div className="max-w-[720px]">
-              {/* Check if this is a GSD result message */}
               {(() => {
                 try {
                   const parsed = JSON.parse(msg.content)
@@ -101,16 +111,14 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
         {isGenerating && messages.filter(m => m.role === 'assistant').length === (messages[messages.length - 1]?.id === 'streaming' ? 1 : 0) && !messages.some(m => m.id === 'streaming') && (
           <div className="flex justify-start">
             <div className="max-w-[720px] bg-white dark:bg-[#1a1a1a] rounded-lg px-4 py-2">
-              <span className="text-sm text-[#888] animate-pulse">
-                思考中...
-              </span>
+              <span className="text-sm text-[#888] animate-pulse">思考中...</span>
             </div>
           </div>
         )}
       </div>
 
       {/* Message Queue */}
-      {queue && onQueueGuide && onQueueDelete && (
+      {queue && onQueueGuide && onQueueDelete && queue.length > 0 && (
         <MessageQueue
           items={queue}
           onGuide={onQueueGuide}
@@ -118,7 +126,7 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
         />
       )}
 
-      {/* Input area */}
+      {/* Input area at bottom */}
       <InputArea
         onSend={onSend}
         onStop={onStop}

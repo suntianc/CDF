@@ -9,5 +9,5 @@
     "verifier": true,
     "nyquist_validation": false
   },
-  "model_profile": "balanced"
+  "model_profile": "inherit"
 }
