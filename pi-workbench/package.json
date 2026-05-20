@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^0.75.3",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@fontsource-variable/geist": "^5.2.9",
