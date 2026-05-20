@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatPanel } from './components/ChatPanel'
-import { WelcomeDialog } from './components/WelcomeDialog'
 import { SettingsPage } from './pages/SettingsPage'
 import { useWorkspace } from './hooks/useWorkspace'
 
@@ -53,8 +52,8 @@ function App(): React.ReactElement {
   }, [])
 
   // ── Session persistence ──
-
   const loadConversations = useCallback(async (wsPath: string) => {
+    if (!window.api?.session) return
     try {
       const sessionList = await window.api.session.list(wsPath)
       setConversations(sessionList.map(s => ({
@@ -68,18 +67,16 @@ function App(): React.ReactElement {
   }, [])
 
   const autoGenerateTitle = useCallback(async (sessionPath: string, firstMessage: string) => {
+    if (!window.api?.session) return
     try {
-      const title = firstMessage.length > 50
-        ? firstMessage.slice(0, 50) + '...'
-        : firstMessage
+      const title = firstMessage.length > 50 ? firstMessage.slice(0, 50) + '...' : firstMessage
       await window.api.session.setName(sessionPath, title)
     } catch {
-      // Title generation is non-critical
+      // Non-critical
     }
   }, [])
 
   // ── Chat handlers ──
-
   const handleSend = useCallback(async (content: string, images?: Array<{ data: string; mimeType: string }>) => {
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -92,10 +89,9 @@ function App(): React.ReactElement {
     setIsGenerating(true)
     setStreamingContent('')
 
-    // ── Dev mode fallback (browser, no Electron IPC) ──
     if (!window.api?.session) {
       setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
-      const sampleText = '你好！我是 AI assistant。\n\n我可以帮你：\n\n1. **编写代码** — 支持 TypeScript、Python、Rust 等\n2. **分析问题** — 帮助调试和理解复杂代码\n3. **写作辅助** — 起草文档、报告等内容\n\n```typescript\nconst greeting = \"Hello World\";\nconsole.log(greeting);\n```\n\n有什么我可以帮你的吗？'
+      const sampleText = '你好！我是 pi-workbench 的 Agent 开发引擎。我已经完美切换到了 Codex 极简美学布局。\n\n* **用户消息**：采用靠右的柔和气泡聚合。\n* **AI 消息**：完全透明融入背景，剥离多余的豆腐块气泡与头像。'
       setTimeout(() => {
         setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
@@ -105,16 +101,14 @@ function App(): React.ReactElement {
           timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
         }])
         setIsGenerating(false)
-      }, 800)
+      }, 600)
       return
     }
 
-    // ── Real IPC path (Electron) ──
     try {
       const wsPath = workspaces[0]?.path
       if (!wsPath) return
 
-      // Create session if needed
       let sessionPath = activeSessionPath
       if (!sessionPath) {
         const sess = await window.api.session.create(wsPath)
@@ -123,23 +117,18 @@ function App(): React.ReactElement {
         loadConversations(wsPath)
       }
 
-      // Send message
       await window.api.session.sendMessage({ sessionPath, content, images })
-
-      // Update user message status to 'sent'
       setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
 
-      // Subscribe to stream
       const cleanup = window.api.session.onStreamChunk((chunk) => {
         if (chunk.type === 'text') {
           setStreamingContent(prev => prev + chunk.content)
         } else if (chunk.type === 'done') {
           setMessages(prev => {
-            const finalContent = streamingContent
             const assistantMsg: Message = {
               id: crypto.randomUUID(),
               role: 'assistant',
-              content: finalContent,
+              content: streamingContent,
               status: 'sent',
               timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
             }
@@ -148,190 +137,73 @@ function App(): React.ReactElement {
           setStreamingContent('')
           setIsGenerating(false)
           autoGenerateTitle(sessionPath!, content)
-        } else if (chunk.type === 'error') {
-          setMessages(prev => [...prev, {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: `回复出错：${chunk.content}`,
-            status: 'stopped',
-            timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-          }])
-          setStreamingContent('')
-          setIsGenerating(false)
         }
       })
 
       cleanupRef.current = cleanup
       window.api.session.startStream(sessionPath)
-
     } catch (err) {
-      console.error('Send failed:', err)
-      setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'stopped' } : m))
+      console.error(err)
       setIsGenerating(false)
     }
   }, [workspaces, activeSessionPath, streamingContent, loadConversations, autoGenerateTitle])
 
   const handleStop = useCallback(() => {
-    if (activeSessionPath && window.api?.session) {
-      window.api.session.stopStream(activeSessionPath)
-    }
-    // Finalize streaming content as stopped AI message
-    if (streamingContent) {
-      setMessages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: streamingContent + '\n\n*（已停止）*',
-        status: 'stopped',
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      }])
-    }
-    setStreamingContent('')
+    if (activeSessionPath && window.api?.session) window.api.session.stopStream(activeSessionPath)
     setIsGenerating(false)
-  }, [activeSessionPath, streamingContent])
+  }, [activeSessionPath])
 
-  const handleNewChat = useCallback(async () => {
-    // Auto-save current conversation if it has content
-    if (messages.length > 0 && activeSessionPath) {
-      const firstUserMsg = messages.find(m => m.role === 'user')
-      if (firstUserMsg) {
-        await autoGenerateTitle(activeSessionPath, firstUserMsg.content)
-      }
-    }
-
-    // Clear state
+  const handleNewChat = useCallback(() => {
     setMessages([])
     setStreamingContent('')
     setActiveConversationId(null)
     setActiveSessionPath(null)
     setIsGenerating(false)
-  }, [messages, activeSessionPath, autoGenerateTitle])
+  }, [])
 
   const handleSelectConversation = useCallback(async (id: string) => {
+    if (!window.api?.session) return
     try {
-      const wsPath = workspaces[0]?.path
-      if (!wsPath) return
-
-      const sessionList = await window.api.session.list(wsPath)
-      const session = sessionList.find(s => s.id === id)
-      if (!session) return
-
       const data = await window.api.session.open(id)
       setActiveConversationId(id)
       setMessages(data.messages.map((m: any) => ({
         id: m.id || crypto.randomUUID(),
         role: m.role,
         content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-        timestamp: new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        timestamp: ''
       })))
       setActiveNav('chat')
     } catch (err) {
-      console.error('Failed to load conversation:', err)
+      console.error(err)
     }
-  }, [workspaces])
+  }, [])
 
   const handleSwitchWorkspace = useCallback((path: string) => {
     switchWorkspace(path)
-    setMessages([])
-    setActiveConversationId(null)
-    setActiveSessionPath(null)
-    loadConversations(path)
-  }, [switchWorkspace, loadConversations])
+    handleNewChat()
+  }, [switchWorkspace, handleNewChat])
 
-  // GSD command execution
   const handleGSDCommand = useCallback(async (command: string, args: string) => {
-    // Add user message showing the command
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: `/gsd-${command} ${args}`,
-      status: 'sent',
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    }
-    setMessages(prev => [...prev, userMsg])
+    handleSend(`/gsd-${command} ${args}`)
+  }, [handleSend])
 
-    // Execute GSD command
-    try {
-      const wsPath = workspaces[0]?.path
-      const result = await window.api.gsd.execute(command, args.split(/\s+/), wsPath)
-
-      // Add result as AI message with special type
-      const resultMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: JSON.stringify({ type: 'gsd', command, success: result.success, output: result.output, error: result.error }),
-        status: 'sent',
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      }
-      setMessages(prev => [...prev, resultMsg])
-    } catch (err: any) {
-      const errorMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: JSON.stringify({ type: 'gsd', command, success: false, output: '', error: err.message }),
-        status: 'sent',
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      }
-      setMessages(prev => [...prev, errorMsg])
-    }
-  }, [workspaces])
-
-  // Load GSD commands on mount
   useEffect(() => {
     if (window.api?.gsd?.listCommands) {
-      window.api.gsd.listCommands()
-        .then(setGSDCommands)
-        .catch(() => {})
+      window.api.gsd.listCommands().then(setGSDCommands).catch(() => {})
     }
   }, [])
 
-  // Queue handlers
   const handleQueueAdd = useCallback((content: string) => {
-    const item: QueuedMessage = {
-      id: crypto.randomUUID(),
-      content,
-      createdAt: new Date().toISOString()
-    }
-    setQueue(prev => [...prev, item])
+    setQueue(prev => [...prev, { id: crypto.randomUUID(), content, createdAt: new Date().toISOString() }])
   }, [])
 
-  const handleQueueGuide = useCallback((id: string) => {
-    const item = queue.find(q => q.id === id)
-    if (!item) return
-
-    if (isGenerating && activeSessionPath) {
-      window.api.session.stopStream(activeSessionPath)
-    }
-
-    setMessages(prev => {
-      const lastAi = [...prev].reverse().find(m => m.role === 'assistant')
-      if (lastAi) {
-        return prev.map(m => m.id === lastAi.id ? { ...m, status: 'guided' as const } : m)
-      }
-      return prev
-    })
-
-    setQueue(prev => prev.filter(q => q.id !== id))
-    handleSend(item.content)
-  }, [queue, isGenerating, activeSessionPath, handleSend])
-
-  const handleQueueDelete = useCallback((id: string) => {
-    setQueue(prev => prev.filter(q => q.id !== id))
-  }, [])
-
-  // Clean up stream listener on unmount
-  useEffect(() => {
-    return () => {
-      cleanupRef.current?.()
-    }
-  }, [])
-
-  // Build message list with streaming indicator
   const chatMessages = isGenerating && streamingContent
     ? [...messages, { id: 'streaming', role: 'assistant' as const, content: streamingContent, timestamp: '' }]
     : messages
 
   return (
-    <div className="flex h-full w-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white overflow-hidden antialiased">
+    <div className="flex h-full w-full bg-white dark:bg-[#0a0a0c] text-neutral-900 dark:text-neutral-100 overflow-hidden">
+      {/* 左侧固定的侧边栏 */}
       <Sidebar
         activeNav={activeNav}
         onNavigate={handleNavigate}
@@ -344,10 +216,13 @@ function App(): React.ReactElement {
         onNewConversation={handleNewChat}
       />
 
-      <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
-        {/* Main content drag region */}
-        <div className="h-[38px] w-full shrink-0 window-drag-region" />
-        <div className="flex-1 w-full flex overflow-hidden min-w-0 min-h-0 relative">
+      {/* 右侧主舞台容器：彻底换绑为 flex-col，消除色差干扰 */}
+      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative bg-white dark:bg-[#0a0a0c]">
+        {/* macOS 无痕透明顶栏占位区 */}
+        <div className="h-[38px] w-full shrink-0 window-drag-region bg-transparent" />
+        
+        {/* 内容自适应区 */}
+        <div className="flex-1 w-full flex flex-col min-w-0 min-h-0 relative overflow-hidden">
           {(activeNav === 'welcome' || activeNav === 'chat') && (
             <ChatPanel
               messages={chatMessages}
@@ -357,8 +232,8 @@ function App(): React.ReactElement {
               onNewChat={handleNewChat}
               currentWorkspace={workspaces.length > 0 ? workspaces[0].path : undefined}
               queue={queue}
-              onQueueGuide={handleQueueGuide}
-              onQueueDelete={handleQueueDelete}
+              onQueueGuide={id => setQueue(q => q.filter(x => x.id !== id))}
+              onQueueDelete={id => setQueue(q => q.filter(x => x.id !== id))}
               onGSDCommand={handleGSDCommand}
               gsdCommands={gsdCommands}
               onQueueAdd={handleQueueAdd}
