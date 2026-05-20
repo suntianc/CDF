@@ -331,7 +331,7 @@ function App(): React.ReactElement {
     : messages
 
   return (
-    <div className="flex h-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white">
+    <div className="flex h-full w-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white overflow-hidden antialiased">
       <Sidebar
         activeNav={activeNav}
         onNavigate={handleNavigate}
