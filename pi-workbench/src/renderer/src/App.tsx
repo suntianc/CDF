@@ -344,10 +344,10 @@ function App(): React.ReactElement {
         onNewConversation={handleNewChat}
       />
 
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
         {/* Main content drag region */}
         <div className="h-[38px] w-full shrink-0 window-drag-region" />
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 w-full flex overflow-hidden min-w-0 min-h-0 relative">
           {(activeNav === 'welcome' || activeNav === 'chat') && (
             <ChatPanel
               messages={chatMessages}

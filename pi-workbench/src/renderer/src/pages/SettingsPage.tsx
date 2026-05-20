@@ -47,8 +47,9 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-white dark:bg-[#0a0a0c] transition-colors duration-300">
-      <div className="max-w-xl mx-auto px-8 py-10 space-y-10">
+    <div className="flex-1 h-full overflow-y-auto bg-white dark:bg-[#0a0a0c] transition-colors duration-300 min-w-0">
+      {/* 将 max-w-xl 升级为在平板/大屏下支持更大舒展度的 max-w-2xl，且内边距改用响应式 px-4 sm:px-8 */}
+      <div className="max-w-2xl mx-auto px-4 sm:px-8 py-8 sm:py-12 space-y-10 min-w-0">
 
         {/* Header 页头 */}
         <div className="space-y-1">
@@ -61,8 +62,8 @@ export function SettingsPage() {
         </div>
 
         {/* 提供商网格列表 */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between px-1">
+        <section className="space-y-3 min-w-0">
+          <div className="flex items-center justify-between px-1 gap-2 flex-wrap">
             <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
               密钥网关提供商
             </h2>
@@ -72,7 +73,7 @@ export function SettingsPage() {
           </div>
 
           {/* 统一的一体化容器，去除外露套娃多层背景 */}
-          <div className="rounded-xl border border-neutral-200/60 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-[#121215]/50 overflow-hidden divide-y divide-neutral-200/40 dark:divide-neutral-800/40">
+          <div className="rounded-xl border border-neutral-200/60 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-[#121215]/50 overflow-hidden divide-y divide-neutral-200/40 dark:divide-neutral-800/40 min-w-0">
             {presets.map((preset) => {
               const configured = isConfigured(preset.type)
               const provider = getProvider(preset.type)
