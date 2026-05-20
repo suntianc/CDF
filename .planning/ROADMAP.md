@@ -1,15 +1,16 @@
 # Roadmap: pi-workbench
 
-**4 phases** | **30 v1 requirements mapped** | **All v1 requirements covered** ✅
+**5 phases** | **34 requirements mapped** | **All current requirements covered** ✅
 
 ## Phase Overview
 
 | # | Phase | Goal | Requirements | Success Criteria |
 |---|-------|------|-------------|-----------------|
 | 1 | Foundation & Workspace | 搭好应用骨架，选择工作区，配置模型提供商 | WS-01~04, PROV-01~05, UI-01~05 | 应用启动看到界面，能选工作区，能配 API Key |
-| 2 | AI Chat Engine | AI 对话核心体验 | CHAT-01~05, GSD-01 | 能对话、流式显示、历史持久化、可调用 GSD commands |
+| 2 | AI Chat Engine | AI 对话核心体验 | CHAT-01~05 | 能对话、流式显示、历史持久化、可清空/新建对话 |
 | 3 | Skills System | Skills 发现、安装、执行 + GSD 工作流 | SKILL-01~06, GSD-02~03 | 能看到 skills 列表，能从 GitHub 安装，能点击执行 |
 | 4 | MCP Integration | MCP server 连接管理 + 工具注入 | MCP-01~06 | 能添加 MCP server，工具自动注入，agent 可调用 |
+| 5 | Workflow Builder | 基于 React Flow 构建 agent 工作流编辑体验 | FLOW-01~04 | 能新增、编辑、删除工作流，并在画布中构建和保存 |
 
 ---
 
@@ -38,14 +39,22 @@
 
 **Goal:** 核心对话体验——用户可以跟 AI agent 对话
 
-**Requirements:** CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, GSD-01
+**Requirements:** CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05
 
 **Success Criteria:**
 1. 聊天面板可输入消息并发送
 2. Agent 回复流式显示，Markdown 渲染正确
 3. 对话历史可保存和恢复
 4. 可清空/新建对话
-5. 可直接在聊天中输入 `/gsd-*` 命令执行 GSD 工作流
+
+**Plans:** 5 plans in 3 waves
+
+Plans:
+- [ ] 02-01-PLAN.md — Message store (Zustand) + IPC streaming foundation
+- [ ] 02-02-PLAN.md — Chat UI components (ChatPanel, MessageBubble, InputArea, WelcomeDialog)
+- [ ] 02-03-PLAN.md — Markdown rendering (react-markdown + shiki) + streaming hook
+- [ ] 02-04-PLAN.md — Chat history persistence (electron-store per-conversation + pagination)
+- [ ] 02-05-PLAN.md — New conversation + clear conversation (ConversationList)
 
 **Phase dependencies:** Phase 1 (需要 Model Provider 和工作区已配置)
 
@@ -81,6 +90,21 @@
 
 **Phase dependencies:** Phase 2 (需要 agent 对话能力)
 
+### Phase 5: Workflow Builder
+
+**Goal:** 基于 React Flow 构建 agent 工作流，支持新增、编辑、删除、画布构建工作流
+
+**Requirements:** FLOW-01, FLOW-02, FLOW-03, FLOW-04
+
+**Success Criteria:**
+1. 用户可以创建新的 agent 工作流并填写基础信息
+2. 用户可以在 React Flow 画布中新增、连接、删除节点与边
+3. 用户可以编辑已有工作流并持久化保存
+4. 用户可以删除不再使用的工作流
+5. 工作流列表与画布编辑状态在应用重启后可恢复
+
+**Phase dependencies:** Phase 2 (需要 agent 对话能力), Phase 3 (可复用 skills / agent 能力), Phase 4 (可接入 MCP 工具节点)
+
 ---
 
 ## Traceability
@@ -106,7 +130,6 @@
 | CHAT-03 | Phase 2 | Pending |
 | CHAT-04 | Phase 2 | Pending |
 | CHAT-05 | Phase 2 | Pending |
-| GSD-01 | Phase 2 | Pending |
 | SKILL-01 | Phase 3 | Pending |
 | SKILL-02 | Phase 3 | Pending |
 | SKILL-03 | Phase 3 | Pending |
@@ -121,11 +144,16 @@
 | MCP-04 | Phase 4 | Pending |
 | MCP-05 | Phase 4 | Pending |
 | MCP-06 | Phase 4 | Pending |
+| FLOW-01 | Phase 5 | Pending |
+| FLOW-02 | Phase 5 | Pending |
+| FLOW-03 | Phase 5 | Pending |
+| FLOW-04 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 30 total
-- Mapped to phases: 30
+- current requirements: 34 total
+- Mapped to phases: 34
 - Unmapped: 0 ✅
 
 ---
 *Roadmap created: 2026-05-19*
+*Last updated: 2026-05-21 for Phase 2 replan*
