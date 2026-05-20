@@ -21,7 +21,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         className={`
           text-[14px] leading-relaxed break-words tracking-wide w-full
           ${isUser
-            ? 'rounded-2xl px-4 py-2 bg-neutral-200/50 text-neutral-900 dark:bg-neutral-800/60 dark:text-neutral-100 border border-neutral-200/30 dark:border-neutral-800/20 text-left'
+            ? 'rounded-xl px-4 py-2.5 bg-neutral-200/40 text-neutral-900 dark:bg-neutral-800/50 dark:text-neutral-100 border border-neutral-200/20 dark:border-neutral-800/20 text-left'
             : 'bg-transparent text-neutral-800 dark:text-neutral-200 py-1 px-0 text-left'
             /* AI 内容彻底回归无边界印刷感 */
           }

@@ -202,7 +202,7 @@ function App(): React.ReactElement {
     : messages
 
   return (
-    <div className="flex h-full w-full bg-white dark:bg-[#0a0a0c] text-neutral-900 dark:text-neutral-100 overflow-hidden">
+    <div className="flex h-full w-full bg-white dark:bg-[#0a0a0c] text-neutral-900 dark:text-neutral-100 overflow-hidden antialiased">
       {/* 左侧固定的侧边栏 */}
       <Sidebar
         activeNav={activeNav}
