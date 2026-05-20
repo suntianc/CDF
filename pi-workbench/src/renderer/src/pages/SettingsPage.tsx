@@ -47,9 +47,8 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-white dark:bg-[#0a0a0c] transition-colors duration-300 min-w-0">
-      {/* 将 max-w-xl 升级为在平板/大屏下支持更大舒展度的 max-w-2xl，且内边距改用响应式 px-4 sm:px-8 */}
-      <div className="max-w-2xl mx-auto px-4 sm:px-8 py-8 sm:py-12 space-y-10 min-w-0">
+    <div className="flex-1 h-full overflow-y-auto bg-white dark:bg-[#0a0a0c] transition-colors duration-300 min-w-0 flex justify-center">
+      <div className="w-full max-w-2xl px-6 sm:px-8 py-10 space-y-10 min-w-0">
 
         {/* Header 页头 */}
         <div className="space-y-1">
