@@ -1,4 +1,4 @@
-import { Settings, Code2, Puzzle, Plus, MessageSquare, FolderGit2 } from 'lucide-react'
+import { Settings, Code2, Puzzle, Plus, FolderGit2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ConversationList } from './ConversationList'
 

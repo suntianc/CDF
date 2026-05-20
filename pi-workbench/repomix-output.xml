@@ -772,149 +772,88 @@ body {
 
 <file path="src/renderer/src/assets/main.css">
 @import "tailwindcss";
-
 @import './base.css';
-
 @import "tw-animate-css";
-
 @import "shadcn/tailwind.css";
-
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: 'Geist Variable', sans-serif;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --color-foreground: var(--foreground);
-  --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, sans-serif;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* 带有微弱暖色/中性高级灰的高级白，避免死白眼疲劳 */
+  --background: #fbfbfb;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+
+  /* 精致的极细灰色线条色（全局核心） */
+  --border: rgba(0, 0, 0, 0.06);
+  --input: rgba(0, 0, 0, 0.06);
+
+  /* 侧边栏完美融入主体，采用微弱的层次差 */
+  --sidebar: #f5f5f5;
+  --sidebar-foreground: #222222;
+  --sidebar-border: rgba(0, 0, 0, 0.05);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* 极其深邃的超黑/碳黑体系（类似 Vercel/Linear） */
+  --background: #0a0a0a;
+  --foreground: #f4f4f5;
+  --card: #121212;
+  --card-foreground: #f4f4f5;
+  --popover: #121212;
+  --popover-foreground: #f4f4f5;
+
+  --muted: #1b1b1f;
+  --muted-foreground: #a1a1aa;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+
+  --sidebar: #0e0e11;
+  --sidebar-foreground: #e4e4e7;
+  --sidebar-border: rgba(255, 255, 255, 0.05);
 }
 
-/* Vercel-style shadow utilities */
+/* 抛弃原生粗糙阴影，改用细腻的复合层级阴影（Linear 风格） */
 .shadow-card {
-  box-shadow: 0 0 0 1px #00000014, 0px 1px 1px #00000005;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 .shadow-elevated {
-  box-shadow: 0 0 0 1px #00000014, 0px 1px 1px #00000005, 0px 2px 2px #0000000a;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04), 0 12px 24px -4px rgba(0, 0, 0, 0.02);
 }
 .shadow-sidebar {
-  box-shadow: 0 0 0 1px #00000014, 0px 1px 1px #00000005, 0px 2px 2px #0000000a, 0px 8px 8px -8px #0000000a;
+  box-shadow: none; /* 去掉生硬右侧侧边栏阴影，仅靠 border 隔离 */
 }
-.shadow-dialog {
-  box-shadow: 0 0 0 1px #00000014, 0px 1px 1px #00000005, 0px 8px 16px -4px #0000000a, 0px 24px 32px -8px #0000000f;
+
+/* 极其重要的打字机无边框滚动条（细节控最爱） */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Window drag region for macOS hiddenInset title bar */
 .window-drag-region {
   -webkit-app-region: drag;
 }
-
-/* No-drag for interactive elements in drag region */
 .window-drag-region button,
 .window-drag-region input,
 .window-drag-region a {
@@ -927,16 +866,17 @@ html, body, #root {
 }
 
 body {
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border/80 outline-none;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground tracking-tight selection:bg-neutral-200 dark:selection:bg-neutral-800;
   }
   html {
     @apply font-sans;
@@ -2182,23 +2122,20 @@ export function ChatPanel({ messages, isGenerating, onSend, onStop, onNewChat, c
     }
   }, [messages])
 
-  // ── 空白状态：精致的极简主义 Dialog ──
+  // ── 空白状态：Claude / Vercel 风格无缝居中引导 ──
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col bg-neutral-50 dark:bg-[#0b0b0b] transition-colors duration-300">
-        <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-2xl mx-auto w-full">
-          <div className="text-center mb-8 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="inline-flex p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 mb-2 shadow-sm">
-              <Sparkles className="w-6 h-6 animate-pulse text-indigo-500" />
+      <div className="flex-1 flex flex-col bg-neutral-50/50 dark:bg-[#0a0a0c] transition-colors duration-300">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-xl mx-auto w-full">
+          <div className="text-center mb-6 space-y-2">
+            <div className="inline-flex p-2.5 rounded-xl bg-white dark:bg-neutral-900 text-indigo-500 shadow-sm border border-neutral-100 dark:border-neutral-800">
+              <Sparkles className="w-5 h-5 animate-pulse" />
             </div>
-            <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+            <h2 className="text-lg font-medium tracking-tight text-neutral-900 dark:text-neutral-100">
               今天想构建什么系统？
             </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-md">
-              输入消息直接开始对话，或者使用键盘触发 <code className="px-1.5 py-0.5 rounded font-mono bg-neutral-200 dark:bg-neutral-800 text-[11px]">/gsd-</code> 指令调度工程状态。
-            </p>
           </div>
-          <div className="w-full shadow-xl shadow-neutral-200/50 dark:shadow-none border border-neutral-200/60 dark:border-neutral-800/80 rounded-2xl bg-white dark:bg-[#121212] overflow-hidden">
+          <div className="w-full shadow-elevated rounded-xl">
             <InputArea
               onSend={onSend}
               onStop={onStop}
@@ -2685,7 +2622,7 @@ export function ImagePreview({ src, open, onClose }: ImagePreviewProps) {
 <file path="src/renderer/src/components/InputArea.tsx">
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { CommandPalette } from './CommandPalette'
-import { ImagePlus } from 'lucide-react'
+import { ImagePlus, ArrowUp, Square } from 'lucide-react'
 
 interface GSDCommand {
   id: string
@@ -2707,35 +2644,29 @@ interface InputAreaProps {
 
 export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand, gsdCommands, onQueueAdd }: InputAreaProps) {
   const [input, setInput] = useState('')
-  const [showSentToast, setShowSentToast] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [gsdFilter, setGSDfilter] = useState('')
   const [pendingImages, setPendingImages] = useState<Array<{ data: string; mimeType: string }>>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-resize textarea (1 → 6-8 lines max)
   useEffect(() => {
     const el = textareaRef.current
     if (el) {
       el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+      el.style.height = Math.min(el.scrollHeight, 160) + 'px'
     }
   }, [input])
 
-  // Focus input on mount
   useEffect(() => {
     textareaRef.current?.focus()
   }, [])
 
-  // Detect /gsd- input for command palette
   useEffect(() => {
     const gsdMatch = input.match(/^\/gsd-(\w*)$/)
     if (gsdMatch) {
       setGSDfilter(gsdMatch[1])
       setShowCommandPalette(true)
-    } else if (input.startsWith('/gsd-') && input.includes(' ')) {
-      setShowCommandPalette(false)
     } else {
       setShowCommandPalette(false)
     }
@@ -2746,23 +2677,17 @@ export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand
     textareaRef.current?.focus()
   }, [])
 
-  // ── Image handling ──
-
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData.items
     const imageItems = Array.from(items).filter(item => item.type.startsWith('image/'))
     if (imageItems.length === 0) return
-
     e.preventDefault()
     imageItems.forEach(item => {
       const file = item.getAsFile()
       if (file) {
         const reader = new FileReader()
         reader.onload = () => {
-          setPendingImages(prev => [...prev, {
-            data: reader.result as string,
-            mimeType: file.type
-          }])
+          setPendingImages(prev => [...prev, { data: reader.result as string, mimeType: file.type }])
         }
         reader.readAsDataURL(file)
       }
@@ -2775,15 +2700,11 @@ export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand
       if (file.type.startsWith('image/')) {
         const reader = new FileReader()
         reader.onload = () => {
-          setPendingImages(prev => [...prev, {
-            data: reader.result as string,
-            mimeType: file.type
-          }])
+          setPendingImages(prev => [...prev, { data: reader.result as string, mimeType: file.type }])
         }
         reader.readAsDataURL(file)
       }
     })
-    // Reset so the same file can be selected again
     e.target.value = ''
   }, [])
 
@@ -2791,18 +2712,13 @@ export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand
     setPendingImages(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  // ── Send logic ──
-
   const handleSend = useCallback(() => {
     const trimmed = input.trim()
     if (!trimmed && pendingImages.length === 0) return
 
-    // Check if this is a GSD command
     const gsdCmdMatch = trimmed.match(/^\/gsd-(\S+)\s*(.*)$/)
     if (gsdCmdMatch) {
-      const cmd = gsdCmdMatch[1]
-      const cmdArgs = gsdCmdMatch[2].split(/\s+/).filter(Boolean)
-      onGSDCommand?.(cmd, cmdArgs.join(' '))
+      onGSDCommand?.(gsdCmdMatch[1], gsdCmdMatch[2])
       setInput('')
       return
     }
@@ -2813,27 +2729,15 @@ export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand
       return
     }
 
-    // Normal send with pending images
     onSend(trimmed, pendingImages.length > 0 ? pendingImages : undefined)
     setInput('')
     setPendingImages([])
-    setShowSentToast(true)
-    setTimeout(() => setShowSentToast(false), 2000)
   }, [input, pendingImages, onSend, onGSDCommand, isGenerating, onQueueAdd])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (isGenerating) {
-        if (input.trim() === '') {
-          onStop()
-        } else {
-          onQueueAdd?.(input.trim())
-          setInput('')
-        }
-      } else {
-        handleSend()
-      }
+      handleSend()
     }
   }
 
@@ -2841,93 +2745,69 @@ export function InputArea({ onSend, onStop, isGenerating, disabled, onGSDCommand
 
   return (
     <>
-      <CommandPalette
-        open={showCommandPalette}
-        onOpenChange={setShowCommandPalette}
-        onSelect={handleGSDSelect}
-        commands={gsdCommands}
-        filter={gsdFilter}
-      />
-      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-4 py-2">
-        {/* Sent toast */}
-        {showSentToast && (
-          <div className="text-xs text-[#16a34a] mb-1 transition-opacity duration-200">
-            已发送
-          </div>
-        )}
+      <CommandPalette open={showCommandPalette} onOpenChange={setShowCommandPalette} onSelect={handleGSDSelect} commands={gsdCommands} filter={gsdFilter} />
 
-        {/* Image thumbnails */}
+      {/* 外围渐变融合卡片 */}
+      <div className="bg-white dark:bg-[#111115] p-3 rounded-xl border border-neutral-200/70 dark:border-neutral-800/80 shadow-sm focus-within:border-neutral-400 dark:focus-within:border-neutral-600 transition-all">
+        {/* 图片预览浮层 */}
         {pendingImages.length > 0 && (
-          <div className="flex gap-2 pb-2 flex-wrap">
+          <div className="flex gap-2 pb-2 border-b border-neutral-100 dark:border-neutral-800/50 mb-2">
             {pendingImages.map((img, i) => (
-              <div key={i} className="relative group">
-                <img
-                  src={img.data}
-                  alt="Upload preview"
-                  className="w-16 h-16 object-cover rounded-md border border-[#ebebeb] dark:border-[#2a2a2a]"
-                />
-                <button
-                  onClick={() => removeImage(i)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[#ee0000] text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  ×
-                </button>
+              <div key={i} className="relative group rounded-md overflow-hidden border border-neutral-200 dark:border-neutral-800">
+                <img src={img.data} className="w-12 h-12 object-cover" alt="" />
+                <button onClick={() => removeImage(i)} className="absolute inset-0 bg-black/40 flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity">×</button>
               </div>
             ))}
           </div>
         )}
 
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder="输入消息，或 /gsd-* 执行命令"
-            rows={1}
-            disabled={disabled}
-            className="flex-1 resize-none bg-transparent text-sm leading-5 text-[#171717] dark:text-white placeholder:text-[#888888] outline-none py-2 min-h-[40px] max-h-[200px]"
-          />
+        {/* 核心文本框 */}
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder="有什么我可以帮你的？键入 /gsd- 唤醒工程工具..."
+          rows={1}
+          disabled={disabled}
+          className="w-full bg-transparent text-[14px] leading-relaxed text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 resize-none outline-none no-scrollbar min-h-[32px]"
+        />
 
-          {/* Image upload button */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-[#888] hover:bg-[#f5f5f5] dark:hover:bg-[#252525] transition-colors"
-            title="上传图片"
-          >
-            <ImagePlus className="w-4 h-4" />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-          />
+        {/* 底部控制工具栏区域：极致紧凑 */}
+        <div className="flex items-center justify-between pt-2 mt-1 border-t border-neutral-100/70 dark:border-neutral-800/40">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              title="附带图像资产"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
+            <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500 px-2">Shift+Enter 换行</span>
+          </div>
 
-          {/* Send/Stop button */}
-          {isGenerating && input.trim() === '' ? (
-            <button
-              onClick={onStop}
-              className="shrink-0 px-3 py-1.5 bg-[#ee0000] text-white text-sm font-medium leading-5 rounded-[100px] hover:opacity-90 transition-opacity"
-            >
-              停止
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!canSend}
-              className={`shrink-0 px-3 py-1.5 text-sm font-medium leading-5 rounded-[100px] transition-all ${
-                canSend
-                  ? 'bg-[#171717] text-white dark:bg-white dark:text-[#171717] hover:opacity-90'
-                  : 'bg-[#ebebeb] text-[#888888] dark:bg-[#2a2a2a] dark:text-[#666] cursor-not-allowed'
-              }`}
-            >
-              {isGenerating ? '排队' : '发送'}
-            </button>
-          )}
+          {/* 类似 ChatGPT 新版极简小圆形发送按钮 */}
+          <div>
+            {isGenerating && input.trim() === '' ? (
+              <button onClick={onStop} className="p-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg shadow-sm transition-colors">
+                <Square className="w-3.5 h-3.5 fill-white" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!canSend}
+                className={`p-1.5 rounded-lg transition-all ${
+                  canSend
+                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-sm scale-100'
+                    : 'bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-600 scale-95 cursor-not-allowed'
+                }`}
+              >
+                <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>
@@ -3297,9 +3177,9 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
   const [deleting, setDeleting] = useState(false)
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full bg-transparent">
       <div className="flex items-center gap-3 min-w-0">
-        <span className="w-8 h-8 flex items-center justify-center rounded-[6px] bg-neutral-100 dark:bg-neutral-800 shrink-0">
+        <span className="w-8 h-8 flex items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 shrink-0">
           {icon}
         </span>
         <div className="min-w-0">
@@ -3311,11 +3191,6 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
           </div>
           <span className="text-xs text-neutral-500 dark:text-neutral-400">{type}</span>
         </div>
-        {configured && defaultModel && (
-          <span className="hidden md:inline text-[11px] font-mono text-neutral-400 dark:text-neutral-500 ml-2 truncate">
-            默认: {defaultModel}
-          </span>
-        )}
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
@@ -3332,29 +3207,22 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-full transition-colors"
           >
             <Trash2 className="w-3 h-3" />
-            删除
           </button>
         )}
       </div>
 
-      {/* Delete confirmation dialog */}
+      {/* Delete overlay */}
       {deleting && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 dark:bg-black/40 rounded-xl z-10">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 dark:bg-black/40 rounded-xl z-10 backdrop-blur-sm">
           <div className="bg-white dark:bg-neutral-900 rounded-xl p-4 shadow-xl max-w-sm mx-4 space-y-3">
             <p className="text-xs text-neutral-700 dark:text-neutral-300">
-              删除提供商：<strong>{name}</strong> — 此操作不可撤销。确定要删除吗？
+              删除 <strong>{name}</strong>？此操作不可撤销。
             </p>
             <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => { onDelete?.(); setDeleting(false) }}
-                className="px-4 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-full hover:bg-rose-700 transition-colors"
-              >
+              <button onClick={() => { onDelete?.(); setDeleting(false) }} className="px-4 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-full hover:bg-rose-700 transition-colors">
                 确定删除
               </button>
-              <button
-                onClick={() => setDeleting(false)}
-                className="px-4 py-1.5 text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors"
-              >
+              <button onClick={() => setDeleting(false)} className="px-4 py-1.5 text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors">
                 取消
               </button>
             </div>
@@ -3477,7 +3345,7 @@ export function ProviderForm({
 </file>
 
 <file path="src/renderer/src/components/Sidebar.tsx">
-import { Settings, Code2, Puzzle, Plus, MessageSquare } from 'lucide-react'
+import { Settings, Code2, Puzzle, Plus, MessageSquare, FolderGit2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ConversationList } from './ConversationList'
 
@@ -3495,20 +3363,20 @@ function NavItem({ icon, label, active, disabled, comingSoon, onClick }: NavItem
     <button
       onClick={disabled ? undefined : onClick}
       className={`
-        flex items-center gap-3 w-full px-3 py-1.5 text-sm rounded-sm transition-colors
+        flex items-center gap-2.5 w-full px-2.5 py-1.5 text-[13px] rounded-lg transition-all duration-200 font-sans
         ${disabled
-          ? 'text-[#888888] cursor-not-allowed'
+          ? 'text-neutral-400 dark:text-neutral-600 cursor-not-allowed opacity-60'
           : active
-            ? 'bg-[#f5f5f5] text-[#171717] font-medium dark:bg-[#252525] dark:text-white'
-            : 'text-[#4d4d4d] hover:bg-[#f5f5f5] dark:text-[#888] dark:hover:bg-[#252525]'
+            ? 'bg-neutral-200/60 text-neutral-900 font-medium dark:bg-neutral-800 dark:text-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
+            : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/30 dark:text-neutral-400 dark:hover:text-neutral-200 dark:hover:bg-neutral-800/40'
         }
       `}
     >
-      <span className="w-4 h-4 flex items-center justify-center shrink-0">{icon}</span>
-      <span className="flex-1 text-left">{label}</span>
+      <span className="w-4 h-4 flex items-center justify-center shrink-0 opacity-80">{icon}</span>
+      <span className="flex-1 text-left tracking-wide">{label}</span>
       {comingSoon && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#f5f5f5] text-[#888] dark:bg-[#252525]">
-          即将推出
+        <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-md bg-neutral-200/50 text-neutral-500 scale-90 dark:bg-neutral-800/60 dark:text-neutral-400">
+          Beta
         </span>
       )}
     </button>
@@ -3521,7 +3389,6 @@ interface SidebarProps {
   workspaces: Array<{ path: string; name: string }>
   onAddWorkspace: () => void
   onSwitchWorkspace: (path: string) => void
-  // New Phase 2 props
   conversations?: Array<{ id: string; name: string; createdAt: string }>
   activeConversationId?: string | null
   onSelectConversation?: (id: string) => void
@@ -3530,84 +3397,94 @@ interface SidebarProps {
 
 export function Sidebar({ activeNav, onNavigate, workspaces, onAddWorkspace, onSwitchWorkspace, conversations, activeConversationId, onSelectConversation, onNewConversation }: SidebarProps) {
   return (
-    <aside className="w-[256px] h-full flex flex-col bg-white dark:bg-[#1a1a1a] border-r border-[#ebebeb] dark:border-[#2a2a2a] shadow-sidebar select-none">
-      {/* macOS traffic light spacer + drag region */}
+    <aside className="w-[240px] h-full flex flex-col bg-[var(--sidebar)] border-r border-[var(--sidebar-border)] select-none">
+      {/* macOS 交通灯区安全顶部占位 */}
       <div className="h-[38px] w-full shrink-0 window-drag-region" />
-      {/* App title - click to go home */}
-      <div className="px-3 pt-3 pb-2">
+
+      {/* 优雅的主应用标志切换 */}
+      <div className="px-3.5 py-2">
         <button
           onClick={() => onNavigate('welcome')}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#171717] dark:text-white hover:bg-[#f5f5f5] dark:hover:bg-[#252525] rounded-[6px] transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/40 dark:hover:bg-neutral-800/40 rounded-lg transition-colors border border-transparent hover:border-neutral-200/40"
         >
-          <MessageSquare className="w-4 h-4" />
+          <div className="w-4 h-4 rounded bg-neutral-900 dark:bg-neutral-100 flex items-center justify-center text-white dark:text-neutral-900 font-serif text-[10px] font-bold">π</div>
           <span>pi-workbench</span>
         </button>
       </div>
 
-      {/* Conversation list (Phase 2) */}
-      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] mb-1" />
-      <ConversationList
-        conversations={conversations || []}
-        activeId={activeConversationId || null}
-        onSelect={onSelectConversation || (() => {})}
-        onNew={onNewConversation || (() => {})}
-      />
-      <div className="border-t border-[#ebebeb] dark:border-[#2a2a2a] mb-1" />
-
-      {/* Navigation Items */}
-      <nav className="flex-1 px-3 space-y-0.5">
-        <NavItem
-          icon={<Code2 className="w-4 h-4" />}
-          label="Skills"
-          disabled
-          comingSoon
-        />
-        <NavItem
-          icon={<Puzzle className="w-4 h-4" />}
-          label="MCP"
-          disabled
-          comingSoon
-        />
-        <NavItem
-          icon={<Settings className="w-4 h-4" />}
-          label="设置"
-          active={activeNav === 'settings'}
-          onClick={() => onNavigate('settings')}
+      {/* 历史对话（动态收纳区域） */}
+      <div className="flex-1 overflow-y-auto no-scrollbar py-2 space-y-4">
+        <ConversationList
+          conversations={conversations || []}
+          activeId={activeConversationId || null}
+          onSelect={onSelectConversation || (() => {})}
+          onNew={onNewConversation || (() => {})}
         />
 
-        {/* Divider */}
-        <div className="my-2 border-t border-[#ebebeb] dark:border-[#2a2a2a]" />
-
-        {/* Workspace Section */}
-        <div className="flex items-center justify-between px-1 py-1">
-          <span className="text-xs font-medium text-[#888] uppercase tracking-wide">工作区</span>
-          <button
-            onClick={onAddWorkspace}
-            className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-[#f5f5f5] dark:hover:bg-[#252525] text-[#888] transition-colors"
-            title="添加工作区"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+        {/* 核心工作流菜单栏 */}
+        <div className="px-3.5 space-y-0.5">
+          <span className="px-2.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wider block mb-1.5">核心组件</span>
+          <NavItem
+            icon={<Code2 className="w-4 h-4" />}
+            label="Skills"
+            disabled
+            comingSoon
+          />
+          <NavItem
+            icon={<Puzzle className="w-4 h-4" />}
+            label="MCP Market"
+            disabled
+            comingSoon
+          />
+          <NavItem
+            icon={<Settings className="w-4 h-4" />}
+            label="偏好设置"
+            active={activeNav === 'settings'}
+            onClick={() => onNavigate('settings')}
+          />
         </div>
 
-        {/* Workspace List */}
-        <div className="space-y-0.5">
-          {workspaces.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-[#888]">尚未添加工作区</p>
-          ) : (
-            workspaces.map((ws) => (
-              <button
-                key={ws.path}
-                onClick={() => onSwitchWorkspace(ws.path)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-[#4d4d4d] hover:bg-[#f5f5f5] dark:hover:bg-[#252525] rounded-[6px] transition-colors truncate"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ebebeb] shrink-0" />
-                {ws.name}
-              </button>
-            ))
-          )}
+        {/* 分割线 */}
+        <div className="mx-6 border-t border-neutral-200/40 dark:border-neutral-800/40" />
+
+        {/* 工作区容器 */}
+        <div className="px-3.5 space-y-1">
+          <div className="flex items-center justify-between px-2.5 mb-1">
+            <span className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">本地工作区</span>
+            <button
+              onClick={onAddWorkspace}
+              className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"
+              title="添加工作区"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-0.5">
+            {workspaces.length === 0 ? (
+              <p className="px-2.5 py-1.5 text-[11px] text-neutral-400 italic">尚未加入工作目录</p>
+            ) : (
+              workspaces.map((ws) => {
+                const isActive = workspaces[0]?.path === ws.path
+                return (
+                  <button
+                    key={ws.path}
+                    onClick={() => onSwitchWorkspace(ws.path)}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[13px] rounded-lg transition-all truncate text-left
+                      ${isActive
+                        ? 'text-neutral-900 font-medium dark:text-neutral-100 bg-neutral-200/30 dark:bg-neutral-800/30'
+                        : 'text-neutral-500 hover:bg-neutral-200/20 dark:text-neutral-400 dark:hover:bg-neutral-800/20'
+                      }`}
+                  >
+                    <FolderGit2 className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-500' : 'text-neutral-400'}`} />
+                    <span className="truncate">{ws.name}</span>
+                  </button>
+                )
+              })
+            )}
+          </div>
         </div>
-      </nav>
+      </div>
     </aside>
   )
 }
@@ -3987,10 +3864,10 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
 }
 
 const PROVIDER_DISPLAY_TYPES: Record<string, string> = {
-  anthropic: 'Anthropic LLM Engine',
-  openai: 'OpenAI Core Platform',
+  anthropic: 'Anthropic Core Claude Engine',
+  openai: 'OpenAI Developer Platform',
   google: 'Google Gemini Pro Cloud',
-  custom: 'Standard OpenAI Compatible'
+  custom: 'OpenAI Compatible Endpoint'
 }
 
 export function SettingsPage() {
@@ -4002,13 +3879,8 @@ export function SettingsPage() {
   function isConfigured(type: string): boolean {
     return providers.some(p => p.type === type)
   }
-
   function getProvider(type: string) {
     return providers.find(p => p.type === type)
-  }
-
-  function handleConfigure(type: string) {
-    setEditingProvider(type)
   }
 
   function handleProviderSave(type: string, data: { apiKey: string; defaultModel: string; providerName?: string }) {
@@ -4016,7 +3888,7 @@ export function SettingsPage() {
     saveProvider({
       id: existing?.id,
       type: type as 'anthropic' | 'openai' | 'google' | 'custom',
-      name: data.providerName || (type === 'custom' ? 'Custom OpenAI' : (presets.find(p => p.type === type)?.name || type)),
+      name: data.providerName || (type === 'custom' ? 'Custom Gateway' : (presets.find(p => p.type === type)?.name || type)),
       apiKey: data.apiKey,
       models: data.defaultModel ? [data.defaultModel] : [],
       defaultModel: data.defaultModel || undefined
@@ -4026,38 +3898,39 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-neutral-50 dark:bg-[#0b0b0b] transition-colors duration-300">
-      <div className="max-w-xl mx-auto px-6 py-12 space-y-10">
-        
-        {/* 顶部标题区 */}
-        <div className="border-b border-neutral-200/60 dark:border-neutral-800/60 pb-5">
-          <h1 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-            控制台设置
+    <div className="flex-1 h-full overflow-y-auto bg-white dark:bg-[#0a0a0c] transition-colors duration-300">
+      <div className="max-w-xl mx-auto px-8 py-10 space-y-10">
+
+        {/* Header 页头 */}
+        <div className="space-y-1">
+          <h1 className="text-base font-medium tracking-tight text-neutral-900 dark:text-neutral-100">
+            控制台偏好设置
           </h1>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-            全局工作区引擎、API 密钥加密分发及视觉外观偏好配置。
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            全局 AI 核心引擎权重分发、密钥本地加密分发链及系统主题。
           </p>
         </div>
 
-        {/* 模型引擎分发控制区 */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
-              模型核心提供商
+        {/* 提供商网格列表 */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+              密钥网关提供商
             </h2>
-            <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full">
-              <ShieldCheck className="w-3 h-3" /> AES-256 加密存储
+            <div className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-md">
+              <ShieldCheck className="w-3 h-3" /> 硬件级密钥隔离
             </div>
           </div>
 
-          <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-[#121212] overflow-hidden divide-y divide-neutral-100 dark:divide-neutral-800/60 shadow-sm">
+          {/* 统一的一体化容器，去除外露套娃多层背景 */}
+          <div className="rounded-xl border border-neutral-200/60 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-[#121215]/50 overflow-hidden divide-y divide-neutral-200/40 dark:divide-neutral-800/40">
             {presets.map((preset) => {
               const configured = isConfigured(preset.type)
               const provider = getProvider(preset.type)
 
               if (editingProvider === preset.type) {
                 return (
-                  <div key={preset.type} className="p-4 bg-neutral-50/50 dark:bg-[#161616]/30">
+                  <div key={preset.type} className="p-4 bg-white dark:bg-[#141418]">
                     <ProviderForm
                       type={preset.type}
                       name={preset.name}
@@ -4071,23 +3944,23 @@ export function SettingsPage() {
               }
 
               return (
-                <div key={preset.type} className="p-4 hover:bg-neutral-50/40 dark:hover:bg-[#161616]/20 transition-colors">
+                <div key={preset.type} className="p-3.5 hover:bg-neutral-100/50 dark:hover:bg-[#16161c]/30 transition-colors">
                   <ProviderCard
                     icon={PROVIDER_ICONS[preset.type]}
                     name={preset.name}
                     type={PROVIDER_DISPLAY_TYPES[preset.type]}
                     configured={configured}
                     defaultModel={provider?.defaultModel}
-                    onConfigure={() => handleConfigure(preset.type)}
+                    onConfigure={() => setEditingProvider(preset.type)}
                     onDelete={configured ? () => deleteProvider(provider!.id) : undefined}
                   />
                 </div>
               )
             })}
 
-            {/* 自定义 OpenAI 提供商处理 */}
+            {/* 自定义 OpenAI 提供商 */}
             {showCustomForm && (
-              <div className="p-4 bg-neutral-50/50 dark:bg-[#161616]/30">
+              <div className="p-4 bg-white dark:bg-[#141418]">
                 <ProviderForm
                   type="custom"
                   name="Custom OpenAI"
@@ -4101,7 +3974,7 @@ export function SettingsPage() {
             {editingProvider === 'custom' && isConfigured('custom') && (() => {
               const cp = getProvider('custom')!
               return (
-                <div key="custom-edit" className="p-4 bg-neutral-50/50 dark:bg-[#161616]/30">
+                <div key="custom-edit" className="p-4 bg-white dark:bg-[#141418]">
                   <ProviderForm
                     type="custom"
                     name={cp.name || 'Custom OpenAI'}
@@ -4120,27 +3993,26 @@ export function SettingsPage() {
                 (() => {
                   const cp = getProvider('custom')!
                   return (
-                    <div className="p-4">
+                    <div className="p-3.5 hover:bg-neutral-100/50 dark:hover:bg-[#16161c]/30 transition-colors">
                       <ProviderCard
                         icon={PROVIDER_ICONS.custom}
                         name={cp.name || 'Custom OpenAI'}
                         type="OpenAI Compatible"
                         configured
                         defaultModel={cp.defaultModel}
-                        onConfigure={() => handleConfigure('custom')}
+                        onConfigure={() => setEditingProvider('custom')}
                         onDelete={() => deleteProvider(cp.id)}
                       />
                     </div>
                   )
                 })()
               ) : (
-                <div className="p-3 bg-neutral-50/30 dark:bg-transparent text-center">
+                <div className="p-2.5 text-center bg-neutral-50/20 dark:bg-transparent">
                   <button
                     onClick={() => setShowCustomForm(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors font-medium"
+                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 transition-colors"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    添加自定义 OpenAI 兼容网关
+                    <Plus className="w-3 h-3" /> 添加自定义兼容基准端点
                   </button>
                 </div>
               )
@@ -4148,24 +4020,24 @@ export function SettingsPage() {
           </div>
         </section>
 
-        {/* 外观设置控制区 */}
+        {/* 视觉外观控制区 */}
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
-            视觉外观
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 px-1">
+            系统外观主题
           </h2>
-          <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-[#121212] p-1.5 shadow-sm flex gap-1">
+          <div className="p-1 rounded-xl border border-neutral-200/60 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-[#121215]/50 flex gap-1">
             {[
-              { value: 'light' as const, icon: <Sun className="w-3.5 h-3.5" />, label: 'Light' },
-              { value: 'dark' as const, icon: <Moon className="w-3.5 h-3.5" />, label: 'Dark' },
-              { value: 'system' as const, icon: <Monitor className="w-3.5 h-3.5" />, label: 'System' }
+              { value: 'light' as const, icon: <Sun className="w-3.5 h-3.5" />, label: '明亮模式' },
+              { value: 'dark' as const, icon: <Moon className="w-3.5 h-3.5" />, label: '暗黑暗调' },
+              { value: 'system' as const, icon: <Monitor className="w-3.5 h-3.5" />, label: '跟随系统' }
             ].map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => setTheme(opt.value)}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium rounded-lg transition-all duration-200 ${
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-lg transition-all ${
                   theme === opt.value
-                    ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-sm'
-                    : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800/50'
+                    ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/50 dark:hover:bg-neutral-800/50'
                 }`}
               >
                 {opt.icon}
