@@ -17,8 +17,8 @@
 ### AI Chat
 
 - [x] **CHAT-01**: 用户可以在聊天面板中输入消息与 AI agent 对话
-- [ ] **CHAT-02**: agent 回复流式实时显示（streaming）
-- [ ] **CHAT-03**: 消息支持 Markdown 渲染（代码块、列表、表格等）
+- [x] **CHAT-02**: agent 回复流式实时显示（streaming）
+- [x] **CHAT-03**: 消息支持 Markdown 渲染（代码块、列表、表格等）
 - [x] **CHAT-04**: 对话历史可持久化到本地，重启后恢复
 - [x] **CHAT-05**: 用户可清空或新建对话
 
@@ -50,7 +50,7 @@
 
 ### GSD 集成
 
-- [ ] **GSD-01**: 应用中可调用 pi-gsd 的全部 commands（`/gsd-plan-phase`、`/gsd-execute-phase` 等）
+- [x] **GSD-01**: 应用中可调用 pi-gsd 的全部 commands（`/gsd-plan-phase`、`/gsd-execute-phase` 等）
 - [ ] **GSD-02**: GSD 子 agent（executor、planner、debugger 等）可通过 skill 执行自动生成
 - [ ] **GSD-03**: `.planning/` 目录内容可在界面中查看
 
@@ -98,7 +98,7 @@
 | PROV-01~05 | Phase 1 | Pending |
 | UI-01~05 | Phase 1 | Pending |
 | CHAT-01~05 | Phase 2 | Pending |
-| GSD-01 | Phase 2 | Pending |
+| GSD-01 | Phase 2 | Complete |
 | SKILL-01~06 | Phase 3 | Pending |
 | GSD-02~03 | Phase 3 | Pending |
 | MCP-01~06 | Phase 4 | Pending |
