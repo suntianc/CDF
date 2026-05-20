@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatPanel } from './components/ChatPanel'
 import { WelcomeDialog } from './components/WelcomeDialog'
@@ -19,6 +19,12 @@ interface Conversation {
   createdAt: string
 }
 
+interface QueuedMessage {
+  id: string
+  content: string
+  createdAt: string
+}
+
 function App(): React.ReactElement {
   const [activeNav, setActiveNav] = useState('welcome')
   const { workspaces, addWorkspace, switchWorkspace } = useWorkspace()
@@ -28,14 +34,44 @@ function App(): React.ReactElement {
   const [isGenerating, setIsGenerating] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [streamingContent, setStreamingContent] = useState('')
+  const [activeSessionPath, setActiveSessionPath] = useState<string | null>(null)
+  const [queue, setQueue] = useState<QueuedMessage[]>([])
+  const cleanupRef = useRef<(() => void) | null>(null)
 
   const handleNavigate = useCallback((page: string) => {
     setActiveNav(page)
   }, [])
 
-  // Chat handlers
-  const handleSend = useCallback((content: string, images?: Array<{ data: string; mimeType: string }>) => {
-    // Add user message
+  // ── Session persistence ──
+
+  const loadConversations = useCallback(async (wsPath: string) => {
+    try {
+      const sessionList = await window.api.session.list(wsPath)
+      setConversations(sessionList.map(s => ({
+        id: s.id,
+        name: s.name || `对话 ${new Date(s.createdAt).toLocaleDateString('zh-CN')}`,
+        createdAt: s.createdAt
+      })))
+    } catch (err) {
+      console.error('Failed to load conversations:', err)
+    }
+  }, [])
+
+  const autoGenerateTitle = useCallback(async (sessionPath: string, firstMessage: string) => {
+    try {
+      const title = firstMessage.length > 50
+        ? firstMessage.slice(0, 50) + '...'
+        : firstMessage
+      await window.api.session.setName(sessionPath, title)
+    } catch {
+      // Title generation is non-critical
+    }
+  }, [])
+
+  // ── Chat handlers ──
+
+  const handleSend = useCallback(async (content: string, images?: Array<{ data: string; mimeType: string }>) => {
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -45,43 +81,184 @@ function App(): React.ReactElement {
     }
     setMessages(prev => [...prev, userMsg])
     setIsGenerating(true)
+    setStreamingContent('')
 
-    // Send via IPC (when available from IPC layer)
-    if (window.api?.session?.sendMessage && workspaces[0]?.path) {
-      // Create session if needed (simplified — full flow in Plan 03)
-      window.api.session.sendMessage({
-        sessionPath: '',
-        content,
-        images
-      }).then(() => {
-        setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
-      }).catch(() => {
-        // IPC not wired yet — show as sent anyway for now
-        setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
+    try {
+      const wsPath = workspaces[0]?.path
+      if (!wsPath) return
+
+      // Create session if needed
+      let sessionPath = activeSessionPath
+      if (!sessionPath) {
+        const sess = await window.api.session.create(wsPath)
+        sessionPath = sess.path
+        setActiveSessionPath(sessionPath)
+        loadConversations(wsPath)
+      }
+
+      // Send message
+      const result = await window.api.session.sendMessage({ sessionPath, content, images })
+
+      // Update user message status to 'sent'
+      setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'sent' } : m))
+
+      // Subscribe to stream
+      const cleanup = window.api.session.onStreamChunk((chunk) => {
+        if (chunk.type === 'text') {
+          setStreamingContent(prev => prev + chunk.content)
+        } else if (chunk.type === 'done') {
+          setMessages(prev => {
+            const finalContent = streamingContent
+            const assistantMsg: Message = {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: finalContent,
+              status: 'sent',
+              timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+            }
+            return [...prev, assistantMsg]
+          })
+          setStreamingContent('')
+          setIsGenerating(false)
+
+          // Auto-title on first AI response
+          autoGenerateTitle(sessionPath!, content)
+        } else if (chunk.type === 'error') {
+          setMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: `回复出错：${chunk.content}`,
+            status: 'stopped',
+            timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+          }])
+          setStreamingContent('')
+          setIsGenerating(false)
+        }
       })
+
+      cleanupRef.current = cleanup
+
+      // Start streaming
+      window.api.session.startStream(sessionPath)
+
+    } catch (err) {
+      console.error('Send failed:', err)
+      setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, status: 'stopped' } : m))
+      setIsGenerating(false)
     }
-  }, [workspaces])
+  }, [workspaces, activeSessionPath, streamingContent, loadConversations, autoGenerateTitle])
 
   const handleStop = useCallback(() => {
+    if (activeSessionPath) {
+      window.api.session.stopStream(activeSessionPath)
+    }
+    // Finalize streaming content as stopped AI message
+    if (streamingContent) {
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: streamingContent + '\n\n*（已停止）*',
+        status: 'stopped',
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      }])
+    }
+    setStreamingContent('')
     setIsGenerating(false)
-    setMessages(prev => {
-      // Mark last AI message as stopped
-      const lastAi = [...prev].reverse().find(m => m.role === 'assistant')
-      return lastAi ? prev.map(m => m.id === lastAi.id ? { ...m, status: 'stopped' } : m) : prev
-    })
-  }, [])
+  }, [activeSessionPath, streamingContent])
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback(async () => {
+    // Auto-save current conversation if it has content
+    if (messages.length > 0 && activeSessionPath) {
+      const firstUserMsg = messages.find(m => m.role === 'user')
+      if (firstUserMsg) {
+        await autoGenerateTitle(activeSessionPath, firstUserMsg.content)
+      }
+    }
+
+    // Clear state
     setMessages([])
+    setStreamingContent('')
     setActiveConversationId(null)
+    setActiveSessionPath(null)
     setIsGenerating(false)
-  }, [])
+  }, [messages, activeSessionPath, autoGenerateTitle])
+
+  const handleSelectConversation = useCallback(async (id: string) => {
+    try {
+      const wsPath = workspaces[0]?.path
+      if (!wsPath) return
+
+      const sessionList = await window.api.session.list(wsPath)
+      const session = sessionList.find(s => s.id === id)
+      if (!session) return
+
+      const data = await window.api.session.open(id)
+      setActiveConversationId(id)
+      setMessages(data.messages.map((m: any) => ({
+        id: m.id || crypto.randomUUID(),
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        timestamp: new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      })))
+      setActiveNav('chat')
+    } catch (err) {
+      console.error('Failed to load conversation:', err)
+    }
+  }, [workspaces])
 
   const handleSwitchWorkspace = useCallback((path: string) => {
     switchWorkspace(path)
     setMessages([])
     setActiveConversationId(null)
-  }, [switchWorkspace])
+    setActiveSessionPath(null)
+    loadConversations(path)
+  }, [switchWorkspace, loadConversations])
+
+  // Queue handlers (Plan 05)
+  const handleQueueAdd = useCallback((content: string) => {
+    const item: QueuedMessage = {
+      id: crypto.randomUUID(),
+      content,
+      createdAt: new Date().toISOString()
+    }
+    setQueue(prev => [...prev, item])
+  }, [])
+
+  const handleQueueGuide = useCallback((id: string) => {
+    const item = queue.find(q => q.id === id)
+    if (!item) return
+
+    if (isGenerating && activeSessionPath) {
+      window.api.session.stopStream(activeSessionPath)
+    }
+
+    setMessages(prev => {
+      const lastAi = [...prev].reverse().find(m => m.role === 'assistant')
+      if (lastAi) {
+        return prev.map(m => m.id === lastAi.id ? { ...m, status: 'guided' as const } : m)
+      }
+      return prev
+    })
+
+    setQueue(prev => prev.filter(q => q.id !== id))
+    handleSend(item.content)
+  }, [queue, isGenerating, activeSessionPath, handleSend])
+
+  const handleQueueDelete = useCallback((id: string) => {
+    setQueue(prev => prev.filter(q => q.id !== id))
+  }, [])
+
+  // Clean up stream listener on unmount
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.()
+    }
+  }, [])
+
+  // Build message list with streaming indicator
+  const chatMessages = isGenerating && streamingContent
+    ? [...messages, { id: 'streaming', role: 'assistant' as const, content: streamingContent, timestamp: '' }]
+    : messages
 
   return (
     <div className="flex h-full bg-[#fafafa] dark:bg-[#171717] text-[#171717] dark:text-white">
@@ -93,10 +270,7 @@ function App(): React.ReactElement {
         onSwitchWorkspace={handleSwitchWorkspace}
         conversations={conversations}
         activeConversationId={activeConversationId}
-        onSelectConversation={(id) => {
-          setActiveConversationId(id)
-          setActiveNav('chat')
-        }}
+        onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewChat}
       />
 
@@ -104,16 +278,17 @@ function App(): React.ReactElement {
         {/* Main content drag region */}
         <div className="h-[38px] w-full shrink-0 window-drag-region" />
         <div className="flex-1 flex">
-          {activeNav === 'welcome' || activeNav === 'chat' ? (
+          {(activeNav === 'welcome' || activeNav === 'chat') && (
             <ChatPanel
-              messages={messages}
+              messages={chatMessages}
               isGenerating={isGenerating}
               onSend={handleSend}
               onStop={handleStop}
               onNewChat={handleNewChat}
               currentWorkspace={workspaces.length > 0 ? workspaces[0].path : undefined}
             />
-          ) : activeNav === 'settings' && <SettingsPage />}
+          )}
+          {activeNav === 'settings' && <SettingsPage />}
         </div>
       </main>
     </div>

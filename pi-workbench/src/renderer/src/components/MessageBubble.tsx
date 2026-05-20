@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface Message {
   id: string
@@ -31,17 +32,21 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <div className="flex flex-col gap-1">
-      {/* Bubble */}
+  {/* Bubble content */}
       <div
         className={`
-          rounded-lg px-4 py-2 text-sm leading-5
+          rounded-lg px-4 py-2
           ${isUser
             ? 'bg-[#171717] text-white dark:bg-white dark:text-[#171717]'
             : 'bg-white text-[#4d4d4d] dark:bg-[#1a1a1a] dark:text-[#ebebeb]'
           }
         `}
       >
-        {message.content}
+        {isUser ? (
+          <p className="text-sm leading-5 whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <MarkdownRenderer content={message.content} />
+        )}
       </div>
 
       {/* Status tag (user messages only) + timestamp */}
