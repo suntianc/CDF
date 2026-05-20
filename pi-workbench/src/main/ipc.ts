@@ -1,14 +1,219 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, BrowserWindow } from 'electron'
+import { join } from 'path'
+import type { Model } from '@earendil-works/pi-ai'
+import type { AgentSession } from '@earendil-works/pi-coding-agent'
 import store from './store'
 
-// Active streaming sessions — keyed by session path
-const activeStreams = new Map<string, AbortController>()
+// ── Types ──
+
+interface ProviderConfig {
+  id: string
+  type: 'anthropic' | 'openai' | 'google' | 'custom'
+  name: string
+  apiKey: string
+  baseUrl?: string
+  models: string[]
+  defaultModel?: string
+}
+
+interface ActiveSession {
+  session: AgentSession
+  window: BrowserWindow
+  unsubscribe: () => void
+  sessionFile: string
+  sessionId: string
+}
+
+// ── Active sessions cache ──
+
+const activeSessions = new Map<string, ActiveSession>()
+
+// ── Helpers ──
+
+function normalizeCustomProviderBaseUrl(rawBaseUrl: string): string {
+  const trimmed = rawBaseUrl.trim().replace(/\/+$/, '')
+
+  try {
+    const url = new URL(trimmed)
+
+    // SenseNova's token host expects OpenAI-compatible requests under `/v1`.
+    if (url.hostname === 'token.sensenova.cn' && (url.pathname === '' || url.pathname === '/')) {
+      return `${url.origin}/v1`
+    }
+  } catch {
+    // Fall back to the user-provided value when URL parsing fails.
+  }
+
+  return trimmed
+}
+
+/**
+ * Build AuthStorage + ModelRegistry from the user's stored provider configs,
+ * and resolve the active model for AgentSession creation.
+ *
+ * @param cwd - workspace path
+ * @param modelOverride - optional "provider:modelId" string to force a specific model
+ */
+async function buildPiServices(cwd: string, modelOverride?: string) {
+  const pi = await import('@earendil-works/pi-coding-agent')
+  const { AuthStorage, ModelRegistry, SessionManager } = pi
+
+  const providers: ProviderConfig[] = store.get('providers', [])
+
+  // 1. AuthStorage
+  const authPath = join(app.getPath('userData'), 'pi-auth.json')
+  const authStorage = AuthStorage.create(authPath)
+  for (const p of providers) {
+    if (p.apiKey) {
+      authStorage.setRuntimeApiKey(p.type === 'custom' ? p.name : p.type, p.apiKey)
+    }
+  }
+
+  // 2. ModelRegistry
+  const modelRegistry = ModelRegistry.create(authStorage)
+  modelRegistry.refresh()
+
+  // 3. Register custom providers
+  for (const p of providers) {
+    if (p.type === 'custom' && p.baseUrl && p.models.length > 0) {
+      const normalizedBaseUrl = normalizeCustomProviderBaseUrl(p.baseUrl)
+      try {
+        modelRegistry.registerProvider(p.name || p.id, {
+          baseUrl: normalizedBaseUrl,
+          apiKey: p.apiKey,
+          authHeader: true,
+          models: p.models.map((mid) => ({
+            id: mid,
+            name: mid,
+            api: 'openai-completions' as const,
+            baseUrl: normalizedBaseUrl,
+            reasoning: false,
+            input: ['text'] as const,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128_000,
+            maxTokens: 4096,
+          })),
+        })
+      } catch {
+        // provider may already be registered — skip
+      }
+    }
+  }
+
+  // 4. Resolve the active model
+  let model: Model<any> | undefined
+
+  // 4a. If caller provided an explicit modelOverride ("provider:modelId")
+  if (modelOverride) {
+    const colonIdx = modelOverride.indexOf(':')
+    if (colonIdx > 0) {
+      const prov = modelOverride.slice(0, colonIdx)
+      const mid = modelOverride.slice(colonIdx + 1)
+      model = modelRegistry.find(prov, mid)
+    }
+  }
+
+  // 4b. Fallback: use first provider's defaultModel
+  if (!model) {
+    const activeProvider = providers[0]
+    if (activeProvider && activeProvider.defaultModel) {
+      const providerName = activeProvider.type === 'custom' ? (activeProvider.name || activeProvider.id) : activeProvider.type
+      model = modelRegistry.find(providerName, activeProvider.defaultModel)
+      if (!model && activeProvider.type !== 'custom') {
+        model = modelRegistry.find(activeProvider.type, activeProvider.defaultModel)
+      }
+    }
+  }
+
+  // 4c. Last resort: first available model
+  if (!model) {
+    model = modelRegistry.getAvailable()[0] || modelRegistry.getAll()[0]
+  }
+
+  return {
+    authStorage,
+    modelRegistry,
+    model,
+    SessionManager,
+    sessionManager: SessionManager.create(cwd),
+    providers, // also return providers so callers can inspect
+  }
+}
+
+/**
+ * Subscribe to AgentSession events and forward them to the renderer
+ * as `session:streamChunk` IPC messages.
+ */
+function subscribeSessionEvents(
+  session: AgentSession,
+  browserWindow: BrowserWindow,
+): () => void {
+  return session.subscribe((event) => {
+    if (browserWindow.isDestroyed()) return
+    const send = (chunk: Record<string, unknown>) => {
+      browserWindow.webContents.send('session:streamChunk', chunk)
+    }
+
+    switch (event.type) {
+      // ── Streaming text deltas ──
+      case 'message_update': {
+        const ev = event.assistantMessageEvent
+        if (ev.type === 'text_delta') {
+          send({ type: 'text', content: ev.delta })
+        } else if (ev.type === 'thinking_delta') {
+          send({ type: 'thinking', content: ev.delta })
+        }
+        break
+      }
+
+      // ── Message lifecycle ──
+      case 'message_start':
+        send({ type: 'message_start' })
+        break
+      case 'message_end':
+        break
+
+      // ── Agent lifecycle ──
+      case 'agent_start':
+        send({ type: 'agent_start' })
+        break
+      case 'agent_end':
+        send({ type: 'done' })
+        break
+
+      // ── Tool execution ──
+      case 'tool_execution_start':
+        send({ type: 'tool_start', name: event.toolName, args: event.args })
+        break
+      case 'tool_execution_update':
+        send({ type: 'tool_output', content: JSON.stringify(event.partialResult) })
+        break
+      case 'tool_execution_end':
+        send({ type: 'tool_end', name: event.toolName, isError: event.isError })
+        break
+
+      // ── Compaction / retry (informational) ──
+      case 'compaction_start':
+        send({ type: 'info', content: '🔄 压缩上下文...' })
+        break
+      case 'compaction_end':
+        send({ type: 'info', content: `✅ 压缩完成` })
+        break
+      case 'auto_retry_start':
+        send({ type: 'info', content: `🔄 重试 #${event.attempt}...` })
+        break
+      case 'auto_retry_end':
+        send({ type: event.success ? 'info' : 'error', content: event.success ? '✅ 重试成功' : `❌ 重试失败: ${event.finalError}` })
+        break
+    }
+  })
+}
+
+// ── IPC Handler Registration ──
 
 export function registerIpcHandlers(): void {
-  // Store operations
-  ipcMain.handle('store:get', (_event, key: string) => {
-    return store.get(key as any)
-  })
+  // ── Store ──
+  ipcMain.handle('store:get', (_event, key: string) => store.get(key as any))
   ipcMain.handle('store:set', (_event, key: string, value: unknown) => {
     store.set(key as any, value)
     return true
@@ -18,18 +223,14 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  // Folder dialog
+  // ── Folder dialog ──
   ipcMain.handle('dialog:selectFolder', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory']
-    })
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]
   })
 
-  // Workspace operations
-  ipcMain.handle('workspace:list', () => {
-    return store.get('workspaces', [])
-  })
+  // ── Workspace ──
+  ipcMain.handle('workspace:list', () => store.get('workspaces', []))
   ipcMain.handle('workspace:add', (_event, workspacePath: string) => {
     const workspaces = store.get('workspaces', [])
     const existing = workspaces.find(w => w.path === workspacePath)
@@ -37,7 +238,7 @@ export function registerIpcHandlers(): void {
       workspaces.push({
         path: workspacePath,
         name: workspacePath.split('/').pop() || workspacePath,
-        lastOpened: new Date().toISOString()
+        lastOpened: new Date().toISOString(),
       })
       store.set('workspaces', workspaces)
     } else {
@@ -55,154 +256,332 @@ export function registerIpcHandlers(): void {
     return workspacePath
   })
 
-  // Theme operations
+  // ── Theme ──
   ipcMain.handle('theme:get', () => store.get('theme', 'system'))
   ipcMain.handle('theme:set', (_event, theme: 'light' | 'dark' | 'system') => {
     store.set('theme', theme)
     return true
   })
 
-  // Provider operations
+  // ── Providers ──
   ipcMain.handle('providers:list', () => store.get('providers', []))
   ipcMain.handle('providers:save', (_event, provider: Record<string, unknown>) => {
     const providers = store.get('providers', [])
-    const idx = providers.findIndex(p => p.id === provider.id)
+    const idx = providers.findIndex((p: any) => p.id === provider.id)
     if (idx >= 0) {
-      providers[idx] = provider as typeof providers[0]
+      providers[idx] = provider as any
     } else {
-      providers.push(provider as typeof providers[0])
+      providers.push(provider as any)
     }
     store.set('providers', providers)
     return true
   })
   ipcMain.handle('providers:delete', (_event, providerId: string) => {
     const providers = store.get('providers', [])
-    store.set('providers', providers.filter(p => p.id !== providerId))
+    store.set('providers', providers.filter((p: any) => p.id !== providerId))
     return true
   })
   ipcMain.handle('providers:test', async (_event, _provider: Record<string, unknown>) => {
-    // Stub for Phase 1 — returns success/failure simulation
     return { success: true, message: 'Connection test stub' }
   })
 
-  // Window state
+  /**
+   * providers:getAvailableModels()
+   * 只返回用户在设置中已配置并保存了的默认模型（决绝全量内置列表混淆视听）
+   */
+  ipcMain.handle('providers:getAvailableModels', async () => {
+    try {
+      const providers: ProviderConfig[] = store.get('providers', [])
+      if (providers.length === 0) return []
+
+      return providers
+        .filter((p) => p.defaultModel)
+        .map((p) => ({
+          provider: p.type === 'custom' ? (p.name || p.id) : p.type,
+          id: p.defaultModel!,
+          name: p.defaultModel!,
+        }))
+    } catch (err) {
+      console.error('[ipc] getAvailableModels error:', err)
+      return []
+    }
+  })
+
+  // ── Window state ──
   ipcMain.handle('window:stateSave', (_event, state: Record<string, unknown>) => {
     store.set('windowState', state)
     return true
   })
 
-  // ── Session IPC Channels (Phase 2) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  Session IPC Channels — powered by pi SDK AgentSession
+  // ══════════════════════════════════════════════════════════════════
 
-  ipcMain.handle('session:create', async (_event, cwd: string) => {
-    const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const session = SessionManager.create(cwd)
-    return { id: session.getSessionId(), path: session.getSessionFile() }
-  })
+  /**
+   * session:create(cwd, modelId?)
+   * Creates a fresh AgentSession with the user's provider config.
+   * Caches the session for streaming.
+   */
+  ipcMain.handle('session:create', async (event, cwd: string, modelId?: string) => {
+    // Clean up any previous active session
+    for (const [path, entry] of activeSessions) {
+      entry.unsubscribe()
+      entry.session.dispose()
+      activeSessions.delete(path)
+    }
 
-  ipcMain.handle('session:list', async (_event, cwd: string) => {
-    const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const sessions = await SessionManager.list(cwd)
-    return sessions.map(s => ({
-      id: s.id,
-      name: s.name || '',
-      createdAt: s.created.toISOString(),
-      messageCount: s.messageCount
-    }))
-  })
+    const browserWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!browserWindow) throw new Error('No browser window')
 
-  ipcMain.handle('session:open', async (_event, path: string) => {
-    const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const session = SessionManager.open(path)
-    const context = session.buildSessionContext()
-    return {
-      id: session.getSessionId(),
-      name: session.getSessionName(),
-      path: session.getSessionFile(),
-      messages: context.messages,
-      settings: {}
+    try {
+      const pi = await import('@earendil-works/pi-coding-agent')
+      const { createAgentSession } = pi
+      const services = await buildPiServices(cwd, modelId)
+
+      if (!services.model) {
+        throw new Error('没有可用的模型。请先在设置中配置 AI 提供商和 API Key。')
+      }
+
+      const { session } = await createAgentSession({
+        cwd,
+        model: services.model,
+        authStorage: services.authStorage,
+        modelRegistry: services.modelRegistry,
+        sessionManager: services.sessionManager,
+        tools: ['read', 'bash', 'grep', 'find', 'ls'],
+      })
+
+      const unsubscribe = subscribeSessionEvents(session, browserWindow)
+
+      const sessionFile = session.sessionFile || ''
+      const sessionId = session.sessionId
+
+      activeSessions.set(sessionFile || sessionId, {
+        session,
+        window: browserWindow,
+        unsubscribe,
+        sessionFile,
+        sessionId,
+      })
+
+      return {
+        id: sessionId,
+        path: sessionFile,
+        name: session.sessionName || '',
+        modelProvider: services.model.provider,
+        modelId: services.model.id,
+      }
+    } catch (err) {
+      console.error('[ipc] session:create error:', err)
+      throw err
     }
   })
 
-  ipcMain.handle('session:sendMessage', async (_event, { sessionPath, content, images }) => {
+  /**
+   * session:list(cwd)
+   * Lists all JSONL session files in the workspace.
+   */
+  ipcMain.handle('session:list', async (_event, cwd: string) => {
     const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const session = SessionManager.open(sessionPath)
-
-    const messageContent = images
-      ? [{ type: 'text', text: content } as const, ...images.map(img => ({ type: 'image', data: img.data, mimeType: img.mimeType }))]
-      : content
-
-    const entryId = session.appendMessage({ role: 'user', content: messageContent })
-
-    return { entryId, sessionId: session.getSessionId() }
+    const sessions = await SessionManager.list(cwd)
+    return sessions.map((s: any) => ({
+      id: s.id,
+      path: s.path,
+      name: s.name || '',
+      createdAt: s.created instanceof Date ? s.created.toISOString() : String(s.created),
+      messageCount: s.messageCount || 0,
+    }))
   })
 
-  ipcMain.handle('session:setName', async (_event, { sessionPath, name }: { sessionPath: string; name: string }) => {
-    const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const session = SessionManager.open(sessionPath)
-    session.appendSessionInfo(name)
+  /**
+   * session:open(sessionPath)
+   * Opens an existing session file and sets up an AgentSession.
+   * Returns full message history.
+   */
+  ipcMain.handle('session:open', async (event, sessionPath: string) => {
+    // Clean up previous session
+    for (const [path, entry] of activeSessions) {
+      entry.unsubscribe()
+      entry.session.dispose()
+      activeSessions.delete(path)
+    }
+
+    const browserWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!browserWindow) throw new Error('No browser window')
+
+    try {
+      const pi = await import('@earendil-works/pi-coding-agent')
+      const { createAgentSession, SessionManager } = pi
+      const services = await buildPiServices(store.get('lastWorkspace') || process.cwd())
+
+      const { session } = await createAgentSession({
+        cwd: store.get('lastWorkspace') || process.cwd(),
+        model: services.model,
+        authStorage: services.authStorage,
+        modelRegistry: services.modelRegistry,
+        sessionManager: SessionManager.open(sessionPath),
+        tools: ['read', 'bash', 'grep', 'find', 'ls'],
+      })
+
+      const unsubscribe = subscribeSessionEvents(session, browserWindow)
+
+      const file = session.sessionFile || sessionPath
+      const id = session.sessionId
+
+      activeSessions.set(file, {
+        session,
+        window: browserWindow,
+        unsubscribe,
+        sessionFile: file,
+        sessionId: id,
+      })
+
+      // Build message list from loaded session
+      const messages = session.messages
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .map((m: any) => {
+          const text = typeof m.content === 'string'
+            ? m.content
+            : Array.isArray(m.content)
+              ? m.content.map((c: any) => c.text || c.data || '').join(' ')
+              : ''
+          return {
+            id: m.id || crypto.randomUUID(),
+            role: m.role,
+            content: text,
+            timestamp: m.createdAt || '',
+          }
+        })
+
+      return {
+        id,
+        name: session.sessionName || '',
+        path: file,
+        messages,
+        settings: {},
+      }
+    } catch (err) {
+      console.error('[ipc] session:open error:', err)
+      throw err
+    }
+  })
+
+  /**
+   * session:sendMessage({ sessionPath, content, images })
+   * Sends a user message via AgentSession.prompt().
+   * Streaming events come back through the subscription → session:streamChunk.
+   * This is fire-and-forget: the handler returns immediately.
+   */
+  ipcMain.handle('session:sendMessage', async (_event, { sessionPath, content, images }: {
+    sessionPath: string
+    content: string
+    images?: Array<{ data: string; mimeType: string }>
+  }) => {
+    const entry = activeSessions.get(sessionPath)
+    if (!entry) {
+      throw new Error(`Session not found: ${sessionPath}. Call session:create or session:open first.`)
+    }
+
+    const { session } = entry
+
+    if (images && images.length > 0) {
+      // Images: use sendUserMessage which accepts (TextContent | ImageContent)[]
+      const imageContents = images.map((img) => ({
+        type: 'image' as const,
+        data: img.data,
+        mimeType: img.mimeType,
+      }))
+
+      session.sendUserMessage(
+        [{ type: 'text' as const, text: content }, ...imageContents],
+        { deliverAs: 'steer' },
+      ).catch((err: Error) => {
+        if (!entry.window.isDestroyed()) {
+          entry.window.webContents.send('session:streamChunk', {
+            type: 'error',
+            content: err.message,
+          })
+        }
+      })
+    } else {
+      // Plain text
+      session.prompt(content).catch((err: Error) => {
+        if (!entry.window.isDestroyed()) {
+          entry.window.webContents.send('session:streamChunk', {
+            type: 'error',
+            content: err.message,
+          })
+        }
+      })
+    }
+
     return { success: true }
   })
 
+  /**
+   * session:setName({ sessionPath, name })
+   */
+  ipcMain.handle('session:setName', async (_event, { sessionPath, name }: { sessionPath: string; name: string }) => {
+    const entry = activeSessions.get(sessionPath)
+    if (entry) {
+      entry.session.setSessionName(name)
+    }
+    return { success: true }
+  })
+
+  /**
+   * session:setModel({ sessionPath, modelId })
+   * Changes the model for the active session (provider:modelId format).
+   */
+  ipcMain.handle('session:setModel', async (_event, { sessionPath, modelId }: { sessionPath: string; modelId: string }) => {
+    const entry = activeSessions.get(sessionPath)
+    if (!entry) throw new Error('Session not found')
+
+    const colonIdx = modelId.indexOf(':')
+    if (colonIdx <= 0) throw new Error('Invalid modelId format — expected "provider:modelId"')
+
+    const prov = modelId.slice(0, colonIdx)
+    const mid = modelId.slice(colonIdx + 1)
+    const model = entry.session.modelRegistry.find(prov, mid)
+    if (!model) throw new Error(`Model not found: ${modelId}`)
+
+    await entry.session.setModel(model)
+    return { success: true, modelProvider: model.provider, modelId: model.id }
+  })
+
+  /**
+   * session:delete(sessionPath)
+   */
   ipcMain.handle('session:delete', async (_event, sessionPath: string) => {
+    const entry = activeSessions.get(sessionPath)
+    if (entry) {
+      entry.unsubscribe()
+      entry.session.dispose()
+      activeSessions.delete(sessionPath)
+    }
+
     const fs = await import('fs/promises')
     await fs.unlink(sessionPath)
     return { success: true }
   })
 
-  // ── Streaming Event Channels (Phase 2) ──
-
-  ipcMain.on('session:startStream', async (event, { sessionPath }: { sessionPath: string }) => {
-    const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const session = SessionManager.open(sessionPath)
-    const browserWindow = BrowserWindow.fromWebContents(event.sender)
-
-    const controller = new AbortController()
-    activeStreams.set(sessionPath, controller)
-
-    try {
-      const context = session.buildSessionContext()
-
-      // Use pi SDK agent to generate streaming response
-      // NOTE: agent setup refined in Plan 03 — this is the streaming foundation
-      const stream = await (await import('@earendil-works/pi-coding-agent')).AgentSession.generateStream?.(context.messages, context.settings) as AsyncIterable<any> | undefined
-
-      if (stream) {
-        for await (const chunk of stream) {
-          if (controller.signal.aborted) break
-          if (browserWindow && !browserWindow.isDestroyed()) {
-            event.sender.send('session:streamChunk', {
-              type: chunk.type || 'text',
-              content: chunk.content || String(chunk),
-              metadata: { timestamp: new Date().toISOString() }
-            })
-          }
-        }
-      }
-
-      // Signal completion
-      if (!controller.signal.aborted) {
-        event.sender.send('session:streamChunk', { type: 'done' })
-      }
-    } catch (error) {
-      event.sender.send('session:streamChunk', {
-        type: 'error',
-        content: error instanceof Error ? error.message : 'Stream error'
-      })
-    } finally {
-      activeStreams.delete(sessionPath)
-    }
-  })
-
+  /**
+   * session:stopStream(sessionPath)
+   * Aborts the current AI generation.
+   */
   ipcMain.on('session:stopStream', (event, { sessionPath }: { sessionPath: string }) => {
-    const controller = activeStreams.get(sessionPath)
-    if (controller) {
-      controller.abort()
-      activeStreams.delete(sessionPath)
+    const entry = activeSessions.get(sessionPath)
+    if (entry) {
+      entry.session.abort().catch(() => {})
     }
-    event.sender.send('session:streamChunk', { type: 'stopped' })
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('session:streamChunk', { type: 'stopped' })
+    }
   })
 
-  // ── GSD Command Channels (Phase 2) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  GSD Command Channels
+  // ══════════════════════════════════════════════════════════════════
 
   ipcMain.handle('gsd:execute', async (_event, { command, args, cwd }) => {
     const { exec } = await import('child_process')
@@ -214,14 +593,14 @@ export function registerIpcHandlers(): void {
       const { stdout, stderr } = await execAsync(cmd, {
         cwd: cwd || process.cwd(),
         timeout: 120000,
-        env: { ...process.env, PATH: process.env.PATH }
+        env: { ...process.env, PATH: process.env.PATH },
       })
       return { success: true, output: stdout, error: stderr || undefined }
     } catch (err: any) {
       return {
         success: false,
         output: err.stdout || '',
-        error: err.stderr || err.message
+        error: err.stderr || err.message,
       }
     }
   })

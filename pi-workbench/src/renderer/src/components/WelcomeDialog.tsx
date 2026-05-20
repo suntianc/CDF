@@ -16,7 +16,7 @@ export function WelcomeDialog({ onNewChat, hasWorkspace }: WelcomeDialogProps) {
       <p className="text-base leading-6 text-[#4d4d4d] dark:text-[#888] mb-6">
         开始与 AI agent 对话
         <br />
-        或从左侧选择一个工作区
+        {hasWorkspace ? '或从左侧选择一个工作区' : '或先添加一个工作区'}
       </p>
 
       <button

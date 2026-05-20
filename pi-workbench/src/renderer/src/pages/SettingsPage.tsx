@@ -32,13 +32,14 @@ export function SettingsPage() {
     return providers.find(p => p.type === type)
   }
 
-  function handleProviderSave(type: string, data: { apiKey: string; defaultModel: string; providerName?: string }) {
+  function handleProviderSave(type: string, data: { apiKey: string; defaultModel: string; providerName?: string; baseUrl?: string }) {
     const existing = getProvider(type)
     saveProvider({
       id: existing?.id,
       type: type as 'anthropic' | 'openai' | 'google' | 'custom',
       name: data.providerName || (type === 'custom' ? 'Custom Gateway' : (presets.find(p => p.type === type)?.name || type)),
       apiKey: data.apiKey,
+      baseUrl: data.baseUrl,
       models: data.defaultModel ? [data.defaultModel] : [],
       defaultModel: data.defaultModel || undefined
     })
@@ -114,6 +115,7 @@ export function SettingsPage() {
                   type="custom"
                   name="Custom OpenAI"
                   initialProviderName=""
+                  initialBaseUrl=""
                   onSave={(data) => handleProviderSave('custom', data)}
                   onCancel={() => setShowCustomForm(false)}
                 />
@@ -130,6 +132,7 @@ export function SettingsPage() {
                     initialApiKey={cp.apiKey}
                     initialModel={cp.defaultModel}
                     initialProviderName={cp.name}
+                    initialBaseUrl={cp.baseUrl}
                     onSave={(data) => handleProviderSave('custom', data)}
                     onCancel={() => setEditingProvider(null)}
                   />

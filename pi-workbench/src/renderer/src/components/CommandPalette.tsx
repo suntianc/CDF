@@ -13,7 +13,6 @@ import {
   MessageSquare,
   Eye,
   FilePlus,
-  Plus,
   Activity,
   Flag,
   Map,

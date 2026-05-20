@@ -30,13 +30,15 @@ const piWorkbenchAPI = {
   windowStateSave: (state: Record<string, unknown>) => ipcRenderer.invoke('window:stateSave', state),
 
   // ── Session APIs (Phase 2) ──
-  sessionCreate: (cwd: string) => ipcRenderer.invoke('session:create', cwd),
+  sessionCreate: (cwd: string, modelId?: string) => ipcRenderer.invoke('session:create', cwd, modelId),
   sessionList: (cwd: string) => ipcRenderer.invoke('session:list', cwd),
   sessionOpen: (path: string) => ipcRenderer.invoke('session:open', path),
   sessionSendMessage: (data: { sessionPath: string; content: string; images?: Array<{ data: string; mimeType: string }> }) =>
     ipcRenderer.invoke('session:sendMessage', data),
   sessionSetName: (sessionPath: string, name: string) => ipcRenderer.invoke('session:setName', { sessionPath, name }),
   sessionDelete: (sessionPath: string) => ipcRenderer.invoke('session:delete', sessionPath),
+  sessionSetModel: (sessionPath: string, modelId: string) => ipcRenderer.invoke('session:setModel', { sessionPath, modelId }),
+  sessionGetAvailableModels: () => ipcRenderer.invoke('providers:getAvailableModels'),
   sessionStartStream: (sessionPath: string) => ipcRenderer.send('session:startStream', { sessionPath }),
   sessionStopStream: (sessionPath: string) => ipcRenderer.send('session:stopStream', { sessionPath }),
   sessionOnStreamChunk: (callback: (chunk: any) => void) => {
@@ -61,13 +63,15 @@ if (process.contextIsolated) {
   ...api,
   // Session APIs
   session: {
-    create: (cwd: string) => ipcRenderer.invoke('session:create', cwd),
+    create: (cwd: string, modelId?: string) => ipcRenderer.invoke('session:create', cwd, modelId),
     list: (cwd: string) => ipcRenderer.invoke('session:list', cwd),
     open: (path: string) => ipcRenderer.invoke('session:open', path),
     sendMessage: (data: { sessionPath: string; content: string; images?: Array<{ data: string; mimeType: string }> }) =>
       ipcRenderer.invoke('session:sendMessage', data),
     setName: (sessionPath: string, name: string) => ipcRenderer.invoke('session:setName', { sessionPath, name }),
     delete: (sessionPath: string) => ipcRenderer.invoke('session:delete', sessionPath),
+    setModel: (sessionPath: string, modelId: string) => ipcRenderer.invoke('session:setModel', { sessionPath, modelId }),
+    getAvailableModels: () => ipcRenderer.invoke('providers:getAvailableModels'),
     startStream: (sessionPath: string) => ipcRenderer.send('session:startStream', { sessionPath }),
     stopStream: (sessionPath: string) => ipcRenderer.send('session:stopStream', { sessionPath }),
     onStreamChunk: (callback: (chunk: any) => void) => {
@@ -94,12 +98,14 @@ if (process.contextIsolated) {
   window.api = {
     ...api,
     session: {
-      create: (cwd: string) => ipcRenderer.invoke('session:create', cwd),
+      create: (cwd: string, modelId?: string) => ipcRenderer.invoke('session:create', cwd, modelId),
       list: (cwd: string) => ipcRenderer.invoke('session:list', cwd),
       open: (path: string) => ipcRenderer.invoke('session:open', path),
       sendMessage: (data: any) => ipcRenderer.invoke('session:sendMessage', data),
       setName: (sessionPath: string, name: string) => ipcRenderer.invoke('session:setName', { sessionPath, name }),
       delete: (sessionPath: string) => ipcRenderer.invoke('session:delete', sessionPath),
+      setModel: (sessionPath: string, modelId: string) => ipcRenderer.invoke('session:setModel', { sessionPath, modelId }),
+      getAvailableModels: () => ipcRenderer.invoke('providers:getAvailableModels'),
       startStream: (sessionPath: string) => ipcRenderer.send('session:startStream', { sessionPath }),
       stopStream: (sessionPath: string) => ipcRenderer.send('session:stopStream', { sessionPath }),
       onStreamChunk: (callback: (chunk: any) => void) => {

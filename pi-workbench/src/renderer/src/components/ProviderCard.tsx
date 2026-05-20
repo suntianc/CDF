@@ -29,6 +29,11 @@ export function ProviderCard({ icon, name, type, configured, defaultModel, onCon
             )}
           </div>
           <span className="text-xs text-neutral-500 dark:text-neutral-400">{type}</span>
+          {configured && defaultModel && (
+            <div className="mt-0.5 text-[11px] font-mono text-neutral-400 dark:text-neutral-500">
+              {defaultModel}
+            </div>
+          )}
         </div>
       </div>
 

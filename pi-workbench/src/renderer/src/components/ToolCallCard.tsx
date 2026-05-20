@@ -19,11 +19,10 @@ export function ToolCallCard({ name, args, status, result }: ToolCallCardProps) 
   const badge = STATUS_BADGE[status]
 
   return (
-    <div className="my-2 bg-[#f5f5f5] dark:bg-[#252525] border border-[#ebebeb] dark:border-[#2a2a2a] rounded-sm">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <Terminal className="w-3.5 h-3.5 text-[#888]" />
-        <span className="text-[13px] font-semibold font-mono text-[#171717] dark:text-white">
+    <div className="my-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-800/50">
+      <div className="flex items-center gap-2">
+        <Terminal className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+        <span className="text-[13px] font-semibold font-mono text-neutral-700 dark:text-neutral-200">
           {name}
         </span>
         <Badge variant={badge.variant} className="ml-auto text-[10px]">
@@ -34,26 +33,22 @@ export function ToolCallCard({ name, args, status, result }: ToolCallCardProps) 
         </Badge>
       </div>
 
-      {/* Args (collapsible) */}
       {Object.keys(args).length > 0 && (
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <button className="flex items-center gap-1 w-full px-3 py-1 text-xs text-[#888] hover:text-[#4d4d4d] border-t border-[#ebebeb] dark:border-[#2a2a2a] transition-colors">
-              <ChevronDown className="w-3 h-3" />
-              参数 ({Object.keys(args).length})
-            </button>
+        <Collapsible className="mt-2 border-t border-neutral-200 pt-1 dark:border-neutral-700">
+          <CollapsibleTrigger className="flex w-full items-center gap-1 py-1 text-left text-xs text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200">
+            <ChevronDown className="w-3 h-3 transition-transform duration-200 data-[panel-open]:rotate-180" />
+            参数 ({Object.keys(args).length})
           </CollapsibleTrigger>
-          <CollapsibleContent>
-            <pre className="px-3 py-2 text-[12px] leading-4 font-mono text-[#4d4d4d] dark:text-[#ebebeb] whitespace-pre-wrap border-t border-[#ebebeb] dark:border-[#2a2a2a]">
+          <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
+            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-white px-3 py-2 font-mono text-[11px] leading-relaxed text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-300">
               {JSON.stringify(args, null, 2)}
             </pre>
           </CollapsibleContent>
         </Collapsible>
       )}
 
-      {/* Result (when completed) */}
       {result && (
-        <div className="px-3 py-2 text-[12px] leading-4 font-mono text-[#4d4d4d] dark:text-[#ebebeb] border-t border-[#ebebeb] dark:border-[#2a2a2a] max-h-[200px] overflow-y-auto">
+        <div className="mt-2 max-h-[200px] overflow-y-auto whitespace-pre-wrap rounded-md bg-white px-3 py-2 font-mono text-[11px] leading-relaxed text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-300">
           {result}
         </div>
       )}

@@ -5,6 +5,7 @@ interface ProviderFormData {
   apiKey: string
   defaultModel: string
   providerName?: string
+  baseUrl?: string
 }
 
 interface ProviderFormProps {
@@ -13,6 +14,7 @@ interface ProviderFormProps {
   initialApiKey?: string
   initialModel?: string
   initialProviderName?: string
+  initialBaseUrl?: string
   onSave: (data: ProviderFormData) => void
   onCancel: () => void
 }
@@ -23,19 +25,21 @@ export function ProviderForm({
   initialApiKey,
   initialModel,
   initialProviderName,
+  initialBaseUrl,
   onSave,
   onCancel
 }: ProviderFormProps) {
   const [apiKey, setApiKey] = useState(initialApiKey || '')
   const [defaultModel, setDefaultModel] = useState(initialModel || '')
   const [providerName, setProviderName] = useState(initialProviderName || '')
+  const [baseUrl, setBaseUrl] = useState(initialBaseUrl || '')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSave({
       apiKey,
       defaultModel,
-      ...(type === 'custom' ? { providerName } : {})
+      ...(type === 'custom' ? { providerName, baseUrl } : {})
     })
   }
 
@@ -51,17 +55,30 @@ export function ProviderForm({
       </div>
 
       {type === 'custom' && (
-        <div>
-          <label className="block text-xs text-[#4d4d4d] dark:text-[#888] mb-1">提供商名称</label>
-          <input
-            type="text"
-            value={providerName}
-            onChange={(e) => setProviderName(e.target.value)}
-            placeholder="例如：DeepSeek, Ollama, Groq..."
-            className="w-full h-10 px-3 text-sm bg-white dark:bg-[#1a1a1a] border border-[#ebebeb] dark:border-[#2a2a2a] rounded-[6px] text-[#171717] dark:text-white placeholder:text-[#888] focus:outline-none focus:ring-2 focus:ring-[#171717] dark:focus:ring-white"
-            required
-          />
-        </div>
+        <>
+          <div>
+            <label className="block text-xs text-[#4d4d4d] dark:text-[#888] mb-1">提供商名称</label>
+            <input
+              type="text"
+              value={providerName}
+              onChange={(e) => setProviderName(e.target.value)}
+              placeholder="例如：DeepSeek, Ollama, Groq..."
+              className="w-full h-10 px-3 text-sm bg-white dark:bg-[#1a1a1a] border border-[#ebebeb] dark:border-[#2a2a2a] rounded-[6px] text-[#171717] dark:text-white placeholder:text-[#888] focus:outline-none focus:ring-2 focus:ring-[#171717] dark:focus:ring-white"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-[#4d4d4d] dark:text-[#888] mb-1">API 端点 URL</label>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.deepseek.com"
+              className="w-full h-10 px-3 text-sm bg-white dark:bg-[#1a1a1a] border border-[#ebebeb] dark:border-[#2a2a2a] rounded-[6px] text-[#171717] dark:text-white placeholder:text-[#888] focus:outline-none focus:ring-2 focus:ring-[#171717] dark:focus:ring-white"
+              required
+            />
+          </div>
+        </>
       )}
 
       <div>

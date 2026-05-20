@@ -32,14 +32,12 @@ export function MessageQueue({ items, onGuide, onDelete }: MessageQueueProps) {
         <span className="text-xs text-[#888]">
           有 {items.length} 条消息排队
         </span>
-        <CollapsibleTrigger asChild>
-          <button className="flex items-center gap-1 text-xs text-[#888] hover:text-[#4d4d4d] transition-colors">
-            <ChevronUp className="w-3.5 h-3.5 [&.chevron-up]:rotate-180 transition-transform duration-200" />
-          </button>
+        <CollapsibleTrigger className="flex items-center gap-1 text-xs text-[#888] transition-colors hover:text-[#4d4d4d]">
+          <ChevronUp className="w-3.5 h-3.5 transition-transform duration-200 data-[panel-open]:rotate-180" />
         </CollapsibleTrigger>
       </div>
 
-      <CollapsibleContent>
+      <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
         <div
           ref={scrollRef}
           className="max-h-[200px] overflow-y-auto px-4 pb-2 space-y-1.5"
