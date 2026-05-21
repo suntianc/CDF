@@ -1,113 +1,150 @@
-# Requirements: pi-workbench
+# Requirements: Agent 开发工作站
 
-> 基于 pi-coding-agent + GSD 的桌面 agent 工作台
-
-**Defined:** 2026-05-19
-**Core Value:** 用户可以通过 GUI 方便地管理和调用 AI agent 及 GSD 编码工作流
+**Defined:** 2026-05-21
+**Core Value:** 开发者通过自然语言对话驱动自动化开发工作流，Master Agent 负责需求理解、流程编排、节点执行监控和结果交付。
 
 ## v1 Requirements
 
-### Workspace
+Requirements for initial release. Each maps to roadmap phases.
 
-- [x] **WS-01**: 用户可以通过系统对话框选择本地文件夹作为工作区
-- [x] **WS-02**: 应用记录最近打开的工作区列表，支持快速切换
-- [x] **WS-03**: 切换工作区时自动清理旧 agent session 并初始化新 session
-- [x] **WS-04**: 应用启动时可自动恢复上次使用的工作区
+### Agent 对话 (Chat)
 
-### AI Chat
+- [ ] **CHAT-01**: Master Agent 多轮对话界面（assistant-ui）
+- [ ] **CHAT-02**: 对话历史本地持久化
+- [ ] **CHAT-03**: 上下文窗口 85% 阈值自动总结机制
+- [ ] **CHAT-04**: 总结后开启新会话，旧会话 ID 和总结内容注入新会话作为上下文
+- [ ] **CHAT-05**: Agent 可根据会话 ID 查询历史对话记录
 
-- [x] **CHAT-01**: 用户可以在聊天面板中输入消息与 AI agent 对话
-- [x] **CHAT-02**: agent 回复流式实时显示（streaming）
-- [x] **CHAT-03**: 消息支持 Markdown 渲染（代码块、列表、表格等）
-- [x] **CHAT-04**: 对话历史可持久化到本地，重启后恢复
-- [x] **CHAT-05**: 用户可清空或新建对话
+### 模型供应商配置 (LLM Providers)
 
-### Model Provider
+- [ ] **LLM-01**: 支持配置多个 LLM 提供者（OpenAI、Anthropic、本地模型等）
+- [ ] **LLM-02**: API Key 安全管理（加密存储）
+- [ ] **LLM-03**: 提供者切换机制
 
-- [x] **PROV-01**: 用户可以添加 AI 模型提供商（至少支持 Anthropic、OpenAI）
-- [x] **PROV-02**: 用户可以为每个提供商配置 API Key
-- [x] **PROV-03**: 用户可以在可用模型中选择当前对话使用的模型
-- [x] **PROV-04**: 模型配置持久化到本地存储
-- [x] **PROV-05**: 连接失败时给出友好错误提示
+### Agent 资产管理 (Agent Library)
 
-### Skills 管理
+- [ ] **AGNT-01**: 创建/编辑/删除 Agent 角色定义
+- [ ] **AGNT-02**: Agent 资产库面板
+- [ ] **AGNT-03**: Agent 配置：指定 LLM、提供者
+- [ ] **AGNT-04**: Agent 配置：绑定 MCP 资源
+- [ ] **AGNT-05**: Agent 配置：绑定 Skills
 
-- [ ] **SKILL-01**: 应用自动发现工作区 `.pi/` 目录下的 skills 并列表展示
-- [ ] **SKILL-02**: 用户可以从本地文件系统导入 skill（`.md` 文件）
-- [ ] **SKILL-03**: 用户可以从 GitHub 仓库下载安装 skills（`/owner/repo` 格式）
-- [ ] **SKILL-04**: 用户可以在 UI 中预览 skill 的描述和内容
-- [ ] **SKILL-05**: 用户点击执行 skill，内容发送到当前 agent 对话
-- [ ] **SKILL-06**: 应用自动集成 pi-gsd 的全部工作流（prompts + workflows）
+### Skills 管理 (Skills)
 
-### MCP 管理
+- [ ] **SKIL-01**: 创建/编辑/删除 Skills 脚本
+- [ ] **SKIL-02**: Skills 版本管理
+- [ ] **SKIL-03**: Skills 执行日志
 
-- [ ] **MCP-01**: 用户可以添加 MCP server 配置（名称、启动命令、参数）
-- [ ] **MCP-02**: 用户可以连接/断开 MCP server
-- [ ] **MCP-03**: 已连接的 MCP server 工具自动注册到 agent 的可用工具集
-- [ ] **MCP-04**: agent 调用 MCP 工具的结果正常返回并显示
-- [ ] **MCP-05**: 应用退出时自动断开所有 MCP 连接
-- [ ] **MCP-06**: MCP 配置按工作区存储和恢复
+### MCP 管理 (MCP Servers)
 
-### GSD 集成
+- [ ] **MCP-01**: MCP 服务器配置（地址、端口）
+- [ ] **MCP-02**: MCP 服务器参数配置（待 research）
+- [ ] **MCP-03**: MCP 服务器健康检查
+- [ ] **MCP-04**: MCP 服务器连接/断开管理
 
-- [x] **GSD-01**: 应用中可调用 pi-gsd 的全部 commands（`/gsd-plan-phase`、`/gsd-execute-phase` 等）
-- [ ] **GSD-02**: GSD 子 agent（executor、planner、debugger 等）可通过 skill 执行自动生成
-- [ ] **GSD-03**: `.planning/` 目录内容可在界面中查看
+### 工作流管理 (Workflow)
 
-### UI 基础
+- [ ] **WFLO-01**: ReactFlow 可视化工作流编辑器
+- [ ] **WFLO-02**: Agent 节点配置（指定 LLM、MCP、Skills）
+- [ ] **WFLO-03**: 普通节点（脚本/查询能力）
+- [ ] **WFLO-04**: 节点并行/串行执行控制
+- [ ] **WFLO-05**: 工作流执行状态实时推送
+- [ ] **WFLO-06**: 失败节点汇报 Master Agent 决断
+- [ ] **WFLO-07**: 工作流持久化（保存/加载）
 
-- [x] **UI-01**: 应用有侧边栏 + 主内容区的标准布局
-- [ ] **UI-02**: 侧边栏包含 Skills、MCP、Settings 等导航项
-- [ ] **UI-03**: 主内容区以聊天面板为核心
-- [ ] **UI-04**: 支持明暗主题切换（跟随系统或手动选择）
-- [x] **UI-05**: 窗口大小/位置可保存和恢复
+### 主题切换 (Theme)
+
+- [ ] **THEM-01**: 浅色主题
+- [ ] **THEM-02**: 深色主题
+- [ ] **THEM-03**: 跟随系统设置
+
+### 项目管理 (Project)
+
+- [ ] **PROJ-01**: 多项目管理面板
+- [ ] **PROJ-02**: 项目切换
+- [ ] **PROJ-03**: 项目级数据隔离
 
 ## v2 Requirements
 
-### 工作流可视化
+Deferred to future release. Tracked but not in current roadmap.
 
-- **VIZ-01**: 在 UI 中看到 GSD phase/plan/task 的进度
-- **VIZ-02**: 多 workspace 仪表盘
+### Skills 管理
 
-### Agent 扩展
+- **SKIL-04**: Skills 市场/共享功能
 
-- **AGNT-01**: 可视化创建和配置自定义 agent
-- **AGNT-02**: Agent 预设模板
+### MCP 管理
 
-### 协作
+- **MCP-05**: MCP 资源状态可视化
+- **MCP-06**: MCP 响应缓存
 
-- **COLLAB-01**: Agent 市场/商店
-- **COLLAB-02**: 团队共享配置
+### 工作流管理
+
+- **WFLO-08**: 工作流版本管理
+- **WFLO-09**: 工作流执行回滚
+
+### 项目管理
+
+- **PROJ-04**: 项目导入/导出
+- **PROJ-05**: 团队协作/权限管理
 
 ## Out of Scope
 
+Explicitly excluded. Documented to prevent scope creep.
+
 | Feature | Reason |
 |---------|--------|
-| 拖拽式工作流编辑器 | V2 功能，V1 以人工调用 skills 为主 |
-| 作为 MCP server 暴露 | V1 只做客户端调用他人 server |
-| 移动端 | Desktop only |
-| 多用户/团队协作 | V1 为个人工具 |
-| Agent 市场/商店 | 需要后端服务 |
-| AI IDE 级别的代码编辑 | 定位是工作台，不是 IDE |
+| 云端同步 | 离线优先设计 |
+| 团队协作/权限管理 | v1 单开发者使用 |
+| 实时协作编辑 | 桌面应用定位 |
+| 上下文压缩 | 压缩导致信息失真，采用总结策略替代 |
+| 强制自动执行 | 需要用户确认的场景必须暂停 |
+| LLM 参数配置 | v1 仅配置提供者，不配置参数 |
 
 ## Traceability
 
+Which phases cover which requirements. Updated during roadmap creation.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WS-01~04 | Phase 1 | Pending |
-| PROV-01~05 | Phase 1 | Pending |
-| UI-01~05 | Phase 1 | Pending |
-| CHAT-01~05 | Phase 2 | Pending |
-| GSD-01 | Phase 2 | Complete |
-| SKILL-01~06 | Phase 3 | Pending |
-| GSD-02~03 | Phase 3 | Pending |
-| MCP-01~06 | Phase 4 | Pending |
+| CHAT-01 | Phase 2 | Pending |
+| CHAT-02 | Phase 2 | Pending |
+| CHAT-03 | Phase 2 | Pending |
+| CHAT-04 | Phase 2 | Pending |
+| CHAT-05 | Phase 2 | Pending |
+| LLM-01 | Phase 2 | Pending |
+| LLM-02 | Phase 2 | Pending |
+| LLM-03 | Phase 2 | Pending |
+| AGNT-01 | Phase 3 | Pending |
+| AGNT-02 | Phase 3 | Pending |
+| AGNT-03 | Phase 3 | Pending |
+| AGNT-04 | Phase 3 | Pending |
+| AGNT-05 | Phase 3 | Pending |
+| SKIL-01 | Phase 3 | Pending |
+| SKIL-02 | Phase 3 | Pending |
+| SKIL-03 | Phase 3 | Pending |
+| MCP-01 | Phase 3 | Pending |
+| MCP-02 | Phase 3 | Pending |
+| MCP-03 | Phase 3 | Pending |
+| MCP-04 | Phase 3 | Pending |
+| WFLO-01 | Phase 4 | Pending |
+| WFLO-02 | Phase 4 | Pending |
+| WFLO-03 | Phase 4 | Pending |
+| WFLO-04 | Phase 4 | Pending |
+| WFLO-05 | Phase 4 | Pending |
+| WFLO-06 | Phase 4 | Pending |
+| WFLO-07 | Phase 4 | Pending |
+| THEM-01 | Phase 1 | Pending |
+| THEM-02 | Phase 1 | Pending |
+| THEM-03 | Phase 1 | Pending |
+| PROJ-01 | Phase 5 | Pending |
+| PROJ-02 | Phase 5 | Pending |
+| PROJ-03 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 30 total
-- Mapped to phases: 30
-- Unmapped: 0 ✅
+- v1 requirements: 28 total
+- Mapped to phases: 28
+- Unmapped: 0 ✓
 
 ---
-*Requirements defined: 2026-05-19*
-*Last updated: 2026-05-19 after roadmap creation*
+*Requirements defined: 2026-05-21*
+*Last updated: 2026-05-21 after initial definition*
