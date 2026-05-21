@@ -1,88 +1,189 @@
-# Stack Research: Desktop Agent Workbench
+# Technology Stack
 
-> 基于 pi-coding-agent + GSD 的桌面 agent 应用
+**Project:** Agent 开发工作站 (Agent Development Workstation)
+**Researched:** 2026-05-21
+**Confidence:** MEDIUM (based on training data, external verification recommended)
 
 ## Recommended Stack
 
-| Layer | Choice | Rationale |
-|-------|--------|-----------|
-| **Desktop Shell** | Electron 34+ | Node.js 原生兼容 pi SDK，生态成熟 |
-| **Frontend** | React 19 + TypeScript 5 | 用户选定，生态最丰富 |
-| **Build** | electron-vite + electron-builder | 开发体验好，HMR 支持，打包成熟 |
-| **Styling** | Tailwind CSS 4 + shadcn/ui | 美观、可定制、组件丰富 |
-| **State** | Zustand | 轻量、TS 友好、无 boilerplate |
-| **IPC Bridge** | Electron contextBridge + ipcRenderer/ipcMain | 安全隔离主进程和渲染进程 |
-| **Agent Engine** | `@earendil-works/pi-coding-agent` (v1.x) | 核心 SDK，提供 createAgentSession、SessionManager、DefaultResourceLoader |
-| **MCP Client** | `@modelcontextprotocol/client` (v1.x) | 官方 SDK，连接 MCP server，获取 tools |
-| **AI Provider** | pi 内置 ModelRegistry + AuthStorage | 已有多 provider 支持（Anthropic、OpenAI、Google 等） |
-| **Workflow** | pi-gsd (v2.1.4) | GSD discuss→plan→execute→verify 流程 + 18个子 agent |
-| **Icon** | lucide-react | 图标美观、按需加载 |
+### Core Desktop Framework
 
-## 关键依赖版本
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **Electron** | v33+ | Desktop runtime | Cross-platform, mature ecosystem, Node.js backend integration |
+| **electron-vite** | v3+ | Build tool | Vite-native Electron development, fast HMR, official recommended approach |
+| **Vite** | v6+ | Frontend bundler | Fast dev server, native ESM, excellent TypeScript support |
+| **React** | v19 | UI framework | Component model, vast ecosystem |
+| **TypeScript** | v5.7+ | Language | Type safety critical for complex agent/workflow state |
 
-```json
-{
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "^1.x",
-    "@modelcontextprotocol/client": "^1.x",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "zustand": "^5.0.0",
-    "lucide-react": "^0.x",
-    "tailwindcss": "^4.0.0",
-    "@radix-ui/react-*": "^1.x"
-  },
-  "devDependencies": {
-    "electron": "^34.0.0",
-    "electron-builder": "^25.0.0",
-    "electron-vite": "^3.0.0",
-    "typescript": "^5.7.0",
-    "vite": "^6.0.0",
-    "@vitejs/plugin-react": "^4.x"
-  }
-}
+### UI Component Libraries
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **Tailwind CSS** | v4+ | Utility CSS | Rapid UI development, consistent design system |
+| **Shadcn/ui** | latest | Component primitives | Accessible, customizable, copy-paste not dependency |
+| **Radix UI** | v1.2+ | Headless components | Underlies shadcn, accessible primitives |
+| **Lucide React** | latest | Icons | Consistent, tree-shakeable icon set |
+
+### Chat Interface
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **assistant-ui** | latest | Chat components | Purpose-built for AI chat, Markdown/Code rendering, streaming support |
+| **or** | | | |
+| **chat-ui** (TailChat) | latest | Alternative chat UI | More customizable, if assistant-ui insufficient |
+
+**Rationale for assistant-ui:**
+- Built by Vercel/AI SDK team
+- Designed for LLM streaming interfaces
+- Markdown/code block rendering out of box
+- Compatible with React 19
+
+### Workflow Visualization
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **ReactFlow** (@xyflow/react) | v12+ | Node-based editor | Industry standard for workflow orchestration UIs, drag-drop nodes, edges, minimap |
+| **@xyflow/system** | v0.6+ | State management for flow | If needing custom node behavior |
+
+### State Management
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **Zustand** | v5+ | Global state | Minimal boilerplate, TypeScript-first, great for workflow state |
+| **XState** | v5+ | Workflow state machines | If workflow nodes need complex state machine semantics |
+| **Jotai** | v2+ | Atomic state | Alternative for fine-grained reactivity |
+
+**Recommendation:** Zustand for global app state + XState for individual workflow node execution states
+
+### Local Data Storage (Offline-First)
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **better-sqlite3** | v11+ | SQLite bindings | Fast, synchronous API, perfect for Electron main process |
+| **Drizzle ORM** | v0.38+ | Database ORM | Type-safe, lightweight, great DX |
+| **electron-store** | v10+ | Key-value storage | For settings, simple config that doesn't need SQL |
+
+**Alternative for renderer process:**
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| **Dexie.js** | v4+ | IndexedDB wrapper | If needing browser-side indexed storage |
+| **sql.js** | latest | SQLite WASM | If native modules problematic |
+
+### IPC Communication (Main-Renderer)
+
+| Technology | Purpose | Why |
+|------------|---------|-----|
+| **Electron contextBridge** | Secure API exposure | Mandatory for security, preload scripts |
+| **Electron IPC** | Message passing | Standard pattern for main-renderer communication |
+| **electron-trpc** | Type-safe RPC | If wanting end-to-end TypeScript IPC |
+
+### Process Management (for pi-code-agent)
+
+| Technology | Purpose | Why |
+|------------|---------|-----|
+| **child_process.spawn** | Node child processes | Standard Node.js, sufficient for CLI invocation |
+| **node-pty** | PTY for interactive CLI | If needing terminal emulation for pi-code-agent |
+| **xterm.js** | Terminal emulator UI | If rendering pi-code-agent output in terminal panel |
+
+### Logging & Error Handling
+
+| Technology | Purpose | Why |
+|------------|---------|-----|
+| **electron-log** | Cross-process logging | Unified logging, file rotation, crash reports |
+| **Sentry** (optional) | Error tracking | Desktop crash reporting |
+
+---
+
+## Alternatives Considered
+
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Build tool | electron-vite | electron-forge | electron-vite is more Vite-native, faster HMR |
+| Build tool | electron-vite | electron-builder | electron-builder is for packaging only, not dev workflow |
+| Chat UI | assistant-ui | Custom + Radix | assistant-ui saves 2-4 weeks of work |
+| Workflow | ReactFlow | D3.js | ReactFlow is purpose-built, D3 is too low-level |
+| State | Zustand | Redux Toolkit | Zustand has 1/3 the boilerplate |
+| SQLite | better-sqlite3 | sql.js | Native bindings are 10x faster |
+| ORM | Drizzle | Prisma | Drizzle is lighter, less runtime overhead |
+
+---
+
+## Anti-Patterns to Avoid
+
+| Pattern | Why Avoid |
+|---------|-----------|
+| **electron-builder for dev** | It's a packager, not a dev server. Use electron-vite for development. |
+| **Remote module** | Deprecated, security risk |
+| **nodeIntegration: true** | Security vulnerability, use contextBridge |
+| **Synchronous IPC in renderer** | Blocks UI thread |
+| **Defaulting to Redux** | Overkill for most Electron apps |
+
+---
+
+## Installation
+
+```bash
+# Core dependencies
+npm create electron-vite@latest my-app -- --template react-ts
+
+cd my-app
+
+# UI
+npm install tailwindcss @tailwindcss/vite
+npm install shadcn-ui
+npx shadcn-ui@latest init
+
+# Chat (if using assistant-ui)
+npm install assistant-ui
+
+# Workflow
+npm install @xyflow/react
+
+# State
+npm install zustand xstate @xstate/react
+
+# Database
+npm install better-sqlite3
+npm install drizzle-orm
+npm install -D drizzle-kit @types/better-sqlite3
+
+# IPC/Utilities
+npm install electron-log electron-store
+npm install uuid
+npm install -D @types/uuid
 ```
 
-## 为什么选这些
+---
 
-### Electron vs Tauri
+## Sources
 
-| 维度 | Electron | Tauri |
-|------|----------|-------|
-| 生态 | 极其成熟，任何问题都有答案 | 较新，部分场景需要自己摸索 |
-| Node.js 兼容 | 原生，pi SDK 直接 require | 需要 sidecar 或子进程 |
-| 包体 | ~150MB baseline | ~5MB baseline |
-| 内存 | 较高 | 较低 |
-| 结论 | ✅ 选择 | pi SDK 是 Node.js 包，Electron 主进程可直接 import。若用 Tauri 则需要额外桥接层，增加复杂度。V1 优先降低技术风险。 |
+**Confidence: MEDIUM** — Based on training data through early 2026. Key areas needing verification:
 
-### electron-vite
+- [ ] Exact version numbers (verify with `npm view <package> version`)
+- [ ] assistant-ui current API and React 19 compatibility
+- [ ] electron-vite v3 stability and current best practices
+- [ ] Tailwind v4 production readiness
 
-- 原生 Vite 支持，HMR 速度极快
-- 主进程/渲染进程/preload 分目录管理
-- 内置 electron-builder 集成
-- 社区活跃，2025 年已成为 Electron + Vite 的主流选择
+**Recommend verification commands:**
+```bash
+npm view electron version
+npm view electron-vite version
+npm view @xyflow/react version
+npm view assistant-ui version
+npm view tailwindcss version
+npm view better-sqlite3 version
+npm view zustand version
+```
 
-### @modelcontextprotocol/client (v1.x)
+---
 
-- v1.x 是当前稳定版，用于生产环境
-- 支持 StdioClientTransport 和 Streamable HTTP
-- 可连接任何 MCP server，获取 tools 列表并调用
-- 2026 年 Q2 的 v2 版本还在 pre-alpha，暂不使用
+## Architecture Implications
 
-## 不推荐的方案
+The chosen stack supports the project's requirements:
 
-| 方案 | 原因 |
-|------|------|
-| Tauri v2 | Rust 侧需要额外维护 pi SDK 的 Node.js sidecar，增加 V1 复杂度 |
-| Vue/Svelte | 用户选定 React，生态优势明显 |
-| Next.js/Remix | 桌面应用不需要 SSR，增加无谓复杂度 |
-| Python backend | 额外进程通信开销，和 pi SDK 的 Node.js 生态不匹配 |
-| WebSocket IPC | Electron 内置 IPC 已经足够，WebSocket 额外复杂 |
-
-## Confidence
-
-- **Desktop shell**: 高置信度 — Electron 是 Node.js 桌面应用的行业标准
-- **Frontend stack**: 高置信度 — React+Tailwind+shadcn 是 2025-2026 的主流组合
-- **Agent engine**: 高置信度 — pi SDK 是核心，无替代方案
-- **MCP client**: 高置信度 — 官方 SDK，标准实现
-- **Build tooling**: 中置信度 — electron-vite 成熟，但也可用 electron-forge
+1. **Offline-first**: better-sqlite3 + electron-store for local persistence
+2. **Agent workflow**: ReactFlow for visualization + Zustand/XState for state
+3. **Chat interface**: assistant-ui for Master Agent conversation UI
+4. **Security**: contextBridge + preload for secure IPC
+5. **Performance**: electron-vite provides Vite HMR speed for development
