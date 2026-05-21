@@ -58,7 +58,23 @@ const piWorkbenchAPI = {
   // ── GSD APIs (Phase 2) ──
   gsdExecute: (command: string, args: string[], cwd?: string) =>
     ipcRenderer.invoke('gsd:execute', { command, args, cwd }),
-  gsdListCommands: () => ipcRenderer.invoke('gsd:listCommands')
+  gsdListCommands: () => ipcRenderer.invoke('gsd:listCommands'),
+
+  // ── Chat History APIs (Phase 2) ──
+  chatHistoryCreate: (workspacePath: string, name?: string) =>
+    ipcRenderer.invoke('chatHistory:create', { workspacePath, name }),
+  chatHistoryList: (workspacePath: string) =>
+    ipcRenderer.invoke('chatHistory:list', { workspacePath }),
+  chatHistoryLoad: (path: string, offset?: number, limit?: number) =>
+    ipcRenderer.invoke('chatHistory:load', { path, offset, limit }),
+  chatHistorySave: (path: string, messages: any[]) =>
+    ipcRenderer.invoke('chatHistory:save', { path, messages }),
+  chatHistoryAppend: (path: string, message: any) =>
+    ipcRenderer.invoke('chatHistory:append', { path, message }),
+  chatHistoryDelete: (path: string) =>
+    ipcRenderer.invoke('chatHistory:delete', { path }),
+  chatHistoryUpdateMeta: (path: string, meta: any) =>
+    ipcRenderer.invoke('chatHistory:updateMeta', { path, meta })
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
@@ -100,6 +116,23 @@ if (process.contextIsolated) {
     execute: (command: string, args: string[], cwd?: string) =>
       ipcRenderer.invoke('gsd:execute', { command, args, cwd }),
     listCommands: () => ipcRenderer.invoke('gsd:listCommands')
+  },
+  // Chat History APIs
+  chatHistory: {
+    create: (workspacePath: string, name?: string) =>
+      ipcRenderer.invoke('chatHistory:create', { workspacePath, name }),
+    list: (workspacePath: string) =>
+      ipcRenderer.invoke('chatHistory:list', { workspacePath }),
+    load: (path: string, offset?: number, limit?: number) =>
+      ipcRenderer.invoke('chatHistory:load', { path, offset, limit }),
+    save: (path: string, messages: any[]) =>
+      ipcRenderer.invoke('chatHistory:save', { path, messages }),
+    append: (path: string, message: any) =>
+      ipcRenderer.invoke('chatHistory:append', { path, message }),
+    delete: (path: string) =>
+      ipcRenderer.invoke('chatHistory:delete', { path }),
+    updateMeta: (path: string, meta: any) =>
+      ipcRenderer.invoke('chatHistory:updateMeta', { path, meta })
   }
 })
     contextBridge.exposeInMainWorld('electronAPI', piWorkbenchAPI)
@@ -140,6 +173,22 @@ if (process.contextIsolated) {
       execute: (command: string, args: string[], cwd?: string) =>
         ipcRenderer.invoke('gsd:execute', { command, args, cwd }),
       listCommands: () => ipcRenderer.invoke('gsd:listCommands')
+    },
+    chatHistory: {
+      create: (workspacePath: string, name?: string) =>
+        ipcRenderer.invoke('chatHistory:create', { workspacePath, name }),
+      list: (workspacePath: string) =>
+        ipcRenderer.invoke('chatHistory:list', { workspacePath }),
+      load: (path: string, offset?: number, limit?: number) =>
+        ipcRenderer.invoke('chatHistory:load', { path, offset, limit }),
+      save: (path: string, messages: any[]) =>
+        ipcRenderer.invoke('chatHistory:save', { path, messages }),
+      append: (path: string, message: any) =>
+        ipcRenderer.invoke('chatHistory:append', { path, message }),
+      delete: (path: string) =>
+        ipcRenderer.invoke('chatHistory:delete', { path }),
+      updateMeta: (path: string, meta: any) =>
+        ipcRenderer.invoke('chatHistory:updateMeta', { path, meta })
     }
   }
   // @ts-ignore (define in dts)
