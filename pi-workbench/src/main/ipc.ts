@@ -24,9 +24,31 @@ interface ActiveSession {
   sessionId: string
 }
 
+interface WorkspaceGitContext {
+  available: boolean
+  branch: string
+  changedFiles: number
+  stagedFiles: number
+  ahead: number
+  behind: number
+  lastCommit: string
+}
+
+interface WorkspaceWorkflowContext {
+  available: boolean
+  workflowCount: number
+  currentPhase: string
+  status: string
+  phaseSummary: string
+}
+
 // ── Active sessions cache ──
 
 const activeSessions = new Map<string, ActiveSession>()
+
+// ── Active streams Map (for Channel event pattern streaming) ──
+
+const activeStreams = new Map<string, AbortController>()
 
 // ── Helpers ──
 
@@ -45,6 +67,113 @@ function normalizeCustomProviderBaseUrl(rawBaseUrl: string): string {
   }
 
   return trimmed
+}
+
+async function readWorkspaceContext(workspacePath: string): Promise<{
+  git: WorkspaceGitContext
+  workflow: WorkspaceWorkflowContext
+}> {
+  const fs = await import('fs/promises')
+  const { execFile } = await import('child_process')
+  const { promisify } = await import('util')
+  const execFileAsync = promisify(execFile)
+
+  const git: WorkspaceGitContext = {
+    available: false,
+    branch: '未连接 Git',
+    changedFiles: 0,
+    stagedFiles: 0,
+    ahead: 0,
+    behind: 0,
+    lastCommit: '暂无提交信息',
+  }
+
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', workspacePath, 'status', '--porcelain=2', '--branch'], {
+      timeout: 5000,
+    })
+
+    git.available = true
+    const lines = stdout.split('\n').filter(Boolean)
+    const branchHead = lines.find((line) => line.startsWith('# branch.head '))
+    const branchAb = lines.find((line) => line.startsWith('# branch.ab '))
+    const fileLines = lines.filter((line) => /^[12u?]/.test(line))
+
+    if (branchHead) {
+      git.branch = branchHead.replace('# branch.head ', '').trim()
+    }
+
+    if (branchAb) {
+      const aheadMatch = branchAb.match(/\+(\d+)/)
+      const behindMatch = branchAb.match(/-(\d+)/)
+      git.ahead = aheadMatch ? Number(aheadMatch[1]) : 0
+      git.behind = behindMatch ? Number(behindMatch[1]) : 0
+    }
+
+    git.changedFiles = fileLines.length
+    git.stagedFiles = fileLines.filter((line) => {
+      const status = line.slice(2, 4)
+      return status[0] && status[0] !== '.'
+    }).length
+
+    try {
+      const { stdout: commitStdout } = await execFileAsync(
+        'git',
+        ['-C', workspacePath, 'log', '-1', '--pretty=%s'],
+        { timeout: 5000 },
+      )
+      const summary = commitStdout.trim()
+      if (summary) git.lastCommit = summary
+    } catch {
+      // Leave default commit summary
+    }
+  } catch {
+    // Non-git workspaces fall back to defaults
+  }
+
+  const workflow: WorkspaceWorkflowContext = {
+    available: false,
+    workflowCount: 0,
+    currentPhase: '未检测到 GSD 状态',
+    status: 'idle',
+    phaseSummary: '当前工作区暂无工作流上下文',
+  }
+
+  try {
+    const workflowDir = join(workspacePath, '.pi', 'gsd', 'workflows')
+    const workflowFiles = await fs.readdir(workflowDir)
+    workflow.workflowCount = workflowFiles.filter((name) => name.endsWith('.md')).length
+    workflow.available = true
+  } catch {
+    // Keep defaults if no workflow directory
+  }
+
+  try {
+    const statePath = join(workspacePath, '.planning', 'STATE.md')
+    const stateContent = await fs.readFile(statePath, 'utf8')
+    const currentPhaseMatch = stateContent.match(/current_phase:\s*(.+)/)
+    const statusMatch = stateContent.match(/status:\s*(.+)/)
+    const focusMatch = stateContent.match(/## Current Focus[\s\S]*?\n\n(.+?)(?:\n\n|\n\*\*Resume file)/)
+
+    if (currentPhaseMatch) {
+      workflow.currentPhase = currentPhaseMatch[1].trim()
+    }
+    if (statusMatch) {
+      workflow.status = statusMatch[1].trim()
+    }
+    if (focusMatch) {
+      workflow.phaseSummary = focusMatch[1].trim()
+    } else if (workflow.workflowCount > 0) {
+      workflow.phaseSummary = `已发现 ${workflow.workflowCount} 个 GSD workflow`
+    }
+    workflow.available = true
+  } catch {
+    if (workflow.workflowCount > 0) {
+      workflow.phaseSummary = `已发现 ${workflow.workflowCount} 个 GSD workflow`
+    }
+  }
+
+  return { git, workflow }
 }
 
 /**
@@ -254,6 +383,9 @@ export function registerIpcHandlers(): void {
     store.set('workspaces', workspaces)
     store.set('lastWorkspace', workspacePath)
     return workspacePath
+  })
+  ipcMain.handle('workspace:getContext', async (_event, workspacePath: string) => {
+    return readWorkspaceContext(workspacePath)
   })
 
   // ── Theme ──
@@ -566,16 +698,61 @@ export function registerIpcHandlers(): void {
   })
 
   /**
-   * session:stopStream(sessionPath)
-   * Aborts the current AI generation.
+   * session:streamStart({ sessionPath })
+   * Starts pi SDK streaming for a session using Channel event pattern (D-02).
+   * Generates unique streamId, subscribes to session events, and forwards tokens
+   * via the unique channel (stream-{id}). Returns streamId to renderer via handle.
    */
-  ipcMain.on('session:stopStream', (event, { sessionPath }: { sessionPath: string }) => {
-    const entry = activeSessions.get(sessionPath)
-    if (entry) {
-      entry.session.abort().catch(() => {})
+  ipcMain.handle('session:streamStart', async (event, { sessionPath }: { sessionPath: string }) => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!browserWindow) throw new Error('No browser window')
+
+    // Generate unique streamId for this streaming session
+    const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    // Create AbortController for this stream
+    const abortController = new AbortController()
+    activeStreams.set(sessionPath, abortController)
+
+    try {
+      const pi = await import('@earendil-works/pi-coding-agent')
+      const { SessionManager } = pi
+
+      // Open the session
+      const sessionManager = SessionManager.open(sessionPath)
+
+      // Subscribe to session events
+      sessionManager.subscribe((ev: any) => {
+        if (abortController.signal.aborted) return
+
+        if (ev.type === 'message_update' && ev.assistantMessageEvent?.type === 'text_delta') {
+          const delta = ev.assistantMessageEvent.delta
+          browserWindow.webContents.send(streamId, { type: 'token', delta })
+        } else if (ev.type === 'message_end') {
+          browserWindow.webContents.send(streamId, { type: 'end' })
+        }
+      })
+
+      // Start the actual generation with streaming
+      // The last message content should be sent via session.prompt
+      // Note: The renderer should call session:sendMessage separately to append the user message first
+      return streamId
+    } catch (err: any) {
+      activeStreams.delete(sessionPath)
+      browserWindow.webContents.send(streamId, { type: 'error', message: err.message })
+      throw err
     }
-    if (!event.sender.isDestroyed()) {
-      event.sender.send('session:streamChunk', { type: 'stopped' })
+  })
+
+  /**
+   * session:streamStop({ sessionPath })
+   * Aborts the active stream using the stored AbortController.
+   */
+  ipcMain.on('session:streamStop', (_event, { sessionPath }: { sessionPath: string }) => {
+    const controller = activeStreams.get(sessionPath)
+    if (controller) {
+      controller.abort()
+      activeStreams.delete(sessionPath)
     }
   })
 
