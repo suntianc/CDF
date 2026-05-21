@@ -57,6 +57,7 @@ export function ChatPanel({ onSend, onStop, onNewChat, currentWorkspace }: ChatP
       {/* Input area */}
       <InputArea
         onSend={onSend}
+        onStop={onStop}
         disabled={isStreaming}
         placeholder="向 CDF 提问……"
       />

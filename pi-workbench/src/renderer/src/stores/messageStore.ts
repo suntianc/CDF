@@ -25,7 +25,7 @@ interface MessageStore {
   clearAll: () => void
 }
 
-export const useMessageStore = create<MessageStore>((set, get) => ({
+export const useMessageStore = create<MessageStore>((set) => ({
   messages: [],
   currentStreamId: null,
   activeConversationId: null,

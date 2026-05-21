@@ -1,5 +1,5 @@
 import { app, ipcMain, dialog, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import type { Model } from '@earendil-works/pi-ai'
 import type { AgentSession } from '@earendil-works/pi-coding-agent'
 import store from './store'
@@ -24,6 +24,15 @@ interface ActiveSession {
   sessionId: string
 }
 
+interface StreamingSession {
+  session: AgentSession
+  unsubscribe: () => void
+  abortController: AbortController
+}
+
+// Active streaming sessions keyed by streamId
+const streamingSessions = new Map<string, StreamingSession>()
+
 interface WorkspaceGitContext {
   available: boolean
   branch: string
@@ -46,9 +55,7 @@ interface WorkspaceWorkflowContext {
 
 const activeSessions = new Map<string, ActiveSession>()
 
-// ── Active streams Map (for Channel event pattern streaming) ──
-
-const activeStreams = new Map<string, AbortController>()
+// ── Streaming sessions Map (for Channel event pattern streaming) ──
 
 // ── Helpers ──
 
@@ -700,8 +707,8 @@ export function registerIpcHandlers(): void {
   /**
    * session:streamStart({ sessionPath })
    * Starts pi SDK streaming for a session using Channel event pattern (D-02).
-   * Generates unique streamId, subscribes to session events, and forwards tokens
-   * via the unique channel (stream-{id}). Returns streamId to renderer via handle.
+   * Generates unique streamId, creates a new AgentSession, subscribes to session events,
+   * and forwards tokens via the unique channel (stream-{id}). Returns streamId to renderer.
    */
   ipcMain.handle('session:streamStart', async (event, { sessionPath }: { sessionPath: string }) => {
     const browserWindow = BrowserWindow.fromWebContents(event.sender)
@@ -710,19 +717,34 @@ export function registerIpcHandlers(): void {
     // Generate unique streamId for this streaming session
     const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-    // Create AbortController for this stream
+    // Create AbortController for this stream (informational, SDK doesn't support abort)
     const abortController = new AbortController()
-    activeStreams.set(sessionPath, abortController)
 
     try {
+      // Extract workspace directory from session path
+      const cwd = dirname(sessionPath)
+
+      // Build services and create a new AgentSession for this stream
+      const services = await buildPiServices(cwd)
+
+      if (!services.model) {
+        throw new Error('没有可用的模型。请先在设置中配置 AI 提供商和 API Key。')
+      }
+
       const pi = await import('@earendil-works/pi-coding-agent')
-      const { SessionManager } = pi
+      const { createAgentSession } = pi
 
-      // Open the session
-      const sessionManager = SessionManager.open(sessionPath)
+      const { session } = await createAgentSession({
+        cwd,
+        model: services.model,
+        authStorage: services.authStorage,
+        modelRegistry: services.modelRegistry,
+        sessionManager: services.sessionManager,
+        tools: ['read', 'bash', 'grep', 'find', 'ls'],
+      })
 
-      // Subscribe to session events
-      sessionManager.subscribe((ev: any) => {
+      // Subscribe to session events and forward tokens via the unique streamId channel
+      const unsubscribe = session.subscribe((ev: any) => {
         if (abortController.signal.aborted) return
 
         if (ev.type === 'message_update' && ev.assistantMessageEvent?.type === 'text_delta') {
@@ -730,29 +752,32 @@ export function registerIpcHandlers(): void {
           browserWindow.webContents.send(streamId, { type: 'token', delta })
         } else if (ev.type === 'message_end') {
           browserWindow.webContents.send(streamId, { type: 'end' })
+        } else if (ev.type === 'error' || ev.type === 'agent_error') {
+          browserWindow.webContents.send(streamId, { type: 'error', message: ev.errorMessage || 'Unknown error' })
         }
       })
 
-      // Start the actual generation with streaming
-      // The last message content should be sent via session.prompt
-      // Note: The renderer should call session:sendMessage separately to append the user message first
+      // Store the session for cleanup on streamStop
+      streamingSessions.set(streamId, { session, unsubscribe, abortController })
+
       return streamId
     } catch (err: any) {
-      activeStreams.delete(sessionPath)
       browserWindow.webContents.send(streamId, { type: 'error', message: err.message })
       throw err
     }
   })
 
   /**
-   * session:streamStop({ sessionPath })
-   * Aborts the active stream using the stored AbortController.
+   * session:streamStop({ streamId })
+   * Stops the active stream by disposing the AgentSession.
    */
-  ipcMain.on('session:streamStop', (_event, { sessionPath }: { sessionPath: string }) => {
-    const controller = activeStreams.get(sessionPath)
-    if (controller) {
-      controller.abort()
-      activeStreams.delete(sessionPath)
+  ipcMain.on('session:streamStop', (_event, { streamId }: { streamId: string }) => {
+    const entry = streamingSessions.get(streamId)
+    if (entry) {
+      entry.abortController.abort()
+      entry.unsubscribe()
+      entry.session.dispose()
+      streamingSessions.delete(streamId)
     }
   })
 

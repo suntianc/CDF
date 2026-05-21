@@ -2,11 +2,12 @@ import { useState, useRef, useEffect } from 'react'
 
 interface InputAreaProps {
   onSend: (content: string) => void
+  onStop?: () => void
   disabled?: boolean
   placeholder?: string
 }
 
-export function InputArea({ onSend, disabled = false, placeholder = '向 CDF 提问……' }: InputAreaProps) {
+export function InputArea({ onSend, onStop, disabled = false, placeholder = '向 CDF 提问……' }: InputAreaProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -64,19 +65,19 @@ export function InputArea({ onSend, disabled = false, placeholder = '向 CDF 提
           style={{ minHeight: '36px', maxHeight: '200px' }}
         />
         <button
-          onClick={handleSend}
-          disabled={disabled || !value.trim()}
+          onClick={disabled ? onStop : handleSend}
+          disabled={disabled ? false : !value.trim()}
           className={`
             shrink-0 w-8 h-8 rounded-[10px] flex items-center justify-center
             font-medium text-[14px] transition-all
             ${disabled
-              ? 'bg-[var(--accent)] text-white cursor-not-allowed opacity-60'
+              ? 'bg-[var(--danger)] text-white hover:opacity-90 cursor-pointer'
               : value.trim()
                 ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] cursor-pointer'
                 : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
             }
           `}
-          aria-label="发送消息"
+          aria-label={disabled ? '停止' : '发送消息'}
         >
           {disabled ? '■' : '↑'}
         </button>
