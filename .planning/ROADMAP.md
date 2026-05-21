@@ -1,159 +1,156 @@
-# Roadmap: pi-workbench
+# Roadmap: Agent 开发工作站
 
-**5 phases** | **34 requirements mapped** | **All current requirements covered** ✅
+## Phases
 
-## Phase Overview
-
-| # | Phase | Goal | Requirements | Success Criteria |
-|---|-------|------|-------------|-----------------|
-| 1 | Foundation & Workspace | 搭好应用骨架，选择工作区，配置模型提供商 | WS-01~04, PROV-01~05, UI-01~05 | 应用启动看到界面，能选工作区，能配 API Key |
-| 2 | AI Chat Engine | AI 对话核心体验 | CHAT-01~05 | 能对话、流式显示、历史持久化、可清空/新建对话 |
-| 3 | Skills System | Skills 发现、安装、执行 + GSD 工作流 | SKILL-01~06, GSD-02~03 | 能看到 skills 列表，能从 GitHub 安装，能点击执行 |
-| 4 | MCP Integration | MCP server 连接管理 + 工具注入 | MCP-01~06 | 能添加 MCP server，工具自动注入，agent 可调用 |
-| 5 | Workflow Builder | 基于 React Flow 构建 agent 工作流编辑体验 | FLOW-01~04 | 能新增、编辑、删除工作流，并在画布中构建和保存 |
+- [ ] **Phase 1: Foundation Workspace** - 基础架构、主题切换、项目管理基础设施
+- [ ] **Phase 2: AI Chat Engine** - Master Agent 对话界面、多轮对话、LLM 提供者配置
+- [ ] **Phase 3: Agent Integration** - Agent 资产管理、Skills 管理、MCP 服务器管理
+- [ ] **Phase 4: Workflow System** - ReactFlow 可视化工作流编辑器、执行引擎
+- [ ] **Phase 5: Project Management** - 多项目管理面板、项目级数据隔离
 
 ---
 
 ## Phase Details
 
-### Phase 1: Foundation & Workspace
+### Phase 1: Foundation Workspace
 
-**Progress:** ██░░░░░░░░ 1/3 plans (1 complete)
+**Goal:** 开发者可启动应用，看到主界面框架，支持主题切换和项目管理基础
 
-**Goal:** 搭好 Electron 应用骨架，完成可用的工作台界面框架
+**Depends on:** None (first phase)
 
-**Requirements:** WS-01, WS-02, WS-03, WS-04, PROV-01, PROV-02, PROV-03, PROV-04, PROV-05, UI-01, UI-02, UI-03, UI-04, UI-05
+**Requirements:** THEM-01, THEM-02, THEM-03, PROJ-01, PROJ-02, PROJ-03
 
-**Success Criteria:
-1. 应用启动后显示侧边栏 + 主内容区布局
-2. 可通过对话框选择工作区文件夹
-3. 最近工作区列表持久化，可快速切换
-4. 可添加 LLM 提供商并配置 API Key
-5. 可用模型中切换当前模型
-6. 主题切换（明/暗）生效
-7. 窗口大小位置重启后恢复
+**Success Criteria** (what must be TRUE):
+1. 用户可启动 Electron 应用并看到主界面
+2. 用户可切换浅色主题，界面正确反映
+3. 用户可切换深色主题，界面正确反映
+4. 用户可切换跟随系统设置，界面自动适配
+5. 用户可在多项目管理面板中查看项目列表
+6. 用户可在项目面板中切换不同项目
 
-**Phase dependencies:** None
+**Plans:** TBD
+
+**UI hint:** yes
+
+---
 
 ### Phase 2: AI Chat Engine
 
-**Goal:** 核心对话体验——用户可以跟 AI agent 对话
+**Goal:** 用户可与 Master Agent 进行多轮对话，配置 LLM 提供者，对话历史持久化
 
-**Requirements:** CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05
+**Depends on:** Phase 1
 
-**Success Criteria:**
-1. 聊天面板可输入消息并发送
-2. Agent 回复流式显示，Markdown 渲染正确
-3. 对话历史可保存和恢复
-4. 可清空/新建对话
+**Requirements:** CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, LLM-01, LLM-02, LLM-03
 
-**Plans:** 5 plans in 3 waves
+**Success Criteria** (what must be TRUE):
+1. 用户可在 Master Agent 对话界面发送消息并收到回复
+2. 对话关闭后重新打开，历史消息仍存在
+3. 对话窗口使用率达 85% 阈值时，系统自动总结上下文
+4. 开启新会话时，旧会话 ID 和总结内容注入新会话
+5. 用户可通过会话 ID 查询历史对话记录
+6. 用户可配置多个 LLM 提供者（OpenAI、Anthropic、本地模型等）
+7. 用户的 API Key 以加密形式安全存储
+8. 用户可在不同 LLM 提供者之间切换
 
-Plans:
-- [x] 02-01-PLAN.md — Message store (Zustand) + IPC streaming foundation
-- [x] 02-02-PLAN.md — Chat UI components (ChatPanel, MessageBubble, InputArea, WelcomeDialog)
-- [x] 02-03-PLAN.md — Markdown rendering (react-markdown + shiki) + streaming hook
-- [x] 02-04-PLAN.md — Chat history persistence (electron-store per-conversation + pagination)
-- [x] 02-05-PLAN.md — New conversation + clear conversation (ConversationList)
+**Plans:** TBD
 
-**Phase dependencies:** Phase 1 (需要 Model Provider 和工作区已配置)
-
-### Phase 3: Skills System
-
-**Goal:** 发现、安装、管理 skills，集成 GSD 子 agent 能力
-
-**Requirements:** SKILL-01, SKILL-02, SKILL-03, SKILL-04, SKILL-05, SKILL-06, GSD-02, GSD-03
-
-**Success Criteria:**
-1. 侧边栏展示当前工作区的 skills 列表（含 pi-gsd 全部工作流）
-2. 可从本地文件系统导入 skill
-3. 可从 GitHub 仓库安装 skill（`/owner/repo`）
-4. 可预览 skill 内容
-5. 点击 skill 发送到当前对话并执行
-6. GSD 子 agent 可通过 skill 调用自动生成
-
-**Phase dependencies:** Phase 2 (需要 agent 对话能力)
-
-### Phase 4: MCP Integration
-
-**Goal:** 连接外部 MCP server，工具自动注入 agent
-
-**Requirements:** MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-06
-
-**Success Criteria:**
-1. 可添加 MCP server（名称、命令、参数）
-2. 可连接/断开 MCP server
-3. 已连接 server 的 tools 自动注册到 agent 工具集
-4. Agent 可正常调用 MCP tool
-5. 应用退出时自动断开所有连接
-6. MCP 配置按工作区存储和恢复
-
-**Phase dependencies:** Phase 2 (需要 agent 对话能力)
-
-### Phase 5: Workflow Builder
-
-**Goal:** 基于 React Flow 构建 agent 工作流，支持新增、编辑、删除、画布构建工作流
-
-**Requirements:** FLOW-01, FLOW-02, FLOW-03, FLOW-04
-
-**Success Criteria:**
-1. 用户可以创建新的 agent 工作流并填写基础信息
-2. 用户可以在 React Flow 画布中新增、连接、删除节点与边
-3. 用户可以编辑已有工作流并持久化保存
-4. 用户可以删除不再使用的工作流
-5. 工作流列表与画布编辑状态在应用重启后可恢复
-
-**Phase dependencies:** Phase 2 (需要 agent 对话能力), Phase 3 (可复用 skills / agent 能力), Phase 4 (可接入 MCP 工具节点)
+**UI hint:** yes
 
 ---
 
-## Traceability
+### Phase 3: Agent Integration
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| WS-01 | Phase 1 | Pending |
-| WS-02 | Phase 1 | Pending |
-| WS-03 | Phase 1 | Pending |
-| WS-04 | Phase 1 | Pending |
-| PROV-01 | Phase 1 | Pending |
-| PROV-02 | Phase 1 | Pending |
-| PROV-03 | Phase 1 | Pending |
-| PROV-04 | Phase 1 | Pending |
-| PROV-05 | Phase 1 | Pending |
-| UI-01 | Phase 1 | Pending |
-| UI-02 | Phase 1 | Pending |
-| UI-03 | Phase 1 | Pending |
-| UI-04 | Phase 1 | Pending |
-| UI-05 | Phase 1 | Pending |
-| CHAT-01 | Phase 2 | Pending |
-| CHAT-02 | Phase 2 | Pending |
-| CHAT-03 | Phase 2 | Pending |
-| CHAT-04 | Phase 2 | Pending |
-| CHAT-05 | Phase 2 | Pending |
-| SKILL-01 | Phase 3 | Pending |
-| SKILL-02 | Phase 3 | Pending |
-| SKILL-03 | Phase 3 | Pending |
-| SKILL-04 | Phase 3 | Pending |
-| SKILL-05 | Phase 3 | Pending |
-| SKILL-06 | Phase 3 | Pending |
-| GSD-02 | Phase 3 | Pending |
-| GSD-03 | Phase 3 | Pending |
-| MCP-01 | Phase 4 | Pending |
-| MCP-02 | Phase 4 | Pending |
-| MCP-03 | Phase 4 | Pending |
-| MCP-04 | Phase 4 | Pending |
-| MCP-05 | Phase 4 | Pending |
-| MCP-06 | Phase 4 | Pending |
-| FLOW-01 | Phase 5 | Pending |
-| FLOW-02 | Phase 5 | Pending |
-| FLOW-03 | Phase 5 | Pending |
-| FLOW-04 | Phase 5 | Pending |
+**Goal:** 开发者可定义 Agent 角色，配置其 LLM/MCP/Skills 资源，管理 Skills 和 MCP 服务器
 
-**Coverage:**
-- current requirements: 34 total
-- Mapped to phases: 34
-- Unmapped: 0 ✅
+**Depends on:** Phase 2
+
+**Requirements:** AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, SKIL-01, SKIL-02, SKIL-03, MCP-01, MCP-02, MCP-03, MCP-04
+
+**Success Criteria** (what must be TRUE):
+1. 用户可在 Agent 资产库面板创建、编辑、删除 Agent 角色定义
+2. 用户可为 Agent 指定 LLM 提供者
+3. 用户可为 Agent 绑定 MCP 资源
+4. 用户可为 Agent 绑定 Skills
+5. 用户可创建、编辑、删除 Skills 脚本
+6. 用户可查看 Skills 版本历史
+7. 用户可查看 Skills 执行日志
+8. 用户可配置 MCP 服务器（地址、端口）
+9. 用户可对 MCP 服务器执行健康检查
+10. 用户可连接和断开 MCP 服务器
+
+**Plans:** TBD
 
 ---
-*Roadmap created: 2026-05-19*
-*Last updated: 2026-05-21 for Phase 2 replan*
+
+### Phase 4: Workflow System
+
+**Goal:** 用户可通过 ReactFlow 可视化编排工作流，执行并监控节点状态
+
+**Depends on:** Phase 3
+
+**Requirements:** WFLO-01, WFLO-02, WFLO-03, WFLO-04, WFLO-05, WFLO-06, WFLO-07
+
+**Success Criteria** (what must be TRUE):
+1. 用户可在 ReactFlow 可视化编辑器中创建和编辑工作流
+2. 用户可配置 Agent 节点（指定 LLM、MCP、Skills）
+3. 用户可添加普通节点（脚本/查询能力）
+4. 用户可控制节点的并行/串行执行
+5. 工作流执行状态实时推送到界面
+6. 节点失败时汇报给 Master Agent 决断
+7. 用户可保存和加载工作流
+
+**Plans:** TBD
+
+**UI hint:** yes
+
+---
+
+### Phase 5: Project Management
+
+**Goal:** 用户可通过多项目管理面板高效管理多个项目，实现项目级数据隔离
+
+**Depends on:** Phase 4
+
+**Requirements:** PROJ-01, PROJ-02, PROJ-03
+
+**Success Criteria** (what must be TRUE):
+1. 用户可在项目管理面板中查看所有项目
+2. 用户可在面板中快速切换项目
+3. 不同项目的数据完全隔离
+
+**Plans:** TBD
+
+**UI hint:** yes
+
+---
+
+## Progress Table
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Foundation Workspace | 0/1 | Not started | - |
+| 2. AI Chat Engine | 0/1 | Not started | - |
+| 3. Agent Integration | 0/1 | Not started | - |
+| 4. Workflow System | 0/1 | Not started | - |
+| 5. Project Management | 0/1 | Not started | - |
+
+---
+
+## Coverage
+
+**Requirements:** 28 total v1 requirements
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| 1 - Foundation Workspace | THEM-01, THEM-02, THEM-03, PROJ-01, PROJ-02, PROJ-03 | 6 |
+| 2 - AI Chat Engine | CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, LLM-01, LLM-02, LLM-03 | 8 |
+| 3 - Agent Integration | AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, SKIL-01, SKIL-02, SKIL-03, MCP-01, MCP-02, MCP-03, MCP-04 | 12 |
+| 4 - Workflow System | WFLO-01, WFLO-02, WFLO-03, WFLO-04, WFLO-05, WFLO-06, WFLO-07 | 7 |
+| 5 - Project Management | PROJ-01, PROJ-02, PROJ-03 | 3 |
+
+**Coverage:** 28/28 requirements mapped
+**Unmapped:** 0
+
+---
+
+*Last updated: 2026-05-21*

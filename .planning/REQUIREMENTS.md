@@ -106,6 +106,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| THEM-01 | Phase 1 | Pending |
+| THEM-02 | Phase 1 | Pending |
+| THEM-03 | Phase 1 | Pending |
+| PROJ-01 | Phase 1 | Pending |
+| PROJ-02 | Phase 1 | Pending |
+| PROJ-03 | Phase 1 | Pending |
 | CHAT-01 | Phase 2 | Pending |
 | CHAT-02 | Phase 2 | Pending |
 | CHAT-03 | Phase 2 | Pending |
@@ -133,18 +139,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WFLO-05 | Phase 4 | Pending |
 | WFLO-06 | Phase 4 | Pending |
 | WFLO-07 | Phase 4 | Pending |
-| THEM-01 | Phase 1 | Pending |
-| THEM-02 | Phase 1 | Pending |
-| THEM-03 | Phase 1 | Pending |
-| PROJ-01 | Phase 5 | Pending |
-| PROJ-02 | Phase 5 | Pending |
-| PROJ-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 28 total
 - Mapped to phases: 28
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-21*
-*Last updated: 2026-05-21 after initial definition*
+*Last updated: 2026-05-21 after roadmap creation*
