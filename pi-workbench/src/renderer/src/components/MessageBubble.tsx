@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface MessageBubbleProps {
   message: {
@@ -34,15 +35,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </p>
         </div>
       ) : (
-        // Assistant plain text
+        // Assistant message - markdown rendered
         <div
           className={cn(
             'max-w-full bg-transparent text-[var(--text-primary)]',
             isStreaming && 'animate-fadeUp'
           )}
         >
-          <div className="text-[14px] leading-relaxed whitespace-pre-wrap">
-            {message.content}
+          <div className="whitespace-pre-wrap">
+            <MarkdownRenderer content={message.content} />
             {isStreaming && (
               <span className="ml-1 inline-block animate-blink">▍</span>
             )}
