@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatPanel } from './components/ChatPanel'
+import { ChatErrorBoundary } from './components/ChatErrorBoundary'
 import { SettingsPage } from './pages/SettingsPage'
 import { useWorkspace } from './hooks/useWorkspace'
 import { PiRuntimeProvider } from './components/assistant-ui'
+import { useMessageStore } from './stores/messageStore'
 
 // ── Types ──
 
@@ -29,6 +31,44 @@ interface Conversation {
   path: string
   name: string
   createdAt: string
+}
+
+interface WorkspaceContextState {
+  git: {
+    available: boolean
+    branch: string
+    changedFiles: number
+    stagedFiles: number
+    ahead: number
+    behind: number
+    lastCommit: string
+  }
+  workflow: {
+    available: boolean
+    workflowCount: number
+    currentPhase: string
+    status: string
+    phaseSummary: string
+  }
+}
+
+const EMPTY_WORKSPACE_CONTEXT: WorkspaceContextState = {
+  git: {
+    available: false,
+    branch: '未连接 Git',
+    changedFiles: 0,
+    stagedFiles: 0,
+    ahead: 0,
+    behind: 0,
+    lastCommit: '暂无提交信息',
+  },
+  workflow: {
+    available: false,
+    workflowCount: 0,
+    currentPhase: '未检测到 GSD 状态',
+    status: 'idle',
+    phaseSummary: '当前工作区暂无工作流上下文',
+  },
 }
 
 function extractMessageText(content: unknown): string {
@@ -66,7 +106,7 @@ function extractMessageText(content: unknown): string {
 
 function App(): React.ReactElement {
   const [activeNav, setActiveNav] = useState('welcome')
-  const { workspaces, addWorkspace, switchWorkspace } = useWorkspace()
+  const { workspaces, activeWorkspace, addWorkspace, switchWorkspace } = useWorkspace()
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([])
@@ -76,6 +116,8 @@ function App(): React.ReactElement {
   const [activeSessionPath, setActiveSessionPath] = useState<string | null>(null)
   const cleanupRef = useRef<(() => void) | null>(null)
   const selectedModelRef = useRef('')
+  const [contextPanelOpen, setContextPanelOpen] = useState(true)
+  const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContextState>(EMPTY_WORKSPACE_CONTEXT)
 
   // Model state
   const [availableModels, setAvailableModels] = useState<Array<{ provider: string; id: string; name: string }>>([])
@@ -93,19 +135,39 @@ function App(): React.ReactElement {
     setActiveNav(page)
   }, [])
 
+  const activeWorkspacePath = activeWorkspace ?? workspaces[0]?.path ?? null
+  const activeWorkspaceName = workspaces.find((ws) => ws.path === activeWorkspacePath)?.name ?? workspaces[0]?.name ?? '当前项目'
+  const activeConversationName = conversations.find((conv) => conv.id === activeConversationId)?.name
+  const isActiveStage = Boolean(activeSessionPath || activeConversationId || messages.length > 0 || isGenerating)
+
   // ── Session persistence ──
   const loadConversations = useCallback(async (wsPath: string) => {
-    if (!window.api?.session) return
+    if (!window.api?.chatHistory) return
     try {
-      const sessionList = await window.api.session.list(wsPath)
-      setConversations(sessionList.map(s => ({
-        id: s.path || s.id,
-        path: s.path || s.id,
+      const list = await window.api.chatHistory.list(wsPath)
+      setConversations(list.map(s => ({
+        id: s.id,
+        path: s.path,
         name: s.name || `对话 ${new Date(s.createdAt).toLocaleDateString('zh-CN')}`,
         createdAt: s.createdAt
       })))
     } catch (err) {
       console.error('Failed to load conversations:', err)
+    }
+  }, [])
+
+  const loadWorkspaceContext = useCallback(async (wsPath: string | null) => {
+    if (!wsPath) {
+      setWorkspaceContext(EMPTY_WORKSPACE_CONTEXT)
+      return
+    }
+
+    try {
+      const nextContext = await window.electronAPI.workspaceGetContext(wsPath)
+      setWorkspaceContext(nextContext)
+    } catch (err) {
+      console.error('Failed to load workspace context:', err)
+      setWorkspaceContext(EMPTY_WORKSPACE_CONTEXT)
     }
   }, [])
 
@@ -160,6 +222,7 @@ function App(): React.ReactElement {
     }
     setMessages(prev => [...prev, userMsg])
     setIsGenerating(true)
+    setActiveNav('chat')
     streamingContentRef.current = ''
     streamingThinkingRef.current = ''
     streamingToolsRef.current = []
@@ -174,6 +237,7 @@ function App(): React.ReactElement {
         const sess = await window.api.session.create(wsPath, selectedModel || undefined)
         sessionPath = sess.path
         setActiveSessionPath(sessionPath)
+        setActiveConversationId(sess.path)
         // Update selected model from what the session actually resolved
         if (sess.modelId) {
           setSelectedModel(`${sess.modelProvider}:${sess.modelId}`)
@@ -313,42 +377,77 @@ function App(): React.ReactElement {
     setActiveConversationId(null)
     setActiveSessionPath(null)
     setIsGenerating(false)
+    setActiveNav('welcome')
     streamingContentRef.current = ''
     streamingThinkingRef.current = ''
     streamingToolsRef.current = []
   }, [])
 
-  const handleSelectConversation = useCallback(async (sessionPath: string) => {
-    if (!window.api?.session) return
+  const handleSelectConversation = useCallback(async (id: string, path: string) => {
+    if (!window.api?.chatHistory) return
     try {
       if (cleanupRef.current) {
         cleanupRef.current()
         cleanupRef.current = null
       }
 
-      const data = await window.api.session.open(sessionPath)
-      setActiveConversationId(sessionPath)
-      setActiveSessionPath(data.path || sessionPath)
-      setMessages(data.messages.map((m: any) => ({
+      const msgs = await window.api.chatHistory.load(path)
+      setActiveConversationId(id)
+      setActiveSessionPath(path)
+      useMessageStore.getState().loadHistory(msgs.map((m: any) => ({
         id: m.id || crypto.randomUUID(),
         role: m.role,
-        content: extractMessageText(m.content),
-        timestamp: '',
+        content: typeof m.content === 'string' ? m.content : extractMessageText(m.content),
+        timestamp: m.timestamp || 0,
       })))
+      useMessageStore.getState().setConversation(id)
       setActiveNav('chat')
     } catch (err) {
-      console.error('Failed to open conversation:', err)
+      console.error('Failed to load conversation:', err)
     }
   }, [])
+
+  // New conversation handler using chatHistory API
+  const handleNewConversation = useCallback(async () => {
+    if (!window.api?.chatHistory || !activeWorkspacePath) return
+    try {
+      const { id, path } = await window.api.chatHistory.create(activeWorkspacePath)
+      setActiveConversationId(id)
+      setActiveSessionPath(path)
+      setMessages([])
+      useMessageStore.getState().clearAll()
+      useMessageStore.getState().setConversation(id)
+      setActiveNav('chat')
+      // Reload conversations list
+      loadConversations(activeWorkspacePath)
+    } catch (err) {
+      console.error('Failed to create conversation:', err)
+    }
+  }, [activeWorkspacePath, loadConversations])
+
+  // Clear conversation handler using chatHistory API
+  const handleClearConversation = useCallback(async () => {
+    useMessageStore.getState().clearAll()
+    setMessages([])
+    if (activeSessionPath && window.api?.chatHistory) {
+      try {
+        await window.api.chatHistory.save(activeSessionPath, [])
+      } catch (err) {
+        console.error('Failed to save cleared conversation:', err)
+      }
+    }
+  }, [activeSessionPath])
 
   const handleSwitchWorkspace = useCallback((path: string) => {
     switchWorkspace(path)
     handleNewChat()
   }, [switchWorkspace, handleNewChat])
 
-
-
-
+  useEffect(() => {
+    if (!activeWorkspacePath) return
+    loadConversations(activeWorkspacePath)
+    loadWorkspaceContext(activeWorkspacePath)
+  }, [activeWorkspacePath, loadConversations, loadWorkspaceContext])
 
   // Init model from available models on mount
   useEffect(() => {
@@ -405,38 +504,51 @@ function App(): React.ReactElement {
     : messages
 
   return (
-    <div className="flex h-full w-full bg-white dark:bg-[#0a0a0c] text-neutral-900 dark:text-neutral-100 overflow-hidden antialiased">
+    <div className="flex h-full w-full bg-background text-foreground overflow-hidden antialiased">
       <Sidebar
         activeNav={activeNav}
         onNavigate={handleNavigate}
         workspaces={workspaces}
+        activeWorkspace={activeWorkspacePath}
         onAddWorkspace={addWorkspace}
         onSwitchWorkspace={handleSwitchWorkspace}
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
-        onNewConversation={handleNewChat}
+        onNewConversation={handleNewConversation}
       />
 
-      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative bg-[#fcfcfc] dark:bg-[#0d0d10]">
+      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative bg-background">
         <div className="h-[38px] w-full shrink-0 window-drag-region bg-transparent" />
 
         <div className="flex-1 w-full flex flex-col min-w-0 min-h-0 relative overflow-hidden">
           {(activeNav === 'welcome' || activeNav === 'chat') && (
-            <PiRuntimeProvider
-              value={{
-                messages: chatMessages,
-                isGenerating,
-                onSend: handleSend,
-                onStop: handleStop,
-                isStreamingContent: isGenerating,
-                availableModels,
-                selectedModel,
-                onModelChange: handleModelChange,
-              }}
-            >
-              <ChatPanel />
-            </PiRuntimeProvider>
+            <ChatErrorBoundary>
+              <PiRuntimeProvider
+                value={{
+                  messages: chatMessages,
+                  isGenerating,
+                  onSend: handleSend,
+                  onStop: handleStop,
+                  isStreamingContent: isGenerating,
+                  availableModels,
+                  selectedModel,
+                  onModelChange: handleModelChange,
+                }}
+              >
+                <ChatPanel
+                  isActiveStage={isActiveStage}
+                  workspaceName={activeWorkspaceName}
+                  conversationName={activeConversationName}
+                  contextPanelOpen={contextPanelOpen}
+                  onToggleContextPanel={() => setContextPanelOpen((prev) => !prev)}
+                  onOpenSettings={() => setActiveNav('settings')}
+                  gitContext={workspaceContext.git}
+                  workflowContext={workspaceContext.workflow}
+                  onClear={handleClearConversation}
+                />
+              </PiRuntimeProvider>
+            </ChatErrorBoundary>
           )}
           {activeNav === 'settings' && <SettingsPage />}
         </div>
