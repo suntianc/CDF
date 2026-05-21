@@ -22,9 +22,9 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingReturn {
   const [isStreaming, setIsStreaming] = useState(false)
   const unsubscribeRef = useRef<(() => void) | null>(null)
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (isStreaming) return
-    const id = window.api.session.startStream(sessionPath)
+    const id = await window.api.session.startStream(sessionPath)
     setStreamId(id)
     setIsStreaming(true)
 

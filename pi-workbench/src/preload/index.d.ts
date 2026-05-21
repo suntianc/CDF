@@ -7,6 +7,24 @@ interface ElectronAPI_Workbench {
   workspaceList: () => Promise<any[]>
   workspaceAdd: (path: string) => Promise<any[]>
   workspaceSwitch: (path: string) => Promise<string>
+  workspaceGetContext: (path: string) => Promise<{
+    git: {
+      available: boolean
+      branch: string
+      changedFiles: number
+      stagedFiles: number
+      ahead: number
+      behind: number
+      lastCommit: string
+    }
+    workflow: {
+      available: boolean
+      workflowCount: number
+      currentPhase: string
+      status: string
+      phaseSummary: string
+    }
+  }>
   selectFolder: () => Promise<string | null>
   themeGet: () => Promise<'light' | 'dark' | 'system'>
   themeSet: (theme: 'light' | 'dark' | 'system') => Promise<boolean>
@@ -47,6 +65,12 @@ interface StreamChunk {
   metadata?: { timestamp: string; index?: number }
 }
 
+interface StreamToken {
+  type: 'token' | 'end' | 'error'
+  delta?: string
+  message?: string
+}
+
 interface ApiSession {
   create(cwd: string, modelId?: string): Promise<{ id: string; path: string; name: string; modelProvider?: string; modelId?: string }>
   list(cwd: string): Promise<Array<{ id: string; path: string; name: string; createdAt: string; messageCount: number }>>
@@ -56,9 +80,10 @@ interface ApiSession {
   delete(sessionPath: string): Promise<{ success: boolean }>
   setModel(sessionPath: string, modelId: string): Promise<{ success: boolean; modelProvider?: string; modelId?: string }>
   getAvailableModels(): Promise<Array<{ provider: string; id: string; name: string }>>
-  startStream(sessionPath: string): void
-  stopStream(sessionPath: string): void
-  onStreamChunk(callback: (chunk: StreamChunk) => void): () => void
+  // Channel event pattern streaming (D-02)
+  startStream(sessionPath: string): Promise<string>
+  stopStream(streamId: string): void
+  onStreamToken(streamId: string, callback: (data: StreamToken) => void): () => void
 }
 
 interface GSDCommand {
