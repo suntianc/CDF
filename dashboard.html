@@ -1,0 +1,1678 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工作台 · CDF</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-app: #212121;
+      --bg-sidebar: #191919;
+      --bg-surface: #2d2d2d;
+      --bg-hover: rgba(255,255,255,0.06);
+      --bg-active: rgba(255,255,255,0.10);
+      --border: rgba(255,255,255,0.10);
+      --border-strong: rgba(255,255,255,0.16);
+      --text-primary: #ececec;
+      --text-secondary: rgba(255,255,255,0.55);
+      --text-muted: rgba(255,255,255,0.30);
+      --accent: #7c3aed;
+      --accent-hover: #8b5cf6;
+      --accent-dim: rgba(124, 58, 237, 0.12);
+      --accent-glow: rgba(124, 58, 237, 0.08);
+      --success: #22c55e;
+      --success-dim: rgba(34, 197, 94, 0.12);
+      --danger: #ef4444;
+      --danger-dim: rgba(239, 68, 68, 0.12);
+      --warning: #f59e0b;
+      --warning-dim: rgba(245, 158, 11, 0.12);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar-w, 280px) 1fr;
+      height: 100vh;
+    }
+
+    .app.sidebar-collapsed { --sidebar-w: 0px; }
+
+    /* ── 拖拽调节宽度拉手 ── */
+    .sidebar-resize-handle {
+      position: absolute;
+      top: 0;
+      right: -3px;
+      width: 6px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 20;
+      background: transparent;
+      transition: background 0.15s;
+    }
+
+    .sidebar-resize-handle:hover,
+    .sidebar-resize-handle.dragging { background: var(--accent-dim); }
+
+    .sidebar-resize-handle::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 2px;
+      height: 24px;
+      border-radius: 1px;
+      background: var(--border);
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .sidebar-resize-handle:hover::after,
+    .sidebar-resize-handle.dragging::after { opacity: 1; }
+
+    .sidebar.collapsed .sidebar-resize-handle { display: none; }
+
+    /* ── 抽屉拉手 — 固定式 (侧栏折叠时) ── */
+    .drawer-handle--fixed {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      width: 24px;
+      height: 24px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100;
+      color: var(--text-muted);
+      border-radius: 50%;
+      transition: color 0.15s, background 0.15s, opacity 0.25s;
+      opacity: 0.4;
+    }
+
+    .drawer-handle--fixed:hover { opacity: 0.8; color: var(--text-primary); background: var(--bg-hover); }
+    .drawer-handle--fixed.visible { display: flex; }
+
+    /* ── 抽屉拉手 — 侧栏右上角 ── */
+    .drawer-handle--sidebar {
+      position: absolute;
+      top: 12px;
+      right: 8px;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      color: var(--text-muted);
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s, opacity 0.25s;
+      opacity: 0.3;
+    }
+
+    .drawer-handle--sidebar:hover { opacity: 0.7; color: var(--text-primary); background: var(--bg-hover); }
+    .drawer-handle--sidebar svg { width: 12px; height: 12px; }
+    .sidebar.collapsed .drawer-handle--sidebar { display: none; }
+
+    /* ═══ Sidebar ═══ */
+    .sidebar {
+      width: var(--sidebar-w, 280px);
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-sidebar);
+      position: relative;
+      transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .sidebar.collapsed { width: 0; }
+    .sidebar.collapsed .sidebar-inner { display: none; }
+
+    .sidebar-inner {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+      min-width: 280px;
+    }
+
+    .sidebar-top { padding: 12px 14px 0; display: flex; flex-direction: column; gap: 6px; }
+
+    .btn-new-chat {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      background: transparent;
+      color: var(--text-secondary);
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      font-weight: 400;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .btn-new-chat:hover { background: var(--bg-hover); }
+    .btn-new-chat svg { width: 16px; height: 16px; color: var(--text-muted); }
+
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      background: transparent;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: text;
+      transition: background 0.1s;
+    }
+
+    .search-bar:hover { background: var(--bg-hover); }
+    .search-bar:focus-within { background: var(--bg-hover); }
+    .search-bar svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
+
+    .search-bar input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+    }
+
+    .search-bar input::placeholder { color: var(--text-muted); }
+
+    .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 0;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .action-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .action-btn svg { width: 15px; height: 15px; }
+
+    .sidebar-middle { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .sidebar-middle::-webkit-scrollbar { width: 4px; }
+    .sidebar-middle::-webkit-scrollbar-track { background: transparent; }
+    .sidebar-middle::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+    .tree-section { margin-bottom: 0; }
+
+    .tree-header {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 16px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s;
+    }
+
+    .tree-header:hover { background: var(--bg-hover); }
+
+    .tree-header svg.chevron {
+      width: 12px;
+      height: 12px;
+      color: var(--text-muted);
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .tree-section.collapsed .tree-header svg.chevron { transform: rotate(-90deg); }
+
+    .tree-header-label {
+      flex: 1;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .tree-header-count { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+
+    .tree-content {
+      overflow: hidden;
+      transition: max-height 0.2s ease, opacity 0.15s ease;
+      max-height: 800px;
+      opacity: 1;
+    }
+
+    .tree-section.collapsed .tree-content { max-height: 0; opacity: 0; }
+
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 16px 7px 32px;
+      cursor: pointer;
+      transition: background 0.1s;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .tree-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .tree-item svg { width: 14px; height: 14px; color: var(--text-muted); flex-shrink: 0; }
+
+    .tree-item.active { background: var(--accent-dim); color: var(--accent-hover); }
+    .tree-item.active svg { color: var(--accent-hover); }
+
+    .tree-item-child {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px 6px 52px;
+      cursor: pointer;
+      transition: background 0.1s;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .tree-item-child:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .tree-item-child svg { width: 12px; height: 12px; color: var(--text-muted); flex-shrink: 0; }
+    .tree-item-child.active { background: var(--accent-dim); color: var(--accent-hover); }
+    .tree-item-child.active svg { color: var(--accent-hover); }
+
+    .sidebar-bottom { padding: 8px 8px 10px; display: flex; gap: 2px; }
+    .sidebar-bottom .action-btn { flex: 1; padding: 8px 6px; font-size: 11px; gap: 4px; }
+    .sidebar-bottom .action-btn svg { width: 14px; height: 14px; }
+
+    /* ═══ Main Area ═══ */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-app);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ─── Top Header Bar ─── */
+    .main-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .main-topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .main-topbar-left h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .main-topbar-left .project-badge {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 10px;
+      border-radius: 10px;
+      background: var(--accent-dim);
+      color: var(--accent-hover);
+    }
+
+    .main-topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .topbar-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .topbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .topbar-btn svg { width: 15px; height: 15px; }
+
+    /* ─── Chat Area ─── */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ─── Messages (无头像, AI 无气泡) ─── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .messages::-webkit-scrollbar { width: 6px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+    .message {
+      max-width: 780px;
+      padding: 8px 0;
+      animation: fadeUp 0.25s ease-out;
+    }
+
+    .message.user { align-self: flex-end; text-align: right; }
+
+    .message-bubble {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-primary);
+      min-width: 0;
+    }
+
+    /* AI 消息 - 无气泡，直接渲染在背景上 */
+    .message.assistant .message-bubble {
+      color: var(--text-primary);
+    }
+
+    .message.user .message-bubble {
+      background: var(--accent-dim);
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      display: inline-block;
+      text-align: left;
+      max-width: 100%;
+    }
+
+    .message-bubble code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      background: rgba(255,255,255,0.06);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .message-bubble pre {
+      margin: 8px 0;
+      padding: 12px;
+      background: rgba(0,0,0,0.3);
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .message-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .message.user .message-time { text-align: right; }
+
+    /* ─── Input Area (@codex-onboarding 风格) ─── */
+    .input-area {
+      padding: 8px 24px 16px;
+      flex-shrink: 0;
+    }
+
+    .dialog-box {
+      width: 100%;
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 10px 16px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.15s, box-shadow 0.2s;
+    }
+
+    .dialog-box:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent-dim), 0 4px 24px rgba(0,0,0,0.3);
+    }
+
+    .dialog-input {
+      width: 100%;
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+      resize: none;
+      min-height: 36px;
+      max-height: 200px;
+    }
+
+    .dialog-input::placeholder { color: var(--text-muted); }
+
+    .dialog-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 2px;
+    }
+
+    .dialog-bottom-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dialog-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .dialog-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+    .dialog-btn.send {
+      background: var(--accent);
+      color: #fff;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+    }
+
+    .dialog-btn.send:hover { background: var(--accent-hover); }
+    .dialog-btn.send:disabled { opacity: 0.3; cursor: not-allowed; background: var(--bg-hover); color: var(--text-muted); }
+    .dialog-btn svg { width: 18px; height: 18px; }
+
+    /* ── 模型选择器 ── */
+    .model-selector {
+      position: relative;
+      user-select: none;
+    }
+
+    .model-selector-trigger {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.1s;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .model-selector-trigger:hover {
+      background: var(--bg-hover);
+      color: var(--text-secondary);
+    }
+
+    .model-selector-label {
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .model-chevron {
+      width: 12px;
+      height: 12px;
+      transition: transform 0.15s;
+    }
+
+    .model-selector.open .model-chevron { transform: rotate(180deg); }
+
+    .model-dropdown {
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      margin-bottom: 4px;
+      min-width: 220px;
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      overflow: hidden;
+      display: none;
+      z-index: 200;
+    }
+
+    .model-selector.open .model-dropdown { display: block; }
+
+    .model-group { padding: 4px 0; }
+    .model-group + .model-group { border-top: 1px solid var(--border); }
+
+    .model-group-name {
+      padding: 6px 12px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .model-select-option {
+      padding: 7px 12px 7px 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .model-select-option:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .model-select-option.selected { color: var(--accent); background: var(--accent-dim); }
+
+    .input-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      text-align: center;
+    }
+
+    .input-hint kbd {
+      font-family: var(--font-sans);
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+    }
+
+    /* ═══ 任务展板 — 悬浮卡片 ═══ */
+    .task-board {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 340px;
+      max-height: 480px;
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-xl);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 50;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+
+    .task-board.collapsed {
+      transform: translateY(calc(100% - 52px));
+    }
+
+    .task-board.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(12px);
+    }
+
+    .task-board-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+      user-select: none;
+      transition: background 0.1s;
+    }
+
+    .task-board-header:hover { background: var(--bg-hover); }
+
+    .task-board-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .task-board-header h2 svg { width: 16px; height: 16px; color: var(--accent); }
+
+    .task-board-header-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: var(--accent-dim);
+      color: var(--accent-hover);
+      font-family: var(--font-mono);
+    }
+
+    .task-board-toggle-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-muted);
+      transition: transform 0.25s ease;
+    }
+
+    .task-board.collapsed .task-board-toggle-icon { transform: rotate(180deg); }
+
+    .task-board-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 12px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .task-board-body::-webkit-scrollbar { width: 4px; }
+    .task-board-body::-webkit-scrollbar-track { background: transparent; }
+    .task-board-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+    .task-card {
+      padding: 14px 16px;
+      background: var(--bg-app);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      transition: all 0.15s;
+    }
+
+    .task-card:hover { border-color: var(--border-strong); }
+
+    .task-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .task-card-workflow {
+      flex: 1;
+    }
+
+    .task-card-workflow-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .task-card-workflow-step {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .task-card-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 3px;
+    }
+
+    .task-card-status.running { background: var(--warning); box-shadow: 0 0 8px var(--warning-dim); animation: pulse-dot 1.2s ease-in-out infinite; }
+    .task-card-status.success { background: var(--success); }
+    .task-card-status.failed { background: var(--danger); }
+    .task-card-status.idle { background: var(--text-muted); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+    }
+
+    .task-card-agent {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .task-card-agent-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .task-card-agent-icon svg { width: 14px; height: 14px; color: var(--accent); }
+
+    .task-card-agent-info {
+      flex: 1;
+    }
+
+    .task-card-agent-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .task-card-agent-detail {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .task-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 28px 16px;
+      text-align: center;
+    }
+
+    .task-empty svg { width: 32px; height: 32px; color: rgba(255,255,255,0.06); }
+    .task-empty-text { font-size: 13px; color: var(--text-secondary); }
+    .task-empty-hint { font-size: 12px; color: var(--text-muted); }
+
+    /* ─── Toast ─── */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 18px;
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 500;
+      animation: toastIn 0.25s ease-out;
+      pointer-events: auto;
+    }
+
+    .toast.success svg { color: var(--success); }
+    .toast.error svg { color: var(--danger); }
+    .toast.warning svg { color: var(--warning); }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1024px) {
+      .task-board { width: 300px; }
+    }
+
+    @media (max-width: 820px) {
+      .messages { padding: 12px 16px; }
+      .input-area { padding: 8px 16px 12px; }
+      .task-board { width: 280px; bottom: 16px; right: 16px; max-height: 400px; }
+    }
+
+    @media (max-width: 600px) {
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 100;
+        width: 280px;
+      }
+      .sidebar.collapsed { transform: translateX(-100%); width: 280px; }
+      .main-topbar { padding: 10px 14px; }
+      .task-board { width: calc(100vw - 32px); bottom: 12px; right: 16px; max-height: 360px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <!-- 抽屉拉手 — 折叠时固定在窗口左上角 -->
+  <div class="drawer-handle drawer-handle--fixed" id="handle-fixed" onclick="toggleSidebar()" title="展开侧栏">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="10,4 6,8 10,12"/>
+    </svg>
+  </div>
+
+  <!-- ═══ Left Sidebar ═══ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-resize-handle" id="sidebar-resize" title="拖拽调节宽度"></div>
+    <div class="drawer-handle drawer-handle--sidebar" onclick="toggleSidebar()" title="收起侧栏">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="10,4 6,8 10,12"/>
+      </svg>
+    </div>
+    <div class="sidebar-inner">
+      <div class="sidebar-top">
+        <button class="btn-new-chat" onclick="newChat()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          新对话
+        </button>
+        <div class="search-bar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="sidebar-search" placeholder="搜索会话或项目…" oninput="filterSidebar()" />
+        </div>
+        <div class="action-row">
+          <button class="action-btn" title="插件管理" onclick="showToast('跳转到插件页面', 'success')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M14 15H9v-5"/><path d="M20 4l-9 9"/><path d="M16 4h4v4"/>
+            </svg>
+            插件
+          </button>
+          <button class="action-btn" title="工作流管理" onclick="showToast('跳转到工作流管理', 'success')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4"/><path d="M12 19v4"/>
+              <path d="M4.22 4.22l2.83 2.83"/><path d="M16.95 16.95l2.83 2.83"/>
+              <path d="M1 12h4"/><path d="M19 12h4"/>
+              <path d="M4.22 19.78l2.83-2.83"/><path d="M16.95 7.05l2.83-2.83"/>
+            </svg>
+            工作流
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-middle">
+        <!-- 项目 — 每个项目下挂载会话 -->
+        <div class="tree-section" id="tree-projects">
+          <div class="tree-header" onclick="toggleTree('tree-projects')">
+            <svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6,5 10,8 6,11"/>
+            </svg>
+            <span class="tree-header-label">项目</span>
+            <span class="tree-header-count">4</span>
+          </div>
+          <div class="tree-content" id="projects-list">
+            <!-- codex-onboarding + 2 会话 -->
+            <div class="tree-item" data-project="codex-onboarding" onclick="switchProject('codex-onboarding')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+              codex-onboarding
+            </div>
+            <div class="tree-item-child" data-chat="0" onclick="switchChat(0)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              代码审查流程优化讨论
+            </div>
+            <div class="tree-item-child" data-chat="1" onclick="switchChat(1)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              用户数据同步策略分析
+            </div>
+
+            <!-- plugins + 1 会话 -->
+            <div class="tree-item" data-project="plugins" onclick="switchProject('plugins')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+              plugins
+            </div>
+            <div class="tree-item-child" data-chat="3" onclick="switchChat(3)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              MCP 服务器连接问题
+            </div>
+
+            <!-- workflows + 1 会话 -->
+            <div class="tree-item" data-project="workflows" onclick="switchProject('workflows')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+              workflows
+            </div>
+            <div class="tree-item-child" data-chat="2" onclick="switchChat(2)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              工作流引擎架构设计
+            </div>
+
+            <!-- api-design + 1 会话 -->
+            <div class="tree-item" data-project="api-design" onclick="switchProject('api-design')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+              api-design
+            </div>
+            <div class="tree-item-child" data-chat="4" onclick="switchChat(4)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              API 接口设计评审
+            </div>
+          </div>
+        </div>
+
+        <!-- 对话 — 独立对话列表（顶层） -->
+        <div class="tree-section" id="tree-chats">
+          <div class="tree-header" onclick="toggleTree('tree-chats')">
+            <svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6,5 10,8 6,11"/>
+            </svg>
+            <span class="tree-header-label">对话</span>
+            <span class="tree-header-count">5</span>
+          </div>
+          <div class="tree-content" id="chats-list">
+            <div class="tree-item active" data-chat="0" onclick="switchChat(0)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              代码审查流程优化讨论
+            </div>
+            <div class="tree-item" data-chat="1" onclick="switchChat(1)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              用户数据同步策略分析
+            </div>
+            <div class="tree-item" data-chat="2" onclick="switchChat(2)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              工作流引擎架构设计
+            </div>
+            <div class="tree-item" data-chat="3" onclick="switchChat(3)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              MCP 服务器连接问题
+            </div>
+            <div class="tree-item" data-chat="4" onclick="switchChat(4)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              API 接口设计评审
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="sidebar-bottom">
+        <button class="action-btn" title="主题" onclick="toggleTheme()" id="theme-toggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+          主题
+        </button>
+        <button class="action-btn" title="设置" onclick="showToast('设置页面开发中', 'warning')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+          设置
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══ Main Area ═══ -->
+  <main class="main">
+    <div class="main-topbar">
+      <div class="main-topbar-left">
+        <h1 id="project-title">codex-onboarding</h1>
+        <span class="project-badge" id="project-badge">当前项目</span>
+      </div>
+      <div class="main-topbar-actions">
+        <button class="topbar-btn" onclick="showToast('分支: main', 'success')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+            <path d="M18 9a9 9 0 01-9 9"/>
+          </svg>
+          main
+        </button>
+        <button class="topbar-btn" onclick="toggleTaskBoard()" id="task-board-toggle" title="任务展板">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
+          </svg>
+        </button>
+        <button class="topbar-btn" onclick="showToast('项目设置', 'success')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2"/><path d="M12 21v2"/>
+            <path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/>
+            <path d="M1 12h2"/><path d="M21 12h2"/>
+            <path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 无 tab 栏 — 只有会话 -->
+    <div class="chat-area">
+      <div class="messages" id="messages">
+        <!-- assistant message — 无头像，AI 无气泡 -->
+        <div class="message assistant">
+          <div class="message-bubble">
+            你好！我在 codex-onboarding 项目中。我已经查看了项目结构和文件。有什么我可以帮你做的？
+            <div class="message-time">10:32</div>
+          </div>
+        </div>
+        <!-- user message — 无头像 -->
+        <div class="message user">
+          <div class="message-bubble">
+            帮我分析一下目前项目的插件系统架构，我想知道 MCP 和 Skills 是怎么组织的
+            <div class="message-time">10:33</div>
+          </div>
+        </div>
+        <!-- assistant reply — 无气泡背景 -->
+        <div class="message assistant">
+          <div class="message-bubble">
+            好的，我来帮你梳理一下插件系统的架构：
+
+            当前项目中有两个主要插件类型：
+
+            <strong>1. MCP 插件</strong>
+            MCP（Model Context Protocol）插件主要负责与外部数据源和工具的通信。在 <code>plugins.html</code> 中可以看到配置了以下 MCP 服务：
+
+            <pre>┌─────────────────────────────────────┐
+│ MCP 服务列表                      │
+├─────────────────────────────────────┤
+│ context7-cli    ● 已连接    v0.3.0 │
+│ web-search      ● 已连接    v1.2.1 │
+│ local-fs        ○ 未连接    v2.0.0 │
+│ github-api      ○ 未连接    v1.5.0 │
+└─────────────────────────────────────┘</pre>
+
+            <strong>2. Skills 插件</strong>
+            Skills 是智能体的能力模块，可以从 GitHub 安装或本地导入：
+
+            <pre>┌─────────────────────────────────────┐
+│ Skills 列表                        │
+├─────────────────────────────────────┤
+│ agent-browser  ● 已安装    v1.1.0 │
+│ ask-user       ● 已安装    v2.0.0 │
+│ context7-cli   ● 已安装    v0.5.2 │
+│ code-review    ○ 未安装    v1.0.0 │
+└─────────────────────────────────────┘</pre>
+
+            <strong>架构总结：</strong><br/>
+            MCP 是"连接器"层——管理与外部世界的通信通道；<br/>
+            Skills 是"能力"层——定义智能体可以执行的具体任务；<br/>
+            两者通过统一的插件面板管理，用户可以在 <code>plugins.html</code> 中切换标签查看和操作。
+            <div class="message-time">10:34</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input — @codex-onboarding dialog-box 风格 -->
+      <div class="input-area">
+        <div class="dialog-box">
+          <textarea class="dialog-input" id="chat-input" placeholder="向 CDF 提问…" rows="1" oninput="autoResize(this)" onkeydown="handleInputKey(event)"></textarea>
+          <div class="dialog-bottom">
+            <div class="dialog-bottom-left">
+              <button class="dialog-btn" title="添加附件" onclick="showToast('附件上传功能开发中', 'warning')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+              <div class="model-selector" id="model-selector" onclick="toggleModelDropdown(event)">
+                <div class="model-selector-trigger">
+                  <span class="model-selector-label">选择模型</span>
+                  <svg class="model-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="4,6 8,10 12,6"/>
+                  </svg>
+                </div>
+                <div class="model-dropdown" id="model-dropdown">
+                  <div class="model-group">
+                    <div class="model-group-name">供应商 A</div>
+                    <div class="model-select-option selected" onclick="selectModel(this, '供应商 A · Alpha')">Alpha</div>
+                    <div class="model-select-option" onclick="selectModel(this, '供应商 A · Beta')">Beta</div>
+                  </div>
+                  <div class="model-group">
+                    <div class="model-group-name">供应商 B</div>
+                    <div class="model-select-option" onclick="selectModel(this, '供应商 B · Gamma')">Gamma</div>
+                    <div class="model-select-option" onclick="selectModel(this, '供应商 B · Delta')">Delta</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="dialog-btn send" id="send-btn" onclick="sendMessage()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="input-hint">按下 <kbd>Enter</kbd> 发送 · <kbd>Shift + Enter</kbd> 换行</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ═══ 任务展板 — 悬浮卡片 ═══ -->
+<div class="task-board" id="task-board">
+  <div class="task-board-header" onclick="toggleTaskBoardCollapse()">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/>
+        <line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
+      </svg>
+      任务展板
+      <span class="task-board-header-badge" id="task-badge">3</span>
+    </h2>
+    <svg class="task-board-toggle-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="4,10 8,6 12,10"/>
+    </svg>
+  </div>
+  <div class="task-board-body" id="task-board-body"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+  // ════════════════════════════════════════
+  // Data — 会话归在项目下
+  // ════════════════════════════════════════
+
+  const projectTree = [
+    {
+      name: 'codex-onboarding',
+      chats: [
+        { name: '代码审查流程优化讨论', messages: [
+          { role: 'assistant', text: '你好！我在 codex-onboarding 项目中。我已经查看了项目结构和文件。有什么我可以帮你做的？', time: '10:32' },
+          { role: 'user', text: '帮我分析一下目前项目的插件系统架构，我想知道 MCP 和 Skills 是怎么组织的', time: '10:33' },
+          { role: 'assistant', text: '好的，我来梳理一下…\n\n当前项目中有两个核心插件类型：\n\n**1. MCP 插件** — 管理与外部数据源和工具的通信通道\n**2. Skills 插件** — 定义智能体可以执行的具体任务\n\n两者通过统一的插件面板管理。', time: '10:34' }
+        ]},
+        { name: '用户数据同步策略分析', messages: [
+          { role: 'assistant', text: '需要我分析用户数据同步的方案吗？我看到了项目中的工作流配置。', time: '09:15' },
+          { role: 'user', text: '对，我们目前用的是定时任务每小时同步一次，但最近数据量大了，想知道有没有更好的方案', time: '09:16' }
+        ]}
+      ]
+    },
+    {
+      name: 'plugins',
+      chats: [
+        { name: 'MCP 服务器连接问题', messages: [
+          { role: 'assistant', text: 'MCP 连接诊断报告：\n- context7-cli: 正常\n- web-search: 正常\n- local-fs: 连接超时', time: '昨天' },
+          { role: 'user', text: '帮我检查一下 MCP 服务器的连接状态，有几个服务连不上了', time: '昨天' }
+        ]}
+      ]
+    },
+    {
+      name: 'workflows',
+      chats: [
+        { name: '工作流引擎架构设计', messages: [
+          { role: 'assistant', text: '我来帮你设计工作流引擎的架构…', time: '昨天' },
+          { role: 'user', text: '我想看看当前工作流系统的技术栈和扩展点', time: '昨天' }
+        ]}
+      ]
+    },
+    {
+      name: 'api-design',
+      chats: [
+        { name: 'API 接口设计评审', messages: [
+          { role: 'assistant', text: '好的，我们来看一下 API 设计稿。目前的接口设计方案如下：
+
+**端点结构：**
+```
+GET    /api/v2/users
+POST   /api/v2/users
+GET    /api/v2/users/:id
+PUT    /api/v2/users/:id
+DELETE /api/v2/users/:id
+```
+
+**认证方案：**
+- Bearer Token (JWT) + Refresh Token
+- 支持 scoped API keys', time: '11:20' },
+          { role: 'user', text: 'API 设计需要评审，重点关注认证方式和分页', time: '11:18' }
+        ]}
+      ]
+    }
+  ];
+
+  // 扁平索引用于快速定位
+  const allChats = [];
+  projectTree.forEach(p => {
+    p.chats.forEach(c => {
+      allChats.push({ project: p.name, ...c });
+    });
+  });
+
+  let currentChatIndex = 0;
+
+  // ════════════════════════════════════════
+  // 任务数据 — 运行中的工作流 + agent
+  // ════════════════════════════════════════
+
+  const tasks = [
+    {
+      id: 't1',
+      workflowName: '代码审查',
+      stepName: '运行 Lint 检查',
+      agentName: 'code-reviewer',
+      agentDetail: 'agent-based · v1.2.0',
+      status: 'running'
+    },
+    {
+      id: 't2',
+      workflowName: '文档发布',
+      stepName: '构建静态站点',
+      agentName: 'docs-builder',
+      agentDetail: 'agent-based · v2.0.1',
+      status: 'success'
+    },
+    {
+      id: 't3',
+      workflowName: '用户数据同步',
+      stepName: '增量同步',
+      agentName: 'sync-daemon',
+      agentDetail: 'agent-based · v1.5.0',
+      status: 'failed'
+    }
+  ];
+
+  // ════════════════════════════════════════
+  // Chat
+  // ════════════════════════════════════════
+
+  function renderChat(index) {
+    const chat = allChats[index];
+    if (!chat) return;
+    currentChatIndex = index;
+    document.getElementById('project-title').textContent = chat.project;
+    document.getElementById('project-badge').textContent = '当前项目';
+
+    const container = document.getElementById('messages');
+    container.innerHTML = chat.messages.map(m => {
+      const time = m.time || new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      const text = m.text.replace(/\n/g, '<br>');
+      if (m.role === 'user') {
+        return `<div class="message user"><div class="message-bubble">${text}<div class="message-time">${time}</div></div></div>`;
+      }
+      return `<div class="message assistant"><div class="message-bubble">${text}<div class="message-time">${time}</div></div></div>`;
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+
+    // 高亮侧栏 — 同时匹配独立对话项和项目下子项
+    document.querySelectorAll('.tree-item, .tree-item-child').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll(`.tree-item[data-chat="${index}"]`).forEach(el => el.classList.add('active'));
+    document.querySelectorAll(`.tree-item-child[data-chat="${index}"]`).forEach(el => el.classList.add('active'));
+  }
+
+  function switchChat(index) {
+    renderChat(index);
+  }
+
+  function switchProject(name) {
+    showToast('切换到项目: ' + name, 'success');
+    document.getElementById('project-title').textContent = name;
+  }
+
+  function newChat() {
+    showToast('新建对话', 'success');
+  }
+
+  function handleInputKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    const chat = allChats[currentChatIndex];
+    const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    chat.messages.push({ role: 'user', text: text, time: now });
+
+    const container = document.getElementById('messages');
+    container.innerHTML += `
+      <div class="message user">
+        <div class="message-bubble">${text.replace(/\n/g, '<br>')}<div class="message-time">${now}</div></div>
+      </div>
+    `;
+    input.value = '';
+    autoResize(input);
+    container.scrollTop = container.scrollHeight;
+    document.getElementById('send-btn').disabled = true;
+
+    setTimeout(() => {
+      const replyTime = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      chat.messages.push({ role: 'assistant', text: '收到，我来处理「' + text.slice(0, 20) + '…」的相关问题。请稍等。', time: replyTime });
+      container.innerHTML += `
+        <div class="message assistant">
+          <div class="message-bubble">收到，我来处理「${text.slice(0, 20)}…」的相关问题。请稍等。<div class="message-time">${replyTime}</div></div>
+        </div>
+      `;
+      container.scrollTop = container.scrollHeight;
+    }, 600);
+  }
+
+  // ════════════════════════════════════════
+  // 任务展板
+  // ════════════════════════════════════════
+
+  function renderTaskBoard() {
+    const container = document.getElementById('task-board-body');
+    document.getElementById('task-badge').textContent = tasks.length;
+
+    if (tasks.length === 0) {
+      container.innerHTML = `
+        <div class="task-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="3" x2="9" y2="21"/>
+          </svg>
+          <div class="task-empty-text">暂无任务</div>
+          <div class="task-empty-hint">运行工作流后任务将显示在这里</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = tasks.map(t => {
+      const statusLabels = { running: '运行中', success: '已完成', failed: '失败', idle: '待机' };
+
+      return `
+        <div class="task-card">
+          <div class="task-card-top">
+            <div class="task-card-workflow">
+              <div class="task-card-workflow-name">${t.workflowName}</div>
+              <div class="task-card-workflow-step">当前环节：${t.stepName}</div>
+            </div>
+            <span class="task-card-status ${t.status}" title="${statusLabels[t.status] || t.status}"></span>
+          </div>
+          <div class="task-card-agent">
+            <div class="task-card-agent-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/>
+                <path d="M6 20v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
+              </svg>
+            </div>
+            <div class="task-card-agent-info">
+              <div class="task-card-agent-name">${t.agentName}</div>
+              <div class="task-card-agent-detail">${t.agentDetail} · ${statusLabels[t.status] || t.status}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function toggleTaskBoard() {
+    const board = document.getElementById('task-board');
+    board.classList.remove('collapsed');
+    board.classList.toggle('hidden');
+  }
+
+  function toggleTaskBoardCollapse() {
+    document.getElementById('task-board').classList.toggle('collapsed');
+  }
+
+  // ════════════════════════════════════════
+  // Sidebar
+  // ════════════════════════════════════════
+
+  function toggleSidebar() {
+    const app = document.querySelector('.app');
+    const sidebar = document.getElementById('sidebar');
+    const fixedHandle = document.getElementById('handle-fixed');
+    app.classList.toggle('sidebar-collapsed');
+    sidebar.classList.toggle('collapsed');
+    fixedHandle.classList.toggle('visible', sidebar.classList.contains('collapsed'));
+    try { localStorage.setItem('dash-sidebar-collapsed', sidebar.classList.contains('collapsed') ? '1' : '0'); } catch(e) {}
+  }
+
+  function toggleTree(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle('collapsed');
+    try { localStorage.setItem('dash-tree-' + id, el.classList.contains('collapsed') ? '1' : '0'); } catch(e) {}
+  }
+
+  function filterSidebar() {
+    const q = (document.getElementById('sidebar-search')?.value || '').toLowerCase();
+    document.querySelectorAll('#projects-list > .tree-item, #projects-list > .tree-item-child').forEach(el => {
+      el.style.display = el.textContent.toLowerCase().includes(q) ? 'flex' : 'none';
+    });
+  }
+
+  // ════════════════════════════════════════
+  // Model Selector
+  // ════════════════════════════════════════
+
+  function toggleModelDropdown(e) {
+    e.stopPropagation();
+    document.getElementById('model-selector').classList.toggle('open');
+  }
+
+  function selectModel(el, label) {
+    document.querySelectorAll('.model-select-option').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    document.querySelector('.model-selector-label').textContent = label;
+    document.getElementById('model-selector').classList.remove('open');
+  }
+
+  document.addEventListener('click', function(e) {
+    const sel = document.getElementById('model-selector');
+    if (!sel.contains(e.target)) {
+      sel.classList.remove('open');
+    }
+  });
+
+  // ════════════════════════════════════════
+  // Sidebar Resize
+  // ════════════════════════════════════════
+
+  (function() {
+    const handle = document.getElementById('sidebar-resize');
+    const app = document.querySelector('.app');
+    let startX, startW;
+
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = parseFloat(getComputedStyle(app).getPropertyValue('--sidebar-w')) || 280;
+      handle.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const sidebar = document.getElementById('sidebar');
+      sidebar.style.transition = 'none';
+
+      function onMove(ev) {
+        const dx = ev.clientX - startX;
+        const newW = Math.max(200, Math.min(500, startW + dx));
+        app.style.setProperty('--sidebar-w', newW + 'px');
+      }
+
+      function onUp() {
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.getElementById('sidebar').style.transition = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  })();
+
+  // ════════════════════════════════════════
+  // Toast
+  // ════════════════════════════════════════
+
+  function showToast(message, type) {
+    const container = document.getElementById('toast-container');
+    const iconPaths = {
+      success: '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+      error: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+      warning: '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
+    };
+
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + (type || 'success');
+    toast.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${iconPaths[type] || iconPaths.success}
+      </svg>
+      ${message}
+    `;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(8px)';
+      toast.style.transition = 'opacity 0.2s, transform 0.2s';
+      setTimeout(() => toast.remove(), 250);
+    }, 3000);
+  }
+
+  // ════════════════════════════════════════
+  // Utils
+  // ════════════════════════════════════════
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) sendBtn.disabled = el.value.trim().length === 0;
+  }
+
+  let dark = true;
+  function toggleTheme() {
+    dark = !dark;
+    const root = document.documentElement;
+    if (dark) {
+      root.style.setProperty('--bg-app', '#212121');
+      root.style.setProperty('--bg-sidebar', '#191919');
+      root.style.setProperty('--bg-hover', 'rgba(255,255,255,0.06)');
+      root.style.setProperty('--border', 'rgba(255,255,255,0.10)');
+      root.style.setProperty('--border-strong', 'rgba(255,255,255,0.16)');
+      root.style.setProperty('--text-primary', '#ececec');
+      root.style.setProperty('--text-secondary', 'rgba(255,255,255,0.55)');
+      root.style.setProperty('--text-muted', 'rgba(255,255,255,0.30)');
+    } else {
+      root.style.setProperty('--bg-app', '#f4f4f6');
+      root.style.setProperty('--bg-sidebar', '#ffffff');
+      root.style.setProperty('--bg-hover', 'rgba(0,0,0,0.05)');
+      root.style.setProperty('--border', 'rgba(0,0,0,0.08)');
+      root.style.setProperty('--border-strong', 'rgba(0,0,0,0.14)');
+      root.style.setProperty('--text-primary', '#161618');
+      root.style.setProperty('--text-secondary', 'rgba(0,0,0,0.50)');
+      root.style.setProperty('--text-muted', 'rgba(0,0,0,0.28)');
+    }
+
+  }
+
+  // ════════════════════════════════════════
+  // Init
+  // ════════════════════════════════════════
+
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      if (localStorage.getItem('dash-sidebar-collapsed') === '1') {
+        document.querySelector('.app').classList.add('sidebar-collapsed');
+        document.getElementById('sidebar').classList.add('collapsed');
+        document.getElementById('handle-fixed').classList.add('visible');
+      }
+    } catch(e) {}
+
+    try {
+      if (localStorage.getItem('dash-tree-tree-projects') === '1') {
+        document.getElementById('tree-projects').classList.add('collapsed');
+      }
+    } catch(e) {}
+
+    renderChat(0);
+    renderTaskBoard();
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const active = document.activeElement;
+        if (active && active.id === 'chat-input') {
+          e.preventDefault();
+          sendMessage();
+        }
+      }
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(gsd-plan-phase)",
+      "Skill(gsd-plan-phase:*)",
+      "Bash(rtk ls *)",
+      "Bash(rtk tsc *)",
+      "Bash(rtk npm *)",
+      "Bash(rtk read *)",
+      "Bash(npm list *)",
+      "Bash(pi-gsd-tools --help)",
+      "Bash(pi-gsd-tools list-todos *)",
+      "Bash(gsd-sdk query *)",
+      "Read(//Users/suntc/.claude/get-shit-done/references/**)",
+      "Bash(rtk git *)",
+      "Read(//Users/suntc/.claude/get-shit-done/workflows/discuss-phase/modes/**)",
+      "Read(//Users/suntc/.claude/get-shit-done/workflows/discuss-phase/templates/**)",
+      "Skill(gsd-ui-phase)",
+      "Skill(gsd-ui-phase:*)",
+      "WebSearch",
+      "Skill(gsd-new-project)",
+      "Skill(gsd-new-project:*)"
+    ]
+  }
+}
