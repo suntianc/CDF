@@ -14,6 +14,7 @@ const piWorkbenchAPI = {
   workspaceList: () => ipcRenderer.invoke('workspace:list'),
   workspaceAdd: (path: string) => ipcRenderer.invoke('workspace:add', path),
   workspaceSwitch: (path: string) => ipcRenderer.invoke('workspace:switch', path),
+  workspaceGetContext: (path: string) => ipcRenderer.invoke('workspace:getContext', path),
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
 
   // Theme
@@ -39,12 +40,19 @@ const piWorkbenchAPI = {
   sessionDelete: (sessionPath: string) => ipcRenderer.invoke('session:delete', sessionPath),
   sessionSetModel: (sessionPath: string, modelId: string) => ipcRenderer.invoke('session:setModel', { sessionPath, modelId }),
   sessionGetAvailableModels: () => ipcRenderer.invoke('providers:getAvailableModels'),
-  sessionStartStream: (sessionPath: string) => ipcRenderer.send('session:startStream', { sessionPath }),
-  sessionStopStream: (sessionPath: string) => ipcRenderer.send('session:stopStream', { sessionPath }),
+  // Streaming APIs - invoke returns streamId for Channel event pattern subscription
+  sessionStartStream: (sessionPath: string) => ipcRenderer.invoke('session:streamStart', { sessionPath }),
+  sessionStopStream: (sessionPath: string) => ipcRenderer.send('session:streamStop', { sessionPath }),
   sessionOnStreamChunk: (callback: (chunk: any) => void) => {
     const handler = (_event: any, chunk: any) => callback(chunk)
     ipcRenderer.on('session:streamChunk', handler)
     return () => ipcRenderer.removeListener('session:streamChunk', handler)
+  },
+  // Channel event pattern streaming - subscribe to unique streamId channel
+  sessionOnStreamToken: (streamId: string, callback: (data: { type: 'token' | 'end' | 'error'; delta?: string; message?: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data)
+    ipcRenderer.on(streamId, handler)
+    return () => ipcRenderer.removeListener(streamId, handler)
   },
 
   // ── GSD APIs (Phase 2) ──
@@ -72,12 +80,19 @@ if (process.contextIsolated) {
     delete: (sessionPath: string) => ipcRenderer.invoke('session:delete', sessionPath),
     setModel: (sessionPath: string, modelId: string) => ipcRenderer.invoke('session:setModel', { sessionPath, modelId }),
     getAvailableModels: () => ipcRenderer.invoke('providers:getAvailableModels'),
-    startStream: (sessionPath: string) => ipcRenderer.send('session:startStream', { sessionPath }),
+    // Streaming APIs - invoke returns streamId for Channel event pattern subscription
+    startStream: (sessionPath: string) => ipcRenderer.invoke('session:streamStart', { sessionPath }),
     stopStream: (sessionPath: string) => ipcRenderer.send('session:stopStream', { sessionPath }),
     onStreamChunk: (callback: (chunk: any) => void) => {
       const handler = (_event: any, chunk: any) => callback(chunk)
       ipcRenderer.on('session:streamChunk', handler)
       return () => ipcRenderer.removeListener('session:streamChunk', handler)
+    },
+    // Channel event pattern streaming - subscribe to unique streamId channel
+    onStreamToken: (streamId: string, callback: (data: { type: 'token' | 'end' | 'error'; delta?: string; message?: string }) => void) => {
+      const handler = (_event: any, data: any) => callback(data)
+      ipcRenderer.on(streamId, handler)
+      return () => ipcRenderer.removeListener(streamId, handler)
     }
   },
   // GSD APIs
@@ -106,12 +121,19 @@ if (process.contextIsolated) {
       delete: (sessionPath: string) => ipcRenderer.invoke('session:delete', sessionPath),
       setModel: (sessionPath: string, modelId: string) => ipcRenderer.invoke('session:setModel', { sessionPath, modelId }),
       getAvailableModels: () => ipcRenderer.invoke('providers:getAvailableModels'),
-      startStream: (sessionPath: string) => ipcRenderer.send('session:startStream', { sessionPath }),
+      // Streaming APIs - invoke returns streamId for Channel event pattern subscription
+      startStream: (sessionPath: string) => ipcRenderer.invoke('session:streamStart', { sessionPath }),
       stopStream: (sessionPath: string) => ipcRenderer.send('session:stopStream', { sessionPath }),
       onStreamChunk: (callback: (chunk: any) => void) => {
         const handler = (_event: any, chunk: any) => callback(chunk)
         ipcRenderer.on('session:streamChunk', handler)
         return () => ipcRenderer.removeListener('session:streamChunk', handler)
+      },
+      // Channel event pattern streaming - subscribe to unique streamId channel
+      onStreamToken: (streamId: string, callback: (data: { type: 'token' | 'end' | 'error'; delta?: string; message?: string }) => void) => {
+        const handler = (_event: any, data: any) => callback(data)
+        ipcRenderer.on(streamId, handler)
+        return () => ipcRenderer.removeListener(streamId, handler)
       }
     },
     gsd: {
