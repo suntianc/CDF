@@ -71,6 +71,34 @@ interface StreamToken {
   message?: string
 }
 
+interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  streaming?: boolean
+  status?: 'sending' | 'sent' | 'error'
+}
+
+interface ConversationMeta {
+  id: string
+  name: string
+  path: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}
+
+interface ApiChatHistory {
+  create(workspacePath: string, name?: string): Promise<{ id: string; path: string }>
+  list(workspacePath: string): Promise<ConversationMeta[]>
+  load(path: string, offset?: number, limit?: number): Promise<Message[]>
+  save(path: string, messages: Message[]): Promise<{ success: boolean }>
+  append(path: string, message: Message): Promise<{ success: boolean }>
+  delete(path: string): Promise<{ success: boolean }>
+  updateMeta(path: string, meta: Partial<ConversationMeta>): Promise<{ success: boolean }>
+}
+
 interface ApiSession {
   create(cwd: string, modelId?: string): Promise<{ id: string; path: string; name: string; modelProvider?: string; modelId?: string }>
   list(cwd: string): Promise<Array<{ id: string; path: string; name: string; createdAt: string; messageCount: number }>>
@@ -105,6 +133,7 @@ declare global {
     api: {
       session: ApiSession
       gsd: ApiGSD
+      chatHistory: ApiChatHistory
     }
     electronAPI: ElectronAPI_Workbench
   }
