@@ -3,6 +3,7 @@ import { join, dirname } from 'path'
 import type { Model } from '@earendil-works/pi-ai'
 import type { AgentSession } from '@earendil-works/pi-coding-agent'
 import store from './store'
+import { chatHistoryManager } from './chatHistory'
 
 // ── Types ──
 
@@ -779,6 +780,70 @@ export function registerIpcHandlers(): void {
       entry.session.dispose()
       streamingSessions.delete(streamId)
     }
+  })
+
+  // ══════════════════════════════════════════════════════════════════
+  //  Chat History IPC Channels
+  // ══════════════════════════════════════════════════════════════════
+
+  /**
+   * chatHistory:create
+   * Creates a new conversation file and returns id and path.
+   */
+  ipcMain.handle('chatHistory:create', async (_event, { workspacePath, name }: { workspacePath: string; name?: string }) => {
+    return chatHistoryManager.createConversation(workspacePath, name)
+  })
+
+  /**
+   * chatHistory:list
+   * Lists all conversations for a workspace, sorted by updatedAt.
+   */
+  ipcMain.handle('chatHistory:list', async (_event, { workspacePath }: { workspacePath: string }) => {
+    return chatHistoryManager.listConversations(workspacePath)
+  })
+
+  /**
+   * chatHistory:load
+   * Loads messages from a conversation with pagination (default 50).
+   */
+  ipcMain.handle('chatHistory:load', async (_event, { path, offset, limit }: { path: string; offset?: number; limit?: number }) => {
+    return chatHistoryManager.loadConversation(path, offset ?? 0, limit ?? 50)
+  })
+
+  /**
+   * chatHistory:save
+   * Saves (replaces) all messages in a conversation.
+   */
+  ipcMain.handle('chatHistory:save', async (_event, { path, messages }: { path: string; messages: any[] }) => {
+    await chatHistoryManager.saveConversation(path, messages)
+    return { success: true }
+  })
+
+  /**
+   * chatHistory:append
+   * Appends a single message to a conversation.
+   */
+  ipcMain.handle('chatHistory:append', async (_event, { path, message }: { path: string; message: any }) => {
+    await chatHistoryManager.appendMessage(path, message)
+    return { success: true }
+  })
+
+  /**
+   * chatHistory:delete
+   * Deletes a conversation file.
+   */
+  ipcMain.handle('chatHistory:delete', async (_event, { path }: { path: string }) => {
+    await chatHistoryManager.deleteConversation(path)
+    return { success: true }
+  })
+
+  /**
+   * chatHistory:updateMeta
+   * Updates conversation metadata (e.g., name).
+   */
+  ipcMain.handle('chatHistory:updateMeta', async (_event, { path, meta }: { path: string; meta: any }) => {
+    await chatHistoryManager.updateConversationMeta(path, meta)
+    return { success: true }
   })
 
   // ══════════════════════════════════════════════════════════════════
