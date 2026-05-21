@@ -50,11 +50,11 @@
 **Plans:** 5 plans in 3 waves
 
 Plans:
-- [ ] 02-01-PLAN.md — Message store (Zustand) + IPC streaming foundation
-- [ ] 02-02-PLAN.md — Chat UI components (ChatPanel, MessageBubble, InputArea, WelcomeDialog)
-- [ ] 02-03-PLAN.md — Markdown rendering (react-markdown + shiki) + streaming hook
-- [ ] 02-04-PLAN.md — Chat history persistence (electron-store per-conversation + pagination)
-- [ ] 02-05-PLAN.md — New conversation + clear conversation (ConversationList)
+- [x] 02-01-PLAN.md — Message store (Zustand) + IPC streaming foundation
+- [x] 02-02-PLAN.md — Chat UI components (ChatPanel, MessageBubble, InputArea, WelcomeDialog)
+- [x] 02-03-PLAN.md — Markdown rendering (react-markdown + shiki) + streaming hook
+- [x] 02-04-PLAN.md — Chat history persistence (electron-store per-conversation + pagination)
+- [x] 02-05-PLAN.md — New conversation + clear conversation (ConversationList)
 
 **Phase dependencies:** Phase 1 (需要 Model Provider 和工作区已配置)
 
