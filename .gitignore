@@ -1,2 +1,44 @@
+# Repomix
 repomix-output.xml
 .repomixignore
+
+# Node
+node_modules/
+.npm/
+.yarn/
+
+# Electron build output
+dist/
+dist-renderer/
+dist-preload/
+dist-main/
+release/
+
+# electron-vite
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+electron-log-*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editors
+.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# TypeScript cache
+*.tsbuildinfo
