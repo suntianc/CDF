@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { registerIpcHandlers } from './ipc-handlers';
 import store from './store';
 import log from './logger';
+import path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -15,8 +16,9 @@ function createWindow() {
     y: bounds.y,
     minWidth: 800,
     minHeight: 600,
+    titleBarStyle: 'hidden',
     webPreferences: {
-      preload: './preload/index.js',
+      preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -25,6 +27,9 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show();
+    if (process.env.ELECTRON_RENDERER_URL) {
+      mainWindow?.webContents.openDevTools();
+    }
     log.info('Main window ready and shown');
   });
 

@@ -1,16 +1,16 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-21T13:08:59.879Z",
+  "timestamp": "2026-05-21T13:21:40.000Z",
   "phase": "01",
   "phase_name": "foundation-workspace",
   "phase_dir": ".planning/phases/01-foundation-workspace",
   "plan": "01",
-  "task": 2,
+  "task": 3,
   "total_tasks": 18,
-  "status": "blocked",
+  "status": "executing",
   "completed_tasks": [
-    {"id": 0, "name": "Task 0.1: Initialize electron-vite project with React + TypeScript", "status": "done", "commit": "5432244"},
-    {"id": 0, "name": "Task 0.2: Install all dependencies (human-approved)", "status": "done", "commit": "in_progress"}
+    {"id": 1, "name": "Task 0.1: Initialize electron-vite project with React + TypeScript", "status": "done", "commit": "5432244"},
+    {"id": 2, "name": "Task 0.2: Install all dependencies and fix preload script absolute path", "status": "done", "commit": "in_progress"}
   ],
   "remaining_tasks": [
     {"id": 3, "name": "Task 0.3: Setup Tailwind CSS v4 with @theme directive", "status": "not_started"},
@@ -30,37 +30,23 @@
     {"id": 17, "name": "Task 3.5: Build TaskPanel", "status": "not_started"},
     {"id": 18, "name": "Task 4.1: Wire all components, IPC handlers, and stores", "status": "not_started"}
   ],
-  "blockers": [
-    {
-      "description": "Electron runtime not functioning correctly - require('electron') returns a string (path) instead of the electron module when running via electron-vite dev or direct electron binary",
-      "type": "technical",
-      "workaround": "npm run dev builds successfully but cannot launch Electron app. The electron binary itself seems to be wrapping Node.js instead of running Electron."
-    },
-    {
-      "description": "better-sqlite3 12.10.0 incompatible with Electron 42's V8 API - had to downgrade to Electron 41",
-      "type": "technical",
-      "workaround": "Electron 41.0.0 installed, better-sqlite3 compiled successfully for arm64"
-    },
-    {
-      "description": "electron-store v11 is ESM-only and incompatible with Electron main process CommonJS - downgraded to v8.2.0",
-      "type": "technical",
-      "workaround": "Using electron-store@8.2.0"
-    }
-  ],
+  "blockers": [],
   "human_actions_pending": [],
   "decisions": [
     {"decision": "Downgrade vite from 8.x to 7.x because electron-vite@5.0.0 requires vite@^5.0.0 || ^6.0.0 || ^7.0.0", "rationale": "electron-vite peer dependency conflict", "phase": "01"},
     {"decision": "Downgrade electron from 42 to 41 because better-sqlite3 12.10.0 is incompatible with Electron 42's V8 API", "rationale": "V8 API changes in Node.js 24/Electron 42 broke native module compilation", "phase": "01"},
     {"decision": "Downgrade electron-store from v11 to v8.2.0 because v11 is ESM-only", "rationale": "electron-store v11 uses ESM exports only, incompatible with Electron main process CJS context", "phase": "01"},
-    {"decision": "vite version changed from ^8.0.13 to ^7.0.0 in package.json", "rationale": "electron-vite 5.0.0 requires vite 5/6/7", "phase": "01"}
+    {"decision": "vite version changed from ^8.0.13 to ^7.0.0 in package.json", "rationale": "electron-vite 5.0.0 requires vite 5/6/7", "phase": "01"},
+    {"decision": "Make preload path absolute using path.join", "rationale": "Electron BrowserWindow requires absolute paths for preload script", "phase": "01"}
   ],
   "uncommitted_files": [
     ".claude/settings.json",
     ".gitignore",
     ".planning/STATE.md",
     "electron.vite.config.ts",
-    "package.json"
+    "package.json",
+    "src/main/index.ts"
   ],
-  "next_action": "Debug why Electron is not functioning correctly - require('electron') returns a string instead of the electron module. The electron binary appears to be wrapping Node.js instead of running the actual Electron runtime.",
-  "context_notes": "Task 0.1 completed successfully (electron-vite scaffold created, committed). Task 0.2 dependencies installed after resolving multiple version conflicts. npm run dev builds successfully but fails at runtime when trying to use electron module. The core issue is that require('electron') in the built output returns a string (the electron executable path) instead of the electron module object. This prevents app.whenReady(), electron.app.getPath(), etc. from working."
+  "next_action": "Task 0.3: Setup Tailwind CSS v4 with @theme directive",
+  "context_notes": "All previous blocker items resolved. Tested Electron app runtime using npm run dev and the main window opens successfully without errors."
 }
