@@ -29,17 +29,6 @@ export default function App() {
 
   return (
     <div className={`flex h-screen bg-[var(--bg-app)] relative ${sidebarCollapsed ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
-      {/* Drawer handle fixed - visible only when sidebar is collapsed */}
-      {sidebarCollapsed && (
-        <button
-          onClick={() => setSidebarCollapsed(false)}
-          className="fixed top-[10px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
-          title="展开侧边栏"
-        >
-          <PanelLeft className="w-4 h-4" />
-        </button>
-      )}
-
       <Sidebar
         collapsed={sidebarCollapsed}
         width={sidebarWidth}
@@ -54,7 +43,11 @@ export default function App() {
         {activeView === 'settings' ? (
           <ModelSettings />
         ) : (
-          <ChatArea onOpenSettings={() => setActiveView('settings')} />
+          <ChatArea 
+            onOpenSettings={() => setActiveView('settings')}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={() => setSidebarCollapsed(false)}
+          />
         )}
       </main>
 

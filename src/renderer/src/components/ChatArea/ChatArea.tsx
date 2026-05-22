@@ -4,14 +4,16 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { 
   ArrowUp, Square, Sparkles, BookOpen, GitFork, ChevronRight, AlertCircle, X, Terminal,
-  Paperclip, ChevronDown, Plus, Sliders, Layers
+  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft
 } from 'lucide-react';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
-export function ChatArea({ onOpenSettings }: ChatAreaProps) {
+export function ChatArea({ onOpenSettings, sidebarCollapsed, onToggleSidebar }: ChatAreaProps) {
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
     sessions, activeSessionId, messages, isStreaming, error, 
@@ -230,6 +232,15 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
   if (!activeSessionId) {
     return (
       <main className="flex-1 flex flex-col items-center justify-center p-6 relative bg-[var(--bg-app)] overflow-hidden">
+        {sidebarCollapsed && (
+          <button
+            onClick={onToggleSidebar}
+            className="absolute top-[11px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+            title="展开侧边栏"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        )}
         <div className="center-bg-glow" />
         
         <div className="max-w-[640px] w-full flex flex-col items-center gap-6 z-10">
@@ -376,14 +387,23 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
         
         {/* Chat Header */}
         <header className="main-topbar">
+          {sidebarCollapsed && (
+            <button
+              onClick={onToggleSidebar}
+              className="absolute top-[11px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+              title="展开侧边栏"
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+          )}
           <div className="main-topbar-left">
             <h1>{activeSession.name}</h1>
           </div>
         </header>
 
         {/* Messages Viewport */}
-        <div className="flex-1 overflow-hidden flex flex-col">
-          <div className="messages flex-1 overflow-y-auto">
+        <div className="flex-1 relative overflow-hidden">
+          <div className="messages absolute inset-0 overflow-y-auto" style={{ paddingBottom: '180px' }}>
             {/* Cascade Summary Box if available */}
             {activeSession?.summary && (
               <div className="mb-6 p-4 rounded-xl border border-[var(--color-accent)]/20 bg-gradient-to-br from-[var(--color-accent-dim)] to-transparent relative overflow-hidden flex flex-col gap-2 shadow-sm">
@@ -460,8 +480,8 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
         </div>
 
         {/* Input Composer Panel */}
-        <div className="px-6 pb-6 pt-2 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/90 to-transparent shrink-0 z-10">
-          <form onSubmit={handleSend} className="max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
+        <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/95 to-transparent z-10 pointer-events-none">
+          <form onSubmit={handleSend} className="max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg pointer-events-auto">
             {/* Upper: Text Input Area */}
             <textarea
               value={inputVal}
