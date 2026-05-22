@@ -107,12 +107,10 @@ export function registerIpcHandlers() {
     const existing = db.prepare('SELECT api_key FROM llm_providers WHERE id = ?').get(id) as any;
     
     let finalApiKey = null;
-    if (api_key) {
-      if (api_key === '••••••••') {
-        finalApiKey = existing ? existing.api_key : null;
-      } else {
-        finalApiKey = encryptApiKey(api_key);
-      }
+    if (api_key && api_key !== '••••••••') {
+      finalApiKey = encryptApiKey(api_key);
+    } else if (api_key === '••••••••' && existing) {
+      finalApiKey = existing.api_key; // preserve existing
     }
     
     const modelsStr = models ? JSON.stringify(models) : null;
