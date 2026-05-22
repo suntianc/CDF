@@ -109,7 +109,8 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
       const sessionName = inputVal.trim().slice(0, 15) || '新会话';
       const newSession = await createSession(projectId, sessionName);
       await selectSession(newSession.id);
-      
+      await fetchSessions(project.id); // Move before selectSession or await it
+
       const promptText = inputVal;
       setInputVal('');
       
