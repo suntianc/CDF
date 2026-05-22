@@ -12,6 +12,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<'chat' | 'settings'>('chat');
   const { setTheme } = useThemeStore();
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+  const [taskPanelWidth, setTaskPanelWidth] = useState(340);
 
   useEffect(() => {
     // Initialize theme from persistent store
@@ -54,7 +55,12 @@ export default function App() {
         )}
       </main>
 
-      <TaskPanel isOpen={taskPanelOpen} onClose={() => setTaskPanelOpen(false)} />
+      <TaskPanel 
+        isOpen={taskPanelOpen} 
+        onClose={() => setTaskPanelOpen(false)} 
+        width={taskPanelWidth}
+        onResize={(w) => setTaskPanelWidth(w)}
+      />
     </div>
   );
 }

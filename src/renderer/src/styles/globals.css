@@ -848,6 +848,11 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  scrollbar-width: none; /* Firefox */
+}
+
+.messages::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 
 .message {

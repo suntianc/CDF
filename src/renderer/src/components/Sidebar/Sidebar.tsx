@@ -60,9 +60,11 @@ export function Sidebar({
     if (isResizing) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = 'none';
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        document.body.style.userSelect = '';
       };
     }
     return undefined;
@@ -72,17 +74,13 @@ export function Sidebar({
     selectSession(null);
   };
 
-  if (collapsed) {
-    return null;
-  }
-
   const isSettings = activeView === 'settings';
 
   return (
     <aside
       ref={sidebarRef}
-      className={`${styles.sidebar} ${isSettings ? styles.settingsMode : ''}`}
-      style={{ width }}
+      className={`${styles.sidebar} ${isSettings ? styles.settingsMode : ''} ${isResizing ? styles.noTransition : ''} ${collapsed ? styles.collapsed : ''}`}
+      style={{ width: collapsed ? 0 : width }}
     >
       <div className={styles.sidebarTop}>
         {isSettings ? (

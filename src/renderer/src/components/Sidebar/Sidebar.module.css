@@ -5,8 +5,19 @@
   background: var(--color-bg-sidebar);
   border-right: 1px solid var(--color-border);
   position: relative;
-  transition: width 0.2s ease;
+  transition: width 0.3s ease-in-out, opacity 0.3s ease-in-out;
   overflow: hidden;
+}
+
+.sidebar.noTransition {
+  transition: none !important;
+}
+
+.sidebar.collapsed {
+  width: 0 !important;
+  opacity: 0;
+  border-right-color: transparent;
+  pointer-events: none;
 }
 
 .collapsedHandle {

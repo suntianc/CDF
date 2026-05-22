@@ -13654,20 +13654,24 @@ function ThemeToggle() {
     }
   );
 }
-const sidebar = "_sidebar_1bhjt_1";
-const resizeHandle = "_resizeHandle_1bhjt_21";
-const sidebarMenuBtn = "_sidebarMenuBtn_1bhjt_37";
-const active = "_active_1bhjt_63";
-const sidebarMenuSearch = "_sidebarMenuSearch_1bhjt_79";
-const bottomBar = "_bottomBar_1bhjt_126";
-const sidebarTop = "_sidebarTop_1bhjt_157";
-const backBtn = "_backBtn_1bhjt_166";
-const sidebarCollapseBtn = "_sidebarCollapseBtn_1bhjt_188";
-const settingsMenu = "_settingsMenu_1bhjt_213";
-const settingsMenuHeader = "_settingsMenuHeader_1bhjt_228";
-const settingsMenuItem = "_settingsMenuItem_1bhjt_237";
+const sidebar = "_sidebar_1erid_1";
+const noTransition = "_noTransition_1erid_12";
+const collapsed = "_collapsed_1erid_16";
+const resizeHandle = "_resizeHandle_1erid_32";
+const sidebarMenuBtn = "_sidebarMenuBtn_1erid_48";
+const active = "_active_1erid_74";
+const sidebarMenuSearch = "_sidebarMenuSearch_1erid_90";
+const bottomBar = "_bottomBar_1erid_137";
+const sidebarTop = "_sidebarTop_1erid_168";
+const backBtn = "_backBtn_1erid_177";
+const sidebarCollapseBtn = "_sidebarCollapseBtn_1erid_199";
+const settingsMenu = "_settingsMenu_1erid_224";
+const settingsMenuHeader = "_settingsMenuHeader_1erid_239";
+const settingsMenuItem = "_settingsMenuItem_1erid_248";
 const styles = {
   sidebar,
+  noTransition,
+  collapsed,
   resizeHandle,
   sidebarMenuBtn,
   active,
@@ -13681,7 +13685,7 @@ const styles = {
   settingsMenuItem
 };
 function Sidebar({
-  collapsed,
+  collapsed: collapsed2,
   width,
   activeView,
   onCollapse,
@@ -13722,9 +13726,11 @@ function Sidebar({
     if (isResizing) {
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
       return () => {
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.userSelect = "";
       };
     }
     return void 0;
@@ -13732,16 +13738,13 @@ function Sidebar({
   const handleNewChat = () => {
     selectSession(null);
   };
-  if (collapsed) {
-    return null;
-  }
   const isSettings = activeView === "settings";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "aside",
     {
       ref: sidebarRef,
-      className: `${styles.sidebar} ${isSettings ? styles.settingsMode : ""}`,
-      style: { width },
+      className: `${styles.sidebar} ${isSettings ? styles.settingsMode : ""} ${isResizing ? styles.noTransition : ""} ${collapsed2 ? styles.collapsed : ""}`,
+      style: { width: collapsed2 ? 0 : width },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: styles.sidebarTop, children: isSettings ? /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: onExitSettings, className: styles.backBtn, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(ArrowLeft, { className: "w-4 h-4" }),
@@ -14295,12 +14298,39 @@ function ChatArea({
     ] }) })
   ] });
 }
-function TaskPanel({ isOpen, onClose }) {
+function TaskPanel({ isOpen, onClose, width, onResize }) {
+  const [isResizing, setIsResizing] = reactExports.useState(false);
   const tasks = [
     { id: "1", name: "准备开发环境", status: "success" },
     { id: "2", name: "配置 TypeScript", status: "running" },
     { id: "3", name: "安装依赖", status: "idle" }
   ];
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+  reactExports.useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing) return;
+      const newWidth = window.innerWidth - e.clientX;
+      const clampedWidth = Math.min(600, Math.max(280, newWidth));
+      onResize(clampedWidth);
+    };
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    if (isResizing) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
+      return () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.userSelect = "";
+      };
+    }
+    return void 0;
+  }, [isResizing, onResize]);
   const statusIcon = (status) => {
     switch (status) {
       case "success":
@@ -14318,21 +14348,23 @@ function TaskPanel({ isOpen, onClose }) {
     {
       className: `
         h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]
-        flex flex-col transition-all duration-300 ease-in-out relative shrink-0
-        ${isOpen ? "w-[340px] opacity-100" : "w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none"}
+        flex flex-col relative shrink-0
+        ${isResizing ? "" : "transition-all duration-300 ease-in-out"}
+        ${isOpen ? "opacity-100" : "w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none"}
       `,
+      style: { width: isOpen ? width : 0 },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-semibold text-[var(--color-text-primary)]", children: "任务展板" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              onClick: onClose,
-              className: "w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer",
-              children: /* @__PURE__ */ jsxRuntimeExports.jsx(X, { className: "w-4 h-4 text-[var(--color-text-secondary)]" })
-            }
-          )
-        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            onMouseDown: handleMouseDown,
+            className: `
+          absolute left-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize z-50 bg-transparent hover:bg-[var(--color-accent)]/40 transition-colors duration-150
+          ${isResizing ? "bg-[var(--color-accent)]/80" : ""}
+        `
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0 select-none", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-semibold text-[var(--color-text-primary)]", children: "任务展板" }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 p-4 overflow-y-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-3", children: tasks.map((task) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3", children: [
           statusIcon(task.status),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm text-[var(--color-text-primary)]", children: task.name })
@@ -14978,6 +15010,7 @@ function App() {
   const [activeView, setActiveView] = reactExports.useState("chat");
   const { setTheme } = useThemeStore();
   const [taskPanelOpen, setTaskPanelOpen] = reactExports.useState(false);
+  const [taskPanelWidth, setTaskPanelWidth] = reactExports.useState(340);
   reactExports.useEffect(() => {
     const initTheme = async () => {
       try {
@@ -15014,7 +15047,15 @@ function App() {
         onToggleTaskPanel: () => setTaskPanelOpen(!taskPanelOpen)
       }
     ) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(TaskPanel, { isOpen: taskPanelOpen, onClose: () => setTaskPanelOpen(false) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      TaskPanel,
+      {
+        isOpen: taskPanelOpen,
+        onClose: () => setTaskPanelOpen(false),
+        width: taskPanelWidth,
+        onResize: (w) => setTaskPanelWidth(w)
+      }
+    )
   ] });
 }
 clientExports.createRoot(document.getElementById("root")).render(
