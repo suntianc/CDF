@@ -12,12 +12,11 @@
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] **v1-MVP**: Agent 对话界面（Master Agent 与用户多轮对话） — Phase 2
+- [x] **v1-MVP**: 模型供应商配置（支持多种 LLM 提供者） — Phase 2
 
 ### Active
 
-- [ ] **v1-MVP**: Agent 对话界面（Master Agent 与用户多轮对话）
-- [ ] **v1-MVP**: 模型供应商配置（支持多种 LLM 提供者）
 - [ ] **v1-MVP**: Agent 资产管理（定义 Agent 角色，构建可复用资产库）
 - [ ] Skills 管理
 - [ ] MCP 管理（Model Context Protocol 服务器配置与健康检查）
@@ -63,10 +62,10 @@
 | 离线优先架构 | 开发者环境需要稳定可靠，不依赖外部服务 | — Pending |
 | pi-code-agent 作为底层引擎 | 复用成熟开源能力，避免重复造轮子 | — Pending |
 | 上下文总结策略 | 避免上下文压缩导致信息失真 | — Pending |
-| 85%窗口阈值触发总结 | 保留安全边界，避免窗口耗尽 | — Pending |
+| 85%窗口阈值触发总结 | 保留安全边界，避免窗口耗尽 | Phase 2 ✅ |
 | Electron + React + Vite | 成熟的桌面应用技术栈 | — Pending |
-| assistant-ui 对话组件 | 官方推荐，对话场景开箱即用 | — Pending |
+| assistant-ui 对话组件 | 官方推荐，对话场景开箱即用 | Phase 2 ✅ |
 | ReactFlow 工作流组件 | 可视化编排能力强，生态成熟 | — Pending |
 
 ---
-*Last updated: 2026-05-21 after initialization*
+*Last updated: 2026-05-22 after Phase 2*

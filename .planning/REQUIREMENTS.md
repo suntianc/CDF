@@ -7,19 +7,19 @@
 
 Requirements for initial release. Each maps to roadmap phases.
 
-### Agent 对话 (Chat)
+### Agent 对话 (Chat) ✅ Phase 2
 
-- [ ] **CHAT-01**: Master Agent 多轮对话界面（assistant-ui）
-- [ ] **CHAT-02**: 对话历史本地持久化
-- [ ] **CHAT-03**: 上下文窗口 85% 阈值自动总结机制
-- [ ] **CHAT-04**: 总结后开启新会话，旧会话 ID 和总结内容注入新会话作为上下文
-- [ ] **CHAT-05**: Agent 可根据会话 ID 查询历史对话记录
+- [x] **CHAT-01**: Master Agent 多轮对话界面（assistant-ui）
+- [x] **CHAT-02**: 对话历史本地持久化
+- [x] **CHAT-03**: 上下文窗口 85% 阈值自动总结机制
+- [x] **CHAT-04**: 总结后开启新会话，旧会话 ID 和总结内容注入新会话作为上下文
+- [x] **CHAT-05**: Agent 可根据会话 ID 查询历史对话记录
 
-### 模型供应商配置 (LLM Providers)
+### 模型供应商配置 (LLM Providers) ✅ Phase 2
 
-- [ ] **LLM-01**: 支持配置多个 LLM 提供者（OpenAI、Anthropic、本地模型等）
-- [ ] **LLM-02**: API Key 安全管理（加密存储）
-- [ ] **LLM-03**: 提供者切换机制
+- [x] **LLM-01**: 支持配置多个 LLM 提供者（OpenAI、Anthropic、本地模型等）
+- [x] **LLM-02**: API Key 安全管理（加密存储）
+- [x] **LLM-03**: 提供者切换机制
 
 ### Agent 资产管理 (Agent Library)
 
