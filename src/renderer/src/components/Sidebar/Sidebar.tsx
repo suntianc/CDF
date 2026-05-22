@@ -46,7 +46,7 @@ export function Sidebar({
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!isResizing) return;
-      const newWidth = Math.min(500, Math.max(200, e.clientX));
+      const newWidth = Math.min(500, Math.max(240, e.clientX));
       onResize(newWidth);
     },
     [isResizing, onResize]

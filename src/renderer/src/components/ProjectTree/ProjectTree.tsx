@@ -61,11 +61,11 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col min-w-0">
       {/* Project Folder Item */}
       <div
         className={`
-          group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border border-transparent
+          group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border border-transparent min-w-0
           hover:bg-[var(--color-bg-surface)] hover:shadow-md
           ${isActive ? 'text-[var(--color-text-primary)] font-semibold' : 'text-[var(--color-text-secondary)]'}
         `}
@@ -111,12 +111,12 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
 
       {/* Sessions child list with transition */}
       <div className={`folder-sessions-collapse ${expanded ? 'expanded' : ''}`}>
-        <div className="folder-sessions-inner pl-6 flex flex-col gap-0.5 border-l border-[var(--color-border)]/50 ml-5">
+        <div className="folder-sessions-inner pl-6 flex flex-col gap-0.5 border-l border-[var(--color-border)]/50 ml-5 min-w-0">
           {sessions.map((session) => (
             <div
               key={session.id}
               className={`
-                group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border
+                group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border min-w-0
                 ${
                   activeSessionId === session.id
                     ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium shadow-sm'
@@ -252,7 +252,7 @@ export function ProjectTree() {
       
       {/* Project list collapsible content with CSS transition */}
       <div className={`folder-sessions-collapse ${listExpanded ? 'expanded' : ''}`}>
-        <div className="folder-sessions-inner space-y-2">
+        <div className="folder-sessions-inner space-y-2 min-w-0">
           {projects.map((project) => (
             <ProjectFolder
               key={project.id}

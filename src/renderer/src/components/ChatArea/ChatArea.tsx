@@ -31,7 +31,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
           onClick={handleCopy}
           className={`transition-all duration-200 text-[11px] font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${
             copied 
-              ? 'text-[var(--color-success)] bg-[var(--color-success-dim)]/20 scale-105 shadow-sm font-semibold' 
+              ? 'text-[var(--color-success)] bg-[var(--color-success-dim)]/20' 
               : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
           }`}
         >
@@ -266,10 +266,16 @@ export function ChatArea({
     );
   };
 
-  // 1. Onboarding / Welcome view (if no session is active)
-  if (!activeSessionId) {
-    return (
-      <main className="flex-1 flex flex-col items-center justify-center p-6 relative bg-[var(--bg-app)] overflow-hidden">
+  return (
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
+      {/* Onboarding / Welcome view */}
+      <main
+        className={`absolute inset-0 flex flex-col items-center justify-center p-6 bg-[var(--bg-app)] overflow-hidden transition-all duration-300 ease-in-out ${
+          !activeSessionId
+            ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto z-10'
+            : 'opacity-0 translate-y-4 scale-95 pointer-events-none z-0'
+        }`}
+      >
         {sidebarCollapsed && (
           <button
             onClick={onToggleSidebar}
@@ -417,12 +423,15 @@ export function ChatArea({
           </div>
         </div>
       </main>
-    );
-  }
 
-  return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
-        
+      {/* Main Chat Workspace */}
+      <div 
+        className={`absolute inset-0 flex flex-col bg-[var(--color-bg-app)] overflow-hidden transition-all duration-300 ease-in-out ${
+          activeSessionId 
+            ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto z-10' 
+            : 'opacity-0 -translate-y-4 scale-105 pointer-events-none z-0'
+        }`}
+      >
         {/* Chat Header */}
         <header className="main-topbar">
           {sidebarCollapsed && (
@@ -435,7 +444,7 @@ export function ChatArea({
             </button>
           )}
           <div className="main-topbar-left">
-            <h1>{activeSession.name}</h1>
+            <h1>{activeSession?.name || ''}</h1>
           </div>
           
           {/* Right Header Toolbar */}
@@ -468,9 +477,9 @@ export function ChatArea({
                     <GitFork className="w-3.5 h-3.5" />
                     <span>前序会话级联摘要</span>
                   </div>
-                  {activeSession.parent_session_id && (
+                  {activeSession?.parent_session_id && (
                     <button
-                      onClick={() => selectSession(activeSession.parent_session_id!)}
+                      onClick={() => activeSession?.parent_session_id && selectSession(activeSession.parent_session_id)}
                       className="text-xs text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] font-medium flex items-center gap-0.5 transition-all"
                     >
                       <span>回溯父会话历史</span>
@@ -479,13 +488,13 @@ export function ChatArea({
                   )}
                 </div>
                 <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed italic border-l-2 border-[var(--color-accent)]/30 pl-3">
-                  "{activeSession.summary}"
+                  "{activeSession?.summary}"
                 </p>
               </div>
             )}
 
             {/* Messages List */}
-            {messages.map((message) => (
+            {(messages || []).map((message) => (
               <div 
                 key={message.id}
                 className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}
@@ -624,5 +633,6 @@ export function ChatArea({
           </form>
         </div>
       </div>
+    </div>
   );
 }
