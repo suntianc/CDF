@@ -14,7 +14,7 @@ export function estimateTokens(text: string): number {
       englishChars++;
     }
   }
-  return Math.ceil(englishChars / 4) + cjkChars;
+  return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
 interface SessionState {
@@ -220,7 +220,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const contextLimit = activeProvider.context_limit || 8192;
     const totalTokens = messages.reduce((sum, m) => sum + (m.tokens || 0), 0);
 
-    if (totalTokens >= 0.85 * contextLimit) {
+    if (totalTokens >= contextLimit * 0.85) {
       console.log(`Context limit threshold reached (${totalTokens}/${contextLimit}). Triggering silent auto-summarization...`);
       
       const activeSession = get().sessions.find((s) => s.id === activeSessionId);
