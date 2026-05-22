@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, X, CheckCircle, XCircle, Loader } from 'lucide-react';
+import { X, CheckCircle, XCircle, Loader } from 'lucide-react';
 
 interface Task {
   id: string;
@@ -13,8 +12,6 @@ interface TaskPanelProps {
 }
 
 export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
-  const [collapsed, setCollapsed] = useState(false);
-
   // Placeholder tasks for Phase 1
   const tasks: Task[] = [
     { id: '1', name: '准备开发环境', status: 'success' },
@@ -36,46 +33,35 @@ export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
   };
 
   return (
-    <div
+    <aside
       className={`
-        fixed bottom-6 right-6 w-[340px] max-h-[480px]
-        bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]
-        rounded-xl shadow-lg flex flex-col
-        transition-all duration-300 ease-out z-40
-        ${collapsed ? 'h-13' : 'h-auto'}
-        ${isOpen ? 'translate-x-0 opacity-100' : 'translate-x-[380px] opacity-0 pointer-events-none'}
+        h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]
+        flex flex-col transition-all duration-300 ease-in-out relative shrink-0
+        ${isOpen ? 'w-[340px] opacity-100' : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'}
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-1 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-md px-2 py-1 transition-colors"
-        >
-          {collapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          <span>任务展板</span>
-        </button>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0">
+        <span className="text-sm font-semibold text-[var(--color-text-primary)]">任务展板</span>
         <button
           onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--color-bg-hover)] transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
         >
           <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
         </button>
       </div>
 
       {/* Content */}
-      {!collapsed && (
-        <div className="flex-1 p-4 overflow-y-auto">
-          <div className="space-y-3">
-            {tasks.map((task) => (
-              <div key={task.id} className="flex items-center gap-3">
-                {statusIcon(task.status)}
-                <span className="text-sm text-[var(--color-text-primary)]">{task.name}</span>
-              </div>
-            ))}
-          </div>
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="space-y-3">
+          {tasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-3">
+              {statusIcon(task.status)}
+              <span className="text-sm text-[var(--color-text-primary)]">{task.name}</span>
+            </div>
+          ))}
         </div>
-      )}
-    </div>
+      </div>
+    </aside>
   );
 }

@@ -207,7 +207,6 @@
 
 .sidebarCollapseBtn:hover {
   opacity: 1;
-  color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
 

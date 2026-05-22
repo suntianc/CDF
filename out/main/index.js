@@ -391,6 +391,138 @@ function registerIpcHandlers() {
     });
     return result.canceled ? null : result.filePaths[0];
   });
+  electron.ipcMain.handle("db:getAgents", () => {
+    const agents = db.prepare("SELECT * FROM agents ORDER BY updated_at DESC").all();
+    return agents.map((a) => ({
+      ...a,
+      config: a.config ? JSON.parse(a.config) : null
+    }));
+  });
+  electron.ipcMain.handle("db:saveAgent", (_, agent) => {
+    const { id, name, description, provider_id, system_prompt, config } = agent;
+    const now = Date.now();
+    const configStr = config ? JSON.stringify(config) : null;
+    const existing = db.prepare("SELECT id FROM agents WHERE id = ?").get(id);
+    if (existing) {
+      db.prepare(`
+        UPDATE agents SET name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ?
+        WHERE id = ?
+      `).run(name, description || null, provider_id || null, system_prompt || null, configStr, now, id);
+    } else {
+      db.prepare(`
+        INSERT INTO agents (id, name, description, provider_id, system_prompt, config, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, description || null, provider_id || null, system_prompt || null, configStr, now, now);
+    }
+    return { id, name, description, provider_id, system_prompt, config };
+  });
+  electron.ipcMain.handle("db:deleteAgent", (_, id) => {
+    db.prepare("DELETE FROM agents WHERE id = ?").run(id);
+  });
+  electron.ipcMain.handle("db:getSkills", () => {
+    const skills = db.prepare("SELECT * FROM skills ORDER BY updated_at DESC").all();
+    return skills;
+  });
+  electron.ipcMain.handle("db:saveSkill", (_, skill) => {
+    const { id, name, description, script_content, script_type } = skill;
+    const now = Date.now();
+    const existing = db.prepare("SELECT id FROM skills WHERE id = ?").get(id);
+    if (existing) {
+      db.prepare(`
+        UPDATE skills SET name = ?, description = ?, script_content = ?, script_type = ?, updated_at = ?
+        WHERE id = ?
+      `).run(name, description || null, script_content, script_type || "bash", now, id);
+    } else {
+      db.prepare(`
+        INSERT INTO skills (id, name, description, script_content, script_type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, description || null, script_content, script_type || "bash", now, now);
+    }
+    const versionCount = db.prepare("SELECT COUNT(*) as count FROM skill_versions WHERE skill_id = ?").get(id);
+    const versionNumber = (versionCount?.count || 0) + 1;
+    const versionId = crypto.randomUUID();
+    db.prepare(`
+      INSERT INTO skill_versions (id, skill_id, version_number, script_content, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(versionId, id, versionNumber, script_content, now);
+    return { id, name, description, script_content, script_type };
+  });
+  electron.ipcMain.handle("db:deleteSkill", (_, id) => {
+    db.prepare("DELETE FROM skills WHERE id = ?").run(id);
+  });
+  electron.ipcMain.handle("db:getSkillVersions", (_, skillId) => {
+    return db.prepare("SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version_number DESC").all(skillId);
+  });
+  electron.ipcMain.handle("db:getMcpServers", () => {
+    const servers = db.prepare("SELECT * FROM mcp_servers ORDER BY updated_at DESC").all();
+    return servers.map((s) => ({
+      ...s,
+      config: s.config ? JSON.parse(s.config) : null,
+      is_connected: !!s.is_connected
+    }));
+  });
+  electron.ipcMain.handle("db:saveMcpServer", (_, server) => {
+    const { id, name, server_type, config } = server;
+    const now = Date.now();
+    const configStr = config ? JSON.stringify(config) : null;
+    const existing = db.prepare("SELECT id FROM mcp_servers WHERE id = ?").get(id);
+    if (existing) {
+      db.prepare(`
+        UPDATE mcp_servers SET name = ?, server_type = ?, config = ?, updated_at = ?
+        WHERE id = ?
+      `).run(name, server_type, configStr, now, id);
+    } else {
+      db.prepare(`
+        INSERT INTO mcp_servers (id, name, server_type, config, is_connected, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
+      `).run(id, name, server_type, configStr, now, now);
+    }
+    return { id, name, server_type, config, is_connected: false };
+  });
+  electron.ipcMain.handle("db:deleteMcpServer", (_, id) => {
+    db.prepare("DELETE FROM mcp_servers WHERE id = ?").run(id);
+  });
+  electron.ipcMain.handle("db:toggleMcpConnection", (_, id, connected) => {
+    db.prepare("UPDATE mcp_servers SET is_connected = ?, updated_at = ? WHERE id = ?").run(connected ? 1 : 0, Date.now(), id);
+  });
+  electron.ipcMain.handle("db:checkMcpHealth", async (_, id) => {
+    const server = db.prepare("SELECT * FROM mcp_servers WHERE id = ?").get(id);
+    if (!server) {
+      return { ok: false, message: "MCP server not found" };
+    }
+    let config = {};
+    try {
+      config = server.config ? JSON.parse(server.config) : {};
+    } catch (e) {
+    }
+    const host = config.host || "localhost";
+    const port = config.port || 11434;
+    const healthEndpoint = config.healthEndpoint || "/health";
+    try {
+      const response = await fetch(`http://${host}:${port}${healthEndpoint}`, {
+        signal: AbortSignal.timeout(5e3)
+      });
+      if (response.ok) {
+        db.prepare("UPDATE mcp_servers SET last_health_check = ?, is_connected = 1 WHERE id = ?").run(Date.now(), id);
+        return { ok: true };
+      }
+      return { ok: false, message: `HTTP ${response.status}` };
+    } catch (err) {
+      db.prepare("UPDATE mcp_servers SET last_health_check = ?, is_connected = 0 WHERE id = ?").run(Date.now(), id);
+      return { ok: false, message: err.message || "Connection failed" };
+    }
+  });
+  const agentInstances = /* @__PURE__ */ new Map();
+  electron.ipcMain.handle("deepagents:createAgent", async (_, config) => {
+    const { providerId, model } = config;
+    const provider = db.prepare("SELECT * FROM llm_providers WHERE id = ?").get(providerId);
+    if (!provider) {
+      throw new Error(`LLM Provider with ID ${providerId} not found.`);
+    }
+    const agentId = crypto.randomUUID();
+    agentInstances.set(agentId, { config, provider });
+    return { agentId };
+  });
 }
 log.transports.file.level = "info";
 log.transports.console.level = "debug";

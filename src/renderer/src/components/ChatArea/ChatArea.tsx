@@ -4,8 +4,56 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { 
   ArrowUp, Square, Sparkles, BookOpen, GitFork, ChevronRight, AlertCircle, X, Terminal,
-  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, PanelRight, Info
+  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check
 } from 'lucide-react';
+
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  return (
+    <div className="border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]">
+      <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
+        <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
+          {lang || 'code'}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={`transition-all duration-200 text-[11px] font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${
+            copied 
+              ? 'text-[var(--color-success)] bg-[var(--color-success-dim)]/20 scale-105 shadow-sm font-semibold' 
+              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
+          }`}
+        >
+          {copied ? (
+            <>
+              <Check className="w-3 h-3 text-[var(--color-success)] animate-pop-in" />
+              <span className="animate-pop-in">已复制</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" />
+              <span>复制</span>
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="p-4 overflow-x-auto text-[var(--color-text-primary)] select-text" style={{ background: 'transparent', margin: 0 }}>
+        <code style={{ background: 'transparent', padding: 0, borderRadius: 0 }}>{code}</code>
+      </pre>
+    </div>
+  );
+}
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -198,25 +246,7 @@ export function ChatArea({
           const match = part.match(/```(\w*)\n([\s\S]*?)```/);
           const lang = match ? match[1] : '';
           const code = match ? match[2] : part.slice(3, -3);
-          return (
-            <div key={index} className="border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]">
-              <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
-                <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
-                  {lang || 'code'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard.writeText(code)}
-                  className="hover:text-[var(--color-text-primary)] transition-colors text-xs font-medium px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)] cursor-pointer"
-                >
-                  复制
-                </button>
-              </div>
-              <pre className="p-4 overflow-x-auto text-[var(--color-text-primary)] select-text" style={{ background: 'transparent', margin: 0 }}>
-                <code style={{ background: 'transparent', padding: 0, borderRadius: 0 }}>{code}</code>
-              </pre>
-            </div>
-          );
+          return <CodeBlock lang={lang} code={code} key={index} />;
         }
         const trimmed = part.trim();
         if (!trimmed) return null;
@@ -243,7 +273,7 @@ export function ChatArea({
         {sidebarCollapsed && (
           <button
             onClick={onToggleSidebar}
-            className="absolute top-[12px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+            className="absolute top-[13px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
             title="展开侧边栏"
           >
             <PanelLeft className="w-4 h-4" />
@@ -398,7 +428,7 @@ export function ChatArea({
           {sidebarCollapsed && (
             <button
               onClick={onToggleSidebar}
-              className="absolute top-[12px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+              className="absolute top-[13px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
               title="展开侧边栏"
             >
               <PanelLeft className="w-4 h-4" />
@@ -411,21 +441,15 @@ export function ChatArea({
           {/* Right Header Toolbar */}
           <div className="main-topbar-right flex items-center gap-2 ml-auto no-drag">
             <button
-              className="w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-all"
-              title="信息"
-            >
-              <Info className="w-4 h-4" />
-            </button>
-            <button
               onClick={onToggleTaskPanel}
-              className={`w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg transition-all ${
+              className={`w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg transition-all text-[var(--color-text-muted)] ${
                 taskPanelOpen 
-                  ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-active)] border border-[var(--color-border)] shadow-sm' 
-                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
+                  ? 'bg-[var(--color-bg-active)] border border-[var(--color-border)] shadow-sm' 
+                  : 'hover:bg-[var(--color-bg-hover)]'
               }`}
               title={taskPanelOpen ? "隐藏任务展板" : "显示任务展板"}
             >
-              <PanelRight className="w-4 h-4" />
+              <Info className="w-4 h-4" />
             </button>
           </div>
         </header>

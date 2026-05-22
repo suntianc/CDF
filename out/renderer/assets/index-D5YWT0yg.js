@@ -12532,17 +12532,17 @@ const createLucideIcon = (iconName, iconNode) => {
   Component.displayName = toPascalCase(iconName);
   return Component;
 };
-const __iconNode$A = [
+const __iconNode$C = [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ];
-const ArrowLeft = createLucideIcon("arrow-left", __iconNode$A);
-const __iconNode$z = [
+const ArrowLeft = createLucideIcon("arrow-left", __iconNode$C);
+const __iconNode$B = [
   ["path", { d: "m5 12 7-7 7 7", key: "hav0vg" }],
   ["path", { d: "M12 19V5", key: "x0mq9r" }]
 ];
-const ArrowUp = createLucideIcon("arrow-up", __iconNode$z);
-const __iconNode$y = [
+const ArrowUp = createLucideIcon("arrow-up", __iconNode$B);
+const __iconNode$A = [
   ["path", { d: "M12 7v14", key: "1akyts" }],
   [
     "path",
@@ -12552,31 +12552,36 @@ const __iconNode$y = [
     }
   ]
 ];
-const BookOpen = createLucideIcon("book-open", __iconNode$y);
-const __iconNode$x = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
-const ChevronDown = createLucideIcon("chevron-down", __iconNode$x);
-const __iconNode$w = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
-const ChevronRight = createLucideIcon("chevron-right", __iconNode$w);
-const __iconNode$v = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
-const ChevronUp = createLucideIcon("chevron-up", __iconNode$v);
-const __iconNode$u = [
+const BookOpen = createLucideIcon("book-open", __iconNode$A);
+const __iconNode$z = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
+const Check = createLucideIcon("check", __iconNode$z);
+const __iconNode$y = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
+const ChevronDown = createLucideIcon("chevron-down", __iconNode$y);
+const __iconNode$x = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
+const ChevronRight = createLucideIcon("chevron-right", __iconNode$x);
+const __iconNode$w = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
   ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
 ];
-const CircleAlert = createLucideIcon("circle-alert", __iconNode$u);
-const __iconNode$t = [
+const CircleAlert = createLucideIcon("circle-alert", __iconNode$w);
+const __iconNode$v = [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
 ];
-const CircleCheckBig = createLucideIcon("circle-check-big", __iconNode$t);
-const __iconNode$s = [
+const CircleCheckBig = createLucideIcon("circle-check-big", __iconNode$v);
+const __iconNode$u = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m15 9-6 6", key: "1uzhvr" }],
   ["path", { d: "m9 9 6 6", key: "z0biqf" }]
 ];
-const CircleX = createLucideIcon("circle-x", __iconNode$s);
-const __iconNode$r = [
+const CircleX = createLucideIcon("circle-x", __iconNode$u);
+const __iconNode$t = [
+  ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
+  ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
+];
+const Copy = createLucideIcon("copy", __iconNode$t);
+const __iconNode$s = [
   [
     "path",
     {
@@ -12594,8 +12599,8 @@ const __iconNode$r = [
   ],
   ["path", { d: "m2 2 20 20", key: "1ooewy" }]
 ];
-const EyeOff = createLucideIcon("eye-off", __iconNode$r);
-const __iconNode$q = [
+const EyeOff = createLucideIcon("eye-off", __iconNode$s);
+const __iconNode$r = [
   [
     "path",
     {
@@ -12605,8 +12610,8 @@ const __iconNode$q = [
   ],
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ];
-const Eye = createLucideIcon("eye", __iconNode$q);
-const __iconNode$p = [
+const Eye = createLucideIcon("eye", __iconNode$r);
+const __iconNode$q = [
   ["path", { d: "M18 19a5 5 0 0 1-5-5v8", key: "sz5oeg" }],
   [
     "path",
@@ -12618,8 +12623,8 @@ const __iconNode$p = [
   ["circle", { cx: "13", cy: "12", r: "2", key: "1j92g6" }],
   ["circle", { cx: "20", cy: "19", r: "2", key: "1obnsp" }]
 ];
-const FolderGit2 = createLucideIcon("folder-git-2", __iconNode$p);
-const __iconNode$o = [
+const FolderGit2 = createLucideIcon("folder-git-2", __iconNode$q);
+const __iconNode$p = [
   ["path", { d: "M12 10v6", key: "1bos4e" }],
   ["path", { d: "M9 13h6", key: "1uhe8q" }],
   [
@@ -12630,8 +12635,8 @@ const __iconNode$o = [
     }
   ]
 ];
-const FolderPlus = createLucideIcon("folder-plus", __iconNode$o);
-const __iconNode$n = [
+const FolderPlus = createLucideIcon("folder-plus", __iconNode$p);
+const __iconNode$o = [
   [
     "path",
     {
@@ -12640,15 +12645,21 @@ const __iconNode$n = [
     }
   ]
 ];
-const Folder = createLucideIcon("folder", __iconNode$n);
-const __iconNode$m = [
+const Folder = createLucideIcon("folder", __iconNode$o);
+const __iconNode$n = [
   ["circle", { cx: "12", cy: "18", r: "3", key: "1mpf1b" }],
   ["circle", { cx: "6", cy: "6", r: "3", key: "1lh9wr" }],
   ["circle", { cx: "18", cy: "6", r: "3", key: "1h7g24" }],
   ["path", { d: "M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9", key: "1uq4wg" }],
   ["path", { d: "M12 12v3", key: "158kv8" }]
 ];
-const GitFork = createLucideIcon("git-fork", __iconNode$m);
+const GitFork = createLucideIcon("git-fork", __iconNode$n);
+const __iconNode$m = [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "M12 16v-4", key: "1dtifu" }],
+  ["path", { d: "M12 8h.01", key: "e9boi3" }]
+];
+const Info = createLucideIcon("info", __iconNode$m);
 const __iconNode$l = [
   [
     "path",
@@ -13643,18 +13654,18 @@ function ThemeToggle() {
     }
   );
 }
-const sidebar = "_sidebar_1tr7c_1";
-const resizeHandle = "_resizeHandle_1tr7c_21";
-const sidebarMenuBtn = "_sidebarMenuBtn_1tr7c_37";
-const active = "_active_1tr7c_63";
-const sidebarMenuSearch = "_sidebarMenuSearch_1tr7c_79";
-const bottomBar = "_bottomBar_1tr7c_126";
-const sidebarTop = "_sidebarTop_1tr7c_157";
-const backBtn = "_backBtn_1tr7c_166";
-const sidebarCollapseBtn = "_sidebarCollapseBtn_1tr7c_188";
-const settingsMenu = "_settingsMenu_1tr7c_214";
-const settingsMenuHeader = "_settingsMenuHeader_1tr7c_229";
-const settingsMenuItem = "_settingsMenuItem_1tr7c_238";
+const sidebar = "_sidebar_1bhjt_1";
+const resizeHandle = "_resizeHandle_1bhjt_21";
+const sidebarMenuBtn = "_sidebarMenuBtn_1bhjt_37";
+const active = "_active_1bhjt_63";
+const sidebarMenuSearch = "_sidebarMenuSearch_1bhjt_79";
+const bottomBar = "_bottomBar_1bhjt_126";
+const sidebarTop = "_sidebarTop_1bhjt_157";
+const backBtn = "_backBtn_1bhjt_166";
+const sidebarCollapseBtn = "_sidebarCollapseBtn_1bhjt_188";
+const settingsMenu = "_settingsMenu_1bhjt_213";
+const settingsMenuHeader = "_settingsMenuHeader_1bhjt_228";
+const settingsMenuItem = "_settingsMenuItem_1bhjt_237";
 const styles = {
   sidebar,
   resizeHandle,
@@ -13786,7 +13797,46 @@ function Sidebar({
     }
   );
 }
-function ChatArea({ onOpenSettings }) {
+function CodeBlock({ lang, code }) {
+  const [copied, setCopied] = reactExports.useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2e3);
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider", children: lang || "code" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          onClick: handleCopy,
+          className: `transition-all duration-200 text-[11px] font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${copied ? "text-[var(--color-success)] bg-[var(--color-success-dim)]/20 scale-105 shadow-sm font-semibold" : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"}`,
+          children: copied ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { className: "w-3 h-3 text-[var(--color-success)] animate-pop-in" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "animate-pop-in", children: "已复制" })
+          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Copy, { className: "w-3 h-3" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "复制" })
+          ] })
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { className: "p-4 overflow-x-auto text-[var(--color-text-primary)] select-text", style: { background: "transparent", margin: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("code", { style: { background: "transparent", padding: 0, borderRadius: 0 }, children: code }) })
+  ] });
+}
+function ChatArea({
+  onOpenSettings,
+  sidebarCollapsed,
+  onToggleSidebar,
+  taskPanelOpen,
+  onToggleTaskPanel
+}) {
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const {
     sessions,
@@ -13932,21 +13982,7 @@ function ChatArea({ onOpenSettings }) {
           const match = part.match(/```(\w*)\n([\s\S]*?)```/);
           const lang = match ? match[1] : "";
           const code = match ? match[2] : part.slice(3, -3);
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border border-[var(--color-border)] rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)] shadow-md", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider", children: lang || "code" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => navigator.clipboard.writeText(code),
-                  className: "hover:text-[var(--color-text-primary)] transition-colors text-xs font-medium px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)] cursor-pointer",
-                  children: "复制"
-                }
-              )
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { className: "p-4 overflow-x-auto text-[var(--color-text-primary)] select-text", style: { background: "transparent", margin: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("code", { style: { background: "transparent", padding: 0, borderRadius: 0 }, children: code }) })
-          ] }, index);
+          return /* @__PURE__ */ jsxRuntimeExports.jsx(CodeBlock, { lang, code }, index);
         }
         const trimmed = part.trim();
         if (!trimmed) return null;
@@ -13960,6 +13996,15 @@ function ChatArea({ onOpenSettings }) {
   };
   if (!activeSessionId) {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "flex-1 flex flex-col items-center justify-center p-6 relative bg-[var(--bg-app)] overflow-hidden", children: [
+      sidebarCollapsed && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: onToggleSidebar,
+          className: "absolute top-[13px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag",
+          title: "展开侧边栏",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(PanelLeft, { className: "w-4 h-4" })
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "center-bg-glow" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "max-w-[640px] w-full flex flex-col items-center gap-6 z-10", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("h1", { className: "center-headline", children: [
@@ -14086,8 +14131,28 @@ function ChatArea({ onOpenSettings }) {
     ] });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("header", { className: "main-topbar", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "main-topbar-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: activeSession.name }) }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-hidden flex flex-col", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "messages flex-1 overflow-y-auto", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "main-topbar", children: [
+      sidebarCollapsed && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: onToggleSidebar,
+          className: "absolute top-[13px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag",
+          title: "展开侧边栏",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(PanelLeft, { className: "w-4 h-4" })
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "main-topbar-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: activeSession.name }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "main-topbar-right flex items-center gap-2 ml-auto no-drag", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: onToggleTaskPanel,
+          className: `w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg transition-all text-[var(--color-text-muted)] ${taskPanelOpen ? "bg-[var(--color-bg-active)] border border-[var(--color-border)] shadow-sm" : "hover:bg-[var(--color-bg-hover)]"}`,
+          title: taskPanelOpen ? "隐藏任务展板" : "显示任务展板",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(Info, { className: "w-4 h-4" })
+        }
+      ) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 relative overflow-hidden", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "messages absolute inset-0 overflow-y-auto", style: { paddingBottom: "180px" }, children: [
       activeSession?.summary && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-6 p-4 rounded-xl border border-[var(--color-accent)]/20 bg-gradient-to-br from-[var(--color-accent-dim)] to-transparent relative overflow-hidden flex flex-col gap-2 shadow-sm", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute top-0 right-0 p-3 opacity-5 select-none pointer-events-none", children: /* @__PURE__ */ jsxRuntimeExports.jsx(BookOpen, { className: "w-20 h-20 text-[var(--color-accent)]" }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between", children: [
@@ -14147,7 +14212,7 @@ function ChatArea({ onOpenSettings }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: messagesEndRef })
     ] }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "px-6 pb-6 pt-2 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/90 to-transparent shrink-0 z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSend, className: "max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/95 to-transparent z-10 pointer-events-none", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSend, className: "max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg pointer-events-auto", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "textarea",
         {
@@ -14230,9 +14295,7 @@ function ChatArea({ onOpenSettings }) {
     ] }) })
   ] });
 }
-function TaskPanel() {
-  const [visible, setVisible] = reactExports.useState(true);
-  const [collapsed, setCollapsed] = reactExports.useState(false);
+function TaskPanel({ isOpen, onClose }) {
   const tasks = [
     { id: "1", name: "准备开发环境", status: "success" },
     { id: "2", name: "配置 TypeScript", status: "running" },
@@ -14250,40 +14313,27 @@ function TaskPanel() {
         return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-4 h-4 rounded-full border-2 border-[var(--color-border)]" });
     }
   };
-  if (!visible) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-    "div",
+    "aside",
     {
       className: `
-        fixed bottom-6 right-6 w-[340px] max-h-[480px]
-        bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]
-        rounded-xl shadow-lg flex flex-col
-        transition-transform duration-200 ease-out
-        ${collapsed ? "h-13" : "h-auto"}
+        h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]
+        flex flex-col transition-all duration-300 ease-in-out relative shrink-0
+        ${isOpen ? "w-[340px] opacity-100" : "w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none"}
       `,
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              onClick: () => setCollapsed(!collapsed),
-              className: "flex items-center gap-1 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-md px-2 py-1 transition-colors",
-              children: [
-                collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { className: "w-4 h-4" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { className: "w-4 h-4" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "任务展板" })
-              ]
-            }
-          ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-semibold text-[var(--color-text-primary)]", children: "任务展板" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
-              onClick: () => setVisible(false),
-              className: "w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--color-bg-hover)] transition-colors",
+              onClick: onClose,
+              className: "w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer",
               children: /* @__PURE__ */ jsxRuntimeExports.jsx(X, { className: "w-4 h-4 text-[var(--color-text-secondary)]" })
             }
           )
         ] }),
-        !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 p-4 overflow-y-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-3", children: tasks.map((task) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 p-4 overflow-y-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-3", children: tasks.map((task) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3", children: [
           statusIcon(task.status),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm text-[var(--color-text-primary)]", children: task.name })
         ] }, task.id)) }) })
@@ -14927,6 +14977,7 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = reactExports.useState(280);
   const [activeView, setActiveView] = reactExports.useState("chat");
   const { setTheme } = useThemeStore();
+  const [taskPanelOpen, setTaskPanelOpen] = reactExports.useState(false);
   reactExports.useEffect(() => {
     const initTheme = async () => {
       try {
@@ -14941,15 +14992,6 @@ function App() {
     initTheme();
   }, [setTheme]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `flex h-screen bg-[var(--bg-app)] relative ${sidebarCollapsed ? "sidebar-is-collapsed" : "sidebar-is-expanded"}`, children: [
-    sidebarCollapsed && /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        onClick: () => setSidebarCollapsed(false),
-        className: "fixed top-[10px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag",
-        title: "展开侧边栏",
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx(PanelLeft, { className: "w-4 h-4" })
-      }
-    ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Sidebar,
       {
@@ -14962,8 +15004,17 @@ function App() {
         onExitSettings: () => setActiveView("chat")
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 overflow-hidden relative", children: activeView === "settings" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ModelSettings, {}) : /* @__PURE__ */ jsxRuntimeExports.jsx(ChatArea, { onOpenSettings: () => setActiveView("settings") }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(TaskPanel, {})
+    /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 overflow-hidden relative", children: activeView === "settings" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ModelSettings, {}) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+      ChatArea,
+      {
+        onOpenSettings: () => setActiveView("settings"),
+        sidebarCollapsed,
+        onToggleSidebar: () => setSidebarCollapsed(false),
+        taskPanelOpen,
+        onToggleTaskPanel: () => setTaskPanelOpen(!taskPanelOpen)
+      }
+    ) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(TaskPanel, { isOpen: taskPanelOpen, onClose: () => setTaskPanelOpen(false) })
   ] });
 }
 clientExports.createRoot(document.getElementById("root")).render(

@@ -18,7 +18,22 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
     saveProvider: (provider) => electron.ipcRenderer.invoke("db:saveProvider", provider),
     deleteProvider: (id) => electron.ipcRenderer.invoke("db:deleteProvider", id),
     setActiveProvider: (id) => electron.ipcRenderer.invoke("db:setActiveProvider", id),
-    selectDirectory: () => electron.ipcRenderer.invoke("db:selectDirectory")
+    selectDirectory: () => electron.ipcRenderer.invoke("db:selectDirectory"),
+    // Phase 3: Agent Library
+    getAgents: () => electron.ipcRenderer.invoke("db:getAgents"),
+    saveAgent: (agent) => electron.ipcRenderer.invoke("db:saveAgent", agent),
+    deleteAgent: (id) => electron.ipcRenderer.invoke("db:deleteAgent", id),
+    // Phase 3: Skills
+    getSkills: () => electron.ipcRenderer.invoke("db:getSkills"),
+    saveSkill: (skill) => electron.ipcRenderer.invoke("db:saveSkill", skill),
+    deleteSkill: (id) => electron.ipcRenderer.invoke("db:deleteSkill", id),
+    getSkillVersions: (skillId) => electron.ipcRenderer.invoke("db:getSkillVersions", skillId),
+    // Phase 3: MCP Servers
+    getMcpServers: () => electron.ipcRenderer.invoke("db:getMcpServers"),
+    saveMcpServer: (server) => electron.ipcRenderer.invoke("db:saveMcpServer", server),
+    deleteMcpServer: (id) => electron.ipcRenderer.invoke("db:deleteMcpServer", id),
+    toggleMcpConnection: (id, connected) => electron.ipcRenderer.invoke("db:toggleMcpConnection", id, connected),
+    checkMcpHealth: (id) => electron.ipcRenderer.invoke("db:checkMcpHealth", id)
   },
   llm: {
     chat: (requestId, payload) => electron.ipcRenderer.invoke("llm:chat", requestId, payload),
@@ -31,6 +46,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
         electron.ipcRenderer.removeListener(channel, listener);
       };
     }
+  },
+  deepagents: {
+    createAgent: (config) => electron.ipcRenderer.invoke("deepagents:createAgent", config)
   },
   platform: process.platform
 });
