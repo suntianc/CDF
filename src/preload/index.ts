@@ -34,5 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
     }
   },
+  deepagents: {
+    createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) =>
+      ipcRenderer.invoke('deepagents:createAgent', config),
+  },
   platform: process.platform,
 });
