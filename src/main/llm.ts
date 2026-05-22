@@ -144,7 +144,9 @@ export async function runLLMChat(
         if (data.message && data.message.content) {
           sender.send(channel, { type: 'chunk', text: data.message.content });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to parse final Ollama buffer:', buffer, e);
+      }
     }
 
     sender.send(channel, { type: 'done' });
