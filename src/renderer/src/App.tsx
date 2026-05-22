@@ -11,6 +11,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [activeView, setActiveView] = useState<'chat' | 'settings'>('chat');
   const { setTheme } = useThemeStore();
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false);
 
   useEffect(() => {
     // Initialize theme from persistent store
@@ -47,11 +48,13 @@ export default function App() {
             onOpenSettings={() => setActiveView('settings')}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed(false)}
+            taskPanelOpen={taskPanelOpen}
+            onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
           />
         )}
       </main>
 
-      <TaskPanel />
+      <TaskPanel isOpen={taskPanelOpen} onClose={() => setTaskPanelOpen(false)} />
     </div>
   );
 }

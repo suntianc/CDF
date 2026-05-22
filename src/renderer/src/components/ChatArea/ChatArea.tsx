@@ -4,16 +4,24 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { 
   ArrowUp, Square, Sparkles, BookOpen, GitFork, ChevronRight, AlertCircle, X, Terminal,
-  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft
+  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, PanelRight, Info
 } from 'lucide-react';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  taskPanelOpen?: boolean;
+  onToggleTaskPanel?: () => void;
 }
 
-export function ChatArea({ onOpenSettings, sidebarCollapsed, onToggleSidebar }: ChatAreaProps) {
+export function ChatArea({ 
+  onOpenSettings, 
+  sidebarCollapsed, 
+  onToggleSidebar,
+  taskPanelOpen,
+  onToggleTaskPanel 
+}: ChatAreaProps) {
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
     sessions, activeSessionId, messages, isStreaming, error, 
@@ -191,7 +199,7 @@ export function ChatArea({ onOpenSettings, sidebarCollapsed, onToggleSidebar }: 
           const lang = match ? match[1] : '';
           const code = match ? match[2] : part.slice(3, -3);
           return (
-            <div key={index} className="border border-[var(--color-border)] rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)] shadow-md">
+            <div key={index} className="border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]">
               <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
                 <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
                   {lang || 'code'}
@@ -235,7 +243,7 @@ export function ChatArea({ onOpenSettings, sidebarCollapsed, onToggleSidebar }: 
         {sidebarCollapsed && (
           <button
             onClick={onToggleSidebar}
-            className="absolute top-[11px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+            className="absolute top-[12px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
             title="展开侧边栏"
           >
             <PanelLeft className="w-4 h-4" />
@@ -390,7 +398,7 @@ export function ChatArea({ onOpenSettings, sidebarCollapsed, onToggleSidebar }: 
           {sidebarCollapsed && (
             <button
               onClick={onToggleSidebar}
-              className="absolute top-[11px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+              className="absolute top-[12px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
               title="展开侧边栏"
             >
               <PanelLeft className="w-4 h-4" />
@@ -398,6 +406,27 @@ export function ChatArea({ onOpenSettings, sidebarCollapsed, onToggleSidebar }: 
           )}
           <div className="main-topbar-left">
             <h1>{activeSession.name}</h1>
+          </div>
+          
+          {/* Right Header Toolbar */}
+          <div className="main-topbar-right flex items-center gap-2 ml-auto no-drag">
+            <button
+              className="w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-all"
+              title="信息"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onToggleTaskPanel}
+              className={`w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg transition-all ${
+                taskPanelOpen 
+                  ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-active)] border border-[var(--color-border)] shadow-sm' 
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
+              }`}
+              title={taskPanelOpen ? "隐藏任务展板" : "显示任务展板"}
+            >
+              <PanelRight className="w-4 h-4" />
+            </button>
           </div>
         </header>
 

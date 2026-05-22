@@ -7,8 +7,12 @@ interface Task {
   status: 'idle' | 'running' | 'success' | 'failed';
 }
 
-export function TaskPanel() {
-  const [visible, setVisible] = useState(true);
+interface TaskPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   // Placeholder tasks for Phase 1
@@ -31,16 +35,15 @@ export function TaskPanel() {
     }
   };
 
-  if (!visible) return null;
-
   return (
     <div
       className={`
         fixed bottom-6 right-6 w-[340px] max-h-[480px]
         bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]
         rounded-xl shadow-lg flex flex-col
-        transition-transform duration-200 ease-out
+        transition-all duration-300 ease-out z-40
         ${collapsed ? 'h-13' : 'h-auto'}
+        ${isOpen ? 'translate-x-0 opacity-100' : 'translate-x-[380px] opacity-0 pointer-events-none'}
       `}
     >
       {/* Header */}
@@ -53,7 +56,7 @@ export function TaskPanel() {
           <span>任务展板</span>
         </button>
         <button
-          onClick={() => setVisible(false)}
+          onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--color-bg-hover)] transition-colors"
         >
           <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
