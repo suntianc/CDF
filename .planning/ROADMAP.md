@@ -2,7 +2,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Foundation Workspace** - 基础架构、主题切换、项目管理基础设施
+- [x] **Phase 1: Foundation Workspace** - 基础架构、主题切换、项目管理基础设施
 - [x] **Phase 2: AI Chat Engine** - Master Agent 对话界面、多轮对话、LLM 提供者配置
 - [ ] **Phase 3: Agent Integration** - Agent 资产管理、Skills 管理、MCP 服务器管理
 - [ ] **Phase 4: Workflow System** - ReactFlow 可视化工作流编辑器、执行引擎
