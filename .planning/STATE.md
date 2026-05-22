@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-05-22T08:54:59.383Z"
+last_updated: "2026-05-22T09:33:41.609Z"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -21,7 +21,7 @@ progress:
 
 ## Current Position
 
-Phase: 01 of 2 (foundation workspace)
+Phase: 01 of 3 (foundation workspace)
 Plan: Not started
 **Status:** Ready to plan
 
@@ -50,6 +50,12 @@ Plan: Not started
   - 支持 OpenAI / Anthropic / Ollama / Custom 四种提供商
   - 85% 上下文阈值自动总结 + 会话级联
 - Phase 3: Agent Integration (Agent Library + Skills + MCP)
+  - Agent 卡片列表 + 模态框编辑
+  - Skills textarea 编辑器 + 版本快照
+  - MCP 配置管理 + 健康检查
+  - 扩展 activeView 模式
+  - LLM/MCP/Skills 通过关联表多对多绑定
+  - v1 聚焦配置管理，实际调用延迟到 Phase 4
 - Phase 4: Workflow System (ReactFlow + execution engine)
 - Phase 5: Project Management (multi-project panel)
 
