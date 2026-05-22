@@ -75,8 +75,13 @@ export async function runLLMChat(
         sender.send(channel, { type: 'chunk', text: content });
       } else if (Array.isArray(content)) {
         for (const block of content) {
-          if (block && typeof block === 'object' && 'text' in block) {
-            sender.send(channel, { type: 'chunk', text: (block as { text: string }).text });
+          if (block && typeof block === 'object') {
+            if ('text' in block && block.text) {
+              sender.send(channel, { type: 'chunk', text: block.text as string });
+            } else if ('thinking' in block && block.thinking) {
+              // Anthropic extended thinking — wrap in think tags for frontend rendering
+              sender.send(channel, { type: 'chunk', text: ` thinking${block.thinking} response` });
+            }
           }
         }
       }
