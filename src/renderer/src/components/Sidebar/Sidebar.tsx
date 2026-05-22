@@ -167,7 +167,7 @@ export function Sidebar({
                       ) : (
                         <MessageSquare className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
                       )}
-                      <span className="text-[13px] truncate flex-1 leading-none">{session.name}</span>
+                      <span className="text-xs truncate flex-1 leading-none">{session.name}</span>
                     </div>
                     <button
                       onClick={(e) => {
@@ -182,7 +182,7 @@ export function Sidebar({
                   </div>
                 ))}
                 {sessions.length === 0 && (
-                  <div className="px-3 py-1.5 text-[13px] text-[var(--color-text-muted)] select-none">
+                  <div className="px-3 py-1.5 text-xs text-[var(--color-text-muted)] select-none">
                     暂无聊天
                   </div>
                 )}

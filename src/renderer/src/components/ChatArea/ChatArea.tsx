@@ -177,12 +177,12 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
         return (
           <div key={index} className="my-3 border border-[var(--color-border)] rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)] shadow-md">
             <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
-              <span className="uppercase text-[10px] font-bold text-[var(--color-accent)] tracking-wider">
+              <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
                 {lang || 'code'}
               </span>
               <button
                 onClick={() => navigator.clipboard.writeText(code)}
-                className="hover:text-[var(--color-text-primary)] transition-colors text-[10px] font-medium px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)]"
+                className="hover:text-[var(--color-text-primary)] transition-colors text-xs font-medium px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)]"
               >
                 复制
               </button>
@@ -231,7 +231,7 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
             />
             <div className="dialog-bottom">
               <div className="dialog-bottom-left">
-                <button type="button" className="dialog-btn" title="添加附件">
+                <button type="button" className="dialog-btn" title="添加附件" aria-label="添加附件">
                   <Paperclip className="w-4 h-4" />
                 </button>
                 
@@ -291,6 +291,7 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
               >
                 <Send className="w-4.5 h-4.5" />
               </button>
+              <span className="sr-only">发送消息</span>
             </div>
           </div>
 
@@ -452,7 +453,7 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
               placeholder={activeProvider ? "给 Master Agent 发送消息..." : "请先配置模型提供商以开启对话..."}
               disabled={!activeProvider || isStreaming}
               rows={1}
-              className="flex-1 bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm self-center min-h-[20px] max-h-[120px]"
+              className="flex-1 bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm self-center min-h-5 max-h-28"
             />
             {isStreaming ? (
               <button

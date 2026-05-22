@@ -352,7 +352,7 @@ export function ModelSettings() {
                     <div className="provider-name flex items-center gap-2">
                       <span>{p.name}</span>
                       {p.is_active === 1 && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-success-dim)] text-[var(--color-success)] font-semibold uppercase">
+                        <span className="px-1.5 py-0.5 rounded text-xs bg-[var(--color-success-dim)] text-[var(--color-success)] font-semibold uppercase">
                           已激活
                         </span>
                       )}
@@ -370,11 +370,12 @@ export function ModelSettings() {
                   />
                   
                   {/* Test Connection Button */}
-                  <button 
-                    className="btn btn-secondary btn-sm" 
+                  <button
+                    className="btn btn-secondary btn-sm"
                     onClick={() => testConnection(p)}
                     disabled={testingId === p.id}
                     title="测试接口连接"
+                    aria-label="测试接口连接"
                   >
                     {testingId === p.id ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -425,10 +426,11 @@ export function ModelSettings() {
                   </button>
 
                   {/* Delete Button */}
-                  <button 
-                    className="btn btn-danger btn-sm" 
+                  <button
+                    className="btn btn-danger btn-sm"
                     onClick={() => handleDeleteProvider(p.id, p.name)}
                     title="删除供应商"
+                    aria-label="删除供应商"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     删除
@@ -444,7 +446,7 @@ export function ModelSettings() {
                   {p.models && p.models.map((modelName) => (
                     <span key={modelName} className={`model-tag ${p.default_model === modelName ? 'border-[var(--color-accent)] text-[var(--color-accent-hover)] font-medium bg-[var(--color-accent-dim)]' : ''}`}>
                       {modelName}
-                      {p.default_model === modelName && <span className="text-[10px] text-[var(--color-accent-hover)]">(默认)</span>}
+                      {p.default_model === modelName && <span className="text-xs text-[var(--color-accent-hover)]">(默认)</span>}
                       <button 
                         className="remove-model" 
                         onClick={() => handleRemoveModelInline(p, modelName)} 
@@ -614,7 +616,7 @@ export function ModelSettings() {
                         )}
                       </button>
                       {ollamaError && (
-                        <span className="text-[10px] text-[var(--color-danger)] self-center truncate max-w-[120px]" title={ollamaError}>
+                        <span className="text-xs text-[var(--color-danger)] self-center truncate max-w-[120px]" title={ollamaError}>
                           拉取失败
                         </span>
                       )}

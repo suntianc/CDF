@@ -89,7 +89,7 @@ export function ProjectTree() {
             ) : (
               <Folder className={`w-4 h-4 shrink-0 ${currentProjectId === project.id ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-muted)]'}`} />
             )}
-            <span className="text-[13px] truncate flex-1 leading-none">{project.name}</span>
+            <span className="text-xs truncate flex-1 leading-none">{project.name}</span>
           </div>
         ))}
       </div>
