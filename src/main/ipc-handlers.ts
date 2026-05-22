@@ -294,6 +294,36 @@ export function registerIpcHandlers() {
     db.prepare('UPDATE mcp_servers SET is_connected = ?, updated_at = ? WHERE id = ?').run(connected ? 1 : 0, Date.now(), id);
   });
 
+  ipcMain.handle('db:checkMcpHealth', async (_, id: string) => {
+    const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as any;
+    if (!server) {
+      return { ok: false, message: 'MCP server not found' };
+    }
+
+    let config: Record<string, unknown> = {};
+    try {
+      config = server.config ? JSON.parse(server.config) : {};
+    } catch (e) {}
+
+    const host = (config.host as string) || 'localhost';
+    const port = (config.port as number) || 11434;
+    const healthEndpoint = (config.healthEndpoint as string) || '/health';
+
+    try {
+      const response = await fetch(`http://${host}:${port}${healthEndpoint}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 1 WHERE id = ?').run(Date.now(), id);
+        return { ok: true };
+      }
+      return { ok: false, message: `HTTP ${response.status}` };
+    } catch (err: any) {
+      db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 0 WHERE id = ?').run(Date.now(), id);
+      return { ok: false, message: err.message || 'Connection failed' };
+    }
+  });
+
   // ===== Phase 3: deepagents Runtime IPC Handlers =====
 
   // Store for deepagent instances (managed per session)

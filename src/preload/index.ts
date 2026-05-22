@@ -21,6 +21,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteProvider: (id: string) => ipcRenderer.invoke('db:deleteProvider', id),
     setActiveProvider: (id: string) => ipcRenderer.invoke('db:setActiveProvider', id),
     selectDirectory: () => ipcRenderer.invoke('db:selectDirectory'),
+    // Phase 3: Agent Library
+    getAgents: () => ipcRenderer.invoke('db:getAgents'),
+    saveAgent: (agent: any) => ipcRenderer.invoke('db:saveAgent', agent),
+    deleteAgent: (id: string) => ipcRenderer.invoke('db:deleteAgent', id),
+    // Phase 3: Skills
+    getSkills: () => ipcRenderer.invoke('db:getSkills'),
+    saveSkill: (skill: any) => ipcRenderer.invoke('db:saveSkill', skill),
+    deleteSkill: (id: string) => ipcRenderer.invoke('db:deleteSkill', id),
+    getSkillVersions: (skillId: string) => ipcRenderer.invoke('db:getSkillVersions', skillId),
+    // Phase 3: MCP Servers
+    getMcpServers: () => ipcRenderer.invoke('db:getMcpServers'),
+    saveMcpServer: (server: any) => ipcRenderer.invoke('db:saveMcpServer', server),
+    deleteMcpServer: (id: string) => ipcRenderer.invoke('db:deleteMcpServer', id),
+    toggleMcpConnection: (id: string, connected: boolean) => ipcRenderer.invoke('db:toggleMcpConnection', id, connected),
+    checkMcpHealth: (id: string) => ipcRenderer.invoke('db:checkMcpHealth', id),
   },
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
