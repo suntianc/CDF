@@ -2,7 +2,7 @@
 
 ## What This Is
 
-基于 pi-code-agent 的离线桌面全栈 Agent 开发工作站。开发者通过 Master Agent 对话界面描述需求，Master Agent 统筹工作流执行，调用已配置的 MCP、Skills 构建自动化开发流程。支持多项目管理、工作流可视化编排、Agent 资产库管理。
+基于 **deepagents.js**（LangChain 开源 Agent Harness）的离线桌面全栈 Agent 开发工作站。开发者通过 Master Agent 对话界面描述需求，Master Agent 统筹工作流执行，调用已配置的 MCP、Skills 构建自动化开发流程。底层使用 LangGraph 运行时提供流式执行、持久化、子Agent 委托和上下文管理能力。支持多项目管理、工作流可视化编排、Agent 资产库管理。
 
 ## Core Value
 
@@ -33,9 +33,10 @@
 ## Context
 
 **技术背景：**
-- pi-code-agent 是开源 CLI 应用，作为底层 Agent 引擎被此桌面应用调用
+- deepagents.js 是 LangChain 出品的 JS/TS Agent SDK，作为底层 Agent 引擎被此桌面应用调用
 - Master Agent 是对客界面，负责与用户沟通；普通 Agent 节点只负责工作流中的单一任务环节
 - Agent 节点可配置：指定 LLM、MCP、Skills 资源
+- deepagents 内置：子Agent 委托、上下文管理、Skills 系统、MCP 集成、流式执行
 
 **设计理念：**
 - 工作流节点分为 Agent 节点和普通节点
@@ -60,12 +61,13 @@
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | 离线优先架构 | 开发者环境需要稳定可靠，不依赖外部服务 | — Pending |
-| pi-code-agent 作为底层引擎 | 复用成熟开源能力，避免重复造轮子 | — Pending |
+| deepagents.js 作为底层引擎 | LangChain 开源 Agent Harness，内置 Skills/MCP/子Agent | Phase 3+ ✅ |
 | 上下文总结策略 | 避免上下文压缩导致信息失真 | — Pending |
 | 85%窗口阈值触发总结 | 保留安全边界，避免窗口耗尽 | Phase 2 ✅ |
 | Electron + React + Vite | 成熟的桌面应用技术栈 | — Pending |
 | assistant-ui 对话组件 | 官方推荐，对话场景开箱即用 | Phase 2 ✅ |
 | ReactFlow 工作流组件 | 可视化编排能力强，生态成熟 | — Pending |
+| LangGraph 运行时 | deepagents 底层，提供流式/持久化/检查点 | Phase 4+ ✅ |
 
 ---
 *Last updated: 2026-05-22 after Phase 2*

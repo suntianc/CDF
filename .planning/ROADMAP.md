@@ -60,7 +60,7 @@
 
 ### Phase 3: Agent Integration
 
-**Goal:** 开发者可定义 Agent 角色，配置其 LLM/MCP/Skills 资源，管理 Skills 和 MCP 服务器
+**Goal:** 开发者可定义 Agent 角色，配置其 LLM/MCP/Skills 资源。利用 deepagents.js SDK 的内置 Skills 和 MCP 能力，通过 Electron 主进程创建和管理 deepagent 实例。前端 UI 管理 Agent 定义、Skills 脚本、MCP 服务器配置，与 deepagents 运行时的 Skills/MCP 系统对接。
 
 **Depends on:** Phase 2
 
@@ -84,7 +84,7 @@
 
 ### Phase 4: Workflow System
 
-**Goal:** 用户可通过 ReactFlow 可视化编排工作流，执行并监控节点状态
+**Goal:** 用户可通过 ReactFlow 可视化编排工作流，执行并监控节点状态。利用 langgraph.js 的图运行时作为工作流执行引擎，每个 Agent 节点对应一个 deepagent 实例，支持子Agent 委托和上下文隔离。
 
 **Depends on:** Phase 3
 
