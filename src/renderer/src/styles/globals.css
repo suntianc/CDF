@@ -251,7 +251,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   gap: 6px;
   padding: 5px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   font-size: 12px;
   color: var(--text-secondary);
   transition: all 0.15s;
@@ -262,7 +262,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .model-selector-trigger:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-  border-color: var(--border-strong);
+  border-color: transparent;
 }
 
 .model-chevron {
@@ -906,3 +906,29 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .message.user .message-time {
   text-align: right;
 }
+
+.message-bubble pre code {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* ─── Folder Collapsible Transition ─── */
+.folder-sessions-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease, margin 0.25s ease;
+  overflow: hidden;
+}
+
+.folder-sessions-collapse.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: 6px;
+}
+
+.folder-sessions-inner {
+  min-height: 0;
+}
+

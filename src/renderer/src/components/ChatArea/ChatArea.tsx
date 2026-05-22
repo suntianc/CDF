@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useExternalStoreRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { 
-  Send, Square, Sparkles, BookOpen, GitFork, ChevronRight, AlertCircle, X, Terminal,
+  ArrowUp, Square, Sparkles, BookOpen, GitFork, ChevronRight, AlertCircle, X, Terminal,
   Paperclip, ChevronDown, Plus, Sliders, Layers
 } from 'lucide-react';
 
@@ -21,7 +20,8 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
   const { providers, activeProvider, fetchProviders, saveProvider, setActiveProvider } = useLLMStore();
 
   const [inputVal, setInputVal] = useState('');
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
+  const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize LLM providers to check active provider
@@ -29,13 +29,19 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
     fetchProviders();
   }, [fetchProviders]);
 
-  // Click outside listener for model selector
+  // Click outside listener for model selectors
   useEffect(() => {
     const handleOutsideClick = () => {
-      setModelSelectorOpen(false);
+      setWelcomeModelSelectorOpen(false);
+      setComposerModelSelectorOpen(false);
     };
     window.addEventListener('click', handleOutsideClick);
     return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  // Defensive mount-time isStreaming reset to prevent stuck loading states
+  useEffect(() => {
+    useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
   }, []);
 
   // Find active project name & active session
@@ -47,30 +53,14 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
     return sessions.find(s => s.id === activeSessionId) || null;
   }, [activeSessionId, sessions]);
 
+  console.log('ChatArea rendering state:', { activeSessionId, isStreaming, inputVal: `"${inputVal}"`, currentProjectId });
+
   // Auto scroll to bottom on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
-  // Convert our custom messages to assistant-ui representation
-  const threadMessages = useMemo(() => {
-    return messages.map((m) => ({
-      id: m.id,
-      role: m.role as 'user' | 'assistant' | 'system',
-      content: [{ type: 'text' as const, text: m.content }],
-    }));
-  }, [messages]);
 
-  // Initialize the external store runtime for assistant-ui integration
-  const runtime = useExternalStoreRuntime({
-    messages: threadMessages,
-    onNew: async (msg) => {
-      const text = msg.content.filter(c => c.type === 'text').map(c => c.text).join('');
-      if (currentProjectId) {
-        await sendMessage(currentProjectId, text);
-      }
-    }
-  });
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -92,24 +82,13 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
     if (e) e.preventDefault();
     if (!inputVal.trim() || isStreaming) return;
 
-    let projectId = currentProjectId;
+    let projectId = currentProjectId || 'default-project';
     try {
-      if (!projectId) {
-        const path = await window.electronAPI.db.selectDirectory();
-        if (!path) return;
-        const name = path.split('/').pop() || '新项目';
-        const project = await window.electronAPI.db.createProject(name, path);
-        setProjects([...projects, project]);
-        setCurrentProject(project.id);
-        projectId = project.id;
-        await fetchSessions(project.id);
-      }
-
       // Create new session
       const sessionName = inputVal.trim().slice(0, 15) || '新会话';
       const newSession = await createSession(projectId, sessionName);
       await selectSession(newSession.id);
-      await fetchSessions(project.id); // Move before selectSession or await it
+      await fetchSessions(projectId); // Move before selectSession or await it
 
       const promptText = inputVal;
       setInputVal('');
@@ -146,7 +125,8 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
     };
     await saveProvider(updated);
     await setActiveProvider(providerId);
-    setModelSelectorOpen(false);
+    setWelcomeModelSelectorOpen(false);
+    setComposerModelSelectorOpen(false);
   };
 
   const getProviderModels = (provider: any) => {
@@ -168,37 +148,82 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
   // Helper to parse and render code blocks inside dialogue bubbles
   const renderMessageContent = (content: string) => {
     if (!content) return null;
-    const parts = content.split(/(```[\s\S]*?```)/g);
-    return parts.map((part, index) => {
-      if (part.startsWith('```')) {
-        const match = part.match(/```(\w*)\n([\s\S]*?)```/);
-        const lang = match ? match[1] : '';
-        const code = match ? match[2] : part.slice(3, -3);
-        return (
-          <div key={index} className="my-3 border border-[var(--color-border)] rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)] shadow-md">
-            <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
-              <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
-                {lang || 'code'}
-              </span>
-              <button
-                onClick={() => navigator.clipboard.writeText(code)}
-                className="hover:text-[var(--color-text-primary)] transition-colors text-xs font-medium px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)]"
-              >
-                复制
-              </button>
-            </div>
-            <pre className="p-4 overflow-x-auto text-[var(--color-text-primary)] select-text">
-              <code>{code}</code>
-            </pre>
-          </div>
-        );
+
+    let thinkContent = '';
+    let mainContent = content;
+    const thinkStartIdx = content.indexOf('<think>');
+
+    if (thinkStartIdx !== -1) {
+      const thinkEndIdx = content.indexOf('</think>');
+      if (thinkEndIdx !== -1) {
+        thinkContent = content.substring(thinkStartIdx + 7, thinkEndIdx).trim();
+        mainContent = (content.substring(0, thinkStartIdx) + content.substring(thinkEndIdx + 8)).trim();
+      } else {
+        thinkContent = content.substring(thinkStartIdx + 7).trim();
+        mainContent = content.substring(0, thinkStartIdx).trim();
       }
+    }
+
+    const renderThink = () => {
+      if (!thinkContent) return null;
+      const isFinished = content.includes('</think>');
       return (
-        <p key={index} className="whitespace-pre-wrap leading-relaxed select-text text-sm">
-          {part}
-        </p>
+        <div className="mb-3 border-l-2 border-[var(--color-accent)]/30 bg-black/5 dark:bg-white/5 rounded-r-md px-3.5 py-2 text-xs text-[var(--color-text-secondary)] italic select-text">
+          <div className="flex items-center gap-1.5 text-[var(--color-accent)] font-semibold not-italic mb-1.5 select-none text-[11px] uppercase tracking-wider">
+            <Sparkles className={`w-3.5 h-3.5 ${!isFinished ? 'animate-pulse' : ''}`} />
+            <span>{isFinished ? '深度思考已完成' : '正在思考中...'}</span>
+          </div>
+          <div className="whitespace-pre-wrap leading-relaxed">
+            {thinkContent}
+          </div>
+        </div>
       );
-    });
+    };
+
+    const renderMain = (text: string) => {
+      if (!text) return null;
+      const parts = text.split(/(```[\s\S]*?```)/g);
+      return parts.map((part, index) => {
+        if (part.startsWith('```')) {
+          const match = part.match(/```(\w*)\n([\s\S]*?)```/);
+          const lang = match ? match[1] : '';
+          const code = match ? match[2] : part.slice(3, -3);
+          return (
+            <div key={index} className="border border-[var(--color-border)] rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)] shadow-md">
+              <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
+                <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
+                  {lang || 'code'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(code)}
+                  className="hover:text-[var(--color-text-primary)] transition-colors text-xs font-medium px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)] cursor-pointer"
+                >
+                  复制
+                </button>
+              </div>
+              <pre className="p-4 overflow-x-auto text-[var(--color-text-primary)] select-text" style={{ background: 'transparent', margin: 0 }}>
+                <code style={{ background: 'transparent', padding: 0, borderRadius: 0 }}>{code}</code>
+              </pre>
+            </div>
+          );
+        }
+        const trimmed = part.trim();
+        if (!trimmed) return null;
+        return (
+          <p key={index} className="whitespace-pre-wrap leading-relaxed select-text text-sm">
+            {trimmed}
+          </p>
+        );
+      });
+    };
+
+    return (
+      <div className="flex flex-col gap-3">
+        {renderThink()}
+        {renderMain(mainContent)}
+      </div>
+    );
   };
 
   // 1. Onboarding / Welcome view (if no session is active)
@@ -214,6 +239,20 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
               ? `项目已加载：${currentProjectName} · 请输入以开启对话` 
               : '选择左侧的项目或开始一个新对话，CDF 已经准备就绪'}
           </p>
+
+          {/* Error Banner on Welcome Page */}
+          {error && (
+            <div className="w-full p-3 rounded-lg bg-[var(--color-danger-dim)] text-[var(--color-danger)] text-xs flex items-center justify-between border border-[var(--color-danger)]/20 animate-fade-in shadow-sm">
+              <div className="flex-1 font-medium">{error}</div>
+              <button
+                onClick={clearError}
+                className="p-1 rounded hover:bg-black/10 text-[var(--color-danger)] shrink-0 transition-colors cursor-pointer"
+                aria-label="关闭错误提示"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           <div className="dialog-box">
             <textarea
@@ -236,11 +275,11 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
                 </button>
                 
                 <div 
-                  className={`model-selector ${modelSelectorOpen ? 'open' : ''}`}
+                  className={`model-selector ${welcomeModelSelectorOpen ? 'open' : ''}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div
-                    onClick={() => setModelSelectorOpen(!modelSelectorOpen)}
+                    onClick={() => setWelcomeModelSelectorOpen(!welcomeModelSelectorOpen)}
                     className="model-selector-trigger"
                   >
                     <span className="model-selector-label">
@@ -252,7 +291,7 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
                     {providers.length === 0 ? (
                       <div 
                         onClick={() => {
-                          setModelSelectorOpen(false);
+                          setWelcomeModelSelectorOpen(false);
                           onOpenSettings?.();
                         }}
                         className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
@@ -288,8 +327,9 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
                 disabled={!inputVal.trim() || isStreaming}
                 className="dialog-btn send"
                 title="发送"
+                aria-label="发送消息"
               >
-                <Send className="w-4.5 h-4.5" />
+                <ArrowUp className="w-4.5 h-4.5" />
               </button>
               <span className="sr-only">发送消息</span>
             </div>
@@ -331,38 +371,13 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
     );
   }
 
-  // 2. Active chat view
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
         
         {/* Chat Header */}
         <header className="main-topbar">
           <div className="main-topbar-left">
             <h1>{activeSession.name}</h1>
-            <span className="project-badge">{currentProjectName}</span>
-          </div>
-
-          <div className="main-topbar-actions">
-            {activeProvider ? (
-              <button 
-                onClick={onOpenSettings}
-                className="topbar-btn"
-                title="点击配置 LLM"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[var(--color-accent)]" />
-                <span>{activeProvider.name} • {activeProvider.default_model}</span>
-              </button>
-            ) : (
-              <button 
-                onClick={onOpenSettings}
-                className="topbar-btn text-[var(--color-warning)] bg-[var(--color-warning-dim)] border border-[var(--color-warning)]/20"
-                title="点击进行 LLM 配置"
-              >
-                <AlertCircle className="w-3.5 h-3.5 text-[var(--color-warning)]" />
-                <span>未配置模型，点击配置</span>
-              </button>
-            )}
           </div>
         </header>
 
@@ -433,6 +448,7 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
                 <button 
                   onClick={clearError}
                   className="p-0.5 rounded hover:bg-white/10 text-[var(--color-danger)]"
+                  aria-label="关闭错误提示"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -444,37 +460,96 @@ export function ChatArea({ onOpenSettings }: ChatAreaProps) {
         </div>
 
         {/* Input Composer Panel */}
-        <div className="p-4 border-t border-[var(--color-border)] bg-[var(--color-bg-app)] shrink-0 z-10">
-          <form onSubmit={handleSend} className="flex gap-2 bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl px-4 py-3 transition-all shadow-sm">
+        <div className="px-6 pb-6 pt-2 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/90 to-transparent shrink-0 z-10">
+          <form onSubmit={handleSend} className="max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
+            {/* Upper: Text Input Area */}
             <textarea
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={activeProvider ? "给 Master Agent 发送消息..." : "请先配置模型提供商以开启对话..."}
               disabled={!activeProvider || isStreaming}
-              rows={1}
-              className="flex-1 bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm self-center min-h-5 max-h-28"
+              rows={2}
+              className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
             />
-            {isStreaming ? (
-              <button
-                type="button"
-                className="p-2.5 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all self-center"
-                title="停止生成 (暂未支持)"
-              >
-                <Square className="w-4 h-4 fill-current" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!activeProvider || !inputVal.trim() || isStreaming}
-                className="p-2.5 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md self-center flex items-center justify-center"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            )}
+            
+            {/* Lower: Toolbar Row */}
+            <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
+              <div className="flex items-center gap-1.5">
+                {activeProvider && (
+                  <div 
+                    className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div
+                      onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
+                      className="model-selector-trigger"
+                    >
+                      <span className="model-selector-label truncate max-w-[150px]">
+                        {activeProvider.name} • {activeProvider.default_model}
+                      </span>
+                      <ChevronDown className="model-chevron w-3.5 h-3.5" />
+                    </div>
+                    <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
+                      {providers.length === 0 ? (
+                        <div 
+                          onClick={() => {
+                            setComposerModelSelectorOpen(false);
+                            onOpenSettings?.();
+                          }}
+                          className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
+                        >
+                          暂无可用提供商，点击去配置
+                        </div>
+                      ) : (
+                        providers.map((p) => (
+                          <div key={p.id} className="model-group">
+                            <div className="model-group-name">{p.name}</div>
+                            {getProviderModels(p).map((m: string) => (
+                              <div
+                                key={m}
+                                className={`model-select-option ${
+                                  activeProvider?.id === p.id && activeProvider?.default_model === m
+                                    ? 'selected'
+                                    : ''
+                                }`}
+                                onClick={() => handleSelectModel(p.id, m)}
+                              >
+                                {m}
+                              </div>
+                            ))}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
+                    title="停止生成 (暂未支持)"
+                    aria-label="停止生成"
+                  >
+                    <Square className="w-4 h-4 fill-current" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!activeProvider || !inputVal.trim() || isStreaming}
+                    className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
+                    aria-label="发送消息"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
           </form>
         </div>
       </div>
-    </AssistantRuntimeProvider>
   );
 }

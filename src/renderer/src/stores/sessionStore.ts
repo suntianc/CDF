@@ -153,54 +153,85 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const currentHistory = get().messages.filter((m) => m.id !== assistantMsgId);
       llmMessages.push(...currentHistory.map((m) => ({ role: m.role, content: m.content })));
 
-      // Call streaming chat
-      await window.electronAPI.llm.chat(assistantMsgId, {
-        providerId: activeProvider.id,
-        model: activeProvider.default_model,
-        messages: llmMessages,
-      });
-
       let accumulatedContent = '';
-      const cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data) => {
-        if (data.type === 'chunk' && data.text) {
-          accumulatedContent += data.text;
-          set((state) => ({
-            messages: state.messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m
-            ),
-          }));
-        } else if (data.type === 'done') {
-          cleanup();
-          const assistantTokens = estimateTokens(accumulatedContent);
-          const finalAssistantMsg = {
-            id: assistantMsgId,
-            session_id: activeSessionId,
-            role: 'assistant',
-            content: accumulatedContent,
-            tokens: assistantTokens,
-          };
+      let cleanup = () => {};
+      const streamPromise = new Promise<void>((resolve, reject) => {
+        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data) => {
+          if (data.type === 'chunk' && data.text) {
+            accumulatedContent += data.text;
+            set((state) => ({
+              messages: state.messages.map((m) =>
+                m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m
+              ),
+            }));
+            return;
+          }
 
-          // Persist Assistant message in SQLite
-          await window.electronAPI.db.saveMessage(finalAssistantMsg);
-          set((state) => ({
-            messages: state.messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, tokens: assistantTokens } : m
-            ),
-            isStreaming: false,
-            streamingMessageId: null,
-          }));
+          if (data.type === 'done') {
+            cleanup();
+            try {
+              const assistantTokens = estimateTokens(accumulatedContent);
+              const finalAssistantMsg = {
+                id: assistantMsgId,
+                session_id: activeSessionId,
+                role: 'assistant',
+                content: accumulatedContent,
+                tokens: assistantTokens,
+              };
 
-          // Check context window usage threshold (85%)
-          await get().checkContextThreshold(projectId);
-        } else if (data.type === 'error') {
-          cleanup();
-          set({
-            isStreaming: false,
-            streamingMessageId: null,
-            error: data.error || '对话请求出错',
-          });
-        }
+              // Persist Assistant message in SQLite
+              await window.electronAPI.db.saveMessage(finalAssistantMsg);
+              set((state) => ({
+                messages: state.messages.map((m) =>
+                  m.id === assistantMsgId ? { ...m, tokens: assistantTokens } : m
+                ),
+                isStreaming: false,
+                streamingMessageId: null,
+              }));
+
+              // Check context window usage threshold (85%)
+              await get().checkContextThreshold(projectId);
+              resolve();
+            } catch (err: any) {
+              console.error('Failed to save message or complete stream:', err);
+              set({
+                isStreaming: false,
+                streamingMessageId: null,
+                error: err.message || '保存回复消息失败',
+              });
+              reject(err);
+            }
+            return;
+          }
+
+          if (data.type === 'error') {
+            cleanup();
+            const streamError = new Error(data.error || '对话请求出错');
+            set({
+              isStreaming: false,
+              streamingMessageId: null,
+              error: streamError.message,
+            });
+            reject(streamError);
+          }
+        });
       });
+
+      try {
+        await window.electronAPI.llm.chat(assistantMsgId, {
+          providerId: activeProvider.id,
+          model: activeProvider.default_model,
+          messages: llmMessages,
+        });
+        await streamPromise;
+      } catch (err: any) {
+        cleanup();
+        set({
+          isStreaming: false,
+          streamingMessageId: null,
+          error: err.message || '发送消息失败',
+        });
+      }
     } catch (err: any) {
       set({
         isStreaming: false,

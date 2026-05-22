@@ -451,6 +451,7 @@ export function ModelSettings() {
                         className="remove-model" 
                         onClick={() => handleRemoveModelInline(p, modelName)} 
                         title="移除此模型"
+                        aria-label="移除此模型"
                       >
                         ×
                       </button>
@@ -509,6 +510,7 @@ export function ModelSettings() {
               <button 
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all"
+                aria-label="关闭弹窗"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -586,6 +588,7 @@ export function ModelSettings() {
                       type="button"
                       onClick={() => setShowKey(!showKey)}
                       className="absolute right-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all"
+                      aria-label={showKey ? '隐藏 API Key' : '显示 API Key'}
                     >
                       {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
