@@ -64,39 +64,13 @@ export function ModelSettings() {
       let details = '';
       
       if (p.provider_type === 'ollama') {
-        const url = p.api_url || 'http://localhost:11434';
-        const models = await window.electronAPI.llm.fetchOllamaModels(url);
-        success = true;
-        details = `检测到 ${models.length} 个本地模型`;
+        const result = await window.electronAPI.llm.testProvider(p.id);
+        success = result.ok;
+        details = result.message;
       } else {
-        const endpoint = p.api_url || 'https://api.openai.com/v1';
-        const url = endpoint.endsWith('/') ? `${endpoint}models` : `${endpoint}/models`;
-        
-        const headers: HeadersInit = {};
-        if (p.api_key && p.api_key !== '••••••••') {
-          headers['Authorization'] = `Bearer ${p.api_key}`;
-        }
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-        
-        try {
-          const res = await fetch(url, { headers, signal: controller.signal });
-          clearTimeout(timeoutId);
-          if (res.status === 200) {
-            success = true;
-            details = '连接成功，接口响应正常';
-          } else if (res.status === 401) {
-            success = true;
-            details = '连接成功（未授权或 API 密钥无效，请检查）';
-          } else {
-            success = false;
-            details = `HTTP 状态码 ${res.status}`;
-          }
-        } catch (err) {
-          clearTimeout(timeoutId);
-          throw err;
-        }
+        const result = await window.electronAPI.llm.testProvider(p.id);
+        success = result.ok;
+        details = result.message;
       }
       
       if (success) {
@@ -117,34 +91,7 @@ export function ModelSettings() {
     showToast(`正在从 ${p.name} 获取可用模型列表…`, 'info');
     try {
       let fetchedModels: string[] = [];
-      if (p.provider_type === 'ollama') {
-        const url = p.api_url || 'http://localhost:11434';
-        fetchedModels = await window.electronAPI.llm.fetchOllamaModels(url);
-      } else if (p.provider_type === 'openai' || p.provider_type === 'custom') {
-        const endpoint = p.api_url || 'https://api.openai.com/v1';
-        const url = endpoint.endsWith('/') ? `${endpoint}models` : `${endpoint}/models`;
-        
-        const headers: HeadersInit = {};
-        if (p.api_key && p.api_key !== '••••••••') {
-          headers['Authorization'] = `Bearer ${p.api_key}`;
-        }
-        
-        const res = await fetch(url, { headers });
-        if (res.status === 200) {
-          const data = await res.json();
-          if (data && Array.isArray(data.data)) {
-            fetchedModels = data.data.map((m: any) => m.id);
-          }
-        } else if (res.status === 401) {
-          throw new Error('未授权，密钥不正确，无法自动获取。请点击“编辑”提供有效密钥');
-        } else {
-          throw new Error(`HTTP 异常 ${res.status}`);
-        }
-      } else {
-        showToast(`Anthropic 暂不支持自动获取，请在输入框中手动填写模型 ID`, 'info');
-        setFetchingModelsId(null);
-        return;
-      }
+      fetchedModels = await window.electronAPI.llm.fetchProviderModels(p.id);
 
       if (fetchedModels && fetchedModels.length > 0) {
         const existing = p.models || [];
@@ -502,7 +449,7 @@ export function ModelSettings() {
       {/* Edit / Add Modal Overlay */}
       {isModalOpen && (
         <div className="modal-overlay visible">
-          <div className="modal animate-fade-in">
+          <div className="modal animate-fade-in w-[480px] p-6">
             <div className="flex justify-between items-center modal-title border-b border-[var(--color-border)] pb-3 mb-4">
               <span className="font-semibold text-base">
                 {editingProviderId ? `编辑供应商 · ${formName}` : '添加供应商'}
@@ -725,4 +672,3 @@ export function ModelSettings() {
     </div>
   );
 }
-

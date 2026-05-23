@@ -115,9 +115,13 @@ export interface ElectronAPI {
     deleteMcpServer: (id: string) => Promise<void>;
     checkMcpHealth: (id: string) => Promise<{ ok: boolean; message?: string }>;
     toggleMcpConnection: (id: string, connected: boolean) => Promise<void>;
+    selectFile: () => Promise<{ name: string; script_type: 'bash' | 'python' | 'javascript'; content: string } | null>;
   };
   llm: {
     chat: (requestId: string, payload: { providerId: string; model?: string; messages: { role: string; content: string }[] }) => Promise<void>;
+    stopChat: (requestId: string) => Promise<void>;
+    testProvider: (providerId: string) => Promise<{ ok: boolean; message: string }>;
+    fetchProviderModels: (providerId: string) => Promise<string[]>;
     fetchOllamaModels: (apiUrl: string) => Promise<string[]>;
     onChunk: (
       requestId: string,

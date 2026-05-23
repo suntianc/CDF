@@ -29,6 +29,7 @@ interface SessionState {
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   sendMessage: (projectId: string, content: string) => Promise<void>;
+  stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
 }
@@ -238,6 +239,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         streamingMessageId: null,
         error: err.message || '发送消息失败',
       });
+    }
+  },
+
+  stopMessage: async () => {
+    const { streamingMessageId } = get();
+    if (!streamingMessageId) return;
+    try {
+      await window.electronAPI.llm.stopChat(streamingMessageId);
+    } catch (err: any) {
+      console.error('Failed to stop chat message streaming:', err);
     }
   },
 

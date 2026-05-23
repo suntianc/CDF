@@ -3,15 +3,17 @@ import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { ModelSettings } from './components/Settings/ModelSettings';
+import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
+import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { useThemeStore } from './stores/themeStore';
-import { PanelLeft } from 'lucide-react';
+import { useProjectStore } from './stores/projectStore';
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [activeView, setActiveView] = useState<'chat' | 'settings'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'agents' | 'plugins'>('chat');
   const { setTheme } = useThemeStore();
-  const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+  const { taskPanelOpen, setTaskPanelOpen } = useProjectStore();
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
 
   useEffect(() => {
@@ -37,22 +39,24 @@ export default function App() {
         activeView={activeView}
         onCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         onResize={(w) => setSidebarWidth(w)}
-        onOpenSettings={() => setActiveView('settings')}
-        onExitSettings={() => setActiveView('chat')}
+        onChangeView={(view) => setActiveView(view)}
       />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {activeView === 'settings' ? (
-          <ModelSettings />
-        ) : (
-          <ChatArea 
-            onOpenSettings={() => setActiveView('settings')}
-            sidebarCollapsed={sidebarCollapsed}
-            onToggleSidebar={() => setSidebarCollapsed(false)}
-            taskPanelOpen={taskPanelOpen}
-            onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
-          />
-        )}
+        <div key={activeView} className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up">
+          {activeView === 'settings' && <ModelSettings />}
+          {activeView === 'agents' && <AgentLibrary />}
+          {activeView === 'plugins' && <PluginsPanel />}
+          {activeView === 'chat' && (
+            <ChatArea 
+              onOpenSettings={() => setActiveView('settings')}
+              sidebarCollapsed={sidebarCollapsed}
+              onToggleSidebar={() => setSidebarCollapsed(false)}
+              taskPanelOpen={taskPanelOpen}
+              onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
+            />
+          )}
+        </div>
       </main>
 
       <TaskPanel 

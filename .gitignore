@@ -13,6 +13,7 @@ dist-renderer/
 dist-preload/
 dist-main/
 release/
+out/
 
 # electron-vite
 *.local

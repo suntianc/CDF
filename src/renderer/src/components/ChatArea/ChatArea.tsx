@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
@@ -55,6 +55,254 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
+const renderInlineMarkdown = (text: string) => {
+  if (!text) return null;
+  const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
+  const parts = text.split(inlineRegex);
+  
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={i} className="font-bold text-[var(--color-text-primary)]">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith('*') && part.endsWith('*')) {
+      return (
+        <em key={i} className="italic text-[var(--color-text-primary)]/90">
+          {part.slice(1, -1)}
+        </em>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code 
+          key={i} 
+          className="px-1.5 py-0.5 mx-0.5 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 rounded text-xs font-mono text-[var(--color-accent)]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+};
+
+const renderMarkdownText = (text: string) => {
+  if (!text) return null;
+  
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  
+  let currentParagraphLines: string[] = [];
+  let currentListType: 'ul' | 'ol' | null = null;
+  let currentListItems: { key: number; content: string; num?: number }[] = [];
+  
+  const flushParagraph = (key: string | number) => {
+    if (currentParagraphLines.length > 0) {
+      const pText = currentParagraphLines.join('\n');
+      elements.push(
+        <p key={`p-${key}`} className="whitespace-pre-wrap leading-relaxed select-text text-sm my-1 text-[var(--color-text-primary)]">
+          {renderInlineMarkdown(pText)}
+        </p>
+      );
+      currentParagraphLines = [];
+    }
+  };
+
+  const flushList = (key: string | number) => {
+    if (currentListType && currentListItems.length > 0) {
+      if (currentListType === 'ul') {
+        elements.push(
+          <ul key={`ul-${key}`} className="list-disc pl-5 my-1 flex flex-col gap-1">
+            {currentListItems.map((item) => (
+              <li key={`li-${item.key}`} className="text-sm leading-relaxed text-[var(--color-text-primary)]">
+                {renderInlineMarkdown(item.content)}
+              </li>
+            ))}
+          </ul>
+        );
+      } else if (currentListType === 'ol') {
+        const startNum = currentListItems[0].num ?? 1;
+        elements.push(
+          <ol key={`ol-${key}`} start={startNum} className="list-decimal pl-5 my-1 flex flex-col gap-1">
+            {currentListItems.map((item) => (
+              <li key={`li-${item.key}`} className="text-sm leading-relaxed text-[var(--color-text-primary)]">
+                {renderInlineMarkdown(item.content)}
+              </li>
+            ))}
+          </ol>
+        );
+      }
+      currentListItems = [];
+      currentListType = null;
+    }
+  };
+
+  const flushAll = (key: string | number) => {
+    flushParagraph(key);
+    flushList(key);
+  };
+  
+  lines.forEach((line, index) => {
+    const trimmedLine = line.trim();
+    
+    // 1. 匹配标题
+    if (trimmedLine.startsWith('# ')) {
+      flushAll(index);
+      elements.push(
+        <h1 key={`h1-${index}`} className="text-xl font-bold mt-4 mb-2 text-[var(--color-text-primary)]">
+          {renderInlineMarkdown(trimmedLine.slice(2))}
+        </h1>
+      );
+    } else if (trimmedLine.startsWith('## ')) {
+      flushAll(index);
+      elements.push(
+        <h2 key={`h2-${index}`} className="text-lg font-semibold mt-3.5 mb-2 text-[var(--color-text-primary)]">
+          {renderInlineMarkdown(trimmedLine.slice(3))}
+        </h2>
+      );
+    } else if (trimmedLine.startsWith('### ')) {
+      flushAll(index);
+      elements.push(
+        <h3 key={`h3-${index}`} className="text-base font-semibold mt-3 mb-1.5 text-[var(--color-text-primary)]">
+          {renderInlineMarkdown(trimmedLine.slice(4))}
+        </h3>
+      );
+    } else if (trimmedLine.startsWith('#### ')) {
+      flushAll(index);
+      elements.push(
+        <h4 key={`h4-${index}`} className="text-sm font-semibold mt-2.5 mb-1 text-[var(--color-text-primary)]">
+          {renderInlineMarkdown(trimmedLine.slice(5))}
+        </h4>
+      );
+    }
+    // 2. 匹配无序列表项
+    else if (trimmedLine.startsWith('- ') || trimmedLine.startsWith('* ')) {
+      if (currentListType !== 'ul') {
+        flushAll(index);
+        currentListType = 'ul';
+      }
+      currentListItems.push({
+        key: index,
+        content: trimmedLine.slice(2)
+      });
+    }
+    // 3. 匹配有序列表项
+    else if (/^\d+\.\s/.test(trimmedLine)) {
+      const match = trimmedLine.match(/^(\d+)\.\s(.*)/);
+      const num = match ? parseInt(match[1]) : 1;
+      const content = match ? match[2] : trimmedLine.slice(trimmedLine.indexOf('.') + 1).trim();
+      
+      if (currentListType !== 'ol') {
+        flushAll(index);
+        currentListType = 'ol';
+      }
+      currentListItems.push({
+        key: index,
+        content,
+        num
+      });
+    }
+    // 4. 普通行
+    else {
+      if (trimmedLine === '') {
+        flushAll(index);
+      } else {
+        if (currentListType) {
+          flushList(index);
+        }
+        currentParagraphLines.push(line);
+      }
+    }
+  });
+  
+  flushAll('final');
+  
+  return <div className="flex flex-col gap-1">{elements}</div>;
+};
+
+const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLast: boolean; isStreaming: boolean }) => {
+  const renderMessageContent = (content: string) => {
+    if (!content) return null;
+
+    let thinkContent = '';
+    let mainContent = content;
+    const thinkStartIdx = content.indexOf('<think>');
+
+    if (thinkStartIdx !== -1) {
+      const thinkEndIdx = content.indexOf('</think>');
+      if (thinkEndIdx !== -1) {
+        thinkContent = content.substring(thinkStartIdx + 7, thinkEndIdx).trim();
+        mainContent = (content.substring(0, thinkStartIdx) + content.substring(thinkEndIdx + 8)).trim();
+      } else {
+        thinkContent = content.substring(thinkStartIdx + 7).trim();
+        mainContent = content.substring(0, thinkStartIdx).trim();
+      }
+    }
+
+    const renderThink = () => {
+      if (!thinkContent) return null;
+      const isFinished = content.includes('</think>');
+      return (
+        <div className="mb-3 border-l-2 border-[var(--color-accent)]/30 bg-black/5 dark:bg-white/5 rounded-r-md px-3.5 py-2 text-xs text-[var(--color-text-secondary)] italic select-text">
+          <div className="flex items-center gap-1.5 text-[var(--color-accent)] font-semibold not-italic mb-1.5 select-none text-[11px] uppercase tracking-wider">
+            <Sparkles className={`w-3.5 h-3.5 ${!isFinished ? 'animate-pulse' : ''}`} />
+            <span>{isFinished ? '深度思考已完成' : '正在思考中...'}</span>
+          </div>
+          <div className="whitespace-pre-wrap leading-relaxed">
+            {thinkContent}
+          </div>
+        </div>
+      );
+    };
+
+    const renderMain = (text: string) => {
+      if (!text) return null;
+      const parts = text.split(/(```[\s\S]*?```)/g);
+      return parts.map((part, index) => {
+        if (part.startsWith('```')) {
+          const match = part.match(/```(\w*)\n([\s\S]*?)```/);
+          const lang = match ? match[1] : '';
+          const code = match ? match[2] : part.slice(3, -3);
+          return <CodeBlock lang={lang} code={code} key={index} />;
+        }
+        if (!part.trim()) return null;
+        return (
+          <div key={index} className="w-full">
+            {renderMarkdownText(part)}
+          </div>
+        );
+      });
+    };
+
+    return (
+      <div className="flex flex-col gap-3">
+        {renderThink()}
+        {renderMain(mainContent)}
+      </div>
+    );
+  };
+
+  return (
+    <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
+      <div className="message-bubble">
+        {renderMessageContent(message.content)}
+        <div className="message-time">
+          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}
+        </div>
+      </div>
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  return prevProps.message.content === nextProps.message.content &&
+         prevProps.message.tokens === nextProps.message.tokens &&
+         prevProps.isLast === nextProps.isLast &&
+         prevProps.isStreaming === nextProps.isStreaming;
+});
+
 interface ChatAreaProps {
   onOpenSettings?: () => void;
   sidebarCollapsed?: boolean;
@@ -73,7 +321,7 @@ export function ChatArea({
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
     sessions, activeSessionId, messages, isStreaming, error, 
-    sendMessage, selectSession, clearError, createSession, fetchSessions
+    sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage
   } = useSessionStore();
   const { providers, activeProvider, fetchProviders, saveProvider, setActiveProvider } = useLLMStore();
 
@@ -203,68 +451,7 @@ export function ChatArea({
     return [provider.default_model];
   };
 
-  // Helper to parse and render code blocks inside dialogue bubbles
-  const renderMessageContent = (content: string) => {
-    if (!content) return null;
-
-    let thinkContent = '';
-    let mainContent = content;
-    const thinkStartIdx = content.indexOf('<think>');
-
-    if (thinkStartIdx !== -1) {
-      const thinkEndIdx = content.indexOf('</think>');
-      if (thinkEndIdx !== -1) {
-        thinkContent = content.substring(thinkStartIdx + 7, thinkEndIdx).trim();
-        mainContent = (content.substring(0, thinkStartIdx) + content.substring(thinkEndIdx + 8)).trim();
-      } else {
-        thinkContent = content.substring(thinkStartIdx + 7).trim();
-        mainContent = content.substring(0, thinkStartIdx).trim();
-      }
-    }
-
-    const renderThink = () => {
-      if (!thinkContent) return null;
-      const isFinished = content.includes('</think>');
-      return (
-        <div className="mb-3 border-l-2 border-[var(--color-accent)]/30 bg-black/5 dark:bg-white/5 rounded-r-md px-3.5 py-2 text-xs text-[var(--color-text-secondary)] italic select-text">
-          <div className="flex items-center gap-1.5 text-[var(--color-accent)] font-semibold not-italic mb-1.5 select-none text-[11px] uppercase tracking-wider">
-            <Sparkles className={`w-3.5 h-3.5 ${!isFinished ? 'animate-pulse' : ''}`} />
-            <span>{isFinished ? '深度思考已完成' : '正在思考中...'}</span>
-          </div>
-          <div className="whitespace-pre-wrap leading-relaxed">
-            {thinkContent}
-          </div>
-        </div>
-      );
-    };
-
-    const renderMain = (text: string) => {
-      if (!text) return null;
-      const parts = text.split(/(```[\s\S]*?```)/g);
-      return parts.map((part, index) => {
-        if (part.startsWith('```')) {
-          const match = part.match(/```(\w*)\n([\s\S]*?)```/);
-          const lang = match ? match[1] : '';
-          const code = match ? match[2] : part.slice(3, -3);
-          return <CodeBlock lang={lang} code={code} key={index} />;
-        }
-        const trimmed = part.trim();
-        if (!trimmed) return null;
-        return (
-          <p key={index} className="whitespace-pre-wrap leading-relaxed select-text text-sm">
-            {trimmed}
-          </p>
-        );
-      });
-    };
-
-    return (
-      <div className="flex flex-col gap-3">
-        {renderThink()}
-        {renderMain(mainContent)}
-      </div>
-    );
-  };
+  // Old renderMessageContent removed. MessageItem is now declared at module scope.
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
@@ -279,7 +466,7 @@ export function ChatArea({
         {sidebarCollapsed && (
           <button
             onClick={onToggleSidebar}
-            className="absolute top-[13px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+            className="absolute top-[6px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag relative after:absolute after:inset-[-8px] after:content-['']"
             title="展开侧边栏"
           >
             <PanelLeft className="w-4 h-4" />
@@ -437,7 +624,7 @@ export function ChatArea({
           {sidebarCollapsed && (
             <button
               onClick={onToggleSidebar}
-              className="absolute top-[13px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag"
+              className="absolute top-[6px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag relative after:absolute after:inset-[-8px] after:content-['']"
               title="展开侧边栏"
             >
               <PanelLeft className="w-4 h-4" />
@@ -494,19 +681,13 @@ export function ChatArea({
             )}
 
             {/* Messages List */}
-            {(messages || []).map((message) => (
-              <div 
+            {(messages || []).map((message, idx) => (
+              <MessageItem
                 key={message.id}
-                className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}
-              >
-                <div className="message-bubble">
-                  {renderMessageContent(message.content)}
-                  <div className="message-time">
-                    {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}
-                  </div>
-                </div>
-              </div>
+                message={message}
+                isLast={idx === messages.length - 1}
+                isStreaming={isStreaming}
+              />
             ))}
 
             {/* Typing Indicator while streaming empty block */}
@@ -612,8 +793,9 @@ export function ChatArea({
                 {isStreaming ? (
                   <button
                     type="button"
+                    onClick={stopMessage}
                     className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
-                    title="停止生成 (暂未支持)"
+                    title="停止生成"
                     aria-label="停止生成"
                   >
                     <Square className="w-4 h-4 fill-current" />

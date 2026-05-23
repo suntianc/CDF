@@ -2,11 +2,48 @@ import { ipcMain, dialog } from 'electron';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
-import { runLLMChat, fetchOllamaModels } from './llm';
+import { runLLMChat, fetchOllamaModels, stopLLMChat } from './llm';
+import {
+  buildAnthropicModelsUrl,
+  buildOpenAIModelsUrl,
+  normalizeProviderApiUrl,
+  shouldUseAnthropicAuthToken,
+} from '../shared/provider-url';
 import fs from 'fs';
 import path from 'path';
 
 export function registerIpcHandlers() {
+  const buildProviderHeaders = (providerType: string, apiUrl: string | undefined, decryptedKey?: string) => {
+    const headers: Record<string, string> = {};
+    const trimmedKey = decryptedKey?.trim();
+
+    if (providerType === 'anthropic') {
+      headers['anthropic-version'] = '2023-06-01';
+      if (trimmedKey) {
+        if (shouldUseAnthropicAuthToken(apiUrl, trimmedKey)) {
+          headers['authorization'] = `Bearer ${trimmedKey}`;
+        } else {
+          headers['x-api-key'] = trimmedKey;
+        }
+      }
+      return headers;
+    }
+
+    if (trimmedKey) {
+      headers['authorization'] = `Bearer ${trimmedKey}`;
+    }
+    return headers;
+  };
+
+  const getProviderWithKey = (providerId: string) => {
+    const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(providerId) as any;
+    if (!provider) {
+      throw new Error(`LLM Provider with ID ${providerId} not found.`);
+    }
+    const decryptedKey = provider.api_key ? decryptApiKey(provider.api_key) : undefined;
+    return { provider, decryptedKey };
+  };
+
   // electron-store handlers
   ipcMain.handle('store:get', (_, key: string) => store.get(key));
   ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
@@ -32,6 +69,12 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('db:deleteProject', (_, id: string) => {
     db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  });
+
+  ipcMain.handle('db:renameProject', (_, id: string, name: string) => {
+    const now = Date.now();
+    db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
+    return { id, name, updated_at: now };
   });
 
   // Database handlers: Sessions
@@ -103,13 +146,14 @@ export function registerIpcHandlers() {
   ipcMain.handle('db:saveProvider', (_, provider: any) => {
     const { id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, models } = provider;
     const now = Date.now();
+    const normalizedApiUrl = normalizeProviderApiUrl(api_url);
     
     const existing = db.prepare('SELECT api_key FROM llm_providers WHERE id = ?').get(id) as any;
     
     let finalApiKey = null;
     if (api_key && api_key !== '••••••••') {
       finalApiKey = encryptApiKey(api_key);
-    } else if (api_key === '••••••••' && existing) {
+    } else if (existing) {
       finalApiKey = existing.api_key; // preserve existing
     }
     
@@ -124,15 +168,15 @@ export function registerIpcHandlers() {
         UPDATE llm_providers 
         SET name = ?, provider_type = ?, api_key = ?, api_url = ?, default_model = ?, context_limit = ?, is_active = ?, models = ?, updated_at = ?
         WHERE id = ?
-      `).run(name, provider_type, finalApiKey, api_url, default_model, context_limit, is_active ? 1 : 0, modelsStr, now, id);
+      `).run(name, provider_type, finalApiKey, normalizedApiUrl, default_model, context_limit, is_active ? 1 : 0, modelsStr, now, id);
     } else {
       db.prepare(`
         INSERT INTO llm_providers (id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, models, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, provider_type, finalApiKey, api_url, default_model, context_limit, is_active ? 1 : 0, modelsStr, now, now);
+      `).run(id, name, provider_type, finalApiKey, normalizedApiUrl, default_model, context_limit, is_active ? 1 : 0, modelsStr, now, now);
     }
     
-    return { id, name, provider_type, api_url, default_model, context_limit, is_active, models, hasKey: !!finalApiKey };
+    return { id, name, provider_type, api_url: normalizedApiUrl, default_model, context_limit, is_active, models, hasKey: !!finalApiKey };
   });
 
   ipcMain.handle('db:deleteProvider', (_, id: string) => {
@@ -147,15 +191,7 @@ export function registerIpcHandlers() {
   // LLM Streaming API Call handler
   ipcMain.handle('llm:chat', async (event, requestId: string, payload: any) => {
     const { providerId, model, messages } = payload;
-    const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(providerId) as any;
-    if (!provider) {
-      throw new Error(`LLM Provider with ID ${providerId} not found.`);
-    }
-
-    let decryptedKey = undefined;
-    if (provider.api_key) {
-      decryptedKey = decryptApiKey(provider.api_key);
-    }
+    const { provider, decryptedKey } = getProviderWithKey(providerId);
 
     await runLLMChat(event.sender, requestId, {
       messages,
@@ -164,6 +200,61 @@ export function registerIpcHandlers() {
       model: model || provider.default_model,
       providerType: provider.provider_type as any
     });
+  });
+
+  ipcMain.handle('llm:stopChat', async (_, requestId: string) => {
+    stopLLMChat(requestId);
+  });
+
+  ipcMain.handle('llm:testProvider', async (_, providerId: string) => {
+    const { provider, decryptedKey } = getProviderWithKey(providerId);
+
+    if (provider.provider_type === 'ollama') {
+      const models = await fetchOllamaModels(provider.api_url || 'http://localhost:11434');
+      return { ok: true, message: `检测到 ${models.length} 个本地模型` };
+    }
+
+    const url =
+      provider.provider_type === 'anthropic'
+        ? buildAnthropicModelsUrl(provider.api_url)
+        : buildOpenAIModelsUrl(provider.api_url);
+
+    const headers = buildProviderHeaders(provider.provider_type, provider.api_url, decryptedKey);
+
+    const response = await fetch(url, { headers });
+    if (response.status === 200) {
+      const data = await response.json();
+      return { ok: true, message: `连接成功，检测到 ${Array.isArray(data?.data) ? data.data.length : 0} 个模型` };
+    }
+    if (response.status === 401) {
+      return { ok: false, message: 'API Key 无效或未授权，请重新填写。' };
+    }
+    const text = await response.text();
+    return { ok: false, message: `HTTP ${response.status}: ${text.slice(0, 120)}` };
+  });
+
+  ipcMain.handle('llm:fetchProviderModels', async (_, providerId: string) => {
+    const { provider, decryptedKey } = getProviderWithKey(providerId);
+
+    if (provider.provider_type === 'ollama') {
+      return await fetchOllamaModels(provider.api_url || 'http://localhost:11434');
+    }
+
+    const url =
+      provider.provider_type === 'anthropic'
+        ? buildAnthropicModelsUrl(provider.api_url)
+        : buildOpenAIModelsUrl(provider.api_url);
+
+    const headers = buildProviderHeaders(provider.provider_type, provider.api_url, decryptedKey);
+
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(response.status === 401 ? 'API Key 无效或未授权，请重新填写。' : `HTTP ${response.status}: ${text.slice(0, 120)}`);
+    }
+
+    const data = await response.json();
+    return Array.isArray(data?.data) ? data.data.map((item: any) => item.id).filter(Boolean) : [];
   });
 
   ipcMain.handle('llm:fetchOllamaModels', async (_, apiUrl: string) => {
@@ -177,34 +268,94 @@ export function registerIpcHandlers() {
     return result.canceled ? null : result.filePaths[0];
   });
 
+  ipcMain.handle('db:selectFile', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'Scripts', extensions: ['sh', 'py', 'js', 'txt', 'bash'] }
+      ]
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    const name = path.basename(filePath, path.extname(filePath));
+    const ext = path.extname(filePath).toLowerCase();
+    let script_type = 'bash';
+    if (ext === '.py') script_type = 'python';
+    else if (ext === '.js') script_type = 'javascript';
+    
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return { name, script_type: script_type as any, content };
+    } catch (e) {
+      console.error('Failed to read selected file:', e);
+      return null;
+    }
+  });
+
   // ===== Phase 3: Agent Library IPC Handlers =====
 
   ipcMain.handle('db:getAgents', () => {
     const agents = db.prepare('SELECT * FROM agents ORDER BY updated_at DESC').all() as any[];
-    return agents.map(a => ({
-      ...a,
-      config: a.config ? JSON.parse(a.config) : null,
-    }));
+    return agents.map(a => {
+      const mcpServers = db.prepare('SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?').all(a.id) as any[];
+      const skills = db.prepare('SELECT skill_id FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
+      return {
+        ...a,
+        config: a.config ? JSON.parse(a.config) : null,
+        mcpServerIds: mcpServers.map(s => s.mcp_server_id),
+        skillIds: skills.map(s => s.skill_id),
+      };
+    });
   });
 
   ipcMain.handle('db:saveAgent', (_, agent: any) => {
-    const { id, name, description, provider_id, system_prompt, config } = agent;
+    const { id, name, description, provider_id, system_prompt, config, mcpServerIds, skillIds } = agent;
     const now = Date.now();
     const configStr = config ? JSON.stringify(config) : null;
 
-    const existing = db.prepare('SELECT id FROM agents WHERE id = ?').get(id);
-    if (existing) {
-      db.prepare(`
-        UPDATE agents SET name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ?
-        WHERE id = ?
-      `).run(name, description || null, provider_id || null, system_prompt || null, configStr, now, id);
-    } else {
-      db.prepare(`
-        INSERT INTO agents (id, name, description, provider_id, system_prompt, config, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, description || null, provider_id || null, system_prompt || null, configStr, now, now);
-    }
-    return { id, name, description, provider_id, system_prompt, config };
+    const runTx = db.transaction(() => {
+      const existing = db.prepare('SELECT id FROM agents WHERE id = ?').get(id);
+      if (existing) {
+        db.prepare(`
+          UPDATE agents SET name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ?
+          WHERE id = ?
+        `).run(name, description || null, provider_id || null, system_prompt || null, configStr, now, id);
+      } else {
+        db.prepare(`
+          INSERT INTO agents (id, name, description, provider_id, system_prompt, config, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, name, description || null, provider_id || null, system_prompt || null, configStr, now, now);
+      }
+
+      db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
+      if (Array.isArray(mcpServerIds)) {
+        const insertMcp = db.prepare('INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)');
+        for (const mcpId of mcpServerIds) {
+          insertMcp.run(id, mcpId);
+        }
+      }
+
+      db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
+      if (Array.isArray(skillIds)) {
+        const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_id) VALUES (?, ?)');
+        for (const skillId of skillIds) {
+          insertSkill.run(id, skillId);
+        }
+      }
+    });
+
+    runTx();
+
+    return { 
+      id, 
+      name, 
+      description, 
+      provider_id, 
+      system_prompt, 
+      config,
+      mcpServerIds: mcpServerIds || [],
+      skillIds: skillIds || []
+    };
   });
 
   ipcMain.handle('db:deleteAgent', (_, id: string) => {

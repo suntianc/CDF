@@ -198,7 +198,7 @@
 
 .sidebarCollapseBtn {
   position: absolute;
-  top: 13px;
+  top: 6px;
   left: 78px;
   width: 24px;
   height: 24px;
@@ -214,6 +214,16 @@
   transition: all 0.15s;
   opacity: 0.6;
   -webkit-app-region: no-drag;
+}
+
+.sidebarCollapseBtn::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: -8px;
+  right: -8px;
+  cursor: pointer;
 }
 
 .sidebarCollapseBtn:hover {

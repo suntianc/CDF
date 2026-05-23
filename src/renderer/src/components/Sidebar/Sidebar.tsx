@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { PanelLeft, Search, Settings, MessageSquare, Trash2, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Clock } from 'lucide-react';
+import { PanelLeft, Search, Settings, MessageSquare, Trash2, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Clock, Bot } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { useProjectStore } from '../../stores/projectStore';
@@ -9,11 +9,10 @@ import styles from './Sidebar.module.css';
 interface SidebarProps {
   collapsed: boolean;
   width: number;
-  activeView: 'chat' | 'settings';
+  activeView: 'chat' | 'settings' | 'agents' | 'plugins';
   onCollapse: () => void;
   onResize: (width: number) => void;
-  onOpenSettings?: () => void;
-  onExitSettings?: () => void;
+  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins') => void;
 }
 
 export function Sidebar({
@@ -22,8 +21,7 @@ export function Sidebar({
   activeView,
   onCollapse,
   onResize,
-  onOpenSettings,
-  onExitSettings
+  onChangeView
 }: SidebarProps) {
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -72,9 +70,10 @@ export function Sidebar({
 
   const handleNewChat = () => {
     selectSession(null);
+    onChangeView('chat');
   };
 
-  const isSettings = activeView === 'settings';
+  const isSettings = activeView !== 'chat';
 
   return (
     <aside
@@ -84,7 +83,7 @@ export function Sidebar({
     >
       <div className={styles.sidebarTop}>
         {isSettings ? (
-          <button onClick={onExitSettings} className={styles.backBtn}>
+          <button onClick={() => onChangeView('chat')} className={styles.backBtn}>
             <ArrowLeft className="w-4 h-4" />
             返回
           </button>
@@ -100,7 +99,18 @@ export function Sidebar({
               <input type="text" placeholder="搜索" />
             </div>
 
-            <button className={styles.sidebarMenuBtn}>
+            <button 
+              onClick={() => onChangeView('agents')} 
+              className={`${styles.sidebarMenuBtn} ${activeView === 'agents' ? styles.active : ''}`}
+            >
+              <Bot className="w-4 h-4" />
+              <span>Agent 资产</span>
+            </button>
+
+            <button 
+              onClick={() => onChangeView('plugins')} 
+              className={`${styles.sidebarMenuBtn} ${activeView === 'plugins' ? styles.active : ''}`}
+            >
               <LayoutGrid className="w-4 h-4" />
               <span>插件</span>
             </button>
@@ -109,17 +119,19 @@ export function Sidebar({
               <GitFork className="w-4 h-4" />
               <span>工作流</span>
             </button>
-
-            <button
-              onClick={onCollapse}
-              className={styles.sidebarCollapseBtn}
-              title="折叠侧边栏"
-            >
-              <PanelLeft className="w-4 h-4" />
-            </button>
           </>
         )}
       </div>
+
+      {!isSettings && !collapsed && (
+        <button
+          onClick={onCollapse}
+          className={styles.sidebarCollapseBtn}
+          title="折叠侧边栏"
+        >
+          <PanelLeft className="w-4 h-4" />
+        </button>
+      )}
 
       {!isSettings ? (
         <>
@@ -131,7 +143,7 @@ export function Sidebar({
 
           <div className={styles.bottomBar}>
             <ThemeToggle />
-            <button onClick={onOpenSettings} title="模型配置">
+            <button onClick={() => onChangeView('settings')} title="模型配置">
               <Settings className="w-4 h-4" />
             </button>
           </div>
@@ -139,9 +151,26 @@ export function Sidebar({
       ) : (
         <div className={styles.settingsMenu}>
           <div className={styles.settingsMenuHeader}>通用设置</div>
-          <div className={`${styles.settingsMenuItem} ${styles.active}`}>
+          <div 
+            className={`${styles.settingsMenuItem} ${activeView === 'settings' ? styles.active : ''}`}
+            onClick={() => onChangeView('settings')}
+          >
             <Monitor className="w-4 h-4" />
             模型供应商配置
+          </div>
+          <div 
+            className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}
+            onClick={() => onChangeView('agents')}
+          >
+            <Bot className="w-4 h-4" />
+            Agent 资产管理
+          </div>
+          <div 
+            className={`${styles.settingsMenuItem} ${activeView === 'plugins' ? styles.active : ''}`}
+            onClick={() => onChangeView('plugins')}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            插件与能力管理
           </div>
         </div>
       )}

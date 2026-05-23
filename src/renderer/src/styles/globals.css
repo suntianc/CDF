@@ -743,8 +743,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
-  padding: 24px;
-  width: 480px;
   max-width: 90vw;
 }
 
@@ -944,6 +942,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   grid-template-rows: 1fr;
   opacity: 1;
   margin-top: 6px;
+  overflow: visible;
 }
 
 .folder-sessions-inner {

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createProject: (name: string, projectPath: string) =>
       ipcRenderer.invoke('db:createProject', name, projectPath),
     deleteProject: (id: string) => ipcRenderer.invoke('db:deleteProject', id),
+    renameProject: (id: string, name: string) => ipcRenderer.invoke('db:renameProject', id, name),
     getSessions: (projectId: string) => ipcRenderer.invoke('db:getSessions', projectId),
     createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) =>
       ipcRenderer.invoke('db:createSession', projectId, name, parentSessionId, summary),
@@ -36,9 +37,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteMcpServer: (id: string) => ipcRenderer.invoke('db:deleteMcpServer', id),
     toggleMcpConnection: (id: string, connected: boolean) => ipcRenderer.invoke('db:toggleMcpConnection', id, connected),
     checkMcpHealth: (id: string) => ipcRenderer.invoke('db:checkMcpHealth', id),
+    selectFile: () => ipcRenderer.invoke('db:selectFile'),
   },
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
+    stopChat: (requestId: string) => ipcRenderer.invoke('llm:stopChat', requestId),
+    testProvider: (providerId: string) => ipcRenderer.invoke('llm:testProvider', providerId),
+    fetchProviderModels: (providerId: string) => ipcRenderer.invoke('llm:fetchProviderModels', providerId),
     fetchOllamaModels: (apiUrl: string) => ipcRenderer.invoke('llm:fetchOllamaModels', apiUrl),
     onChunk: (requestId: string, callback: (event: any, data: any) => void) => {
       const channel = `llm:chunk-${requestId}`;
