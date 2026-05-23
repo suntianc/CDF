@@ -424,6 +424,26 @@ Plans:
 Plans:
 - [ ] TBD (run /gsd-plan-phase 27 to break down)
 
+### Phase 28: 3.1
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 27
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 28 to break down)
+
+### Phase 29: 3.1
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 28
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 29 to break down)
+
 ---
 
 *Last updated: 2026-05-23*
