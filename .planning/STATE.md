@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-05-22T14:00:15.690Z"
+last_updated: "2026-05-23T08:30:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -46,6 +46,7 @@ Plan: Not started
 | Fix welcome send ReferenceError and UI/UX issues | fix-welcome-send-error | 2026-05-22 | complete ✓ |
 | Fix LLM chat URL endpoints concatenation | fix-llm-chat-url-endpoints | 2026-05-22 | complete ✓ |
 | Fix assistant-ui Uncaught TypeError | fix-assistant-ui-typeerror | 2026-05-22 | complete ✓ |
+| Fix chat markdown rendering | fix-chat-markdown-rendering | 2026-05-22 | complete ✓ |
 
 ## Accumulated Context
 
@@ -57,12 +58,14 @@ Plan: Not started
   - safeStorage 加密存储 API Key，解密仅在主进程
   - 支持 OpenAI / Anthropic / Ollama / Custom 四种提供商
   - 85% 上下文阈值自动总结 + 会话级联
-- Phase 3: Agent Integration (Agent Library + Skills + MCP)
-  - Agent 卡片列表 + 模态框编辑
-  - Skills textarea 编辑器 + 版本快照
-  - MCP 配置管理 + 健康检查
-  - 扩展 activeView 模式
-  - LLM/MCP/Skills 通过关联表多对多绑定
+- Phase 3: Agent Integration (Agent Library + Skills + MCP) ✅
+  - 后端已完成（DB/IPC/Preload/Types）
+  - Agent 独立入口；Skills+MCP 从插件标签页进入
+  - Agent 编辑对话框：双栏（40%核心 / 60%能力）
+  - MCP 配置：支持 stdio + Streamable HTTP
+  - Skills 编辑器：textarea + 行号 + 基础着色
+  - 绑定交互：Command palette 搜索选择器
+  - Agent 卡片：名称 + LLM + 绑定数量
   - v1 聚焦配置管理，实际调用延迟到 Phase 4
 - Phase 4: Workflow System (ReactFlow + execution engine)
 - Phase 5: Project Management (multi-project panel)
@@ -83,7 +86,14 @@ Plan: Not started
 
 ## Session Continuity
 
-**Last Updated:** 2026-05-22
+**Last Updated:** 2026-05-23
+
+### Session: 2026-05-23 — Phase 3 Context Updated
+
+**Stopped at:** Phase 3 context updated with UI design decisions
+**Resume file:** `.planning/phases/03-agent-integration/03-CONTEXT.md`
+**Areas discussed:** Navigation, Agent Dialog Layout, MCP Config, Skills Editor, Binding Interaction, Card Display
+**Next step:** `/gsd-plan-phase 3` to create execution plan
 
 ---
 
