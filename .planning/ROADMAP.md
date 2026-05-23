@@ -4,7 +4,7 @@
 
 - [x] **Phase 1: Foundation Workspace** - 基础架构、主题切换、项目管理基础设施
 - [x] **Phase 2: AI Chat Engine** - Master Agent 对话界面、多轮对话、LLM 提供者配置
-- [ ] **Phase 3: Agent Integration** - Agent 资产管理、Skills 管理、MCP 服务器管理
+- [x] **Phase 3: Agent Integration** - Agent 资产管理、Skills 管理、MCP 服务器管理
 - [ ] **Phase 4: Workflow System** - ReactFlow 可视化工作流编辑器、执行引擎
 - [ ] **Phase 5: Project Management** - 多项目管理面板、项目级数据隔离
 
@@ -130,7 +130,7 @@
 |-------|----------------|--------|-----------|
 | 1. Foundation Workspace | 1/1 | Completed | 2026-05-21 |
 | 2. AI Chat Engine | 1/1 | Completed | 2026-05-22 |
-| 3. Agent Integration | 1/1 | Completed | 2026-05-23 |
+| 3. Agent Integration | 5/5 | Completed | 2026-05-23 |
 | 4. Workflow System | 0/1 | Not started | - |
 | 5. Project Management | 0/1 | Not started | - |
 
@@ -213,6 +213,36 @@
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 6 to break down)
+
+### Phase 7: 3.1
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 6
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 7 to break down)
+
+### Phase 8: 3.1
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 8 to break down)
+
+### Phase 9: 3.1
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 8
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 9 to break down)
 
 ---
 
