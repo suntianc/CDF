@@ -1,63 +1,177 @@
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
-import { createLangChainModel } from './llm-adapter';
+import { createLangChainModel, getOllamaBaseUrl, normalizeMiniMaxToolCalls } from './llm-adapter';
 
-describe('createLangChainModel message filtering', () => {
-  it('should filter non-leading system messages in streaming OpenAI calls', async () => {
+describe('createLangChainModel', () => {
+  it('should create OpenAI-compatible models', () => {
     const model = createLangChainModel({
       apiKey: 'test-key',
+      apiUrl: 'https://api.example.com/v1/chat/completions',
       defaultModel: 'gpt-4o-mini',
       providerType: 'openai',
     }) as any;
-    let requestMessages: Array<{ role: string; content: string }> = [];
 
-    model.completions.completionWithRetry = async function* (request: any) {
-      requestMessages = request.messages;
-      yield {
-        choices: [{ delta: { content: 'ok' }, index: 0 }],
-      };
-    };
-
-    const chunks = model._streamResponseChunks([
-      new HumanMessage('第一轮'),
-      new SystemMessage('工具执行状态'),
-      new HumanMessage('继续'),
-    ], {});
-
-    for await (const _chunk of chunks) {
-      // consume stream
-    }
-
-    expect(requestMessages.map((message) => message.role)).toEqual(['user', 'user', 'user']);
-    expect(requestMessages[1].content).toBe('[系统提示] 工具执行状态');
+    expect(model.model).toBe('gpt-4o-mini');
+    expect(model.clientConfig?.baseURL).toBe('https://api.example.com/v1');
   });
 
-  it('should filter restored plain system-role objects', async () => {
+  it('should infer assistant role for MiniMax stream deltas without role', () => {
     const model = createLangChainModel({
       apiKey: 'test-key',
-      defaultModel: 'gpt-4o-mini',
-      providerType: 'openai',
+      defaultModel: 'MiniMax-M2.7-highspeed',
+      providerType: 'minimax',
     }) as any;
-    let requestMessages: Array<{ role: string; content: string }> = [];
 
-    model.completions.completionWithRetry = async function* (request: any) {
-      requestMessages = request.messages;
+    const chunk = model.completions._convertCompletionsDeltaToBaseMessageChunk(
+      {
+        tool_calls: [
+          {
+            id: 'call-1',
+            index: 0,
+            type: 'function',
+            function: {
+              name: 'read_file',
+              arguments: '{"path":"/README.md"}',
+            },
+          },
+        ],
+      },
+      { choices: [{ index: 0 }] },
+      undefined
+    );
+
+    expect(chunk.tool_call_chunks).toEqual([
+      {
+        id: 'call-1',
+        index: 0,
+        name: 'read_file',
+        args: '{"path":"/README.md"}',
+        type: 'tool_call_chunk',
+      },
+    ]);
+  });
+
+  it('should enable MiniMax reasoning split by default', () => {
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      defaultModel: 'MiniMax-M2.7-highspeed',
+      providerType: 'minimax',
+    }) as any;
+
+    expect(model.modelKwargs).toEqual({ reasoning_split: true });
+  });
+
+  it('should expose MiniMax reasoning_content as think text chunks', async () => {
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      defaultModel: 'MiniMax-M2.7-highspeed',
+      providerType: 'minimax',
+    }) as any;
+
+    model.completions.completionWithRetry = async function* () {
       yield {
-        choices: [{ delta: { content: 'ok' }, index: 0 }],
+        choices: [{ index: 0, delta: { role: 'assistant', reasoning_content: '先思考' } }],
+      };
+      yield {
+        choices: [{ index: 0, delta: { reasoning_content: '再调用工具' } }],
+      };
+      yield {
+        choices: [{
+          index: 0,
+          finish_reason: 'tool_calls',
+          delta: {
+            tool_calls: [
+              {
+                id: 'call-1',
+                index: 0,
+                type: 'function',
+                function: {
+                  name: 'read_file',
+                  arguments: '{"path":"/README.md"}',
+                },
+              },
+            ],
+          },
+        }],
       };
     };
 
-    const chunks = model._streamResponseChunks([
-      new HumanMessage('第一轮'),
-      { role: 'system', content: '恢复出的系统状态' },
-      new HumanMessage('继续'),
-    ], {});
-
-    for await (const _chunk of chunks) {
-      // consume stream
+    const chunks = [];
+    for await (const chunk of model.completions._streamResponseChunks([], {})) {
+      chunks.push({
+        text: chunk.text,
+        tool_call_chunks: chunk.message.tool_call_chunks,
+      });
     }
 
-    expect(requestMessages.map((message) => message.role)).toEqual(['user', 'user', 'user']);
-    expect(requestMessages[1].content).toBe('[系统提示] 恢复出的系统状态');
+    expect(chunks.map((chunk) => chunk.text)).toEqual([
+      '<think>先思考',
+      '再调用工具',
+      '</think>\n\n',
+      '',
+    ]);
+    expect(chunks[3].tool_call_chunks).toEqual([
+      {
+        id: 'call-1',
+        index: 0,
+        name: 'read_file',
+        args: '{"path":"/README.md"}',
+        type: 'tool_call_chunk',
+      },
+    ]);
+  });
+
+  it('should promote MiniMax content-block tool calls to AIMessage tool_calls', () => {
+    const result = {
+      generations: [[
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: '<think>需要读取 README</think>',
+                id: 'call_function_1',
+                name: 'read_file',
+                args: '{"file_path":"/README.md","offset":0,"limit":100}',
+              },
+            ],
+            tool_calls: [],
+          },
+        },
+      ]],
+    };
+
+    normalizeMiniMaxToolCalls(result);
+
+    expect(result.generations[0][0].message.tool_calls).toEqual([
+      {
+        type: 'tool_call',
+        id: 'call_function_1',
+        name: 'read_file',
+        args: {
+          file_path: '/README.md',
+          offset: 0,
+          limit: 100,
+        },
+      },
+    ]);
+    expect(result.generations[0][0].message.content).toEqual([
+      {
+        type: 'tool_call',
+        id: 'call_function_1',
+        name: 'read_file',
+        args: {
+          file_path: '/README.md',
+          offset: 0,
+          limit: 100,
+        },
+      },
+    ]);
+  });
+});
+
+describe('getOllamaBaseUrl', () => {
+  it('should normalize common Ollama endpoint URLs', () => {
+    expect(getOllamaBaseUrl('http://localhost:11434/api/chat')).toBe('http://localhost:11434');
+    expect(getOllamaBaseUrl('http://localhost:11434/v1')).toBe('http://localhost:11434');
   });
 });

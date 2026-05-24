@@ -25,6 +25,7 @@ export interface ChatPayload {
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
+export const RUN_OUTPUT_GRACE_MS = 1000;
 
 function safeStringify(value: unknown): string | null {
   if (value === undefined) return null;
@@ -53,13 +54,20 @@ function updateRun(runId: string, status: AgentRunStatus, error?: string, aborte
   `).run(status, error || null, endedAt, aborted ? 1 : 0, runId);
 }
 
-function createToolCall(runId: string, name: string, input: unknown): string {
-  const id = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO agent_tool_calls (id, run_id, tool_name, input, status, started_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, runId, name, safeStringify(input), 'running', Date.now());
-  return id;
+function upsertToolCall(runId: string, toolCallId: string, name: string, input: unknown): void {
+  const existing = db.prepare('SELECT id FROM agent_tool_calls WHERE id = ?').get(toolCallId);
+  if (existing) {
+    db.prepare(`
+      UPDATE agent_tool_calls
+      SET tool_name = ?, input = ?, status = 'running'
+      WHERE id = ?
+    `).run(name, safeStringify(input), toolCallId);
+  } else {
+    db.prepare(`
+      INSERT INTO agent_tool_calls (id, run_id, tool_name, input, status, started_at)
+      VALUES (?, ?, ?, ?, 'running', ?)
+    `).run(toolCallId, runId, name, safeStringify(input), Date.now());
+  }
 }
 
 function updateToolCall(id: string, status: AgentToolCallStatus, output?: unknown, error?: string): void {
@@ -85,6 +93,19 @@ function getLatestRunId(requestId: string): string | null {
 
 function getInterruptValue(output: any) {
   return output?.__interrupt__?.[0]?.value || output?.interrupts?.[0]?.value || null;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{ resolved: true; value: T } | { resolved: false }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<{ resolved: false }>((resolve) => {
+    timer = setTimeout(() => resolve({ resolved: false }), timeoutMs);
+  });
+  return Promise.race([
+    promise.then((value) => ({ resolved: true as const, value })),
+    timeout,
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function toApprovalRequest(runId: string, interruptValue: any) {
@@ -153,10 +174,22 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           },
         }
       );
-
       const messageStreamPromise = (async () => {
         for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
+
+          let hasReasoning = false;
+          for await (const token of msg.reasoning ?? []) {
+            if (controller.signal.aborted) break;
+            if (!hasReasoning) {
+              hasReasoning = true;
+              sender.send(channel, { type: 'message_chunk', text: '<think>' });
+            }
+            sender.send(channel, { type: 'message_chunk', text: token });
+          }
+          if (hasReasoning && !controller.signal.aborted) {
+            sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+          }
 
           for await (const token of msg.text) {
             if (controller.signal.aborted) break;
@@ -168,7 +201,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       const toolStreamPromise = (async () => {
         for await (const call of run.toolCalls) {
           if (controller.signal.aborted) break;
-          const toolCallId = createToolCall(runId, call.name, call.input);
+          const toolCallId = call.callId || crypto.randomUUID();
+          upsertToolCall(runId, toolCallId, call.name, call.input);
           sender.send(channel, {
             type: 'tool_start',
             id: toolCallId,
@@ -197,10 +231,28 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       })();
 
-      const output = await run.output;
       await Promise.all([messageStreamPromise, toolStreamPromise]);
 
-      const interruptValue = getInterruptValue(output);
+      let output: any;
+      try {
+        const result = await withTimeout(run.output, RUN_OUTPUT_GRACE_MS);
+        output = result.resolved ? result.value : undefined;
+      } catch (err: any) {
+        output = undefined;
+      }
+
+      let interruptValue = getInterruptValue(output);
+      if (!interruptValue) {
+        try {
+          const interrupts = (run as any).interrupts;
+          if (interrupts && interrupts.length > 0) {
+            interruptValue = interrupts[0]?.value || null;
+          }
+        } catch {
+          // ignore optional interrupt fallback
+        }
+      }
+
       if (!interruptValue) {
         updateRun(runId, 'completed');
         sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
@@ -229,6 +281,24 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           : 'rejected';
       markApprovalStatus(runId, approvalStatus);
       sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
+
+      if (approvalStatus === 'rejected') {
+        const runningTools = db.prepare(`
+          SELECT id, tool_name FROM agent_tool_calls
+          WHERE run_id = ? AND status = 'running'
+        `).all(runId) as Array<{ id: string; tool_name: string }>;
+
+        for (const tool of runningTools) {
+          updateToolCall(tool.id, 'skipped');
+          sender.send(channel, {
+            type: 'tool_error',
+            id: tool.id,
+            name: tool.tool_name,
+            error: '用户拒绝执行该操作',
+          });
+        }
+      }
+
       updateRun(runId, 'running');
       sender.send(channel, { type: 'run_updated', runId, status: 'running' });
       nextInput = new Command({ resume: { decisions: resolution.decisions } });

@@ -268,10 +268,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             }
 
             // 2. 插入运行中的工具卡片
-            const toolMessageId = window.crypto.randomUUID();
-            const queue = pendingToolMessages.get(data.name) || [];
-            queue.push(toolMessageId);
-            pendingToolMessages.set(data.name, queue);
+            const toolMessageId = data.id || window.crypto.randomUUID();
+            if (!data.id) {
+              const queue = pendingToolMessages.get(data.name) || [];
+              queue.push(toolMessageId);
+              pendingToolMessages.set(data.name, queue);
+            }
 
             const toolMsgContent = {
               type: 'tool',
@@ -289,30 +291,45 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               tokens: 0,
             };
 
-            set((state) => ({
-              messages: [...state.messages, toolMsg],
-              agentToolCalls: data.id
-                ? [
-                    ...state.agentToolCalls,
-                    {
-                      id: data.id,
-                      run_id: state.activeRunId || '',
-                      tool_name: data.name,
-                      input: JSON.stringify(data.input ?? null),
-                      output: null,
-                      status: 'running',
-                      error: null,
-                      approval_status: null,
-                      started_at: Date.now(),
-                      ended_at: null,
-                    },
-                  ]
-                : state.agentToolCalls,
-            }));
+            const hasExistingMsg = get().messages.some((m) => m.id === toolMessageId);
 
-            window.electronAPI.db.saveMessage(toolMsg).catch((err) => {
-              console.error('Failed to save tool start message:', err);
-            });
+            if (hasExistingMsg) {
+              set((state) => ({
+                messages: state.messages.map((m) =>
+                  m.id === toolMessageId ? { ...m, content: JSON.stringify(toolMsgContent) } : m
+                ),
+                agentToolCalls: state.agentToolCalls.map((tc) =>
+                  tc.id === toolMessageId
+                    ? { ...tc, status: 'running', input: JSON.stringify(data.input ?? null) }
+                    : tc
+                ),
+              }));
+            } else {
+              set((state) => ({
+                messages: [...state.messages, toolMsg],
+                agentToolCalls: data.id
+                  ? [
+                      ...state.agentToolCalls,
+                      {
+                        id: data.id,
+                        run_id: state.activeRunId || '',
+                        tool_name: data.name,
+                        input: JSON.stringify(data.input ?? null),
+                        output: null,
+                        status: 'running',
+                        error: null,
+                        approval_status: null,
+                        started_at: Date.now(),
+                        ended_at: null,
+                      },
+                    ]
+                  : state.agentToolCalls,
+              }));
+
+              window.electronAPI.db.saveMessage(toolMsg).catch((err) => {
+                console.error('Failed to save tool start message:', err);
+              });
+            }
 
             // 3. 准备切换下一段助手消息
             currentAssistantMsgId = window.crypto.randomUUID();
@@ -321,9 +338,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
 
           if (data.type === 'tool_end' || data.type === 'tool_error') {
-            const queue = pendingToolMessages.get(data.name) || [];
-            const toolMessageId = queue.shift();
-            pendingToolMessages.set(data.name, queue);
+            let toolMessageId = data.id;
+            if (!toolMessageId) {
+              const queue = pendingToolMessages.get(data.name) || [];
+              toolMessageId = queue.shift();
+              pendingToolMessages.set(data.name, queue);
+            }
+
             if (toolMessageId) {
               const isEnd = data.type === 'tool_end';
               
@@ -352,19 +373,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 messages: state.messages.map((m) =>
                   m.id === toolMessageId ? { ...m, content: updatedContent } : m
                 ),
-                agentToolCalls: data.id
-                  ? state.agentToolCalls.map((toolCall) =>
-                      toolCall.id === data.id
-                        ? {
-                            ...toolCall,
-                            status: isEnd ? 'success' : 'error',
-                            output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
-                            error: !isEnd ? data.error : null,
-                            ended_at: Date.now(),
-                          }
-                        : toolCall
-                    )
-                  : state.agentToolCalls,
+                agentToolCalls: state.agentToolCalls.map((toolCall) =>
+                  toolCall.id === toolMessageId
+                    ? {
+                        ...toolCall,
+                        status: isEnd ? 'success' : 'error',
+                        output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
+                        error: !isEnd ? data.error : null,
+                        ended_at: Date.now(),
+                      }
+                    : toolCall
+                ),
               }));
 
               const savedMsg = {

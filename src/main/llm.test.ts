@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { createDeepAgentRuntimeMock, dbPrepareMock } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
@@ -20,18 +20,23 @@ vi.mock('./database', () => ({
   },
 }));
 
-import { runLLMChat } from './llm';
+import { RUN_OUTPUT_GRACE_MS, runLLMChat } from './llm';
 
 describe('runLLMChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbPrepareMock.mockImplementation((sql: string) => ({
       run: vi.fn(),
+      all: vi.fn(() => []),
       get: () => {
         if (sql.includes('FROM agent_runs')) return { id: 'run-1' };
         return undefined;
       },
     }));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('should stream assistant tokens with the current user message', async () => {
@@ -122,6 +127,51 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_end', name: 'tool-a', output: 'ok' }));
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_start', name: 'tool-b', input: { y: 2 } }));
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_error', name: 'tool-b', error: 'boom' }));
+  });
+
+  it('should complete when run.output does not resolve after streams finish', async () => {
+    vi.useFakeTimers();
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              reasoning: (async function* () {
+                yield '需要先查找 README。';
+              })(),
+              text: (async function* () {
+                yield '我来读取。';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: new Promise(() => {}),
+          interrupts: [],
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '读取 README' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-hang', {
+      projectId: 'project-1',
+      sessionId: 'session-hang',
+      message: {
+        id: 'message-hang',
+        content: '读取 README',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(RUN_OUTPUT_GRACE_MS);
+    await promise;
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '<think>' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '需要先查找 README。' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '</think>\n\n' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '我来读取。' });
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-hang', { type: 'message_done' });
   });
 
   it('should pass runtime model overrides to deepagent runtime', async () => {
