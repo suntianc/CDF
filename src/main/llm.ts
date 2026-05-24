@@ -178,23 +178,29 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
 
-          let hasReasoning = false;
-          for await (const token of msg.reasoning ?? []) {
-            if (controller.signal.aborted) break;
-            if (!hasReasoning) {
-              hasReasoning = true;
-              sender.send(channel, { type: 'message_chunk', text: '<think>' });
+          const consumeReasoning = async () => {
+            let hasReasoning = false;
+            for await (const token of msg.reasoning ?? []) {
+              if (controller.signal.aborted) break;
+              if (!hasReasoning) {
+                hasReasoning = true;
+                sender.send(channel, { type: 'message_chunk', text: '<think>' });
+              }
+              sender.send(channel, { type: 'message_chunk', text: token });
             }
-            sender.send(channel, { type: 'message_chunk', text: token });
-          }
-          if (hasReasoning && !controller.signal.aborted) {
-            sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
-          }
+            if (hasReasoning && !controller.signal.aborted) {
+              sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+            }
+          };
 
-          for await (const token of msg.text) {
-            if (controller.signal.aborted) break;
-            sender.send(channel, { type: 'message_chunk', text: token });
-          }
+          const consumeText = async () => {
+            for await (const token of msg.text) {
+              if (controller.signal.aborted) break;
+              sender.send(channel, { type: 'message_chunk', text: token });
+            }
+          };
+
+          await Promise.all([consumeReasoning(), consumeText()]);
         }
       })();
 

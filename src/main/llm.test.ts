@@ -174,6 +174,57 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-hang', { type: 'message_done' });
   });
 
+  it('should not block text streaming behind a delayed reasoning stream', async () => {
+    let releaseReasoning!: () => void;
+    const reasoningGate = new Promise<void>((resolve) => {
+      releaseReasoning = resolve;
+    });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              reasoning: (async function* () {
+                await reasoningGate;
+                yield '稍后思考';
+              })(),
+              text: (async function* () {
+                yield '即时回复';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: Promise.resolve({}),
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'ping' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-concurrent', {
+      projectId: 'project-1',
+      sessionId: 'session-concurrent',
+      message: {
+        id: 'message-concurrent',
+        content: 'ping',
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '即时回复' });
+    });
+    expect(send).not.toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '稍后思考' });
+
+    releaseReasoning();
+    await promise;
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '稍后思考' });
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-concurrent', { type: 'message_done' });
+  });
+
   it('should pass runtime model overrides to deepagent runtime', async () => {
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {

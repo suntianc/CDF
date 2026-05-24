@@ -170,6 +170,8 @@ describe('createDeepAgentRuntime', () => {
     }));
     expect(params.systemPrompt).toContain('虚拟路径 `/`');
     expect(params.systemPrompt).toContain('/src/main.ts');
+    expect(params.systemPrompt).toContain('必须在当前轮次继续调用合适的文件工具');
+    expect(params.systemPrompt).toContain('ls` 读取 `/`');
     expect(params.systemPrompt).not.toContain(tempProjectPath);
     expect(params.systemPrompt).not.toContain('[可委派 Agent]');
     expect(params.subagents).toBeUndefined();
