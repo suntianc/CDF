@@ -38,6 +38,11 @@ function toPosix(inputPath: string): string {
   return inputPath.split(path.sep).join(path.posix.sep);
 }
 
+function toVirtualPath(projectPath: string, targetPath: string): string {
+  const relative = toPosix(path.relative(projectPath, targetPath));
+  return relative.startsWith('/') ? relative : `/${relative}`;
+}
+
 function ensureDir(targetDir: string): void {
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
@@ -203,23 +208,34 @@ export function mirrorGlobalSkillsIntoProject(projectPath: string): string | nul
   return runtimeDir;
 }
 
-export function resolveAgentSkillsConfig(projectPath: string): { skillsSources: string[]; permissions: FilesystemPermission[] } {
+export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: string[]): { skillsSources: string[]; permissions: FilesystemPermission[] } {
   const projectSkillsDir = getScopePath(projectPath, 'project');
   const mirroredGlobalDir = mirrorGlobalSkillsIntoProject(projectPath);
   const sources: string[] = [];
+  const enabled = Array.isArray(enabledSkillIds) ? new Set(enabledSkillIds) : null;
 
-  if (mirroredGlobalDir && fs.existsSync(mirroredGlobalDir)) {
-    sources.push(toPosix(path.relative(projectPath, mirroredGlobalDir)));
+  if (enabled) {
+    for (const skillId of enabled) {
+      const [scope, skillName] = skillId.includes(':') ? skillId.split(':', 2) : ['project', skillId];
+      const baseDir = scope === 'global' ? mirroredGlobalDir : projectSkillsDir;
+      if (baseDir && skillName && fs.existsSync(path.join(baseDir, skillName))) {
+        sources.push(toVirtualPath(projectPath, path.join(baseDir, skillName)));
+      }
+    }
+  } else if (mirroredGlobalDir && fs.existsSync(mirroredGlobalDir)) {
+    sources.push(toVirtualPath(projectPath, mirroredGlobalDir));
   }
-  if (fs.existsSync(projectSkillsDir)) {
-    sources.push(toPosix(path.relative(projectPath, projectSkillsDir)));
+
+  if (!enabled && fs.existsSync(projectSkillsDir)) {
+    sources.push(toVirtualPath(projectPath, projectSkillsDir));
   }
 
   return {
     skillsSources: sources,
     permissions: [
-      { operations: ['read', 'write'] as const, paths: ['/**'] },
-      { operations: ['read', 'write'] as const, paths: [toPosix(path.join(projectPath, '.cdf', '.runtime')) + '/**'] },
+      { operations: ['read', 'write'] as const, paths: ['/.env', '/.env*', '/.git/*', '/.git/**/*', '/node_modules/*', '/node_modules/**/*', '/out/*', '/out/**/*', '/dist/*', '/dist/**/*', '/Users/*', '/Users/**/*', '/home/*', '/home/**/*', '/private/*', '/private/**/*', '/tmp/*', '/tmp/**/*', '/var/*', '/var/**/*'], mode: 'deny' },
+      { operations: ['read', 'write'] as const, paths: ['/*', '/**/*'] },
+      { operations: ['read', 'write'] as const, paths: ['/.cdf/.runtime/*', '/.cdf/.runtime/**/*'] },
     ],
   };
 }

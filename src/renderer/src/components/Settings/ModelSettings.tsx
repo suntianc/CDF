@@ -4,6 +4,76 @@ import { LLMProvider } from '../../../../shared/types';
 import { 
   Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
+import { CustomSelect } from '../ui/CustomSelect';
+import { ProviderIcon } from '@lobehub/icons';
+
+const getDefaultModelForType = (type: string) => {
+  switch (type) {
+    case 'openai': return 'gpt-4o';
+    case 'anthropic': return 'claude-3-5-sonnet-20241022';
+    case 'deepseek': return 'deepseek-chat';
+    case 'glm':
+    case 'glm-overseas': return 'glm-4-flash';
+    case 'minimax':
+    case 'minimax-overseas': return 'abab6.5g-chat';
+    case 'kimi': return 'moonshot-v1-8k';
+    case 'qwen': return 'qwen-plus';
+    case 'mimo': return 'mimo-chat';
+    default: return 'gpt-4o';
+  }
+};
+
+const getProviderLabel = (type: string): string => {
+  switch (type) {
+    case 'openai': return 'OpenAI';
+    case 'anthropic': return 'Anthropic';
+    case 'deepseek': return 'DeepSeek';
+    case 'glm': return 'GLM CN';
+    case 'glm-overseas': return 'GLM EN';
+    case 'minimax': return 'Minimax CN';
+    case 'minimax-overseas': return 'Minimax EN';
+    case 'kimi': return 'Kimi';
+    case 'qwen': return 'Qwen';
+    case 'mimo': return 'Xiaomi MiMo';
+    case 'ollama': return 'Ollama';
+    case 'custom': return 'OpenAI Compatible';
+    default: return 'OpenAI Compatible';
+  }
+};
+
+const mapProviderTypeToIcon = (type: string): string => {
+  if (type === 'glm' || type === 'glm-overseas') return 'zhipu';
+  if (type === 'kimi') return 'moonshot';
+  if (type === 'minimax-overseas') return 'minimax';
+  return type;
+};
+
+const mergeModelsUnique = (existing: string[], newModels: string[]): string[] => {
+  const combined: string[] = [];
+  const seen = new Set<string>();
+  
+  for (const m of newModels) {
+    const trimmed = m.trim();
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      combined.push(trimmed);
+    }
+  }
+  
+  for (const m of existing) {
+    const trimmed = m.trim();
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      combined.push(trimmed);
+    }
+  }
+  
+  return combined;
+};
 
 interface Toast {
   id: string;
@@ -95,7 +165,7 @@ export function ModelSettings() {
 
       if (fetchedModels && fetchedModels.length > 0) {
         const existing = p.models || [];
-        const combined = Array.from(new Set([...existing, ...fetchedModels]));
+        const combined = mergeModelsUnique(existing, fetchedModels);
         const updatedProvider = {
           ...p,
           models: combined,
@@ -119,7 +189,8 @@ export function ModelSettings() {
     if (!trimmed) return;
     
     const existing = p.models || [];
-    if (existing.includes(trimmed)) {
+    const isDuplicate = existing.some(m => m.trim().toLowerCase() === trimmed.toLowerCase());
+    if (isDuplicate) {
       showToast('该模型 ID 已存在', 'error');
       return;
     }
@@ -166,7 +237,7 @@ export function ModelSettings() {
   // Open modal for editing
   const openEditModal = (p: LLMProvider) => {
     setEditingProviderId(p.id);
-    setFormName(p.name);
+    setFormName(p.provider_type === 'custom' ? p.name : getProviderLabel(p.provider_type));
     setFormType(p.provider_type);
     setFormKey(p.hasKey ? '••••••••' : '');
     setFormUrl(p.api_url || '');
@@ -182,11 +253,11 @@ export function ModelSettings() {
   // Open modal for creating
   const openCreateModal = () => {
     setEditingProviderId(null);
-    setFormName('');
+    setFormName('OpenAI');
     setFormType('openai');
     setFormKey('');
-    setFormUrl('');
-    setFormModel('');
+    setFormUrl('https://api.openai.com/v1');
+    setFormModel('gpt-4o');
     setFormLimit(8192);
     setFormActive(false);
     setOllamaModels([]);
@@ -230,15 +301,19 @@ export function ModelSettings() {
       provider_type: formType,
       api_key: formKey,
       api_url: formUrl || undefined,
-      default_model: formModel || (formType === 'openai' ? 'gpt-4o' : formType === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'llama3'),
+      default_model: formModel || getDefaultModelForType(formType),
       context_limit: formLimit || 8192,
       is_active: formActive ? 1 : 0,
       models: existingModels
     };
 
-    // Auto append default model if it is not in models list yet
-    if (providerPayload.default_model && !existingModels.includes(providerPayload.default_model)) {
-      providerPayload.models = [...existingModels, providerPayload.default_model];
+    // Auto append default model if it is not in models list yet (case-insensitive check)
+    if (providerPayload.default_model) {
+      const defModelTrimmed = providerPayload.default_model.trim();
+      const hasDefault = existingModels.some(m => m.trim().toLowerCase() === defModelTrimmed.toLowerCase());
+      if (!hasDefault) {
+        providerPayload.models = [...existingModels, defModelTrimmed];
+      }
     }
 
     try {
@@ -265,21 +340,21 @@ export function ModelSettings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden">
       {/* Topbar */}
-      <div className="main-topbar flex items-center justify-between">
-        <div>
-          <div className="topbar-title">模型供应商配置</div>
-          <div className="topbar-subtitle">管理 API 密钥、接口端点和可用模型标签</div>
-        </div>
-        <div className="topbar-actions flex items-center gap-2">
-          <button className="btn btn-primary flex items-center gap-1.5 no-drag" onClick={openCreateModal}>
+      <div className="main-topbar shrink-0 h-9 border-b-0" />
+
+      {/* Main Settings Content */}
+      <div className="settings-content !pt-3">
+        {/* 内置的操作 Toolbar 面板 */}
+        <div className="flex items-center justify-between gap-4 mb-4 shrink-0">
+          <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+            模型供应商列表 ({providers.length})
+          </div>
+          <button className="btn btn-primary flex items-center gap-1.5 cursor-pointer text-xs py-1.5" onClick={openCreateModal}>
             <Plus className="w-4 h-4" />
             <span>添加供应商</span>
           </button>
         </div>
-      </div>
 
-      {/* Main Settings Content */}
-      <div className="settings-content">
         {error && (
           <div className="mb-4 p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-lg flex items-start gap-2 text-xs text-[var(--color-danger)]">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -292,8 +367,8 @@ export function ModelSettings() {
             <div key={p.id} className="provider-card">
               <div className="provider-card-head">
                 <div className="provider-meta">
-                  <div className="provider-icon">
-                    {p.name ? p.name.charAt(0).toUpperCase() : 'M'}
+                  <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0">
+                    <ProviderIcon provider={mapProviderTypeToIcon(p.provider_type)} size={32} />
                   </div>
                   <div>
                     <div className="provider-name flex items-center gap-2">
@@ -474,15 +549,19 @@ export function ModelSettings() {
                     onChange={(e) => setFormName(e.target.value)}
                     placeholder="例如：OpenAI / Anthropic / 硅基流动"
                     required
+                    disabled={formType !== 'custom'}
                   />
                 </div>
                 <div className="form-group">
                   <label className="form-label">服务类型</label>
-                  <select 
+                  <CustomSelect
                     value={formType}
-                    onChange={(e) => {
-                      const type = e.target.value as LLMProvider['provider_type'];
+                    onChange={(val) => {
+                      const type = val as LLMProvider['provider_type'];
                       setFormType(type);
+                      if (type !== 'custom') {
+                        setFormName(getProviderLabel(type));
+                      }
                       if (type === 'ollama') {
                         setFormUrl('http://localhost:11434');
                         setFormLimit(8192);
@@ -492,17 +571,49 @@ export function ModelSettings() {
                       } else if (type === 'anthropic') {
                         setFormUrl('https://api.anthropic.com/v1');
                         setFormLimit(200000);
+                      } else if (type === 'deepseek') {
+                        setFormUrl('https://api.deepseek.com');
+                        setFormLimit(64000);
+                      } else if (type === 'glm') {
+                        setFormUrl('https://open.bigmodel.cn/api/paas/v4');
+                        setFormLimit(128000);
+                      } else if (type === 'glm-overseas') {
+                        setFormUrl('https://open.bigmodel.cn/api/paas/v4');
+                        setFormLimit(128000);
+                      } else if (type === 'minimax') {
+                        setFormUrl('https://api.minimaxi.com/v1');
+                        setFormLimit(64000);
+                      } else if (type === 'minimax-overseas') {
+                        setFormUrl('https://api.minimax.io/v1');
+                        setFormLimit(64000);
+                      } else if (type === 'kimi') {
+                        setFormUrl('https://api.moonshot.ai/v1');
+                        setFormLimit(128000);
+                      } else if (type === 'qwen') {
+                        setFormUrl('https://dashscope.aliyuncs.com/compatible-mode/v1');
+                        setFormLimit(128000);
+                      } else if (type === 'mimo') {
+                        setFormUrl('https://api.xiaomimimo.com/v1');
+                        setFormLimit(64000);
                       } else {
                         setFormUrl('');
                       }
                     }}
-                    className="form-input bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] rounded-lg outline-none"
-                  >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="ollama">Ollama (本地运行)</option>
-                    <option value="custom">Custom (OpenAI 兼容)</option>
-                  </select>
+                    options={[
+                      { value: 'openai', label: 'OpenAI' },
+                      { value: 'anthropic', label: 'Anthropic' },
+                      { value: 'deepseek', label: 'DeepSeek' },
+                      { value: 'glm', label: 'GLM CN' },
+                      { value: 'glm-overseas', label: 'GLM EN' },
+                      { value: 'minimax', label: 'Minimax CN' },
+                      { value: 'minimax-overseas', label: 'Minimax EN' },
+                      { value: 'kimi', label: 'Kimi' },
+                      { value: 'qwen', label: 'Qwen' },
+                      { value: 'mimo', label: 'Xiaomi MiMo' },
+                      { value: 'ollama', label: 'Ollama' },
+                      { value: 'custom', label: 'OpenAI Compatible' }
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -574,21 +685,17 @@ export function ModelSettings() {
                   )}
 
                   {formType === 'ollama' && ollamaModels.length > 0 ? (
-                    <select
+                    <CustomSelect
                       value={formModel}
-                      onChange={(e) => setFormModel(e.target.value)}
-                      className="form-input bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] rounded-lg outline-none"
-                    >
-                      {ollamaModels.map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                      onChange={(val) => setFormModel(val)}
+                      options={ollamaModels.map(m => ({ value: m, label: m }))}
+                    />
                   ) : (
                     <input 
                       className="form-input" 
                       value={formModel}
                       onChange={(e) => setFormModel(e.target.value)}
-                      placeholder={formType === 'openai' ? 'gpt-4o' : formType === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'llama3'}
+                      placeholder={getDefaultModelForType(formType)}
                       required
                     />
                   )}

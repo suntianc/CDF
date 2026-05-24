@@ -29,18 +29,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await window.electronAPI.db.saveAgent(agent);
-      await get().fetchAgents();
+      await get().fetchAgents(agent.project_id);
     } catch (err: any) {
       set({ error: err.message || 'Failed to save agent', isLoading: false });
       throw err;
     }
   },
-
+ 
   deleteAgent: async (id) => {
     set({ isLoading: true, error: null });
+    const agentToDelete = get().agents.find(a => a.id === id);
+    const projectId = agentToDelete ? agentToDelete.project_id : 'default-project';
     try {
       await window.electronAPI.db.deleteAgent(id);
-      await get().fetchAgents();
+      await get().fetchAgents(projectId);
     } catch (err: any) {
       set({ error: err.message || 'Failed to delete agent', isLoading: false });
       throw err;

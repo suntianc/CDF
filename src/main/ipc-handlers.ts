@@ -1,8 +1,8 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, app } from 'electron';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
-import { runLLMChat, fetchOllamaModels, stopLLMChat } from './llm';
+import { runLLMChat, fetchOllamaModels, stopLLMChat, resolveLLMApproval } from './llm';
 import {
   buildAnthropicModelsUrl,
   buildOpenAIModelsUrl,
@@ -18,7 +18,75 @@ import {
 } from './deepagent/skill-manager';
 import { createMcpClient } from './deepagent/mcp-connector';
 
+const getProviderLabel = (type: string): string => {
+  switch (type) {
+    case 'openai': return 'OpenAI';
+    case 'anthropic': return 'Anthropic';
+    case 'deepseek': return 'DeepSeek';
+    case 'glm': return 'GLM CN';
+    case 'glm-overseas': return 'GLM EN';
+    case 'minimax': return 'Minimax CN';
+    case 'minimax-overseas': return 'Minimax EN';
+    case 'kimi': return 'Kimi';
+    case 'qwen': return 'Qwen';
+    case 'mimo': return 'Xiaomi MiMo';
+    case 'ollama': return 'Ollama';
+    case 'custom': return 'OpenAI Compatible';
+    default: return 'OpenAI Compatible';
+  }
+};
+
 export function registerIpcHandlers() {
+  const ensureProjectForSession = (projectId: string) => {
+    const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+    if (existing) return;
+    if (projectId !== 'default-project') {
+      throw new Error(`Project with ID ${projectId} not found.`);
+    }
+
+    const defaultProjectPath = path.join(app.getPath('userData'), 'default-project');
+    const now = Date.now();
+    if (!fs.existsSync(defaultProjectPath)) {
+      fs.mkdirSync(defaultProjectPath, { recursive: true });
+    }
+    db.prepare(`
+      INSERT INTO projects (id, name, path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('default-project', '默认项目', defaultProjectPath, now, now);
+  };
+
+  const ensureDefaultAgentForSession = (projectId: string): string | null => {
+    const existing = db
+      .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 ORDER BY updated_at DESC LIMIT 1')
+      .get(projectId) as { id: string } | undefined;
+    if (existing) return existing.id;
+
+    const provider = db
+      .prepare('SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1')
+      .get() as { id: string } | undefined;
+    const fallbackProvider = provider || (db.prepare('SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1').get() as { id: string } | undefined);
+    const now = Date.now();
+    const id = crypto.randomUUID();
+
+    db.prepare(`
+      INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      projectId,
+      'Master Agent',
+      '项目默认 Agent',
+      fallbackProvider?.id || null,
+      '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
+      null,
+      1,
+      now,
+      now
+    );
+
+    return id;
+  };
+
   const buildProviderHeaders = (providerType: string, apiUrl: string | undefined, decryptedKey?: string) => {
     const headers: Record<string, string> = {};
     const trimmedKey = decryptedKey?.trim();
@@ -90,14 +158,17 @@ export function registerIpcHandlers() {
       .all(projectId);
   });
 
-  ipcMain.handle('db:createSession', (_, projectId: string, name: string, parentSessionId?: string, summary?: string) => {
+  ipcMain.handle('db:createSession', (_, projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => {
     const id = crypto.randomUUID();
     const now = Date.now();
+    ensureProjectForSession(projectId);
+    // 主聊天入口始终绑定项目默认 Master Agent；其它 Agent 作为 Master Agent 可调用资产。
+    const finalAgentId = ensureDefaultAgentForSession(projectId) || agentId || null;
     db.prepare(`
-      INSERT INTO sessions (id, project_id, name, parent_session_id, summary, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, name, parentSessionId || null, summary || null, now, now);
-    return { id, project_id: projectId, name, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
+      INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, now, now);
+    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
   });
 
   ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
@@ -150,7 +221,13 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('db:saveProvider', (_, provider: any) => {
-    const { id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, models } = provider;
+    let { id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, models } = provider;
+    
+    // Force standard name for non-custom providers
+    if (provider_type !== 'custom') {
+      name = getProviderLabel(provider_type);
+    }
+
     const now = Date.now();
     const normalizedApiUrl = normalizeProviderApiUrl(api_url);
     
@@ -195,12 +272,19 @@ export function registerIpcHandlers() {
   });
 
   // LLM Streaming API Call handler (deepagents-driven)
-  ipcMain.handle('llm:chat', async (event, requestId: string, payload: any) => {
-    await runLLMChat(event.sender, requestId, payload);
+  ipcMain.handle('llm:chat', (event, requestId: string, payload: any) => {
+    void runLLMChat(event.sender, requestId, payload).catch((error) => {
+      console.error('LLM chat task failed:', error);
+    });
+    return { ok: true };
   });
 
   ipcMain.handle('llm:stopChat', async (_, requestId: string) => {
     stopLLMChat(requestId);
+  });
+
+  ipcMain.handle('llm:resolveApproval', async (_, requestId: string, resolution: any) => {
+    resolveLLMApproval(requestId, resolution);
   });
 
   ipcMain.handle('llm:testProvider', async (_, providerId: string) => {
@@ -398,6 +482,14 @@ export function registerIpcHandlers() {
   ipcMain.handle('db:getSkillVersions', () => {
     // 物理文件系统下不另行留存数据库版本表，返回空数组保持向前兼容
     return [];
+  });
+
+  ipcMain.handle('db:getAgentRuns', (_, sessionId: string) => {
+    return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId);
+  });
+
+  ipcMain.handle('db:getAgentToolCalls', (_, runId: string) => {
+    return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId);
   });
 
   // ===== Phase 3: MCP Server IPC Handlers =====

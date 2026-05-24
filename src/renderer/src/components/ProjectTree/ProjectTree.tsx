@@ -104,8 +104,8 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
       <div
         className={`
           group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border border-transparent min-w-0
-          hover:bg-[var(--color-bg-surface)] hover:shadow-md
-          ${isActive ? 'text-[var(--color-text-primary)] font-semibold border-[var(--color-border)] bg-[var(--color-bg-active)]' : 'text-[var(--color-text-secondary)]'}
+          hover:bg-[var(--color-bg-hover)]
+          ${isActive ? 'text-[var(--color-text-primary)] font-medium' : 'text-[var(--color-text-secondary)]'}
         `}
         onClick={handleProjectClick}
       >
@@ -235,7 +235,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
                 group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border min-w-0
                 ${
                   activeSessionId === session.id
-                    ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium shadow-sm'
+                    ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium'
                     : 'bg-transparent border-transparent hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                 }
               `}
@@ -420,7 +420,7 @@ export function ProjectTree() {
             onClick={() => setSessionsExpanded(!sessionsExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"
           >
-            <span className="text-xs">对话</span>
+            <span className="text-xs">临时会话</span>
             {sessionsExpanded ? (
               <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
             ) : (
@@ -431,7 +431,7 @@ export function ProjectTree() {
             <button 
               onClick={handleNewChat}
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
-              title="新建无项目会话"
+              title="新建临时会话"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -448,7 +448,7 @@ export function ProjectTree() {
                   group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border min-w-0
                   ${
                     activeSessionId === session.id
-                      ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium shadow-sm'
+                      ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium'
                       : 'bg-transparent border-transparent hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                   }
                 `}

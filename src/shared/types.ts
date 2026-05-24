@@ -11,6 +11,7 @@ export interface Session {
   id: string;
   project_id: string;
   name: string;
+  agent_id?: string | null;
   parent_session_id?: string | null;
   summary?: string | null;
   created_at: number;
@@ -29,7 +30,7 @@ export interface Message {
 export interface LLMProvider {
   id: string;
   name: string;
-  provider_type: 'openai' | 'anthropic' | 'ollama' | 'custom';
+  provider_type: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'glm' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'kimi' | 'qwen' | 'mimo';
   api_key?: string;
   api_url?: string;
   default_model: string;
@@ -90,16 +91,72 @@ export interface MCPServer {
 }
 
 export type LLMStreamEvent =
+  | { type: 'run_started'; runId: string; agentId: string; status: AgentRunStatus }
+  | { type: 'run_updated'; runId: string; status: AgentRunStatus; error?: string }
   | { type: 'message_chunk'; text: string }
   | { type: 'message_done' }
-  | { type: 'tool_start'; name: string; input?: unknown }
-  | { type: 'tool_end'; name: string; output?: unknown }
-  | { type: 'tool_error'; name: string; error: string }
+  | { type: 'tool_start'; id?: string; name: string; input?: unknown }
+  | { type: 'tool_end'; id?: string; name: string; output?: unknown }
+  | { type: 'tool_error'; id?: string; name: string; error: string }
+  | { type: 'approval_required'; approval: AgentApprovalRequest }
+  | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
   | { type: 'runtime_error'; error: string };
 
 export interface ChatRuntimeOverrides {
   providerId?: string;
   model?: string;
+}
+
+export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted';
+export type AgentToolCallStatus = 'running' | 'success' | 'error' | 'skipped';
+export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited';
+export type AgentApprovalDecisionType = 'approve' | 'reject' | 'edit';
+
+export interface AgentRun {
+  id: string;
+  session_id: string;
+  agent_id: string;
+  request_id: string;
+  status: AgentRunStatus;
+  error?: string | null;
+  started_at: number;
+  ended_at?: number | null;
+  aborted: number;
+}
+
+export interface AgentToolCall {
+  id: string;
+  run_id: string;
+  tool_name: string;
+  input?: string | null;
+  output?: string | null;
+  status: AgentToolCallStatus;
+  error?: string | null;
+  approval_status?: AgentApprovalStatus | null;
+  started_at: number;
+  ended_at?: number | null;
+}
+
+export interface AgentApprovalAction {
+  name: string;
+  args?: unknown;
+  description?: string;
+  allowedDecisions?: AgentApprovalDecisionType[];
+}
+
+export interface AgentApprovalRequest {
+  id: string;
+  runId: string;
+  actions: AgentApprovalAction[];
+}
+
+export interface AgentApprovalResolution {
+  approvalId: string;
+  decisions: Array<{
+    type: AgentApprovalDecisionType;
+    editedAction?: unknown;
+    message?: string;
+  }>;
 }
 
 export interface ElectronAPI {
@@ -112,7 +169,7 @@ export interface ElectronAPI {
     createProject: (name: string, projectPath: string) => Promise<Project>;
     deleteProject: (id: string) => Promise<void>;
     getSessions: (projectId: string) => Promise<Session[]>;
-    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) => Promise<Session>;
+    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
     deleteSession: (sessionId: string) => Promise<void>;
     getMessages: (sessionId: string) => Promise<Message[]>;
     saveMessage: (message: any) => Promise<Message>;
@@ -130,6 +187,8 @@ export interface ElectronAPI {
     saveSkill: (projectId: string, skill: any) => Promise<Skill>;
     deleteSkill: (projectId: string, id: string) => Promise<void>;
     getSkillVersions: (skillId: string) => Promise<SkillVersion[]>;
+    getAgentRuns: (sessionId: string) => Promise<AgentRun[]>;
+    getAgentToolCalls: (runId: string) => Promise<AgentToolCall[]>;
     // Phase 3: MCP Servers
     getMcpServers: () => Promise<MCPServer[]>;
     saveMcpServer: (server: any) => Promise<MCPServer>;
@@ -139,8 +198,9 @@ export interface ElectronAPI {
     selectFile: () => Promise<{ name: string; script_type: 'bash' | 'python' | 'javascript'; content: string } | null>;
   };
   llm: {
-    chat: (requestId: string, payload: { projectId: string; sessionId: string; messages: { role: string; content: string }[]; overrides?: ChatRuntimeOverrides }) => Promise<void>;
+    chat: (requestId: string, payload: { projectId: string; sessionId: string; agentId?: string | null; message: { id: string; content: string }; overrides?: ChatRuntimeOverrides }) => Promise<void>;
     stopChat: (requestId: string) => Promise<void>;
+    resolveApproval: (requestId: string, resolution: AgentApprovalResolution) => Promise<void>;
     testProvider: (providerId: string) => Promise<{ ok: boolean; message: string }>;
     fetchProviderModels: (providerId: string) => Promise<string[]>;
     fetchOllamaModels: (apiUrl: string) => Promise<string[]>;

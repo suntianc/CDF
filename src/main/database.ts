@@ -3,7 +3,7 @@ import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
-const dbPath = path.join(app.getPath('userData'), 'agent-workstation.db');
+const dbPath = path.join(app.getPath('userData'), 'cdf.db');
 const db = new Database(dbPath);
 
 // Enable WAL mode for better concurrent read performance
@@ -38,10 +38,12 @@ db.exec(`
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    agent_id TEXT,
     summary TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
   );
 
   CREATE TABLE IF NOT EXISTS llm_providers (
@@ -74,6 +76,14 @@ try {
 } catch (error: any) {
   if (!error.message.includes('duplicate column name')) {
     console.error('Failed to migrate sessions table (parent_session_id):', error);
+  }
+}
+
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`);
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Failed to migrate sessions table (agent_id):', error);
   }
 }
 
@@ -136,6 +146,34 @@ db.exec(`
     PRIMARY KEY (agent_id, skill_name),
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    aborted INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_tool_calls (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    input TEXT,
+    output TEXT,
+    status TEXT NOT NULL,
+    error TEXT,
+    approval_status TEXT,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+  );
 `);
 
 try {
@@ -182,6 +220,138 @@ try {
   }
 } catch (error) {
   console.error('Failed to initialize default project:', error);
+}
+
+// Insert default LLM providers if none exist
+try {
+  const providerCount = db.prepare('SELECT COUNT(*) as count FROM llm_providers').get() as { count: number };
+  if (providerCount && providerCount.count === 0) {
+    const now = Date.now();
+    const defaultProviders = [
+      {
+        id: 'default-openai',
+        name: 'OpenAI',
+        provider_type: 'openai',
+        api_url: 'https://api.openai.com/v1',
+        default_model: 'gpt-4o',
+        context_limit: 8192,
+        is_active: 1, // 默认激活 OpenAI
+        models: JSON.stringify(['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo'])
+      },
+      {
+        id: 'default-anthropic',
+        name: 'Anthropic',
+        provider_type: 'anthropic',
+        api_url: 'https://api.anthropic.com/v1',
+        default_model: 'claude-3-5-sonnet-20241022',
+        context_limit: 200000,
+        is_active: 0,
+        models: JSON.stringify(['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-5-haiku-20241022'])
+      },
+      {
+        id: 'default-deepseek',
+        name: 'DeepSeek',
+        provider_type: 'deepseek',
+        api_url: 'https://api.deepseek.com',
+        default_model: 'deepseek-chat',
+        context_limit: 64000,
+        is_active: 0,
+        models: JSON.stringify(['deepseek-chat', 'deepseek-coder'])
+      },
+      {
+        id: 'default-glm',
+        name: 'GLM CN',
+        provider_type: 'glm',
+        api_url: 'https://open.bigmodel.cn/api/paas/v4',
+        default_model: 'glm-4-flash',
+        context_limit: 128000,
+        is_active: 0,
+        models: JSON.stringify(['glm-4-flash', 'glm-4-plus', 'glm-4-air'])
+      },
+      {
+        id: 'default-glm-overseas',
+        name: 'GLM EN',
+        provider_type: 'glm-overseas',
+        api_url: 'https://open.bigmodel.cn/api/paas/v4',
+        default_model: 'glm-4-flash',
+        context_limit: 128000,
+        is_active: 0,
+        models: JSON.stringify(['glm-4-flash', 'glm-4-plus'])
+      },
+      {
+        id: 'default-minimax',
+        name: 'Minimax CN',
+        provider_type: 'minimax',
+        api_url: 'https://api.minimaxi.com/v1',
+        default_model: 'abab6.5g-chat',
+        context_limit: 64000,
+        is_active: 0,
+        models: JSON.stringify(['abab6.5g-chat', 'abab6.5s-chat'])
+      },
+      {
+        id: 'default-minimax-overseas',
+        name: 'Minimax EN',
+        provider_type: 'minimax-overseas',
+        api_url: 'https://api.minimax.io/v1',
+        default_model: 'abab6.5g-chat',
+        context_limit: 64000,
+        is_active: 0,
+        models: JSON.stringify(['abab6.5g-chat'])
+      },
+      {
+        id: 'default-kimi',
+        name: 'Kimi',
+        provider_type: 'kimi',
+        api_url: 'https://api.moonshot.ai/v1',
+        default_model: 'moonshot-v1-8k',
+        context_limit: 128000,
+        is_active: 0,
+        models: JSON.stringify(['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'])
+      },
+      {
+        id: 'default-qwen',
+        name: 'Qwen',
+        provider_type: 'qwen',
+        api_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        default_model: 'qwen-plus',
+        context_limit: 128000,
+        is_active: 0,
+        models: JSON.stringify(['qwen-plus', 'qwen-turbo', 'qwen-max'])
+      },
+      {
+        id: 'default-mimo',
+        name: 'Xiaomi MiMo',
+        provider_type: 'mimo',
+        api_url: 'https://api.xiaomimimo.com/v1',
+        default_model: 'mimo-chat',
+        context_limit: 64000,
+        is_active: 0,
+        models: JSON.stringify(['mimo-chat'])
+      },
+      {
+        id: 'default-ollama',
+        name: 'Ollama',
+        provider_type: 'ollama',
+        api_url: 'http://localhost:11434',
+        default_model: 'llama3',
+        context_limit: 8192,
+        is_active: 0,
+        models: JSON.stringify(['llama3'])
+      }
+    ];
+
+    const insertProvider = db.prepare(`
+      INSERT INTO llm_providers (id, name, provider_type, api_url, default_model, context_limit, is_active, models, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const p of defaultProviders) {
+      insertProvider.run(p.id, p.name, p.provider_type, p.api_url, p.default_model, p.context_limit, p.is_active, p.models, now, now);
+    }
+    console.log('Successfully initialized default LLM providers');
+  }
+} catch (error) {
+  console.error('Failed to initialize default LLM providers:', error);
 }
 
 export default db;

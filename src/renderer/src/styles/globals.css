@@ -36,8 +36,8 @@
 
 /* Light theme overrides */
 html[data-theme="light"] {
-  --bg-app: #f4f4f6;
-  --bg-sidebar: #ffffff;
+  --bg-app: #F9F9F7;
+  --bg-sidebar: #F0F0F0;
   --bg-surface: #eaeaea;
   --bg-hover: rgba(0, 0, 0, 0.05);
   --bg-active: rgba(0, 0, 0, 0.08);
@@ -420,8 +420,8 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .main-topbar {
   display: flex;
   align-items: center;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--border);
+  padding: 0px 24px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.06);
   gap: 12px;
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -780,10 +780,20 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 .form-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .form-input::placeholder {
   color: var(--text-muted);
+}
+
+.form-input[type="number"]::-webkit-outer-spin-button,
+.form-input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.form-input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 .form-hint {

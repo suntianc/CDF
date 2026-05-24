@@ -1,10 +1,22 @@
 import { WebContents } from 'electron';
+import { Command } from '@langchain/langgraph';
+import db from './database';
 import { getOllamaBaseUrl } from './deepagent/llm-adapter';
-import { createDeepAgentRuntime, extractSummaryFromState, persistSessionSummary } from './deepagent/runtime';
+import { DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime } from './deepagent/runtime';
+import type {
+  AgentApprovalResolution,
+  AgentRunStatus,
+  AgentToolCallStatus,
+} from '../shared/types';
 
 export interface ChatPayload {
   projectId: string;
   sessionId: string;
+  agentId?: string | null;
+  message: {
+    id: string;
+    content: string;
+  };
   overrides?: {
     providerId?: string;
     model?: string;
@@ -12,6 +24,92 @@ export interface ChatPayload {
 }
 
 const activeRequests = new Map<string, AbortController>();
+const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
+
+function safeStringify(value: unknown): string | null {
+  if (value === undefined) return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function createRun(sessionId: string, agentId: string, requestId: string): string {
+  const id = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO agent_runs (id, session_id, agent_id, request_id, status, started_at, aborted)
+    VALUES (?, ?, ?, ?, ?, ?, 0)
+  `).run(id, sessionId, agentId, requestId, 'running', Date.now());
+  return id;
+}
+
+function updateRun(runId: string, status: AgentRunStatus, error?: string, aborted = false): void {
+  const endedAt = ['completed', 'failed', 'aborted'].includes(status) ? Date.now() : null;
+  db.prepare(`
+    UPDATE agent_runs
+    SET status = ?, error = ?, ended_at = COALESCE(?, ended_at), aborted = ?
+    WHERE id = ?
+  `).run(status, error || null, endedAt, aborted ? 1 : 0, runId);
+}
+
+function createToolCall(runId: string, name: string, input: unknown): string {
+  const id = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO agent_tool_calls (id, run_id, tool_name, input, status, started_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, runId, name, safeStringify(input), 'running', Date.now());
+  return id;
+}
+
+function updateToolCall(id: string, status: AgentToolCallStatus, output?: unknown, error?: string): void {
+  db.prepare(`
+    UPDATE agent_tool_calls
+    SET status = ?, output = ?, error = ?, ended_at = ?
+    WHERE id = ?
+  `).run(status, safeStringify(output), error || null, Date.now(), id);
+}
+
+function markApprovalStatus(runId: string, status: string): void {
+  db.prepare(`
+    UPDATE agent_tool_calls
+    SET approval_status = ?
+    WHERE run_id = ? AND status = 'running'
+  `).run(status, runId);
+}
+
+function getLatestRunId(requestId: string): string | null {
+  const row = db.prepare('SELECT id FROM agent_runs WHERE request_id = ? ORDER BY started_at DESC LIMIT 1').get(requestId) as { id: string } | undefined;
+  return row?.id || null;
+}
+
+function getInterruptValue(output: any) {
+  return output?.__interrupt__?.[0]?.value || output?.interrupts?.[0]?.value || null;
+}
+
+function toApprovalRequest(runId: string, interruptValue: any) {
+  const actions = Array.isArray(interruptValue?.actionRequests) ? interruptValue.actionRequests : [];
+  const reviewConfigs = Array.isArray(interruptValue?.reviewConfigs) ? interruptValue.reviewConfigs : [];
+  return {
+    id: crypto.randomUUID(),
+    runId,
+    actions: actions.map((action: any, index: number) => ({
+      name: action?.name || action?.action || action?.tool || `tool-${index + 1}`,
+      args: action?.args,
+      description: reviewConfigs[index]?.description || action?.description,
+      allowedDecisions: reviewConfigs[index]?.allowedDecisions,
+    })),
+  };
+}
+
+export function resolveLLMApproval(requestId: string, resolution: AgentApprovalResolution): void {
+  const key = `${requestId}:${resolution.approvalId}`;
+  const resolver = pendingApprovals.get(key);
+  if (resolver) {
+    pendingApprovals.delete(key);
+    resolver(resolution);
+  }
+}
 
 export function stopLLMChat(requestId: string): void {
   const controller = activeRequests.get(requestId);
@@ -32,64 +130,128 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     const runtime = await createDeepAgentRuntime(
       payload.projectId,
       payload.sessionId,
+      payload.message,
+      payload.agentId,
       payload.overrides
     );
     cleanup = runtime.cleanup;
 
-    const run = await runtime.agent.streamEvents(
-      { messages: runtime.inputMessages },
-      {
-        version: 'v3',
-        signal: controller.signal,
-        configurable: {
-          thread_id: payload.sessionId,
-        },
-      }
-    );
+    const runId = createRun(payload.sessionId, runtime.agentId, requestId);
+    sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
 
-    const messageStreamPromise = (async () => {
-      for await (const msg of run.messages) {
-        if (controller.signal.aborted) break;
+    let nextInput: any = { messages: runtime.inputMessages };
 
-        for await (const token of msg.text) {
+    while (!controller.signal.aborted) {
+      const run = await runtime.agent.streamEvents(
+        nextInput,
+        {
+          version: 'v3',
+          signal: controller.signal,
+          configurable: {
+            thread_id: payload.sessionId,
+            checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
+          },
+        }
+      );
+
+      const messageStreamPromise = (async () => {
+        for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
-          sender.send(channel, { type: 'message_chunk', text: token });
+
+          for await (const token of msg.text) {
+            if (controller.signal.aborted) break;
+            sender.send(channel, { type: 'message_chunk', text: token });
+          }
         }
-      }
-    })();
+      })();
 
-    const toolStreamPromise = (async () => {
-      for await (const call of run.toolCalls) {
-        if (controller.signal.aborted) break;
-        sender.send(channel, {
-          type: 'tool_start',
-          name: call.name,
-          input: call.input,
-        });
+      const toolStreamPromise = (async () => {
+        for await (const call of run.toolCalls) {
+          if (controller.signal.aborted) break;
+          const toolCallId = createToolCall(runId, call.name, call.input);
+          sender.send(channel, {
+            type: 'tool_start',
+            id: toolCallId,
+            name: call.name,
+            input: call.input,
+          });
 
-        try {
-          const output = await call.output;
-          sender.send(channel, {
-            type: 'tool_end',
-            name: call.name,
-            output,
-          });
-        } catch (error: any) {
-          sender.send(channel, {
-            type: 'tool_error',
-            name: call.name,
-            error: error?.message || String(error),
-          });
+          try {
+            const output = await call.output;
+            updateToolCall(toolCallId, 'success', output);
+            sender.send(channel, {
+              type: 'tool_end',
+              id: toolCallId,
+              name: call.name,
+              output,
+            });
+          } catch (error: any) {
+            updateToolCall(toolCallId, 'error', undefined, error?.message || String(error));
+            sender.send(channel, {
+              type: 'tool_error',
+              id: toolCallId,
+              name: call.name,
+              error: error?.message || String(error),
+            });
+          }
         }
-      }
-    })();
+      })();
 
-    // 三路并行：output + messages流 + toolCalls流，防止竞态丢事件
-    const [finalState] = await Promise.all([run.output, messageStreamPromise, toolStreamPromise]);
-    persistSessionSummary(payload.sessionId, extractSummaryFromState(finalState));
+      const output = await run.output;
+      await Promise.all([messageStreamPromise, toolStreamPromise]);
+
+      const interruptValue = getInterruptValue(output);
+      if (!interruptValue) {
+        updateRun(runId, 'completed');
+        sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
+        break;
+      }
+
+      const approval = toApprovalRequest(runId, interruptValue);
+      updateRun(runId, 'waiting_approval');
+      markApprovalStatus(runId, 'pending');
+      sender.send(channel, { type: 'run_updated', runId, status: 'waiting_approval' });
+      sender.send(channel, { type: 'approval_required', approval });
+
+      const resolution = await new Promise<AgentApprovalResolution>((resolve, reject) => {
+        const key = `${requestId}:${approval.id}`;
+        pendingApprovals.set(key, resolve);
+        controller.signal.addEventListener('abort', () => {
+          pendingApprovals.delete(key);
+          reject(new DOMException('Aborted', 'AbortError'));
+        }, { once: true });
+      });
+
+      const approvalStatus = resolution.decisions.some((decision) => decision.type === 'edit')
+        ? 'edited'
+        : resolution.decisions.every((decision) => decision.type === 'approve')
+          ? 'approved'
+          : 'rejected';
+      markApprovalStatus(runId, approvalStatus);
+      sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
+      updateRun(runId, 'running');
+      sender.send(channel, { type: 'run_updated', runId, status: 'running' });
+      nextInput = new Command({ resume: { decisions: resolution.decisions } });
+    }
+
+    if (controller.signal.aborted) {
+      updateRun(runId, 'aborted', undefined, true);
+      sender.send(channel, { type: 'run_updated', runId, status: 'aborted' });
+    }
 
     sender.send(channel, { type: 'message_done' });
   } catch (error: any) {
+    const runId = getLatestRunId(requestId);
+    if (runId) {
+      const status = error?.name === 'AbortError' || controller.signal.aborted ? 'aborted' : 'failed';
+      updateRun(runId, status, error?.message || String(error), status === 'aborted');
+      sender.send(channel, {
+        type: 'run_updated',
+        runId,
+        status,
+        error: error?.message || String(error),
+      });
+    }
     if (error?.name === 'AbortError' || controller.signal.aborted) {
       sender.send(channel, { type: 'message_done' });
     } else {

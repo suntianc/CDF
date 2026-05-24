@@ -7,6 +7,8 @@ import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { useThemeStore } from './stores/themeStore';
 import { useProjectStore } from './stores/projectStore';
+import { useSessionStore } from './stores/sessionStore';
+import { PanelLeft } from 'lucide-react';
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -14,6 +16,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<'chat' | 'settings' | 'agents' | 'plugins'>('chat');
   const { setTheme } = useThemeStore();
   const { taskPanelOpen, setTaskPanelOpen } = useProjectStore();
+  const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
 
   useEffect(() => {
@@ -30,6 +33,12 @@ export default function App() {
     };
     initTheme();
   }, [setTheme]);
+
+  useEffect(() => {
+    if (pendingApproval) {
+      setTaskPanelOpen(true);
+    }
+  }, [pendingApproval, setTaskPanelOpen]);
 
   return (
     <div className={`flex h-screen bg-[var(--bg-app)] relative ${sidebarCollapsed ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
@@ -65,6 +74,16 @@ export default function App() {
         width={taskPanelWidth}
         onResize={(w) => setTaskPanelWidth(w)}
       />
+
+      {sidebarCollapsed && (
+        <button
+          onClick={() => setSidebarCollapsed(false)}
+          className="absolute top-[5px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag after:absolute after:inset-[-8px] after:content-['']"
+          title="展开侧边栏"
+        >
+          <PanelLeft className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 }

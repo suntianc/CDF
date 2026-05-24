@@ -1,10 +1,15 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { app } from 'electron';
+import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
 import { decryptApiKey } from '../security';
-import { createDeepAgent, FilesystemBackend } from 'deepagents';
+import { createDeepAgent, FilesystemBackend, registerHarnessProfile } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
 import { loadMcpTools } from './mcp-connector';
 import { resolveAgentSkillsConfig } from './skill-manager';
+import { createDeleteFileTool } from './file-tools';
 import type { MCPServer } from '../../shared/types';
 
 interface RuntimeAgentRow {
@@ -22,12 +27,35 @@ interface RuntimeAgentRow {
 
 interface RuntimeProjectRow {
   id: string;
+  name: string;
   path: string;
 }
 
 interface RuntimeModelOverrides {
   providerId?: string;
   model?: string;
+}
+
+interface RuntimeInputMessage {
+  id: string;
+  content: string;
+}
+
+export const DEEPAGENT_CHECKPOINT_NAMESPACE = 'cdf-master-runtime-v3';
+
+const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['interruptOn'] = {
+  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  delete_file: { allowedDecisions: ['approve', 'reject'] },
+};
+
+let checkpointSaver: SqliteSaver | null = null;
+
+function getCheckpointSaver(): SqliteSaver {
+  if (!checkpointSaver) {
+    checkpointSaver = SqliteSaver.fromConnString(path.join(app.getPath('userData'), 'deepagents-checkpoints.db'));
+  }
+  return checkpointSaver;
 }
 
 function normalizeProviderId(value: string | null | undefined): string | null {
@@ -52,25 +80,8 @@ function getFallbackProviderId(): string {
   return fallbackProvider.id;
 }
 
-function extractText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((block) => {
-        if (typeof block === 'string') return block;
-        if (block && typeof block === 'object' && 'text' in block && typeof (block as { text?: unknown }).text === 'string') {
-          return (block as { text: string }).text;
-        }
-        return '';
-      })
-      .join('')
-      .trim();
-  }
-  return '';
-}
-
 function getProject(projectId: string): RuntimeProjectRow {
-  const project = db.prepare('SELECT id, path FROM projects WHERE id = ?').get(projectId) as RuntimeProjectRow | undefined;
+  const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?').get(projectId) as RuntimeProjectRow | undefined;
   if (!project) {
     throw new Error(`Project with ID ${projectId} not found.`);
   }
@@ -154,6 +165,25 @@ function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
   return agent;
 }
 
+function getAgentSkillNames(agentId: string): string[] {
+  const rows = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agentId) as Array<{ skill_name: string }>;
+  return rows.map((row) => row.skill_name);
+}
+
+function getRuntimeAgent(projectId: string, agentId?: string | null): RuntimeAgentRow {
+  if (agentId) {
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as RuntimeAgentRow | undefined;
+    if (agent) {
+      const normalizedProviderId = normalizeProviderId(agent.provider_id);
+      if (normalizedProviderId && providerExists(normalizedProviderId)) {
+        return { ...agent, provider_id: normalizedProviderId };
+      }
+      return { ...agent, provider_id: getFallbackProviderId() };
+    }
+  }
+  return ensureDefaultAgent(projectId);
+}
+
 function getProvider(providerId: string | null | undefined) {
   const normalizedProviderId = normalizeProviderId(providerId);
   if (!normalizedProviderId) {
@@ -176,26 +206,64 @@ function getProvider(providerId: string | null | undefined) {
   };
 }
 
-function getSessionMessages(sessionId: string) {
-  return db.prepare("SELECT role, content FROM messages WHERE session_id = ? AND role != 'system' ORDER BY created_at ASC").all(sessionId) as Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
-}
-
-function getSessionSummary(sessionId: string): string | null {
-  const row = db.prepare('SELECT summary FROM sessions WHERE id = ?').get(sessionId) as { summary?: string | null } | undefined;
-  return row?.summary || null;
-}
-
-function buildMessages(sessionId: string) {
-  const history = getSessionMessages(sessionId);
-  const summary = getSessionSummary(sessionId);
-  const recentMessages = summary ? history.slice(-20) : history;
-  return {
-    summary,
-    messages: [
-      ...(summary ? [{ role: 'system' as const, content: `会话摘要：\n${summary}` }] : []),
-      ...recentMessages,
-    ],
+function registerCdfHarnessProfile(providerType: string, modelName: string): void {
+  const profile = {
+    generalPurposeSubagent: { enabled: false },
+    excludedTools: ['task'],
   };
+
+  const registerSafely = (key: string | null | undefined) => {
+    const trimmed = key?.trim();
+    if (!trimmed || trimmed.split(':').length > 2) return;
+    try {
+      registerHarnessProfile(trimmed, profile);
+    } catch (error) {
+      console.warn(`Failed to register DeepAgents harness profile for "${trimmed}":`, error);
+    }
+  };
+
+  registerSafely(modelName);
+
+  if (providerType === 'anthropic') {
+    registerSafely('anthropic');
+    if (modelName && !modelName.includes(':')) registerSafely(`anthropic:${modelName}`);
+    return;
+  }
+
+  if (providerType !== 'ollama') {
+    registerSafely('openai');
+    if (modelName && !modelName.includes(':')) registerSafely(`openai:${modelName}`);
+  }
+}
+
+function getSessionMessages(sessionId: string) {
+  return db.prepare("SELECT id, role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant') ORDER BY created_at ASC").all(sessionId) as Array<{ id: string; role: 'user' | 'assistant'; content: string }>;
+}
+
+async function hasCheckpoint(sessionId: string, checkpointer: SqliteSaver): Promise<boolean> {
+  const checkpoint = await checkpointer.getTuple({
+    configurable: {
+      thread_id: sessionId,
+      checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
+    },
+  });
+  return !!checkpoint;
+}
+
+async function buildInputMessages(sessionId: string, currentMessage: RuntimeInputMessage, checkpointer: SqliteSaver) {
+  if (await hasCheckpoint(sessionId, checkpointer)) {
+    return [{ role: 'user' as const, content: currentMessage.content }];
+  }
+
+  const history = getSessionMessages(sessionId);
+  const hasCurrent = history.some((message) => message.id === currentMessage.id);
+  return [
+    ...history.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+    ...(hasCurrent ? [] : [{ role: 'user' as const, content: currentMessage.content }]),
+  ];
 }
 
 function getAgentMcpServers(agentId: string): MCPServer[] {
@@ -216,29 +284,41 @@ function getAgentMcpServers(agentId: string): MCPServer[] {
   }));
 }
 
+function buildProjectContext(project: RuntimeProjectRow): string {
+  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n文件工具中的项目根目录已经挂载为虚拟路径 \`/\`。\n使用 ls、read_file、write_file、edit_file、glob、grep、delete_file 时，路径必须基于这个虚拟根目录，例如 \`/src/main.ts\` 或 \`/README.md\`。\n不要在文件工具参数中包含宿主机真实路径、用户主目录路径或项目目录前缀。`;
+}
+
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
+  currentMessage: RuntimeInputMessage,
+  agentId?: string | null,
   overrides?: RuntimeModelOverrides
 ) {
   const project = getProject(projectId);
-  const agentRow = ensureDefaultAgent(projectId);
+  const agentRow = getRuntimeAgent(projectId, agentId);
   const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
+  const modelName = overrides?.model || provider.default_model;
+  registerCdfHarnessProfile(provider.provider_type, modelName);
   const model = createLangChainModel({
     apiKey: provider.api_key,
     apiUrl: provider.api_url,
     defaultModel: provider.default_model,
     providerType: provider.provider_type,
-    model: overrides?.model,
+    model: modelName,
   });
-  const backend = new FilesystemBackend({ rootDir: project.path });
-  const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path);
-  const { summary, messages } = buildMessages(sessionId);
+  const backend = new FilesystemBackend({ rootDir: project.path, virtualMode: true });
+  const checkpointer = getCheckpointSaver();
+  const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+  const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
   const mcpServers = getAgentMcpServers(agentRow.id);
   const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers);
+  const memory = ['AGENTS.md', 'Claude.md']
+    .filter((fileName) => fs.existsSync(path.join(project.path, fileName)))
+    .map((fileName) => `/${fileName}`)
+    .slice(0, 1);
 
-  const projectContext = `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n当前选中项目路径: ${project.path}\n请注意：你当前处于此项目上下文中。你通过工具所进行的文件和目录操作（如读取、写入、查询等）都应该以此项目路径为基础。`;
-  const systemPrompt = (agentRow.system_prompt || '') + projectContext;
+  const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
 
   const deepAgent = createDeepAgent({
     model,
@@ -246,26 +326,18 @@ export async function createDeepAgentRuntime(
     systemPrompt: systemPrompt || undefined,
     skills: skillsSources,
     permissions,
-    tools: mcpRuntime.tools,
+    tools: [...mcpRuntime.tools, createDeleteFileTool(project.path)],
+    interruptOn: DEFAULT_INTERRUPT_ON,
+    checkpointer,
+    memory: memory.length ? memory : undefined,
   });
 
   return {
+    agentId: agentRow.id,
     agent: deepAgent,
     inputMessages: messages,
-    existingSummary: summary,
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
     },
   };
-}
-
-export function persistSessionSummary(sessionId: string, summary: string | null) {
-  if (!summary) return;
-  db.prepare('UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?').run(summary, Date.now(), sessionId);
-}
-
-export function extractSummaryFromState(state: any): string | null {
-  const message = state?._summarizationEvent?.summaryMessage;
-  if (!message) return null;
-  return extractText(message.content);
 }

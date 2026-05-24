@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createDeepAgentRuntimeMock, persistSessionSummaryMock, extractSummaryFromStateMock } = vi.hoisted(() => ({
+const { createDeepAgentRuntimeMock, dbPrepareMock } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
-  persistSessionSummaryMock: vi.fn(),
-  extractSummaryFromStateMock: vi.fn(),
+  dbPrepareMock: vi.fn(),
 }));
 
 vi.mock('./deepagent/runtime', () => ({
+  DEEPAGENT_CHECKPOINT_NAMESPACE: 'cdf-master-runtime-v3',
   createDeepAgentRuntime: createDeepAgentRuntimeMock,
-  persistSessionSummary: persistSessionSummaryMock,
-  extractSummaryFromState: extractSummaryFromStateMock,
 }));
 
 vi.mock('./deepagent/llm-adapter', () => ({
   getOllamaBaseUrl: vi.fn((url: string) => url),
+}));
+
+vi.mock('./database', () => ({
+  default: {
+    prepare: dbPrepareMock,
+  },
 }));
 
 import { runLLMChat } from './llm';
@@ -21,44 +25,70 @@ import { runLLMChat } from './llm';
 describe('runLLMChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      run: vi.fn(),
+      get: () => {
+        if (sql.includes('FROM agent_runs')) return { id: 'run-1' };
+        return undefined;
+      },
+    }));
   });
 
-  it('should stream assistant tokens and persist summary when runtime completes', async () => {
+  it('should stream assistant tokens with the current user message', async () => {
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {
+        yield {
+          text: (async function* () {
+            yield '收';
+            yield '到';
+          })(),
+        };
+      })(),
+      toolCalls: (async function* () {})(),
+      output: Promise.resolve({ state: 'done' }),
+    });
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
-        streamEvents: vi.fn().mockResolvedValue({
-          messages: (async function* () {
-            yield {
-              text: (async function* () {
-                yield '收';
-                yield '到';
-              })(),
-            };
-          })(),
-          toolCalls: (async function* () {})(),
-          output: Promise.resolve({ state: 'done' }),
-        }),
+        streamEvents,
       },
       inputMessages: [{ role: 'user', content: 'ping' }],
+      agentId: 'agent-1',
       cleanup: vi.fn(),
     });
-    extractSummaryFromStateMock.mockReturnValue('summary');
 
     const send = vi.fn();
     await runLLMChat({ send } as any, 'req-1', {
       projectId: 'project-1',
       sessionId: 'session-1',
+      message: {
+        id: 'message-1',
+        content: 'ping',
+      },
     });
 
     expect(createDeepAgentRuntimeMock).toHaveBeenCalledWith(
       'project-1',
       'session-1',
+      {
+        id: 'message-1',
+        content: 'ping',
+      },
+      undefined,
       undefined
     );
-    expect(send).toHaveBeenNthCalledWith(1, 'llm:chunk-req-1', { type: 'message_chunk', text: '收' });
-    expect(send).toHaveBeenNthCalledWith(2, 'llm:chunk-req-1', { type: 'message_chunk', text: '到' });
+    expect(streamEvents).toHaveBeenCalledWith(
+      { messages: [{ role: 'user', content: 'ping' }] },
+      expect.objectContaining({
+        version: 'v3',
+        configurable: {
+          thread_id: 'session-1',
+          checkpoint_ns: 'cdf-master-runtime-v3',
+        },
+      })
+    );
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-1', { type: 'message_chunk', text: '收' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-1', { type: 'message_chunk', text: '到' });
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-1', { type: 'message_done' });
-    expect(persistSessionSummaryMock).toHaveBeenCalledWith('session-1', 'summary');
   });
 
   it('should stream tool lifecycle events and runtime errors', async () => {
@@ -74,20 +104,24 @@ describe('runLLMChat', () => {
         }),
       },
       inputMessages: [{ role: 'user', content: 'run' }],
+      agentId: 'agent-1',
       cleanup: vi.fn(),
     });
-    extractSummaryFromStateMock.mockReturnValue(null);
 
     const send = vi.fn();
     await runLLMChat({ send } as any, 'req-2', {
       projectId: 'project-1',
       sessionId: 'session-2',
+      message: {
+        id: 'message-2',
+        content: 'run',
+      },
     });
 
-    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_start', name: 'tool-a', input: { x: 1 } });
-    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_end', name: 'tool-a', output: 'ok' });
-    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_start', name: 'tool-b', input: { y: 2 } });
-    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_error', name: 'tool-b', error: 'boom' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_start', name: 'tool-a', input: { x: 1 } }));
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_end', name: 'tool-a', output: 'ok' }));
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_start', name: 'tool-b', input: { y: 2 } }));
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_error', name: 'tool-b', error: 'boom' }));
   });
 
   it('should pass runtime model overrides to deepagent runtime', async () => {
@@ -100,13 +134,17 @@ describe('runLLMChat', () => {
         }),
       },
       inputMessages: [{ role: 'user', content: 'ping' }],
+      agentId: 'agent-1',
       cleanup: vi.fn(),
     });
-    extractSummaryFromStateMock.mockReturnValue(null);
 
     await runLLMChat({ send: vi.fn() } as any, 'req-3', {
       projectId: 'project-1',
       sessionId: 'session-3',
+      message: {
+        id: 'message-3',
+        content: 'ping',
+      },
       overrides: {
         providerId: 'provider-2',
         model: 'model-2',
@@ -116,6 +154,11 @@ describe('runLLMChat', () => {
     expect(createDeepAgentRuntimeMock).toHaveBeenCalledWith(
       'project-1',
       'session-3',
+      {
+        id: 'message-3',
+        content: 'ping',
+      },
+      undefined,
       {
         providerId: 'provider-2',
         model: 'model-2',

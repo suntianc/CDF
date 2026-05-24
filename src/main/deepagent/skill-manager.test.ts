@@ -54,6 +54,26 @@ describe('skill-manager', () => {
     fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills'), { recursive: true });
 
     const config = resolveAgentSkillsConfig(tempProjectPath);
-    expect(config.skillsSources).toContain('.cdf/skills');
+    expect(config.skillsSources).toContain('/.cdf/skills');
+  });
+
+  it('should resolve only enabled project skill source paths', () => {
+    fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills', 'enabled-skill'), { recursive: true });
+    fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills', 'disabled-skill'), { recursive: true });
+
+    const config = resolveAgentSkillsConfig(tempProjectPath, ['project:enabled-skill']);
+    expect(config.skillsSources).toEqual(['/.cdf/skills/enabled-skill']);
+  });
+
+  it('should not grant host filesystem-wide permissions', () => {
+    const config = resolveAgentSkillsConfig(tempProjectPath);
+    const paths = config.permissions.flatMap((permission) => permission.paths);
+
+    expect(paths).not.toContain('/**');
+    expect(paths).toContain('/*');
+    expect(paths).toContain('/**/*');
+    expect(paths).toContain('/.cdf/.runtime/**/*');
+    expect(paths).toContain('/Users/**/*');
+    expect(paths).toContain('/home/**/*');
   });
 });

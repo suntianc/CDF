@@ -12,8 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteProject: (id: string) => ipcRenderer.invoke('db:deleteProject', id),
     renameProject: (id: string, name: string) => ipcRenderer.invoke('db:renameProject', id, name),
     getSessions: (projectId: string) => ipcRenderer.invoke('db:getSessions', projectId),
-    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) =>
-      ipcRenderer.invoke('db:createSession', projectId, name, parentSessionId, summary),
+    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) =>
+      ipcRenderer.invoke('db:createSession', projectId, name, parentSessionId, summary, agentId),
     deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
     getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
     saveMessage: (message: any) => ipcRenderer.invoke('db:saveMessage', message),
@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveSkill: (projectId: string, skill: any) => ipcRenderer.invoke('db:saveSkill', projectId, skill),
     deleteSkill: (projectId: string, id: string) => ipcRenderer.invoke('db:deleteSkill', projectId, id),
     getSkillVersions: (skillId: string) => ipcRenderer.invoke('db:getSkillVersions', skillId),
+    getAgentRuns: (sessionId: string) => ipcRenderer.invoke('db:getAgentRuns', sessionId),
+    getAgentToolCalls: (runId: string) => ipcRenderer.invoke('db:getAgentToolCalls', runId),
     // Phase 3: MCP Servers
     getMcpServers: () => ipcRenderer.invoke('db:getMcpServers'),
     saveMcpServer: (server: any) => ipcRenderer.invoke('db:saveMcpServer', server),
@@ -42,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
     stopChat: (requestId: string) => ipcRenderer.invoke('llm:stopChat', requestId),
+    resolveApproval: (requestId: string, resolution: any) => ipcRenderer.invoke('llm:resolveApproval', requestId, resolution),
     testProvider: (providerId: string) => ipcRenderer.invoke('llm:testProvider', providerId),
     fetchProviderModels: (providerId: string) => ipcRenderer.invoke('llm:fetchProviderModels', providerId),
     fetchOllamaModels: (apiUrl: string) => ipcRenderer.invoke('llm:fetchOllamaModels', apiUrl),

@@ -6,9 +6,9 @@ import { useAgentStore } from '../../stores/agentStore';
 import { 
   ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
   Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
-  ChevronUp
+  ChevronUp, Brain, Loader2
 } from 'lucide-react';
-import { ToolMessageCard } from './ToolMessageCard';
+import { ToolMessageCard, ToolGroupCard } from './ToolMessageCard';
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
@@ -101,6 +101,11 @@ const renderMarkdownText = (text: string) => {
   let currentParagraphLines: string[] = [];
   let currentListType: 'ul' | 'ol' | null = null;
   let currentListItems: { key: number; content: string; num?: number }[] = [];
+
+  let inTable = false;
+  let tableHeaders: string[] = [];
+  let tableRows: string[][] = [];
+  let tableAlignments: ('left' | 'center' | 'right')[] = [];
   
   const flushParagraph = (key: string | number) => {
     if (currentParagraphLines.length > 0) {
@@ -143,40 +148,129 @@ const renderMarkdownText = (text: string) => {
     }
   };
 
+  const flushTable = (key: string | number) => {
+    if (inTable && tableHeaders.length > 0) {
+      elements.push(
+        <div key={`table-wrapper-${key}`} className="overflow-x-auto my-3 border border-[var(--color-border)]/40 rounded-lg max-w-full shadow-sm">
+          <table className="min-w-full divide-y divide-[var(--color-border)]/40 text-xs font-sans select-text border-collapse">
+            <thead className="bg-[var(--color-bg-active)]/20 text-[var(--color-text-secondary)] font-semibold border-b border-[var(--color-border)]/30">
+              <tr>
+                {tableHeaders.map((header, i) => {
+                  const align = tableAlignments[i] || 'left';
+                  return (
+                     <th 
+                       key={`th-${i}`} 
+                       className={`px-4 py-2.5 text-${align} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
+                     >
+                       {renderInlineMarkdown(header)}
+                     </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--color-border)]/15 bg-transparent text-[var(--color-text-primary)]">
+              {tableRows.map((row, rIndex) => (
+                <tr 
+                  key={`tr-${rIndex}`} 
+                  className="hover:bg-[var(--color-bg-hover)]/20 transition-colors odd:bg-[var(--color-bg-sidebar)]/10"
+                >
+                  {row.map((cell, cIndex) => {
+                    const align = tableAlignments[cIndex] || 'left';
+                    return (
+                      <td 
+                        key={`td-${cIndex}`} 
+                        className={`px-4 py-2 text-${align} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
+                      >
+                        {renderInlineMarkdown(cell)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      tableHeaders = [];
+      tableRows = [];
+      tableAlignments = [];
+      inTable = false;
+    }
+  };
+
   const flushAll = (key: string | number) => {
     flushParagraph(key);
     flushList(key);
+    flushTable(key);
   };
   
   lines.forEach((line, index) => {
     const trimmedLine = line.trim();
     
+    // Check if it's a table row
+    const isTableRow = trimmedLine.startsWith('|') && trimmedLine.endsWith('|') && trimmedLine.length > 2;
+    
+    if (isTableRow) {
+      const cells = trimmedLine.slice(1, -1).split('|').map(c => c.trim());
+      const isDivider = cells.every(cell => /^[:\s-]*$/.test(cell) && cell.includes('-'));
+      
+      if (isDivider) {
+        if (inTable) {
+          tableAlignments = cells.map(cell => {
+            const clean = cell.trim();
+            if (clean.startsWith(':') && clean.endsWith(':')) return 'center';
+            if (clean.endsWith(':')) return 'right';
+            return 'left';
+          });
+        }
+        return;
+      }
+      
+      if (!inTable) {
+        flushAll(index);
+        inTable = true;
+        tableHeaders = cells;
+      } else {
+        tableRows.push(cells);
+      }
+      return;
+    }
+    
+    // If not in table row, but we were parsing a table, flush it
+    if (inTable) {
+      flushTable(index);
+    }
+    
     // 1. 匹配标题
     if (trimmedLine.startsWith('# ')) {
+      const isFirst = elements.length === 0 && currentParagraphLines.length === 0 && !currentListType && !inTable;
       flushAll(index);
       elements.push(
-        <h1 key={`h1-${index}`} className="text-xl font-bold mt-4 mb-2 text-[var(--color-text-primary)]">
+        <h1 key={`h1-${index}`} className={`text-xl font-bold ${isFirst ? 'mt-1' : 'mt-4'} mb-2 text-[var(--color-text-primary)]`}>
           {renderInlineMarkdown(trimmedLine.slice(2))}
         </h1>
       );
     } else if (trimmedLine.startsWith('## ')) {
+      const isFirst = elements.length === 0 && currentParagraphLines.length === 0 && !currentListType && !inTable;
       flushAll(index);
       elements.push(
-        <h2 key={`h2-${index}`} className="text-lg font-semibold mt-3.5 mb-2 text-[var(--color-text-primary)]">
+        <h2 key={`h2-${index}`} className={`text-lg font-semibold ${isFirst ? 'mt-1' : 'mt-3.5'} mb-2 text-[var(--color-text-primary)]`}>
           {renderInlineMarkdown(trimmedLine.slice(3))}
         </h2>
       );
     } else if (trimmedLine.startsWith('### ')) {
+      const isFirst = elements.length === 0 && currentParagraphLines.length === 0 && !currentListType && !inTable;
       flushAll(index);
       elements.push(
-        <h3 key={`h3-${index}`} className="text-base font-semibold mt-3 mb-1.5 text-[var(--color-text-primary)]">
+        <h3 key={`h3-${index}`} className={`text-base font-semibold ${isFirst ? 'mt-1' : 'mt-3'} mb-1.5 text-[var(--color-text-primary)]`}>
           {renderInlineMarkdown(trimmedLine.slice(4))}
         </h3>
       );
     } else if (trimmedLine.startsWith('#### ')) {
+      const isFirst = elements.length === 0 && currentParagraphLines.length === 0 && !currentListType && !inTable;
       flushAll(index);
       elements.push(
-        <h4 key={`h4-${index}`} className="text-sm font-semibold mt-2.5 mb-1 text-[var(--color-text-primary)]">
+        <h4 key={`h4-${index}`} className={`text-sm font-semibold ${isFirst ? 'mt-1' : 'mt-2.5'} mb-1 text-[var(--color-text-primary)]`}>
           {renderInlineMarkdown(trimmedLine.slice(5))}
         </h4>
       );
@@ -208,7 +302,14 @@ const renderMarkdownText = (text: string) => {
         num
       });
     }
-    // 4. 普通行
+    // 4. 匹配水平分割线
+    else if (/^[-\*_]{3,}$/.test(trimmedLine)) {
+      flushAll(index);
+      elements.push(
+        <hr key={`hr-${index}`} className="my-4 border-t border-[var(--color-border)]/60" />
+      );
+    }
+    // 5. 普通行
     else {
       if (trimmedLine === '') {
         flushAll(index);
@@ -226,9 +327,50 @@ const renderMarkdownText = (text: string) => {
   return <div className="flex flex-col gap-1">{elements}</div>;
 };
 
+const formatDuration = (seconds: number): string => {
+  if (seconds < 60) {
+    return `${seconds} 秒`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes} 分 ${remainingSeconds} 秒` : `${minutes} 分钟`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours} 小时 ${remainingMinutes} 分` : `${hours} 小时`;
+};
+
 const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLast: boolean; isStreaming: boolean }) => {
   const isFinished = useMemo(() => message.content.includes('</think>'), [message.content]);
   const [thinkExpanded, setThinkExpanded] = useState(!isFinished);
+
+  // 计时的 React 状态
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [finalDuration, setFinalDuration] = useState<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isFinished && isLast && isStreaming) {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now();
+      }
+      const interval = setInterval(() => {
+        const delta = Math.round((Date.now() - startTimeRef.current!) / 1000);
+        setElapsedSeconds(delta);
+      }, 500);
+      return () => clearInterval(interval);
+    } else {
+      startTimeRef.current = null;
+    }
+    return undefined;
+  }, [isFinished, isLast, isStreaming]);
+
+  useEffect(() => {
+    if (isFinished && elapsedSeconds > 0 && finalDuration === null) {
+      setFinalDuration(elapsedSeconds);
+    }
+  }, [isFinished, elapsedSeconds, finalDuration]);
 
   // Helper to parse tool JSON
   const toolInfo = useMemo(() => {
@@ -265,35 +407,42 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
     const renderThink = () => {
       if (!thinkContent) return null;
       const finished = content.includes('</think>');
+
+      const getThinkingTime = () => {
+        if (!finished) {
+          return elapsedSeconds;
+        }
+        if (finalDuration !== null) {
+          return finalDuration;
+        }
+        // 历史消息估算（每个字符大概 18-20 毫秒生成速度）
+        return Math.max(1, Math.round(thinkContent.length / 18));
+      };
+
+      const currentSeconds = getThinkingTime();
+      const headerText = finished 
+        ? `已思考 (用时 ${formatDuration(currentSeconds)})` 
+        : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
+
       return (
-        <div className="mb-3 flex flex-col border border-[var(--color-border)]/40 bg-[var(--color-bg-subtle)]/30 rounded-lg overflow-hidden transition-all duration-200">
+        <div className="mb-3 flex flex-col transition-all duration-200">
           {/* Thinking Header */}
           <div 
             onClick={() => setThinkExpanded(!thinkExpanded)}
-            className="flex items-center justify-between px-3.5 py-2 cursor-pointer select-none bg-[var(--color-bg-active)]/20 hover:bg-[var(--color-bg-hover)]/30 transition-colors"
+            className="flex items-center gap-1.5 py-1 cursor-pointer select-none text-[12px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors w-fit font-medium"
           >
-            <div className="flex items-center gap-2 text-[var(--color-accent)] font-semibold text-[11px] uppercase tracking-wider">
-              <Sparkles className={`w-3.5 h-3.5 ${!finished ? 'animate-pulse text-[var(--color-accent)]' : 'text-[var(--color-text-secondary)]/70'}`} />
-              <span className="text-[var(--color-text-secondary)] font-medium">
-                {finished ? '深度思考过程' : '正在深度思考中...'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)] font-medium">
-              <span>{finished ? '已完成' : '思考中'}</span>
-              {thinkExpanded ? (
-                <ChevronUp className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
-            </div>
+            <span>{headerText}</span>
+            <span className="text-[9px] opacity-80 font-normal">
+              {thinkExpanded ? '▼' : '▶'}
+            </span>
           </div>
           
           {/* Thinking Body */}
           {thinkExpanded && (
-            <div className="px-4 py-3 text-xs text-[var(--color-text-secondary)] italic select-text border-t border-[var(--color-border)]/20 whitespace-pre-wrap leading-relaxed bg-black/5 dark:bg-white/5 animate-slide-down">
+            <div className="pl-3.5 py-1 text-[12px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal border-l border-[var(--color-border)]/80 animate-slide-down">
               {thinkContent}
               {!finished && (
-                <span className="inline-block w-1.5 h-3.5 ml-1 bg-[var(--color-accent)]/80 animate-pulse vertical-middle" />
+                <span className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-accent)]/70 animate-pulse vertical-middle" />
               )}
             </div>
           )}
@@ -412,13 +561,76 @@ export function ChatArea({
     return sessions.find(s => s.id === activeSessionId) || null;
   }, [activeSessionId, sessions]);
 
+  // 聚合相邻的工具系统消息（连续工具调用折叠合并逻辑）
+  const renderItems = useMemo(() => {
+    const items: Array<
+      | { type: 'message'; id: string; message: any }
+      | { type: 'tool_group'; id: string; tools: any[] }
+    > = [];
+    
+    let currentGroup: any[] = [];
+    let currentGroupStartId: string | null = null;
+
+    (messages || []).forEach((message) => {
+      let isTool = false;
+      if (message.role === 'system') {
+        try {
+          const parsed = JSON.parse(message.content);
+          if (parsed && parsed.type === 'tool') {
+            isTool = true;
+          }
+        } catch (e) {
+          // 不是 JSON 格式的工具消息
+        }
+      }
+
+      if (isTool) {
+        if (currentGroup.length === 0) {
+          currentGroupStartId = message.id;
+        }
+        currentGroup.push(message);
+      } else {
+        if (currentGroup.length > 0) {
+          items.push({
+            type: 'tool_group',
+            id: currentGroupStartId || `tool-group-${message.id}`,
+            tools: currentGroup
+          });
+          currentGroup = [];
+          currentGroupStartId = null;
+        }
+        items.push({
+          type: 'message',
+          id: message.id,
+          message
+        });
+      }
+    });
+
+    if (currentGroup.length > 0) {
+      items.push({
+        type: 'tool_group',
+        id: currentGroupStartId || 'tool-group-end',
+        tools: currentGroup
+      });
+    }
+
+    return items;
+  }, [messages]);
+
+
   const defaultAgent = useMemo(() => {
     return agents.find((agent) => agent.project_id === currentProjectId && agent.is_default === 1) || null;
   }, [agents, currentProjectId]);
 
+  const activeSessionAgent = useMemo(() => {
+    return agents.find((agent) => agent.id === activeSession?.agent_id) || defaultAgent;
+  }, [activeSession?.agent_id, agents, defaultAgent]);
+
   const masterProvider = useMemo(() => {
-    return providers.find((provider) => provider.id === defaultAgent?.provider_id) || null;
-  }, [defaultAgent, providers]);
+    const baseAgent = activeSession ? activeSessionAgent : defaultAgent;
+    return providers.find((provider) => provider.id === baseAgent?.provider_id) || null;
+  }, [activeSession, activeSessionAgent, defaultAgent, providers]);
 
   const selectedProvider = useMemo(() => {
     return providers.find((provider) => provider.id === selectedProviderId) || null;
@@ -451,6 +663,9 @@ export function ChatArea({
   const currentModelLabel = currentProvider
     ? `${currentProvider.name} • ${currentModel || currentProvider.default_model}`
     : '选择模型';
+  const activeAgentLabel = activeSessionAgent
+    ? `${activeSessionAgent.name} · ${activeSessionAgent.mcpServerIds?.length || 0} MCP · ${activeSessionAgent.skillNames?.length || 0} Skills`
+    : '未绑定 Agent';
 
   const handleSelectModel = (providerId: string, modelName: string) => {
     setSelectedProviderId(providerId);
@@ -481,7 +696,12 @@ export function ChatArea({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.isComposing) return; // 拦截输入法确认时的回车事件
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (isStreaming) {
+        // 如果正在生成回复，回车只执行普通换行，不阻止默认行为也不发送
+        return;
+      }
       e.preventDefault();
       handleSend();
     }
@@ -539,22 +759,22 @@ export function ChatArea({
             : 'opacity-0 translate-y-4 scale-95 pointer-events-none z-0'
         }`}
       >
-        {sidebarCollapsed && (
-          <button
-            onClick={onToggleSidebar}
-            className="absolute top-[6px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag relative after:absolute after:inset-[-8px] after:content-['']"
-            title="展开侧边栏"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </button>
-        )}
+
         <div className="center-bg-glow" />
         
         <div className="max-w-[640px] w-full flex flex-col items-center gap-6 z-10">
-          <h1 className="center-headline">现在让它们<span>动起来</span>？</h1>
+          <h1 className="center-headline">
+            {currentProjectId && currentProjectId !== 'default-project' ? (
+              <>现在让它们<span>动起来</span>？</>
+            ) : (
+              <>我们现在做些<span>什么</span>？</>
+            )}
+          </h1>
           <p className="center-subline">
             {currentProjectId 
-              ? `项目已加载：${currentProjectName} · 请输入以开启对话` 
+              ? (currentProjectId === 'default-project'
+                  ? '临时会话模式 · 请输入以开启对话'
+                  : `项目已加载：${currentProjectName} · 请输入以开启对话`)
               : '选择左侧的项目或开始一个新对话，CDF 已经准备就绪'}
           </p>
 
@@ -580,6 +800,7 @@ export function ChatArea({
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={(e) => {
+                if (e.isComposing) return; // 拦截输入法确认时的回车事件
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleWelcomeSend();
@@ -697,31 +918,21 @@ export function ChatArea({
       >
         {/* Chat Header */}
         <header className="main-topbar">
-          {sidebarCollapsed && (
-            <button
-              onClick={onToggleSidebar}
-              className="absolute top-[6px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-50 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag relative after:absolute after:inset-[-8px] after:content-['']"
-              title="展开侧边栏"
-            >
-              <PanelLeft className="w-4 h-4" />
-            </button>
-          )}
-          <div className="main-topbar-left">
-            <h1>{activeSession?.name || ''}</h1>
-          </div>
+
+          <div className="main-topbar-left" />
           
           {/* Right Header Toolbar */}
           <div className="main-topbar-right flex items-center gap-2 ml-auto no-drag">
             <button
               onClick={onToggleTaskPanel}
-              className={`w-8 h-8 flex items-center justify-center cursor-pointer rounded-lg transition-all text-[var(--color-text-muted)] ${
+              className={`w-6 h-6 flex items-center justify-center cursor-pointer rounded-md transition-all ${
                 taskPanelOpen 
-                  ? 'bg-[var(--color-bg-active)] border border-[var(--color-border)] shadow-sm' 
-                  : 'hover:bg-[var(--color-bg-hover)]'
+                  ? 'text-[var(--color-accent)]' 
+                  : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
               }`}
               title={taskPanelOpen ? "隐藏任务展板" : "显示任务展板"}
             >
-              <Info className="w-4 h-4" />
+              <Info className="w-3.5 h-3.5" />
             </button>
           </div>
         </header>
@@ -730,14 +941,24 @@ export function ChatArea({
         <div className="flex-1 relative overflow-hidden">
           <div className="messages absolute inset-0 overflow-y-auto" style={{ paddingBottom: '180px' }}>
             {/* Messages List */}
-            {(messages || []).map((message, idx) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                isLast={idx === messages.length - 1}
-                isStreaming={isStreaming}
-              />
-            ))}
+            {renderItems.map((item, idx) => {
+              if (item.type === 'tool_group') {
+                return (
+                  <ToolGroupCard
+                    key={item.id}
+                    tools={item.tools}
+                  />
+                );
+              }
+              return (
+                <MessageItem
+                  key={item.id}
+                  message={item.message}
+                  isLast={idx === renderItems.length - 1}
+                  isStreaming={isStreaming}
+                />
+              );
+            })}
 
             {/* Typing Indicator while streaming empty block */}
             {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
@@ -780,7 +1001,6 @@ export function ChatArea({
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="给 Master Agent 发送消息..."
-              disabled={isStreaming}
               rows={2}
               className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
             />

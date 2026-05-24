@@ -104,7 +104,7 @@ export function Sidebar({
               className={`${styles.sidebarMenuBtn} ${activeView === 'agents' ? styles.active : ''}`}
             >
               <Bot className="w-4 h-4" />
-              <span>Agent 资产</span>
+              <span>Agents 管理</span>
             </button>
 
             <button 
@@ -156,21 +156,21 @@ export function Sidebar({
             onClick={() => onChangeView('settings')}
           >
             <Monitor className="w-4 h-4" />
-            模型供应商配置
+            LLM 管理
           </div>
           <div 
             className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}
             onClick={() => onChangeView('agents')}
           >
             <Bot className="w-4 h-4" />
-            Agent 资产管理
+            Agents 管理
           </div>
           <div 
             className={`${styles.settingsMenuItem} ${activeView === 'plugins' ? styles.active : ''}`}
             onClick={() => onChangeView('plugins')}
           >
             <LayoutGrid className="w-4 h-4" />
-            插件与能力管理
+            Skills & MCP 管理
           </div>
         </div>
       )}

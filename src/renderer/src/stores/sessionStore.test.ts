@@ -83,6 +83,9 @@ describe('sessionStore sendMessage', () => {
       expect.objectContaining({
         projectId: 'project-1',
         sessionId: 'session-1',
+        message: expect.objectContaining({
+          content: '测试消息',
+        }),
       })
     );
     // 5次：userMsg(1) + prevAssistantMsg("你好，")(2) + tool_start(3) + tool_end(4) + finalAssistantMsg("世界")(5)

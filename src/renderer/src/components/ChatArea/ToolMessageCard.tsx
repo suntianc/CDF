@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { 
-  Terminal, FileCode, Wrench, ChevronDown, ChevronUp, Check, X, Loader2 
+  Terminal, FileCode, Wrench, Search, Loader2 
 } from 'lucide-react';
 
 interface ToolInfo {
@@ -12,7 +12,87 @@ interface ToolInfo {
   error?: string;
 }
 
-export function ToolMessageCard({ toolInfo, createdAt }: { toolInfo: ToolInfo; createdAt: number }) {
+// Translate tool action parameters to readable text
+export const translateToolAction = (toolName: string, toolInput: any): string => {
+  if (!toolInput) return `调用 ${toolName}`;
+  try {
+    const args = typeof toolInput === 'string' ? JSON.parse(toolInput) : toolInput;
+    switch (toolName) {
+      case 'view_file': {
+        const pathVal = args.AbsolutePath || args.TargetFile || '';
+        const filename = pathVal.split('/').pop() || pathVal;
+        return `Read ${filename}`;
+      }
+      case 'write_to_file': {
+        const pathVal = args.TargetFile || '';
+        const filename = pathVal.split('/').pop() || pathVal;
+        return `Write ${filename}`;
+      }
+      case 'replace_file_content':
+      case 'multi_replace_file_content': {
+        const pathVal = args.TargetFile || '';
+        const filename = pathVal.split('/').pop() || pathVal;
+        return `Edit ${filename}`;
+      }
+      case 'grep_search': {
+        const query = args.Query || '';
+        return `Search for "${query}"`;
+      }
+      case 'run_command': {
+        const cmd = args.CommandLine || '';
+        return cmd.length > 50 ? `Run: ${cmd.slice(0, 50)}...` : `Run: ${cmd}`;
+      }
+      default: {
+        return `调用 ${toolName}`;
+      }
+    }
+  } catch (e) {
+    // JSON parse error fallback
+  }
+  return `调用 ${toolName}`;
+};
+
+// Translate multi-tools group action description
+export const translateToolGroup = (tools: any[]): string => {
+  const count = tools.length;
+  let viewCount = 0;
+  let editCount = 0;
+  let cmdCount = 0;
+
+  tools.forEach(msg => {
+    try {
+      const parsed = JSON.parse(msg.content);
+      if (parsed && parsed.type === 'tool') {
+        const name = parsed.name;
+        if (name === 'view_file' || name === 'grep_search') viewCount++;
+        else if (name === 'write_to_file' || name === 'replace_file_content' || name === 'multi_replace_file_content') editCount++;
+        else if (name === 'run_command') cmdCount++;
+      }
+    } catch (e) {}
+  });
+
+  if (editCount > 0) {
+    return `已修改 ${editCount} 个文件`;
+  }
+  if (viewCount > 0) {
+    return `已探索 ${viewCount} 个文件`;
+  }
+  if (cmdCount > 0) {
+    return `已运行 ${cmdCount} 个命令`;
+  }
+  return `已执行 ${count} 个操作步骤`;
+};
+
+// Single tool message item component
+export function ToolMessageCard({ 
+  toolInfo, 
+  createdAt, 
+  isSubRow = false 
+}: { 
+  toolInfo: ToolInfo; 
+  createdAt: number; 
+  isSubRow?: boolean; 
+}) {
   const [expanded, setExpanded] = useState(false);
   const { name, status, input, output, error } = toolInfo;
 
@@ -20,15 +100,14 @@ export function ToolMessageCard({ toolInfo, createdAt }: { toolInfo: ToolInfo; c
   const getToolIcon = () => {
     const n = name.toLowerCase();
     if (n.includes('file') || n.includes('content') || n.includes('write') || n.includes('read')) {
-      return <FileCode className="w-3.5 h-3.5" />;
+      return <FileCode className="w-3 h-3 text-[var(--color-text-muted)]" />;
     }
     if (n.includes('search') || n.includes('grep') || n.includes('find') || n.includes('ls') || n.includes('command')) {
-      return <Terminal className="w-3.5 h-3.5" />;
+      return <Search className="w-3 h-3 text-[var(--color-text-muted)]" />;
     }
-    return <Wrench className="w-3.5 h-3.5" />;
+    return <Wrench className="w-3 h-3 text-[var(--color-text-muted)]" />;
   };
 
-  // Format arguments & outputs
   const formatData = (data: any) => {
     if (data === null || data === undefined) return '';
     if (typeof data === 'string') return data;
@@ -39,103 +118,176 @@ export function ToolMessageCard({ toolInfo, createdAt }: { toolInfo: ToolInfo; c
     }
   };
 
-  // Get styles & labels based on status
-  const getStatusDetails = () => {
-    switch (status) {
-      case 'running':
-        return {
-          icon: <Loader2 className="w-3 h-3 animate-spin text-[var(--color-accent)]" />,
-          bgColor: 'bg-[var(--color-bg-subtle)]/30 border-[var(--color-border)]/40',
-          textColor: 'text-[var(--color-text-secondary)]',
-          label: `正在调用 ${name}...`,
-        };
-      case 'success':
-        return {
-          icon: <Check className="w-3 h-3 text-[var(--color-success)]" />,
-          bgColor: 'bg-[var(--color-bg-subtle)]/20 border-[var(--color-border)]/25',
-          textColor: 'text-[var(--color-text-primary)]',
-          label: `已调用 ${name}`,
-        };
-      case 'error':
-        return {
-          icon: <X className="w-3 h-3 text-[var(--color-danger)]" />,
-          bgColor: 'bg-[var(--color-danger-dim)]/5 border-[var(--color-danger)]/15',
-          textColor: 'text-[var(--color-danger)]',
-          label: `调用 ${name} 失败`,
-        };
-    }
-  };
+  const actionText = translateToolAction(name, input);
 
-  const details = getStatusDetails();
-  const timeString = new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const cardContent = (
+    <div className="flex flex-col">
+      {/* Header Trigger */}
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 cursor-pointer select-none text-[10.5px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors py-0.5 w-fit"
+      >
+        {/* Status/Category Icon */}
+        <span className="flex items-center justify-center shrink-0">
+          {status === 'running' ? (
+            <Loader2 className="w-3 h-3 animate-spin text-[var(--color-accent)]" />
+          ) : (
+            <span className="opacity-70">{getToolIcon()}</span>
+          )}
+        </span>
+
+        {/* Action Description */}
+        <span className={`font-medium ${status === 'error' ? 'text-[var(--color-danger)]' : ''}`}>
+          {actionText}
+        </span>
+
+        {/* Micro Status Label */}
+        {status === 'success' && <span className="text-[var(--color-success)] text-[8px] font-bold">✔</span>}
+        {status === 'error' && <span className="text-[var(--color-danger)] text-[8px] font-bold">❌</span>}
+
+        {/* Expand/Collapse Chevron Indicator */}
+        {(input || output || error) && (
+          <span className="text-[8px] opacity-40 font-mono ml-0.5">
+            {expanded ? '▼' : '▶'}
+          </span>
+        )}
+      </div>
+
+      {/* Collapsible Details */}
+      {expanded && (
+        <div className="mt-1 pl-4 pb-2 flex flex-col gap-1.5 border-l border-[var(--color-border)]/15 ml-1.5 animate-slide-down">
+          {input && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8.5px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Input</span>
+              <pre className="p-1.5 bg-[var(--color-bg-sidebar)]/50 border border-[var(--color-border)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+                <code>{formatData(input)}</code>
+              </pre>
+            </div>
+          )}
+          
+          {output && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8.5px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Output</span>
+              <pre className="p-1.5 bg-[var(--color-bg-sidebar)]/50 border border-[var(--color-border)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+                <code>{formatData(output)}</code>
+              </pre>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8.5px] font-bold text-[var(--color-danger)] uppercase tracking-wider">Error</span>
+              <pre className="p-1.5 bg-[var(--color-danger-dim)]/10 border border-[var(--color-danger)]/20 rounded text-[10.5px] font-mono text-[var(--color-danger)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+                <code>{formatData(error)}</code>
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (isSubRow) {
+    return cardContent;
+  }
 
   return (
-    <div className="mx-auto w-full max-w-[760px] px-6 py-1 select-none">
-      <div className={`flex flex-col border rounded-lg overflow-hidden shadow-sm transition-all duration-200 ${details.bgColor}`}>
-        {/* Header */}
+    <div className="w-full py-0.5 select-none">
+      {cardContent}
+    </div>
+  );
+}
+
+// Collapsible aggregation card for consecutive tool invocations
+export function ToolGroupCard({ tools }: { tools: any[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Parse list of consecutive tools in group
+  const parsedTools = useMemo(() => {
+    return tools.map(msg => {
+      try {
+        return {
+          id: msg.id,
+          createdAt: msg.created_at,
+          info: JSON.parse(msg.content) as ToolInfo
+        };
+      } catch (e) {
+        return {
+          id: msg.id,
+          createdAt: msg.created_at,
+          info: { type: 'tool', name: 'unknown', status: 'error', error: '解析错误' } as ToolInfo
+        };
+      }
+    });
+  }, [tools]);
+
+  // Overall status of the tools in the group
+  const groupStatus = useMemo(() => {
+    if (parsedTools.some(t => t.info.status === 'running')) return 'running';
+    if (parsedTools.some(t => t.info.status === 'error')) return 'error';
+    return 'success';
+  }, [parsedTools]);
+
+  const groupLabel = useMemo(() => {
+    if (groupStatus === 'running') {
+      const runningIdx = parsedTools.findIndex(t => t.info.status === 'running');
+      const currentName = parsedTools[runningIdx]?.info.name || '工具';
+      return `正在执行 ${currentName} (${runningIdx + 1}/${parsedTools.length})...`;
+    }
+    return translateToolGroup(tools);
+  }, [groupStatus, parsedTools, tools]);
+
+  const getGroupIcon = () => {
+    if (groupStatus === 'running') {
+      return <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-accent)]" />;
+    }
+    // Match icon based on semantic label
+    const label = translateToolGroup(tools);
+    if (label.includes('修改')) {
+      return <FileCode className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />;
+    }
+    if (label.includes('探索') || label.includes('搜索')) {
+      return <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />;
+    }
+    return <Terminal className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />;
+  };
+
+  return (
+    <div className="w-full py-0.5 select-none">
+      <div className="flex flex-col">
+        {/* Group Title Bar */}
         <div 
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none hover:bg-[var(--color-bg-hover)]/30 transition-colors"
+          className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors py-1 w-fit"
         >
-          <div className="flex items-center gap-2.5">
-            {/* Tool Category Icon */}
-            <div className="flex items-center justify-center w-5.5 h-5.5 rounded-md bg-[var(--color-bg-active)] text-[var(--color-text-secondary)] border border-[var(--color-border)]/30 shadow-sm animate-pop-in">
-              {getToolIcon()}
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className={`text-[11px] font-semibold tracking-wide ${details.textColor}`}>
-                {details.label}
-              </span>
-              <span className="text-[9px] text-[var(--color-text-muted)]">
-                {timeString}
-              </span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2.5">
-            {/* Status Indicator */}
-            <div className="flex items-center justify-center w-4.5 h-4.5 rounded-full bg-[var(--color-bg-active)] border border-[var(--color-border)]/30">
-              {details.icon}
-            </div>
-            
-            {/* Expand / Collapse Chevron */}
-            {expanded ? (
-              <ChevronUp className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-            )}
-          </div>
+          <span className="flex items-center justify-center shrink-0 animate-pop-in">
+            {getGroupIcon()}
+          </span>
+
+          <span className={`font-semibold tracking-wide ${groupStatus === 'error' ? 'text-[var(--color-danger)]/90' : ''}`}>
+            {groupLabel}
+          </span>
+
+          {groupStatus === 'success' && <span className="text-[var(--color-success)] text-[9px] font-bold">✔</span>}
+          {groupStatus === 'error' && <span className="text-[var(--color-danger)] text-[9px] font-bold">❌</span>}
+
+          <span className="text-[9px] opacity-40 font-mono ml-0.5">
+            {expanded ? '▼' : '▶'}
+          </span>
         </div>
 
-        {/* Collapsible Details */}
+        {/* Collapsed List showing child tool rows */}
         {expanded && (
-          <div className="px-3 pb-3 border-t border-[var(--color-border)]/20 bg-black/5 dark:bg-white/5 flex flex-col gap-2 pt-2.5 animate-slide-down">
-            {input && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">输入参数 (Input)</span>
-                <pre className="p-2 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/35 rounded-md text-xs font-mono text-[var(--color-text-primary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
-                  <code>{formatData(input)}</code>
-                </pre>
+          <div className="mt-1 pl-4 pb-1.5 flex flex-col gap-2 border-l border-[var(--color-border)]/25 ml-1.5 animate-slide-down">
+            {parsedTools.map(t => (
+              <div key={t.id} className="py-0.5">
+                <ToolMessageCard 
+                  toolInfo={t.info} 
+                  createdAt={t.createdAt} 
+                  isSubRow={true} 
+                />
               </div>
-            )}
-            
-            {output && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">执行结果 (Output)</span>
-                <pre className="p-2 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/35 rounded-md text-xs font-mono text-[var(--color-text-primary)] overflow-x-auto select-text max-h-60 overflow-y-auto leading-relaxed">
-                  <code>{formatData(output)}</code>
-                </pre>
-              </div>
-            )}
-
-            {error && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold text-[var(--color-danger)] uppercase tracking-wider">错误信息 (Error)</span>
-                <pre className="p-2 bg-[var(--color-danger-dim)]/20 border border-[var(--color-danger)]/25 rounded-md text-xs font-mono text-[var(--color-danger)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
-                  <code>{formatData(error)}</code>
-                </pre>
-              </div>
-            )}
+            ))}
           </div>
         )}
       </div>

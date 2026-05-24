@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { 
-  X, Bot, Brain, Layers, Cpu, Code
+  X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
+import { CustomSelect } from '../ui/CustomSelect';
 
 interface AgentEditDialogProps {
   isOpen: boolean;
@@ -33,6 +34,35 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   // Multi-selector dropdown states
   const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
+
+  // Search query states for bindings
+  const [mcpSearchQuery, setMcpSearchQuery] = useState('');
+  const [skillSearchQuery, setSkillSearchQuery] = useState('');
+
+  // Reset search queries when dropdowns close
+  useEffect(() => {
+    if (!mcpDropdownOpen) setMcpSearchQuery('');
+  }, [mcpDropdownOpen]);
+
+  useEffect(() => {
+    if (!skillDropdownOpen) setSkillSearchQuery('');
+  }, [skillDropdownOpen]);
+
+  const mcpContainerRef = useRef<HTMLDivElement>(null);
+  const skillContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (mcpContainerRef.current && !mcpContainerRef.current.contains(event.target as Node)) {
+        setMcpDropdownOpen(false);
+      }
+      if (skillContainerRef.current && !skillContainerRef.current.contains(event.target as Node)) {
+        setSkillDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Initialize/Reset form states when agentId changes
   useEffect(() => {
@@ -83,6 +113,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       description: formDesc,
       provider_id: formProviderId || null,
       system_prompt: formSystemPrompt,
+      config: {
+        permissionsPreset: 'project-safe',
+        approvalPreset: 'write-operations',
+      },
       mcpServerIds: formMcpIds,
       skillNames: formSkillIds,
       is_default: existingAgent?.is_default ?? (defaultExists ? 0 : 1),
@@ -134,8 +168,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
           {/* Left Column - Core Configuration (40%) */}
           <div className="w-[40%] border-r border-[var(--color-border)] p-6 overflow-y-auto space-y-4">
             <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Brain className="w-3.5 h-3.5" />
-              <span>核心心智配置</span>
+              <span>基础配置</span>
             </div>
 
             <div className="form-group">
@@ -160,34 +193,44 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
             </div>
 
             <div className="form-group">
-              <label className="form-label">选择 LLM 大脑 <span className="text-[var(--color-danger)]">*</span></label>
-              <select 
+              <label className="form-label">选择 LLM <span className="text-[var(--color-danger)]">*</span></label>
+              <CustomSelect
                 value={formProviderId}
-                onChange={(e) => setFormProviderId(e.target.value)}
-                className="form-input bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] rounded-lg outline-none cursor-pointer"
-                required
-              >
-                {providers.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.default_model})</option>
-                ))}
-                {providers.length === 0 && (
-                  <option value="">暂无可用大脑，请去设置页配置</option>
-                )}
-              </select>
-              <div className="form-hint">Agent 运行决策时使用的核心大语言模型</div>
+                onChange={(val) => setFormProviderId(val)}
+                options={providers.map(p => ({
+                  value: p.id,
+                  label: `${p.name} (${p.default_model})`
+                }))}
+                placeholder={providers.length === 0 ? '暂无可用大脑，请去设置页配置' : '请选择 LLM 大脑'}
+                disabled={providers.length === 0}
+              />
             </div>
           </div>
 
           {/* Right Column - Ability & Prompt Config (60%) */}
           <div className="w-[60%] p-6 overflow-y-auto flex flex-col min-h-0">
             <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5" />
               <span>能力绑定与系统设定</span>
+            </div>
+
+            <div className="mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
+                <ShieldCheck className="w-4 h-4 text-[var(--color-success)]" />
+                运行安全配置
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-[var(--color-text-secondary)]">
+                <div className="rounded border border-[var(--color-border)]/50 p-2">
+                  文件权限：项目内读写，保护 .env/.git/node_modules/out/dist
+                </div>
+                <div className="rounded border border-[var(--color-border)]/50 p-2">
+                  人工审批：写文件、编辑文件、删除、命令类工具默认确认
+                </div>
+              </div>
             </div>
 
             {/* System Prompt Textarea */}
             <div className="form-group flex-1 flex flex-col mb-4 min-h-[160px]">
-              <label className="form-label">System Prompt (系统设定)</label>
+              <label className="form-label">System Prompt</label>
               <textarea 
                 className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
                 value={formSystemPrompt}
@@ -199,18 +242,23 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
             {/* MCP & Skills binding badgelists */}
             <div className="grid grid-cols-2 gap-4">
               {/* MCP Servers */}
-              <div className="form-group relative">
-                <label className="form-label">绑定 MCP 服务工具 ({formMcpIds.length})</label>
-                <div className="flex flex-wrap gap-1.5 p-2 bg-[var(--color-bg-sidebar)]/50 border border-[var(--color-border)]/75 rounded-lg min-h-[70px] max-h-[140px] overflow-y-auto">
+              <div className="form-group relative" ref={mcpContainerRef}>
+                <label className="form-label flex items-center justify-between">
+                  <span>绑定 MCP 服务工具 ({formMcpIds.length})</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">支持多选</span>
+                </label>
+                
+                <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
                   {formMcpIds.map(id => {
                     const s = mcpServers.find(m => m.id === id);
                     return s ? (
-                      <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent-dim)] text-[var(--color-accent-hover)] font-medium text-xs select-none">
-                        {s.name}
+                      <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-accent-dim)] text-[var(--color-accent)] text-[11px] select-none border border-[var(--color-accent)]/10 animate-fade-in scale-95 origin-left">
+                        <span>{s.name}</span>
                         <button 
                           type="button" 
                           onClick={() => toggleMcpBinding(id)}
-                          className="hover:text-red-500 font-bold ml-0.5 cursor-pointer"
+                          className="text-[var(--color-accent)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
+                          title="解除绑定"
                         >
                           ×
                         </button>
@@ -229,42 +277,81 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     setMcpDropdownOpen(!mcpDropdownOpen);
                     setSkillDropdownOpen(false);
                   }}
-                  className="mt-1.5 text-xs text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] font-medium flex items-center gap-0.5 cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
                 >
-                  [+] 绑定 MCP 工具
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>添加/解绑 MCP 工具</span>
                 </button>
 
                 {mcpDropdownOpen && (
-                  <div className="absolute left-0 bottom-8 w-full max-h-[180px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-lg rounded-lg z-50 p-1 animate-fade-in select-none">
-                    {mcpServers.filter(s => !formMcpIds.includes(s.id)).map(s => (
-                      <div 
-                        key={s.id} 
-                        onClick={() => toggleMcpBinding(s.id)}
-                        className="px-3 py-1.5 text-xs rounded-md text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] cursor-pointer"
-                      >
-                        {s.name} ({s.server_type})
-                      </div>
-                    ))}
-                    {mcpServers.filter(s => !formMcpIds.includes(s.id)).length === 0 && (
-                      <div className="text-center py-3 text-xs text-[var(--color-text-muted)] italic">没有更多可用工具</div>
-                    )}
+                  <div className="absolute left-0 bottom-[36px] w-full max-h-[220px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-xl rounded-lg z-50 p-2 animate-fade-in select-none flex flex-col gap-1">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[var(--color-border)]/50 mb-1">
+                      <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="搜索工具..."
+                        value={mcpSearchQuery}
+                        onChange={(e) => setMcpSearchQuery(e.target.value)}
+                        className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <div className="overflow-y-auto max-h-[160px] space-y-0.5 pr-0.5">
+                      {mcpServers
+                        .filter(s => s.name.toLowerCase().includes(mcpSearchQuery.toLowerCase()))
+                        .map(s => {
+                          const isBound = formMcpIds.includes(s.id);
+                          return (
+                            <div 
+                              key={s.id} 
+                              onClick={() => toggleMcpBinding(s.id)}
+                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
+                                isBound 
+                                  ? 'bg-[var(--color-accent-dim)]/50 text-[var(--color-accent)] font-medium' 
+                                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <input
+                                  type="checkbox"
+                                  checked={isBound}
+                                  readOnly
+                                  className="accent-[var(--color-accent)] cursor-pointer"
+                                />
+                                <span className="truncate">{s.name}</span>
+                              </div>
+                              <span className="text-[10px] scale-90 px-1 py-0.2 rounded bg-black/10 text-[var(--color-text-muted)] font-mono">
+                                {s.server_type}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      {mcpServers.filter(s => s.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())).length === 0 && (
+                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">没有找到匹配的工具</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Skills */}
-              <div className="form-group relative">
-                <label className="form-label">绑定 Skills 技能 ({formSkillIds.length})</label>
-                <div className="flex flex-wrap gap-1.5 p-2 bg-[var(--color-bg-sidebar)]/50 border border-[var(--color-border)]/75 rounded-lg min-h-[70px] max-h-[140px] overflow-y-auto">
+              <div className="form-group relative" ref={skillContainerRef}>
+                <label className="form-label flex items-center justify-between">
+                  <span>绑定 Skills 技能 ({formSkillIds.length})</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">支持多选</span>
+                </label>
+                
+                <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
                   {formSkillIds.map(id => {
                     const sk = skills.find(s => s.id === id);
                     return sk ? (
-                      <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-success-dim)]/40 text-[var(--color-success)] font-medium text-xs select-none">
-                        {sk.name}
+                      <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-success-dim)]/40 text-[var(--color-success)] text-[11px] select-none border border-[var(--color-success)]/15 animate-fade-in scale-95 origin-left">
+                        <span>{sk.name}</span>
                         <button 
                           type="button" 
                           onClick={() => toggleSkillBinding(id)}
-                          className="hover:text-red-500 font-bold ml-0.5 cursor-pointer"
+                          className="text-[var(--color-success)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
+                          title="解除绑定"
                         >
                           ×
                         </button>
@@ -283,25 +370,56 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     setSkillDropdownOpen(!skillDropdownOpen);
                     setMcpDropdownOpen(false);
                   }}
-                  className="mt-1.5 text-xs text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] font-medium flex items-center gap-0.5 cursor-pointer"
+                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
                 >
-                  [+] 绑定 Skills 技能
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>添加/解绑 Skills 技能</span>
                 </button>
 
                 {skillDropdownOpen && (
-                  <div className="absolute left-0 bottom-8 w-full max-h-[180px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-lg rounded-lg z-50 p-1 animate-fade-in select-none">
-                    {skills.filter(sk => !formSkillIds.includes(sk.id)).map(sk => (
-                      <div 
-                        key={sk.id} 
-                        onClick={() => toggleSkillBinding(sk.id)}
-                        className="px-3 py-1.5 text-xs rounded-md text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] cursor-pointer"
-                      >
-                        {sk.name}
-                      </div>
-                    ))}
-                    {skills.filter(sk => !formSkillIds.includes(sk.id)).length === 0 && (
-                      <div className="text-center py-3 text-xs text-[var(--color-text-muted)] italic">没有更多可用技能</div>
-                    )}
+                  <div className="absolute left-0 bottom-[36px] w-full max-h-[220px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-xl rounded-lg z-50 p-2 animate-fade-in select-none flex flex-col gap-1">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[var(--color-border)]/50 mb-1">
+                      <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="搜索技能..."
+                        value={skillSearchQuery}
+                        onChange={(e) => setSkillSearchQuery(e.target.value)}
+                        className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <div className="overflow-y-auto max-h-[160px] space-y-0.5 pr-0.5">
+                      {skills
+                        .filter(sk => sk.name.toLowerCase().includes(skillSearchQuery.toLowerCase()))
+                        .map(sk => {
+                          const isBound = formSkillIds.includes(sk.id);
+                          return (
+                            <div 
+                              key={sk.id} 
+                              onClick={() => toggleSkillBinding(sk.id)}
+                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
+                                isBound 
+                                  ? 'bg-[var(--color-success-dim)]/20 text-[var(--color-success)] font-medium' 
+                                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <input
+                                  type="checkbox"
+                                  checked={isBound}
+                                  readOnly
+                                  className="accent-[var(--color-success)] cursor-pointer"
+                                />
+                                <span className="truncate">{sk.name}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      {skills.filter(sk => sk.name.toLowerCase().includes(skillSearchQuery.toLowerCase())).length === 0 && (
+                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">没有找到匹配的技能</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -327,16 +445,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         </form>
       </div>
 
-      {/* Click outside to close selectors */}
-      {(mcpDropdownOpen || skillDropdownOpen) && (
-        <div 
-          className="fixed inset-0 z-40 bg-transparent" 
-          onClick={() => {
-            setMcpDropdownOpen(false);
-            setSkillDropdownOpen(false);
-          }}
-        />
-      )}
     </div>
   );
 }

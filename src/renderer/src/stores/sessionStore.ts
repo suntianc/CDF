@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import { ChatRuntimeOverrides, LLMStreamEvent, Message, Session } from '../../../shared/types';
+import {
+  AgentApprovalRequest,
+  AgentRun,
+  AgentToolCall,
+  ChatRuntimeOverrides,
+  LLMStreamEvent,
+  Message,
+  Session,
+} from '../../../shared/types';
 
 export function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -22,12 +30,18 @@ interface SessionState {
   messages: Message[];
   isStreaming: boolean;
   streamingMessageId: string | null;
+  activeRunId: string | null;
+  agentRuns: AgentRun[];
+  agentToolCalls: AgentToolCall[];
+  pendingApproval: AgentApprovalRequest | null;
   error: string | null;
   fetchSessions: (projectId: string) => Promise<void>;
-  createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) => Promise<Session>;
+  createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
-  selectSession: (sessionId: string) => Promise<void>;
+  selectSession: (sessionId: string | null) => Promise<void>;
+  fetchAgentActivity: (sessionId: string) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => Promise<void>;
+  resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
@@ -39,6 +53,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamingMessageId: null,
+  activeRunId: null,
+  agentRuns: [],
+  agentToolCalls: [],
+  pendingApproval: null,
   error: null,
 
   fetchSessions: async (projectId: string) => {
@@ -50,9 +68,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  createSession: async (projectId: string, name: string, parentSessionId?: string, summary?: string) => {
+  createSession: async (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => {
     try {
-      const newSession = await window.electronAPI.db.createSession(projectId, name, parentSessionId, summary);
+      const newSession = await window.electronAPI.db.createSession(projectId, name, parentSessionId, summary, agentId);
       await get().fetchSessions(projectId);
       return newSession;
     } catch (err: any) {
@@ -79,25 +97,53 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (activeSessionId) {
         await get().selectSession(activeSessionId);
       } else {
-        set({ messages: [] });
+        set({ messages: [], agentRuns: [], agentToolCalls: [], activeRunId: null, pendingApproval: null });
       }
     } catch (err: any) {
       set({ error: err.message || 'Failed to delete session' });
     }
   },
 
-  selectSession: async (sessionId: string) => {
+  selectSession: async (sessionId: string | null) => {
+    if (!sessionId) {
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], activeRunId: null, pendingApproval: null, error: null });
+      return;
+    }
     try {
       const messages = await window.electronAPI.db.getMessages(sessionId);
       set({ activeSessionId: sessionId, messages, error: null });
+      await get().fetchAgentActivity(sessionId);
     } catch (err: any) {
       set({ error: err.message || 'Failed to load messages for session' });
     }
   },
 
+  fetchAgentActivity: async (sessionId: string) => {
+    try {
+      if (
+        typeof window.electronAPI.db.getAgentRuns !== 'function' ||
+        typeof window.electronAPI.db.getAgentToolCalls !== 'function'
+      ) {
+        set({ agentRuns: [], agentToolCalls: [], activeRunId: null });
+        return;
+      }
+      const runs = await window.electronAPI.db.getAgentRuns(sessionId);
+      const activeRun = runs[0] || null;
+      const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+      set({
+        agentRuns: runs,
+        agentToolCalls: toolCalls,
+        activeRunId: activeRun?.id || null,
+      });
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to load agent activity' });
+    }
+  },
+
   sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => {
-    const { activeSessionId, isStreaming } = get();
+    const { activeSessionId, isStreaming, sessions } = get();
     if (!activeSessionId || isStreaming) return;
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
 
     const userMsgId = window.crypto.randomUUID();
     const userTokens = estimateTokens(content);
@@ -129,6 +175,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         messages: [...state.messages, userMsg, assistantMsgPlaceholder],
         isStreaming: true,
         streamingMessageId: assistantMsgId,
+        activeRunId: null,
+        pendingApproval: null,
         error: null,
       }));
 
@@ -139,6 +187,46 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       const streamPromise = new Promise<void>((resolve, reject) => {
         cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data: LLMStreamEvent) => {
+          if (data.type === 'run_started') {
+            set((state) => ({
+              activeRunId: data.runId,
+              agentRuns: [
+                {
+                  id: data.runId,
+                  session_id: activeSessionId!,
+                  agent_id: data.agentId,
+                  request_id: assistantMsgId,
+                  status: data.status,
+                  started_at: Date.now(),
+                  ended_at: null,
+                  aborted: 0,
+                },
+                ...state.agentRuns.filter((run) => run.id !== data.runId),
+              ],
+              agentToolCalls: [],
+            }));
+            return;
+          }
+
+          if (data.type === 'run_updated') {
+            set((state) => ({
+              agentRuns: state.agentRuns.map((run) =>
+                run.id === data.runId ? { ...run, status: data.status, error: data.error || run.error || null, ended_at: ['completed', 'failed', 'aborted'].includes(data.status) ? Date.now() : run.ended_at } : run
+              ),
+            }));
+            return;
+          }
+
+          if (data.type === 'approval_required') {
+            set({ pendingApproval: data.approval });
+            return;
+          }
+
+          if (data.type === 'approval_resolved') {
+            set({ pendingApproval: null });
+            return;
+          }
+
           if (data.type === 'message_chunk' && data.text) {
             const hasMsg = get().messages.some((m) => m.id === currentAssistantMsgId);
             if (!hasMsg) {
@@ -203,6 +291,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
             set((state) => ({
               messages: [...state.messages, toolMsg],
+              agentToolCalls: data.id
+                ? [
+                    ...state.agentToolCalls,
+                    {
+                      id: data.id,
+                      run_id: state.activeRunId || '',
+                      tool_name: data.name,
+                      input: JSON.stringify(data.input ?? null),
+                      output: null,
+                      status: 'running',
+                      error: null,
+                      approval_status: null,
+                      started_at: Date.now(),
+                      ended_at: null,
+                    },
+                  ]
+                : state.agentToolCalls,
             }));
 
             window.electronAPI.db.saveMessage(toolMsg).catch((err) => {
@@ -247,6 +352,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 messages: state.messages.map((m) =>
                   m.id === toolMessageId ? { ...m, content: updatedContent } : m
                 ),
+                agentToolCalls: data.id
+                  ? state.agentToolCalls.map((toolCall) =>
+                      toolCall.id === data.id
+                        ? {
+                            ...toolCall,
+                            status: isEnd ? 'success' : 'error',
+                            output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
+                            error: !isEnd ? data.error : null,
+                            ended_at: Date.now(),
+                          }
+                        : toolCall
+                    )
+                  : state.agentToolCalls,
               }));
 
               const savedMsg = {
@@ -288,12 +406,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                     .filter((m) => !(m.role === 'assistant' && m.content === '')),
                   isStreaming: false,
                   streamingMessageId: null,
+                  pendingApproval: null,
                 }));
               } else {
                 set((state) => ({
                   messages: state.messages.filter((m) => !(m.role === 'assistant' && m.content === '')),
                   isStreaming: false,
                   streamingMessageId: null,
+                  pendingApproval: null,
                 }));
               }
               resolve();
@@ -303,6 +423,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 messages: state.messages.filter((m) => !(m.role === 'assistant' && m.content === '')),
                 isStreaming: false,
                 streamingMessageId: null,
+                pendingApproval: null,
                 error: err.message || '保存回复消息失败',
               }));
               reject(err);
@@ -319,6 +440,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               ),
               isStreaming: false,
               streamingMessageId: null,
+              pendingApproval: null,
               error: data.error || '对话请求出错',
             }));
             reject(new Error(data.error || '对话请求出错'));
@@ -330,6 +452,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         await window.electronAPI.llm.chat(assistantMsgId, {
           projectId,
           sessionId: activeSessionId,
+          agentId: activeSession?.agent_id || undefined,
+          message: {
+            id: userMsgId,
+            content,
+          },
           overrides,
         });
         await streamPromise;
@@ -343,6 +470,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ),
           isStreaming: false,
           streamingMessageId: null,
+          pendingApproval: null,
           error: err.message || '发送消息失败',
         }));
       }
@@ -350,9 +478,34 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({
         isStreaming: false,
         streamingMessageId: null,
+        pendingApproval: null,
         error: err.message || '发送消息失败',
       });
     }
+  },
+
+  resolveApproval: async (decision, editedArgs) => {
+    const { streamingMessageId, pendingApproval } = get();
+    if (!streamingMessageId || !pendingApproval) return;
+
+    let editedAction: unknown;
+    if (decision === 'edit') {
+      try {
+        editedAction = editedArgs ? JSON.parse(editedArgs) : undefined;
+      } catch (err: any) {
+        set({ error: err.message || '审批参数不是合法 JSON' });
+        return;
+      }
+    }
+
+    await window.electronAPI.llm.resolveApproval(streamingMessageId, {
+      approvalId: pendingApproval.id,
+      decisions: pendingApproval.actions.map((action) => ({
+        type: decision,
+        editedAction: decision === 'edit' ? { name: action.name, args: editedAction } : undefined,
+        message: decision === 'reject' ? '用户拒绝了该工具调用。' : undefined,
+      })),
+    });
   },
 
   stopMessage: async () => {

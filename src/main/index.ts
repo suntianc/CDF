@@ -16,7 +16,11 @@ function createWindow() {
     y: bounds.y,
     minWidth: 800,
     minHeight: 600,
+    title: 'CDF',
     titleBarStyle: 'hidden',
+    icon: app.isPackaged
+      ? path.join(process.resourcesPath, 'icon.png')
+      : path.join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
