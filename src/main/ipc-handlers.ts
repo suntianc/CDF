@@ -11,6 +11,12 @@ import {
 } from '../shared/provider-url';
 import fs from 'fs';
 import path from 'path';
+import {
+  listPhysicalSkills,
+  savePhysicalSkill,
+  deletePhysicalSkill,
+} from './deepagent/skill-manager';
+import { createMcpClient } from './deepagent/mcp-connector';
 
 export function registerIpcHandlers() {
   const buildProviderHeaders = (providerType: string, apiUrl: string | undefined, decryptedKey?: string) => {
@@ -188,18 +194,9 @@ export function registerIpcHandlers() {
     db.prepare('UPDATE llm_providers SET is_active = 1 WHERE id = ?').run(id);
   });
 
-  // LLM Streaming API Call handler
+  // LLM Streaming API Call handler (deepagents-driven)
   ipcMain.handle('llm:chat', async (event, requestId: string, payload: any) => {
-    const { providerId, model, messages } = payload;
-    const { provider, decryptedKey } = getProviderWithKey(providerId);
-
-    await runLLMChat(event.sender, requestId, {
-      messages,
-      apiKey: decryptedKey,
-      apiUrl: provider.api_url,
-      model: model || provider.default_model,
-      providerType: provider.provider_type as any
-    });
+    await runLLMChat(event.sender, requestId, payload);
   });
 
   ipcMain.handle('llm:stopChat', async (_, requestId: string) => {
@@ -294,37 +291,40 @@ export function registerIpcHandlers() {
 
   // ===== Phase 3: Agent Library IPC Handlers =====
 
-  ipcMain.handle('db:getAgents', () => {
-    const agents = db.prepare('SELECT * FROM agents ORDER BY updated_at DESC').all() as any[];
+  ipcMain.handle('db:getAgents', (_, projectId: string) => {
+    const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
     return agents.map(a => {
       const mcpServers = db.prepare('SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?').all(a.id) as any[];
-      const skills = db.prepare('SELECT skill_id FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
+      const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
       return {
         ...a,
         config: a.config ? JSON.parse(a.config) : null,
         mcpServerIds: mcpServers.map(s => s.mcp_server_id),
-        skillIds: skills.map(s => s.skill_id),
+        skillNames: skills.map(s => s.skill_name),
       };
     });
   });
 
   ipcMain.handle('db:saveAgent', (_, agent: any) => {
-    const { id, name, description, provider_id, system_prompt, config, mcpServerIds, skillIds } = agent;
+    const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerIds, skillNames } = agent;
     const now = Date.now();
     const configStr = config ? JSON.stringify(config) : null;
 
     const runTx = db.transaction(() => {
+      if (is_default) {
+        db.prepare('UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ?').run(now, project_id);
+      }
       const existing = db.prepare('SELECT id FROM agents WHERE id = ?').get(id);
       if (existing) {
         db.prepare(`
-          UPDATE agents SET name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ?
+          UPDATE agents SET project_id = ?, name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
           WHERE id = ?
-        `).run(name, description || null, provider_id || null, system_prompt || null, configStr, now, id);
+        `).run(project_id, name, description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, id);
       } else {
         db.prepare(`
-          INSERT INTO agents (id, name, description, provider_id, system_prompt, config, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, name, description || null, provider_id || null, system_prompt || null, configStr, now, now);
+          INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, project_id, name, description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, now);
       }
 
       db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
@@ -336,10 +336,10 @@ export function registerIpcHandlers() {
       }
 
       db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
-      if (Array.isArray(skillIds)) {
-        const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_id) VALUES (?, ?)');
-        for (const skillId of skillIds) {
-          insertSkill.run(id, skillId);
+      if (Array.isArray(skillNames)) {
+        const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
+        for (const skillName of skillNames) {
+          insertSkill.run(id, skillName);
         }
       }
     });
@@ -348,13 +348,15 @@ export function registerIpcHandlers() {
 
     return { 
       id, 
+      project_id,
       name, 
       description, 
       provider_id, 
       system_prompt, 
       config,
+      is_default: is_default ? 1 : 0,
       mcpServerIds: mcpServerIds || [],
-      skillIds: skillIds || []
+      skillNames: skillNames || []
     };
   });
 
@@ -362,48 +364,40 @@ export function registerIpcHandlers() {
     db.prepare('DELETE FROM agents WHERE id = ?').run(id);
   });
 
-  // ===== Phase 3: Skills IPC Handlers =====
+  // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
 
-  ipcMain.handle('db:getSkills', () => {
-    const skills = db.prepare('SELECT * FROM skills ORDER BY updated_at DESC').all();
-    return skills;
+  ipcMain.handle('db:getSkills', (_, projectId: string) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!project) {
+      return [];
+    }
+    return listPhysicalSkills(project.path);
   });
 
-  ipcMain.handle('db:saveSkill', (_, skill: any) => {
-    const { id, name, description, script_content, script_type } = skill;
-    const now = Date.now();
-
-    const existing = db.prepare('SELECT id FROM skills WHERE id = ?').get(id);
-    if (existing) {
-      db.prepare(`
-        UPDATE skills SET name = ?, description = ?, script_content = ?, script_type = ?, updated_at = ?
-        WHERE id = ?
-      `).run(name, description || null, script_content, script_type || 'bash', now, id);
-    } else {
-      db.prepare(`
-        INSERT INTO skills (id, name, description, script_content, script_type, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, description || null, script_content, script_type || 'bash', now, now);
+  ipcMain.handle('db:saveSkill', (_, projectId: string, skill: any) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!project) {
+      throw new Error('Project not found');
     }
 
-    // Auto-create version snapshot
-    const versionCount = db.prepare('SELECT COUNT(*) as count FROM skill_versions WHERE skill_id = ?').get(id) as any;
-    const versionNumber = (versionCount?.count || 0) + 1;
-    const versionId = crypto.randomUUID();
-    db.prepare(`
-      INSERT INTO skill_versions (id, skill_id, version_number, script_content, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(versionId, id, versionNumber, script_content, now);
-
-    return { id, name, description, script_content, script_type };
+    const scope = skill.scope === 'global' ? 'global' : 'project';
+    return savePhysicalSkill(project.path, scope, skill);
   });
 
-  ipcMain.handle('db:deleteSkill', (_, id: string) => {
-    db.prepare('DELETE FROM skills WHERE id = ?').run(id);
+  ipcMain.handle('db:deleteSkill', (_, projectId: string, id: string) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const scopePrefix: 'project' | 'global' = id.includes(':') ? (id.split(':', 2)[0] as 'project' | 'global') : 'project';
+    const skillName = id.includes(':') ? id.split(':', 2)[1] : id;
+    deletePhysicalSkill(project.path, scopePrefix, skillName);
   });
 
-  ipcMain.handle('db:getSkillVersions', (_, skillId: string) => {
-    return db.prepare('SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version_number DESC').all(skillId);
+  ipcMain.handle('db:getSkillVersions', () => {
+    // 物理文件系统下不另行留存数据库版本表，返回空数组保持向前兼容
+    return [];
   });
 
   // ===== Phase 3: MCP Server IPC Handlers =====
@@ -451,46 +445,32 @@ export function registerIpcHandlers() {
       return { ok: false, message: 'MCP server not found' };
     }
 
-    let config: Record<string, unknown> = {};
     try {
-      config = server.config ? JSON.parse(server.config) : {};
-    } catch (e) {}
-
-    const host = (config.host as string) || 'localhost';
-    const port = (config.port as number) || 11434;
-    const healthEndpoint = (config.healthEndpoint as string) || '/health';
-
-    try {
-      const response = await fetch(`http://${host}:${port}${healthEndpoint}`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (response.ok) {
-        db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 1 WHERE id = ?').run(Date.now(), id);
-        return { ok: true };
-      }
-      return { ok: false, message: `HTTP ${response.status}` };
+      const client = createMcpClient([
+        {
+          ...server,
+          config: server.config ? JSON.parse(server.config) : {},
+          is_connected: !!server.is_connected,
+        },
+      ]);
+      const tools = await client.getTools();
+      await client.close();
+      db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 1 WHERE id = ?').run(Date.now(), id);
+      return { ok: true, message: `检测到 ${tools.length} 个工具` };
     } catch (err: any) {
       db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 0 WHERE id = ?').run(Date.now(), id);
       return { ok: false, message: err.message || 'Connection failed' };
     }
   });
 
-  // ===== Phase 3: deepagents Runtime IPC Handlers =====
+  // ===== Phase 3 & Phase 4: deepagents Runtime IPC Handlers =====
 
   // Store for deepagent instances (managed per session)
   const agentInstances = new Map<string, any>();
 
   ipcMain.handle('deepagents:createAgent', async (_, config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) => {
-    const { providerId, model } = config;
-    const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(providerId) as any;
-    if (!provider) {
-      throw new Error(`LLM Provider with ID ${providerId} not found.`);
-    }
-
     const agentId = crypto.randomUUID();
-    // Store the config for lazy instantiation when needed
-    agentInstances.set(agentId, { config, provider });
-
+    agentInstances.set(agentId, { config });
     return { agentId };
   });
 }

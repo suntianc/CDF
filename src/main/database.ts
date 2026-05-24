@@ -9,6 +9,21 @@ const db = new Database(dbPath);
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
 
+// Migration check: check if the old "skills" table exists (destructive migration for refactoring)
+try {
+  const hasOldSkillsTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='skills'").get();
+  if (hasOldSkillsTable) {
+    console.log('Migrating database: dropping old database-driven skills tables...');
+    db.exec(`
+      DROP TABLE IF EXISTS agent_skills;
+      DROP TABLE IF EXISTS skill_versions;
+      DROP TABLE IF EXISTS skills;
+    `);
+  }
+} catch (error) {
+  console.error('Failed to run db migration for skills schema:', error);
+}
+
 // Initialize schema
 db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
@@ -79,37 +94,21 @@ try {
   }
 }
 
-// Phase 3: Agent Library, Skills, MCP Servers tables
+// Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
     provider_id TEXT,
     system_prompt TEXT,
     config TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE SET NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS skills (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    script_content TEXT NOT NULL,
-    script_type TEXT NOT NULL DEFAULT 'bash',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS skill_versions (
-    id TEXT PRIMARY KEY,
-    skill_id TEXT NOT NULL,
-    version_number INTEGER NOT NULL,
-    script_content TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -133,12 +132,33 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS agent_skills (
     agent_id TEXT NOT NULL,
-    skill_id TEXT NOT NULL,
-    PRIMARY KEY (agent_id, skill_id),
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
-    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+    skill_name TEXT NOT NULL,
+    PRIMARY KEY (agent_id, skill_name),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
   );
 `);
+
+try {
+  db.exec(`ALTER TABLE agents ADD COLUMN project_id TEXT;`);
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Failed to migrate agents table (project_id):', error);
+  }
+}
+
+try {
+  db.exec(`ALTER TABLE agents ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;`);
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Failed to migrate agents table (is_default):', error);
+  }
+}
+
+try {
+  db.prepare(`UPDATE agents SET project_id = ? WHERE project_id IS NULL OR project_id = ''`).run('default-project');
+} catch (error) {
+  console.error('Failed to backfill agents.project_id:', error);
+}
 
 // Insert default project if no projects exist
 try {

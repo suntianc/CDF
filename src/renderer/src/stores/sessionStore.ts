@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { Message, Session } from '../../../shared/types';
-import { useLLMStore } from './llmStore';
+import { ChatRuntimeOverrides, LLMStreamEvent, Message, Session } from '../../../shared/types';
 
 export function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -28,7 +27,7 @@ interface SessionState {
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
-  sendMessage: (projectId: string, content: string) => Promise<void>;
+  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
@@ -96,15 +95,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  sendMessage: async (projectId: string, content: string) => {
+  sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => {
     const { activeSessionId, isStreaming } = get();
     if (!activeSessionId || isStreaming) return;
-
-    const activeProvider = useLLMStore.getState().activeProvider;
-    if (!activeProvider) {
-      set({ error: '请先在模型设置中配置并激活一个大语言模型提供商。' });
-      return;
-    }
 
     const userMsgId = window.crypto.randomUUID();
     const userTokens = estimateTokens(content);
@@ -139,99 +132,219 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         error: null,
       }));
 
-      // Assemble LLM Context Payload
-      const activeSession = get().sessions.find((s) => s.id === activeSessionId);
-      const llmMessages: { role: string; content: string }[] = [];
-
-      if (activeSession?.summary) {
-        llmMessages.push({
-          role: 'system',
-          content: `系统提示：由于前序对话长度已达到上下文限制，系统已自动级联。以下是前序对话的摘要总结，请在此背景上下文中继续与用户对话：\n"""\n${activeSession.summary}\n"""`,
-        });
-      }
-
-      // Add actual conversation history (excluding the new assistant placeholder)
-      const currentHistory = get().messages.filter((m) => m.id !== assistantMsgId);
-      llmMessages.push(...currentHistory.map((m) => ({ role: m.role, content: m.content })));
-
       let accumulatedContent = '';
       let cleanup = () => {};
+      const pendingToolMessages = new Map<string, string[]>();
+      let currentAssistantMsgId = assistantMsgId;
+
       const streamPromise = new Promise<void>((resolve, reject) => {
-        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data) => {
-          if (data.type === 'chunk' && data.text) {
+        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data: LLMStreamEvent) => {
+          if (data.type === 'message_chunk' && data.text) {
+            const hasMsg = get().messages.some((m) => m.id === currentAssistantMsgId);
+            if (!hasMsg) {
+              const newPlaceholder: Message = {
+                id: currentAssistantMsgId,
+                session_id: activeSessionId!,
+                role: 'assistant',
+                content: '',
+                tokens: 0,
+                created_at: Date.now(),
+              };
+              set((state) => ({
+                messages: [...state.messages, newPlaceholder],
+              }));
+            }
+
             accumulatedContent += data.text;
             set((state) => ({
               messages: state.messages.map((m) =>
-                m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m
+                m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
               ),
             }));
             return;
           }
 
-          if (data.type === 'done') {
-            cleanup();
-            try {
-              const assistantTokens = estimateTokens(accumulatedContent);
-              const finalAssistantMsg = {
-                id: assistantMsgId,
-                session_id: activeSessionId,
-                role: 'assistant',
+          if (data.type === 'tool_start') {
+            // 1. 如果上一段助手有说话，将其持久化写入 SQLite
+            if (accumulatedContent.trim()) {
+              const prevMsg = {
+                id: currentAssistantMsgId,
+                session_id: activeSessionId!,
+                role: 'assistant' as const,
                 content: accumulatedContent,
-                tokens: assistantTokens,
+                tokens: estimateTokens(accumulatedContent),
+              };
+              window.electronAPI.db.saveMessage(prevMsg).catch((err) => {
+                console.error('Failed to save intermediate assistant message:', err);
+              });
+            }
+
+            // 2. 插入运行中的工具卡片
+            const toolMessageId = window.crypto.randomUUID();
+            const queue = pendingToolMessages.get(data.name) || [];
+            queue.push(toolMessageId);
+            pendingToolMessages.set(data.name, queue);
+
+            const toolMsgContent = {
+              type: 'tool',
+              name: data.name,
+              status: 'running',
+              input: data.input,
+            };
+
+            const toolMsg: Message = {
+              id: toolMessageId,
+              session_id: activeSessionId!,
+              role: 'system',
+              content: JSON.stringify(toolMsgContent),
+              created_at: Date.now(),
+              tokens: 0,
+            };
+
+            set((state) => ({
+              messages: [...state.messages, toolMsg],
+            }));
+
+            window.electronAPI.db.saveMessage(toolMsg).catch((err) => {
+              console.error('Failed to save tool start message:', err);
+            });
+
+            // 3. 准备切换下一段助手消息
+            currentAssistantMsgId = window.crypto.randomUUID();
+            accumulatedContent = '';
+            return;
+          }
+
+          if (data.type === 'tool_end' || data.type === 'tool_error') {
+            const queue = pendingToolMessages.get(data.name) || [];
+            const toolMessageId = queue.shift();
+            pendingToolMessages.set(data.name, queue);
+            if (toolMessageId) {
+              const isEnd = data.type === 'tool_end';
+              
+              const currentMsg = get().messages.find(m => m.id === toolMessageId);
+              let parsedContent: any = {};
+              if (currentMsg) {
+                try {
+                  parsedContent = JSON.parse(currentMsg.content);
+                } catch (e) {
+                  parsedContent = { type: 'tool', name: data.name };
+                }
+              } else {
+                parsedContent = { type: 'tool', name: data.name };
+              }
+
+              const newContentObj = {
+                ...parsedContent,
+                status: isEnd ? 'success' : 'error',
+                output: isEnd ? data.output : undefined,
+                error: !isEnd ? data.error : undefined,
               };
 
-              // Persist Assistant message in SQLite
-              await window.electronAPI.db.saveMessage(finalAssistantMsg);
+              const updatedContent = JSON.stringify(newContentObj);
+
               set((state) => ({
                 messages: state.messages.map((m) =>
-                  m.id === assistantMsgId ? { ...m, tokens: assistantTokens } : m
+                  m.id === toolMessageId ? { ...m, content: updatedContent } : m
                 ),
-                isStreaming: false,
-                streamingMessageId: null,
               }));
 
-              // Check context window usage threshold (85%)
-              await get().checkContextThreshold(projectId);
+              const savedMsg = {
+                id: toolMessageId,
+                session_id: activeSessionId!,
+                role: 'system' as const,
+                content: updatedContent,
+                created_at: currentMsg?.created_at || Date.now(),
+                tokens: 0,
+              };
+
+              window.electronAPI.db.saveMessage(savedMsg).catch((err) => {
+                console.error('Failed to save tool output to db:', err);
+              });
+            }
+            return;
+          }
+
+          if (data.type === 'message_done') {
+            cleanup();
+            try {
+              if (accumulatedContent.trim()) {
+                const assistantTokens = estimateTokens(accumulatedContent);
+                const finalAssistantMsg = {
+                  id: currentAssistantMsgId,
+                  session_id: activeSessionId!,
+                  role: 'assistant' as const,
+                  content: accumulatedContent,
+                  tokens: assistantTokens,
+                };
+
+                await window.electronAPI.db.saveMessage(finalAssistantMsg);
+                
+                set((state) => ({
+                  messages: state.messages
+                    .map((m) =>
+                      m.id === currentAssistantMsgId ? { ...m, tokens: assistantTokens } : m
+                    )
+                    .filter((m) => !(m.role === 'assistant' && m.content === '')),
+                  isStreaming: false,
+                  streamingMessageId: null,
+                }));
+              } else {
+                set((state) => ({
+                  messages: state.messages.filter((m) => !(m.role === 'assistant' && m.content === '')),
+                  isStreaming: false,
+                  streamingMessageId: null,
+                }));
+              }
               resolve();
             } catch (err: any) {
               console.error('Failed to save message or complete stream:', err);
-              set({
+              set((state) => ({
+                messages: state.messages.filter((m) => !(m.role === 'assistant' && m.content === '')),
                 isStreaming: false,
                 streamingMessageId: null,
                 error: err.message || '保存回复消息失败',
-              });
+              }));
               reject(err);
             }
             return;
           }
 
-          if (data.type === 'error') {
+          if (data.type === 'runtime_error') {
             cleanup();
-            const streamError = new Error(data.error || '对话请求出错');
-            set({
+            const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
+            set((state) => ({
+              messages: state.messages.filter(
+                (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+              ),
               isStreaming: false,
               streamingMessageId: null,
-              error: streamError.message,
-            });
-            reject(streamError);
+              error: data.error || '对话请求出错',
+            }));
+            reject(new Error(data.error || '对话请求出错'));
           }
         });
       });
 
       try {
         await window.electronAPI.llm.chat(assistantMsgId, {
-          providerId: activeProvider.id,
-          model: activeProvider.default_model,
-          messages: llmMessages,
+          projectId,
+          sessionId: activeSessionId,
+          overrides,
         });
         await streamPromise;
       } catch (err: any) {
         cleanup();
-        set({
+        // 移除未持久化的 assistant 占位和工具消息
+        const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
+        set((state) => ({
+          messages: state.messages.filter(
+            (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+          ),
           isStreaming: false,
           streamingMessageId: null,
           error: err.message || '发送消息失败',
-        });
+        }));
       }
     } catch (err: any) {
       set({
@@ -251,73 +364,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       console.error('Failed to stop chat message streaming:', err);
     }
   },
-
-  checkContextThreshold: async (projectId: string) => {
-    const { activeSessionId, messages } = get();
-    if (!activeSessionId) return;
-
-    const activeProvider = useLLMStore.getState().activeProvider;
-    if (!activeProvider) return;
-
-    const contextLimit = activeProvider.context_limit || 8192;
-    const totalTokens = messages.reduce((sum, m) => sum + (m.tokens || 0), 0);
-
-    if (totalTokens >= contextLimit * 0.85) {
-      console.log(`Context limit threshold reached (${totalTokens}/${contextLimit}). Triggering silent auto-summarization...`);
-      
-      const activeSession = get().sessions.find((s) => s.id === activeSessionId);
-      if (!activeSession) return;
-
-      // Request LLM for summary
-      const summarizationMessages = messages.map((m) => ({ role: m.role, content: m.content }));
-      summarizationMessages.push({
-        role: 'user',
-        content: '请简要总结我们之前的所有对话内容，提炼核心要点与当前的状态，以作后续对话的上下文参考。字数控制在 200 字以内。必须仅回复总结正文，不要包含任何前导词或说明。',
-      });
-
-      const summarizeRequestId = window.crypto.randomUUID();
-      let summaryText = '';
-
-      try {
-        await window.electronAPI.llm.chat(summarizeRequestId, {
-          providerId: activeProvider.id,
-          model: activeProvider.default_model,
-          messages: summarizationMessages,
-        });
-
-        await new Promise<void>((resolve, reject) => {
-          const cleanup = window.electronAPI.llm.onChunk(summarizeRequestId, (_event, data) => {
-            if (data.type === 'chunk' && data.text) {
-              summaryText += data.text;
-            } else if (data.type === 'done') {
-              cleanup();
-              resolve();
-            } else if (data.type === 'error') {
-              cleanup();
-              reject(new Error(data.error || 'Failed to summarize'));
-            }
-          });
-        });
-
-        const childSessionName = `${activeSession.name} (续)`;
-        const newSession = await window.electronAPI.db.createSession(
-          projectId,
-          childSessionName,
-          activeSessionId,
-          summaryText
-        );
-
-        // Switch to the newly created cascade session
-        await get().fetchSessions(projectId);
-        await get().selectSession(newSession.id);
-        
-        console.log('Successfully cascaded to child session:', newSession.id);
-      } catch (err: any) {
-        console.error('Failed to auto-summarize:', err);
-        set({ error: `级联总结自动触发失败: ${err.message}` });
-      }
-    }
-  },
+  checkContextThreshold: async () => {},
 
   clearError: () => set({ error: null }),
 }));

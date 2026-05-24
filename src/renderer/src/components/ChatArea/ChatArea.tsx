@@ -2,10 +2,13 @@ import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
+import { useAgentStore } from '../../stores/agentStore';
 import { 
-  ArrowUp, Square, Sparkles, BookOpen, GitFork, ChevronRight, AlertCircle, X, Terminal,
-  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check
+  ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
+  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
+  ChevronUp
 } from 'lucide-react';
+import { ToolMessageCard } from './ToolMessageCard';
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
@@ -224,6 +227,23 @@ const renderMarkdownText = (text: string) => {
 };
 
 const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLast: boolean; isStreaming: boolean }) => {
+  const isFinished = useMemo(() => message.content.includes('</think>'), [message.content]);
+  const [thinkExpanded, setThinkExpanded] = useState(!isFinished);
+
+  // Helper to parse tool JSON
+  const toolInfo = useMemo(() => {
+    if (message.role !== 'system') return null;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.type === 'tool') {
+        return parsed;
+      }
+    } catch (e) {
+      // Not a JSON tool message, treat as regular system message
+    }
+    return null;
+  }, [message.content, message.role]);
+
   const renderMessageContent = (content: string) => {
     if (!content) return null;
 
@@ -244,16 +264,39 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
 
     const renderThink = () => {
       if (!thinkContent) return null;
-      const isFinished = content.includes('</think>');
+      const finished = content.includes('</think>');
       return (
-        <div className="mb-3 border-l-2 border-[var(--color-accent)]/30 bg-black/5 dark:bg-white/5 rounded-r-md px-3.5 py-2 text-xs text-[var(--color-text-secondary)] italic select-text">
-          <div className="flex items-center gap-1.5 text-[var(--color-accent)] font-semibold not-italic mb-1.5 select-none text-[11px] uppercase tracking-wider">
-            <Sparkles className={`w-3.5 h-3.5 ${!isFinished ? 'animate-pulse' : ''}`} />
-            <span>{isFinished ? '深度思考已完成' : '正在思考中...'}</span>
+        <div className="mb-3 flex flex-col border border-[var(--color-border)]/40 bg-[var(--color-bg-subtle)]/30 rounded-lg overflow-hidden transition-all duration-200">
+          {/* Thinking Header */}
+          <div 
+            onClick={() => setThinkExpanded(!thinkExpanded)}
+            className="flex items-center justify-between px-3.5 py-2 cursor-pointer select-none bg-[var(--color-bg-active)]/20 hover:bg-[var(--color-bg-hover)]/30 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-[var(--color-accent)] font-semibold text-[11px] uppercase tracking-wider">
+              <Sparkles className={`w-3.5 h-3.5 ${!finished ? 'animate-pulse text-[var(--color-accent)]' : 'text-[var(--color-text-secondary)]/70'}`} />
+              <span className="text-[var(--color-text-secondary)] font-medium">
+                {finished ? '深度思考过程' : '正在深度思考中...'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)] font-medium">
+              <span>{finished ? '已完成' : '思考中'}</span>
+              {thinkExpanded ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </div>
           </div>
-          <div className="whitespace-pre-wrap leading-relaxed">
-            {thinkContent}
-          </div>
+          
+          {/* Thinking Body */}
+          {thinkExpanded && (
+            <div className="px-4 py-3 text-xs text-[var(--color-text-secondary)] italic select-text border-t border-[var(--color-border)]/20 whitespace-pre-wrap leading-relaxed bg-black/5 dark:bg-white/5 animate-slide-down">
+              {thinkContent}
+              {!finished && (
+                <span className="inline-block w-1.5 h-3.5 ml-1 bg-[var(--color-accent)]/80 animate-pulse vertical-middle" />
+              )}
+            </div>
+          )}
         </div>
       );
     };
@@ -285,9 +328,13 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
     );
   };
 
+  if (toolInfo) {
+    return <ToolMessageCard toolInfo={toolInfo} createdAt={message.created_at} />;
+  }
+
   return (
     <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
-      <div className="message-bubble">
+      <div className="message-bubble animate-pop-in">
         {renderMessageContent(message.content)}
         <div className="message-time">
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -323,19 +370,30 @@ export function ChatArea({
     sessions, activeSessionId, messages, isStreaming, error, 
     sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage
   } = useSessionStore();
-  const { providers, activeProvider, fetchProviders, saveProvider, setActiveProvider } = useLLMStore();
+  const { providers, fetchProviders } = useLLMStore();
+  const { agents, fetchAgents } = useAgentStore();
 
   const [inputVal, setInputVal] = useState('');
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initialize LLM providers to check active provider
+  // Defensive mount-time isStreaming reset to prevent stuck loading states
+  useEffect(() => {
+    useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
+  }, []);
+
   useEffect(() => {
     fetchProviders();
   }, [fetchProviders]);
 
-  // Click outside listener for model selectors
+  useEffect(() => {
+    if (!currentProjectId) return;
+    fetchAgents(currentProjectId);
+  }, [currentProjectId, fetchAgents]);
+
   useEffect(() => {
     const handleOutsideClick = () => {
       setWelcomeModelSelectorOpen(false);
@@ -343,11 +401,6 @@ export function ChatArea({
     };
     window.addEventListener('click', handleOutsideClick);
     return () => window.removeEventListener('click', handleOutsideClick);
-  }, []);
-
-  // Defensive mount-time isStreaming reset to prevent stuck loading states
-  useEffect(() => {
-    useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
   }, []);
 
   // Find active project name & active session
@@ -358,6 +411,53 @@ export function ChatArea({
   const activeSession = useMemo(() => {
     return sessions.find(s => s.id === activeSessionId) || null;
   }, [activeSessionId, sessions]);
+
+  const defaultAgent = useMemo(() => {
+    return agents.find((agent) => agent.project_id === currentProjectId && agent.is_default === 1) || null;
+  }, [agents, currentProjectId]);
+
+  const masterProvider = useMemo(() => {
+    return providers.find((provider) => provider.id === defaultAgent?.provider_id) || null;
+  }, [defaultAgent, providers]);
+
+  const selectedProvider = useMemo(() => {
+    return providers.find((provider) => provider.id === selectedProviderId) || null;
+  }, [providers, selectedProviderId]);
+
+  const selectedProviderModels = useMemo(() => {
+    if (!selectedProvider) return [];
+    const models = [selectedProvider.default_model, ...(selectedProvider.models || [])].filter(Boolean);
+    return Array.from(new Set(models));
+  }, [selectedProvider]);
+
+  useEffect(() => {
+    if (!selectedProvider) {
+      if (selectedModel) setSelectedModel('');
+      return;
+    }
+
+    if (!selectedProviderModels.includes(selectedModel)) {
+      setSelectedModel(selectedProviderModels[0] || '');
+    }
+  }, [selectedModel, selectedProvider, selectedProviderModels]);
+
+  const getProviderModels = (provider: { default_model: string; models?: string[] }) => {
+    const models = [provider.default_model, ...(provider.models || [])].filter(Boolean);
+    return Array.from(new Set(models));
+  };
+
+  const currentProvider = selectedProvider || masterProvider;
+  const currentModel = selectedModel || masterProvider?.default_model || '';
+  const currentModelLabel = currentProvider
+    ? `${currentProvider.name} • ${currentModel || currentProvider.default_model}`
+    : '选择模型';
+
+  const handleSelectModel = (providerId: string, modelName: string) => {
+    setSelectedProviderId(providerId);
+    setSelectedModel(modelName);
+    setWelcomeModelSelectorOpen(false);
+    setComposerModelSelectorOpen(false);
+  };
 
   console.log('ChatArea rendering state:', { activeSessionId, isStreaming, inputVal: `"${inputVal}"`, currentProjectId });
 
@@ -374,7 +474,10 @@ export function ChatArea({
 
     const value = inputVal;
     setInputVal('');
-    await sendMessage(currentProjectId, value);
+    await sendMessage(currentProjectId, value, {
+      providerId: selectedProviderId || undefined,
+      model: selectedModel || undefined,
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -400,7 +503,10 @@ export function ChatArea({
       setInputVal('');
       
       // Send message
-      await sendMessage(projectId, promptText);
+      await sendMessage(projectId, promptText, {
+        providerId: selectedProviderId || undefined,
+        model: selectedModel || undefined,
+      });
     } catch (err) {
       console.error('Failed to send from welcome:', err);
     }
@@ -419,36 +525,6 @@ export function ChatArea({
     } catch (err) {
       console.error('Failed to create project:', err);
     }
-  };
-
-  const handleSelectModel = async (providerId: string, modelName: string) => {
-    const provider = providers.find(p => p.id === providerId);
-    if (!provider) return;
-    
-    const updated = {
-      ...provider,
-      default_model: modelName
-    };
-    await saveProvider(updated);
-    await setActiveProvider(providerId);
-    setWelcomeModelSelectorOpen(false);
-    setComposerModelSelectorOpen(false);
-  };
-
-  const getProviderModels = (provider: any) => {
-    if (provider.models && provider.models.length > 0) {
-      return provider.models;
-    }
-    if (provider.provider_type === 'openai') {
-      return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'];
-    }
-    if (provider.provider_type === 'anthropic') {
-      return ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
-    }
-    if (provider.provider_type === 'ollama') {
-      return ['llama3', 'llama3.1', 'codellama', 'mistral'];
-    }
-    return [provider.default_model];
   };
 
   // Old renderMessageContent removed. MessageItem is now declared at module scope.
@@ -515,7 +591,6 @@ export function ChatArea({
                 <button type="button" className="dialog-btn" title="添加附件" aria-label="添加附件">
                   <Paperclip className="w-4 h-4" />
                 </button>
-                
                 <div 
                   className={`model-selector ${welcomeModelSelectorOpen ? 'open' : ''}`}
                   onClick={(e) => e.stopPropagation()}
@@ -525,7 +600,7 @@ export function ChatArea({
                     className="model-selector-trigger"
                   >
                     <span className="model-selector-label">
-                      {activeProvider ? `${activeProvider.name} • ${activeProvider.default_model}` : '选择模型'}
+                      {currentModelLabel}
                     </span>
                     <ChevronDown className="model-chevron w-3.5 h-3.5" />
                   </div>
@@ -544,11 +619,12 @@ export function ChatArea({
                       providers.map((p) => (
                         <div key={p.id} className="model-group">
                           <div className="model-group-name">{p.name}</div>
-                          {getProviderModels(p).map((m: string) => (
+                          {getProviderModels(p).map((m) => (
                             <div
                               key={m}
                               className={`model-select-option ${
-                                activeProvider?.id === p.id && activeProvider?.default_model === m
+                                (selectedProviderId === p.id && selectedModel === m) ||
+                                (!selectedProviderId && !selectedModel && masterProvider?.id === p.id && masterProvider?.default_model === m)
                                   ? 'selected'
                                   : ''
                               }`}
@@ -653,33 +729,6 @@ export function ChatArea({
         {/* Messages Viewport */}
         <div className="flex-1 relative overflow-hidden">
           <div className="messages absolute inset-0 overflow-y-auto" style={{ paddingBottom: '180px' }}>
-            {/* Cascade Summary Box if available */}
-            {activeSession?.summary && (
-              <div className="mb-6 p-4 rounded-xl border border-[var(--color-accent)]/20 bg-gradient-to-br from-[var(--color-accent-dim)] to-transparent relative overflow-hidden flex flex-col gap-2 shadow-sm">
-                <div className="absolute top-0 right-0 p-3 opacity-5 select-none pointer-events-none">
-                  <BookOpen className="w-20 h-20 text-[var(--color-accent)]" />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-[var(--color-accent)] font-semibold">
-                    <GitFork className="w-3.5 h-3.5" />
-                    <span>前序会话级联摘要</span>
-                  </div>
-                  {activeSession?.parent_session_id && (
-                    <button
-                      onClick={() => activeSession?.parent_session_id && selectSession(activeSession.parent_session_id)}
-                      className="text-xs text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] font-medium flex items-center gap-0.5 transition-all"
-                    >
-                      <span>回溯父会话历史</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-                <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed italic border-l-2 border-[var(--color-accent)]/30 pl-3">
-                  "{activeSession?.summary}"
-                </p>
-              </div>
-            )}
-
             {/* Messages List */}
             {(messages || []).map((message, idx) => (
               <MessageItem
@@ -730,8 +779,8 @@ export function ChatArea({
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={activeProvider ? "给 Master Agent 发送消息..." : "请先配置模型提供商以开启对话..."}
-              disabled={!activeProvider || isStreaming}
+              placeholder="给 Master Agent 发送消息..."
+              disabled={isStreaming}
               rows={2}
               className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
             />
@@ -739,54 +788,53 @@ export function ChatArea({
             {/* Lower: Toolbar Row */}
             <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
               <div className="flex items-center gap-1.5">
-                {activeProvider && (
-                  <div 
-                    className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
-                    onClick={(e) => e.stopPropagation()}
+                <div 
+                  className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
+                    className="model-selector-trigger"
                   >
-                    <div
-                      onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
-                      className="model-selector-trigger"
-                    >
-                      <span className="model-selector-label truncate max-w-[150px]">
-                        {activeProvider.name} • {activeProvider.default_model}
-                      </span>
-                      <ChevronDown className="model-chevron w-3.5 h-3.5" />
-                    </div>
-                    <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
-                      {providers.length === 0 ? (
-                        <div 
-                          onClick={() => {
-                            setComposerModelSelectorOpen(false);
-                            onOpenSettings?.();
-                          }}
-                          className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
-                        >
-                          暂无可用提供商，点击去配置
-                        </div>
-                      ) : (
-                        providers.map((p) => (
-                          <div key={p.id} className="model-group">
-                            <div className="model-group-name">{p.name}</div>
-                            {getProviderModels(p).map((m: string) => (
-                              <div
-                                key={m}
-                                className={`model-select-option ${
-                                  activeProvider?.id === p.id && activeProvider?.default_model === m
-                                    ? 'selected'
-                                    : ''
-                                }`}
-                                onClick={() => handleSelectModel(p.id, m)}
-                              >
-                                {m}
-                              </div>
-                            ))}
-                          </div>
-                        ))
-                      )}
-                    </div>
+                    <span className="model-selector-label truncate max-w-[150px]">
+                      {currentModelLabel}
+                    </span>
+                    <ChevronDown className="model-chevron w-3.5 h-3.5" />
                   </div>
-                )}
+                  <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
+                    {providers.length === 0 ? (
+                      <div 
+                        onClick={() => {
+                          setComposerModelSelectorOpen(false);
+                          onOpenSettings?.();
+                        }}
+                        className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
+                      >
+                        暂无可用提供商，点击去配置
+                      </div>
+                    ) : (
+                      providers.map((p) => (
+                        <div key={p.id} className="model-group">
+                          <div className="model-group-name">{p.name}</div>
+                          {getProviderModels(p).map((m) => (
+                            <div
+                              key={m}
+                              className={`model-select-option ${
+                                (selectedProviderId === p.id && selectedModel === m) ||
+                                (!selectedProviderId && !selectedModel && masterProvider?.id === p.id && masterProvider?.default_model === m)
+                                  ? 'selected'
+                                  : ''
+                              }`}
+                              onClick={() => handleSelectModel(p.id, m)}
+                            >
+                              {m}
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -803,7 +851,7 @@ export function ChatArea({
                 ) : (
                   <button
                     type="submit"
-                    disabled={!activeProvider || !inputVal.trim() || isStreaming}
+                    disabled={!inputVal.trim() || isStreaming}
                     className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
                     aria-label="发送消息"
                   >

@@ -1,26 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useLLMStore } from './llmStore';
 import { useSessionStore } from './sessionStore';
 
 describe('sessionStore sendMessage', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-
-    useLLMStore.setState({
-      providers: [],
-      activeProvider: {
-        id: 'provider-1',
-        name: 'Test Provider',
-        provider_type: 'openai',
-        default_model: 'test-model',
-        context_limit: 8192,
-        is_active: 1,
-        created_at: Date.now(),
-        updated_at: Date.now(),
-      },
-      isLoading: false,
-      error: null,
-    });
 
     useSessionStore.setState({
       sessions: [
@@ -45,7 +28,7 @@ describe('sessionStore sendMessage', () => {
   it('should register stream listener before starting llm chat', async () => {
     const saveMessage = vi.fn(async (message) => message);
     const getMessages = vi.fn(async () => []);
-    let chunkListener: ((event: unknown, data: { type: 'chunk' | 'done' | 'error'; text?: string; error?: string }) => void) | null = null;
+    let chunkListener: ((event: unknown, data: any) => void) | null = null;
 
     window.electronAPI = {
       store: {
@@ -70,10 +53,15 @@ describe('sessionStore sendMessage', () => {
       llm: {
         chat: vi.fn(async () => {
           expect(chunkListener).toBeTypeOf('function');
-          await chunkListener?.(null, { type: 'chunk', text: '你好，' });
-          await chunkListener?.(null, { type: 'chunk', text: '世界' });
-          await chunkListener?.(null, { type: 'done' });
+          await chunkListener?.(null, { type: 'message_chunk', text: '你好，' });
+          await chunkListener?.(null, { type: 'tool_start', name: 'test_tool', input: { arg: 1 } });
+          await chunkListener?.(null, { type: 'tool_end', name: 'test_tool', output: 'success_output' });
+          await chunkListener?.(null, { type: 'message_chunk', text: '世界' });
+          await chunkListener?.(null, { type: 'message_done' });
         }),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
         fetchOllamaModels: vi.fn(),
         onChunk: vi.fn((_requestId, callback) => {
           chunkListener = callback;
@@ -90,10 +78,36 @@ describe('sessionStore sendMessage', () => {
     const state = useSessionStore.getState();
     expect(window.electronAPI.llm.onChunk).toHaveBeenCalledTimes(1);
     expect(window.electronAPI.llm.chat).toHaveBeenCalledTimes(1);
-    expect(saveMessage).toHaveBeenCalledTimes(2);
+    expect(window.electronAPI.llm.chat).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        projectId: 'project-1',
+        sessionId: 'session-1',
+      })
+    );
+    // 5次：userMsg(1) + prevAssistantMsg("你好，")(2) + tool_start(3) + tool_end(4) + finalAssistantMsg("世界")(5)
+    expect(saveMessage).toHaveBeenCalledTimes(5);
     expect(state.isStreaming).toBe(false);
     expect(state.streamingMessageId).toBe(null);
     expect(state.error).toBe(null);
-    expect(state.messages.at(-1)?.content).toBe('你好，世界');
+    
+    expect(state.messages).toHaveLength(4);
+    // User message
+    expect(state.messages[0].role).toBe('user');
+    expect(state.messages[0].content).toBe('测试消息');
+    // First Assistant message segment ("你好，")
+    expect(state.messages[1].role).toBe('assistant');
+    expect(state.messages[1].content).toBe('你好，');
+    // Tool message (JSON formatted)
+    expect(state.messages[2].role).toBe('system');
+    const parsedTool = JSON.parse(state.messages[2].content);
+    expect(parsedTool.type).toBe('tool');
+    expect(parsedTool.name).toBe('test_tool');
+    expect(parsedTool.status).toBe('success');
+    expect(parsedTool.input).toEqual({ arg: 1 });
+    expect(parsedTool.output).toBe('success_output');
+    // Second Assistant message segment ("世界")
+    expect(state.messages[3].role).toBe('assistant');
+    expect(state.messages[3].content).toBe('世界');
   });
 });

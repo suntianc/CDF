@@ -43,11 +43,15 @@ export interface LLMProvider {
 
 export interface Agent {
   id: string;
+  project_id: string;
   name: string;
   description?: string;
   provider_id?: string;
   system_prompt?: string;
   config?: Record<string, unknown>;
+  is_default: number;
+  mcpServerIds?: string[];
+  skillNames?: string[];
   created_at: number;
   updated_at: number;
 }
@@ -56,6 +60,10 @@ export interface Skill {
   id: string;
   name: string;
   description?: string;
+  scope: 'project' | 'global';
+  module?: string;
+  entryScript?: string | null;
+  resourceFiles: string[];
   script_content: string;
   script_type: 'bash' | 'python' | 'javascript';
   created_at: number;
@@ -73,12 +81,25 @@ export interface SkillVersion {
 export interface MCPServer {
   id: string;
   name: string;
-  server_type: string;
+  server_type: 'stdio' | 'sse';
   config: Record<string, unknown>;
   is_connected: boolean;
   last_health_check?: number;
   created_at: number;
   updated_at: number;
+}
+
+export type LLMStreamEvent =
+  | { type: 'message_chunk'; text: string }
+  | { type: 'message_done' }
+  | { type: 'tool_start'; name: string; input?: unknown }
+  | { type: 'tool_end'; name: string; output?: unknown }
+  | { type: 'tool_error'; name: string; error: string }
+  | { type: 'runtime_error'; error: string };
+
+export interface ChatRuntimeOverrides {
+  providerId?: string;
+  model?: string;
 }
 
 export interface ElectronAPI {
@@ -101,13 +122,13 @@ export interface ElectronAPI {
     setActiveProvider: (id: string) => Promise<void>;
     selectDirectory: () => Promise<string | null>;
     // Phase 3: Agent Library
-    getAgents: () => Promise<Agent[]>;
+    getAgents: (projectId: string) => Promise<Agent[]>;
     saveAgent: (agent: any) => Promise<Agent>;
     deleteAgent: (id: string) => Promise<void>;
     // Phase 3: Skills
-    getSkills: () => Promise<Skill[]>;
-    saveSkill: (skill: any) => Promise<Skill>;
-    deleteSkill: (id: string) => Promise<void>;
+    getSkills: (projectId: string) => Promise<Skill[]>;
+    saveSkill: (projectId: string, skill: any) => Promise<Skill>;
+    deleteSkill: (projectId: string, id: string) => Promise<void>;
     getSkillVersions: (skillId: string) => Promise<SkillVersion[]>;
     // Phase 3: MCP Servers
     getMcpServers: () => Promise<MCPServer[]>;
@@ -118,14 +139,14 @@ export interface ElectronAPI {
     selectFile: () => Promise<{ name: string; script_type: 'bash' | 'python' | 'javascript'; content: string } | null>;
   };
   llm: {
-    chat: (requestId: string, payload: { providerId: string; model?: string; messages: { role: string; content: string }[] }) => Promise<void>;
+    chat: (requestId: string, payload: { projectId: string; sessionId: string; messages: { role: string; content: string }[]; overrides?: ChatRuntimeOverrides }) => Promise<void>;
     stopChat: (requestId: string) => Promise<void>;
     testProvider: (providerId: string) => Promise<{ ok: boolean; message: string }>;
     fetchProviderModels: (providerId: string) => Promise<string[]>;
     fetchOllamaModels: (apiUrl: string) => Promise<string[]>;
     onChunk: (
       requestId: string,
-      callback: (event: any, data: { type: 'chunk' | 'done' | 'error'; text?: string; error?: string }) => void
+      callback: (event: any, data: LLMStreamEvent) => void
     ) => () => void;
   };
   deepagents: {

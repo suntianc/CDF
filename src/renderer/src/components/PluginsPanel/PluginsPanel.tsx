@@ -1,59 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
-import { Skill, MCPServer, SkillVersion } from '../../../../shared/types';
+import { useProjectStore } from '../../stores/projectStore';
+import { Skill, MCPServer } from '../../../../shared/types';
 import { 
-  Plus, Trash2, Edit2, X, Code, Layers, ShieldCheck, Play, RefreshCw, Loader2, ArrowRight, Search, FolderInput
+  Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2
 } from 'lucide-react';
 
 interface Toast {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
-}
-
-// Custom code editor with synchronized line numbers
-function CodeEditor({ 
-  value, 
-  onChange, 
-  placeholder 
-}: { 
-  value: string; 
-  onChange: (v: string) => void; 
-  placeholder?: string;
-}) {
-  const lineCount = value.split('\n').length || 1;
-  const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const lineNumbersRef = useRef<HTMLDivElement>(null);
-
-  const handleScroll = () => {
-    if (textareaRef.current && lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
-    }
-  };
-
-  return (
-    <div className="flex border border-[var(--color-border)] rounded-lg overflow-hidden font-mono text-xs h-[240px] bg-[var(--color-bg-sidebar)]/30 focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 transition-all">
-      <div 
-        ref={lineNumbersRef}
-        className="w-10 bg-black/15 text-[var(--color-text-muted)] text-right pr-2 py-3 select-none overflow-hidden border-r border-[var(--color-border)]/50 shrink-0 leading-[1.6]"
-      >
-        {lineNumbers.map(n => (
-          <div key={n} className="h-5">{n}</div>
-        ))}
-      </div>
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onScroll={handleScroll}
-        placeholder={placeholder}
-        className="flex-1 bg-transparent text-[var(--color-text-primary)] p-3 outline-none resize-none overflow-y-auto leading-[1.6]"
-        style={{ whiteSpace: 'pre', overflowX: 'auto' }}
-      />
-    </div>
-  );
 }
 
 export function PluginsPanel() {
@@ -126,92 +83,40 @@ export function PluginsPanel() {
 
 // ==================== SKILLS TAB ====================
 function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
-  const { skills, activeSkillVersions, isLoading, fetchSkills, saveSkill, deleteSkill, fetchSkillVersions } = useSkillStore();
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
-
-  // Form states
-  const [formName, setFormName] = useState('');
-  const [formDesc, setFormDesc] = useState('');
-  const [formType, setFormType] = useState<Skill['script_type']>('bash');
-  const [formScript, setFormScript] = useState('');
-
-  // Version viewer states
-  const [showVersions, setShowVersions] = useState(false);
-  const [viewingVersionCode, setViewingVersionCode] = useState<string | null>(null);
+  const { skills, isLoading, fetchSkills, saveSkill, deleteSkill } = useSkillStore();
+  const { currentProjectId } = useProjectStore();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchSkills();
-  }, []);
-
-  const openCreateModal = (imported?: { name: string; script_type: 'bash' | 'python' | 'javascript'; content: string }) => {
-    setEditingSkillId(null);
-    setFormName(imported?.name || '');
-    setFormDesc(imported ? `导入的 ${imported.script_type} 脚本` : '');
-    setFormType(imported?.script_type || 'bash');
-    setFormScript(imported?.content || '');
-    setShowVersions(false);
-    setViewingVersionCode(null);
-    setIsModalOpen(true);
-  };
+    if (!currentProjectId) return;
+    fetchSkills(currentProjectId);
+  }, [currentProjectId]);
 
   const handleImportSkill = async () => {
     try {
       const res = await window.electronAPI.db.selectFile();
       if (res) {
-        openCreateModal(res);
-        showToast(`✓ 脚本「${res.name}」导入成功，请确认后保存`, 'success');
+        await saveSkill(currentProjectId || 'default-project', {
+          id: `project:${res.name}`,
+          name: res.name,
+          description: `导入的 ${res.script_type} 脚本`,
+          script_type: res.script_type,
+          script_content: res.content,
+          scope: 'project',
+        });
+        showToast(`✓ 脚本「${res.name}」已导入为 Skill`, 'success');
       }
     } catch (e) {
       showToast('导入脚本失败', 'error');
     }
   };
 
-  const openEditModal = (skill: Skill) => {
-    setEditingSkillId(skill.id);
-    setFormName(skill.name);
-    setFormDesc(skill.description || '');
-    setFormType(skill.script_type);
-    setFormScript(skill.script_content);
-    setViewingVersionCode(null);
-    setShowVersions(false);
-    fetchSkillVersions(skill.id); // Pre-fetch version list
-    setIsModalOpen(true);
-  };
-
-  const handleSaveSkill = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName.trim() || !formScript.trim()) {
-      showToast('名称和脚本内容不能为空', 'error');
-      return;
-    }
-
-    const id = editingSkillId || window.crypto.randomUUID();
-    const payload = {
-      id,
-      name: formName,
-      description: formDesc,
-      script_type: formType,
-      script_content: formScript
-    };
-
-    try {
-      await saveSkill(payload);
-      showToast(`✓ Skill「${formName}」保存并已生成版本快照`, 'success');
-      setIsModalOpen(false);
-    } catch (err) {
-      showToast('保存 Skill 失败', 'error');
-    }
-  };
-
   const handleDeleteSkill = async (id: string, name: string) => {
     if (confirm(`确定要删除 Skill 「${name}」吗？`)) {
       try {
-        await deleteSkill(id);
+        await deleteSkill(currentProjectId || 'default-project', id);
         showToast(`✓ Skill ${name} 已成功删除`, 'success');
       } catch (err) {
         showToast('删除 Skill 失败', 'error');
@@ -247,11 +152,6 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
             <FolderInput className="w-3.5 h-3.5" />
             <span>导入脚本</span>
           </button>
-          {/* Create Button */}
-          <button className="btn btn-primary btn-sm flex items-center gap-1 cursor-pointer" onClick={() => openCreateModal()}>
-            <Plus className="w-3.5 h-3.5" />
-            <span>新建 Skill</span>
-          </button>
         </div>
       </div>
 
@@ -268,20 +168,19 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
                 <span className="px-1.5 py-0.5 rounded text-[10px] bg-black/15 text-[var(--color-text-secondary)] uppercase font-semibold border border-[var(--color-border)]/50">
                   {skill.script_type}
                 </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-bg-sidebar)] text-[var(--color-text-secondary)] border border-[var(--color-border)]/50">
+                  {skill.scope}
+                </span>
               </div>
               <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-4 line-clamp-2 h-8" title={skill.description}>
                 {skill.description || '暂无说明描述'}
               </p>
+              <div className="text-[11px] text-[var(--color-text-muted)] font-mono break-all">
+                {skill.entryScript || '无入口脚本'}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-1">
-              <button 
-                className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer"
-                onClick={() => openEditModal(skill)}
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>编辑</span>
-              </button>
               <button 
                 className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
                 onClick={() => handleDeleteSkill(skill.id, skill.name)}
@@ -298,176 +197,10 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
           (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).length === 0 && (
           <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-            {searchQuery ? '没有找到符合搜索条件的 Skill' : '暂无已配置的 Skills，点击上方「新建 Skill」或「导入脚本」增加智能体执行脚本能力！'}
+            {searchQuery ? '没有找到符合搜索条件的 Skill' : '暂无已配置的 Skills，点击上方「导入脚本」增加智能体执行脚本能力！'}
           </div>
         )}
       </div>
-
-      {/* Skills Edit / Add Modal */}
-      {isModalOpen && (
-        <div className="modal-overlay visible z-50">
-          <div className={`modal animate-fade-in flex flex-col p-0 h-[85vh] transition-all duration-300 ${showVersions ? 'w-[95%] max-w-[1200px]' : 'w-[95%] max-w-[800px]'}`}>
-            {/* Modal Head */}
-            <div className="flex justify-between items-center px-6 py-4 border-b border-[var(--color-border)] shrink-0">
-              <span className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
-                <Code className="w-5 h-5 text-[var(--color-success)]" />
-                <span>{editingSkillId ? `编辑 Skill · ${formName}` : '创建新 Skill 技能'}</span>
-              </span>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-                aria-label="关闭弹窗"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Body & Panel */}
-            <div className="flex-1 flex overflow-hidden min-h-0">
-              {/* Form Side */}
-              <form onSubmit={handleSaveSkill} className="flex-1 p-6 overflow-y-auto space-y-4 flex flex-col justify-between min-h-0">
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="form-group">
-                      <label className="form-label">技能名称 <span className="text-[var(--color-danger)]">*</span></label>
-                      <input 
-                        className="form-input" 
-                        value={formName}
-                        onChange={(e) => setFormName(e.target.value)}
-                        placeholder="如：WebSearch / SystemAudit"
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">运行脚本类型</label>
-                      <select 
-                        value={formType}
-                        onChange={(e) => setFormType(e.target.value as Skill['script_type'])}
-                        className="form-input bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] rounded-lg outline-none cursor-pointer"
-                      >
-                        <option value="bash">Bash Script (Shell)</option>
-                        <option value="python">Python 3</option>
-                        <option value="javascript">JavaScript (Runtime Node)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">描述信息</label>
-                    <input 
-                      className="form-input" 
-                      value={formDesc}
-                      onChange={(e) => setFormDesc(e.target.value)}
-                      placeholder="简述该脚本输入输出及作用"
-                    />
-                  </div>
-
-                  <div className="form-group flex-1 flex flex-col min-h-[220px]">
-                    <label className="form-label">脚本内容 <span className="text-[var(--color-danger)]">*</span></label>
-                    {viewingVersionCode !== null ? (
-                      <div className="flex-1 flex flex-col">
-                        <div className="flex justify-between items-center py-1 px-2.5 bg-[var(--color-success-dim)]/20 border border-[var(--color-success)]/20 rounded-t-lg text-xs text-[var(--color-success)]">
-                          <span>正在查看历史快照（只读）</span>
-                          <button 
-                            type="button" 
-                            onClick={() => setViewingVersionCode(null)}
-                            className="font-bold underline cursor-pointer"
-                          >
-                            返回当前代码
-                          </button>
-                        </div>
-                        <div className="flex-1 border border-t-0 border-[var(--color-border)] rounded-b-lg p-3 font-mono text-xs whitespace-pre bg-black/30 text-[var(--color-text-secondary)] overflow-auto select-text leading-relaxed">
-                          {viewingVersionCode}
-                        </div>
-                      </div>
-                    ) : (
-                      <CodeEditor 
-                        value={formScript}
-                        onChange={setFormScript}
-                        placeholder={
-                          formType === 'bash' 
-                            ? '#!/bin/bash\n# 编写你的 Shell 脚本\necho "Hello World"' 
-                            : formType === 'python'
-                              ? '# -*- coding: utf-8 -*-\n# 编写你的 Python 脚本\nprint("Hello World")'
-                              : '// 编写你的 JavaScript 脚本\nconsole.log("Hello World");'
-                        }
-                      />
-                    )}
-                  </div>
-                </div>
-
-                <div className="border-t border-[var(--color-border)]/50 pt-4 mt-6 flex justify-between items-center shrink-0">
-                  {editingSkillId ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowVersions(!showVersions)}
-                      className="text-xs text-[var(--color-accent)] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
-                    >
-                      <span>{showVersions ? '隐藏历史版本' : '查看历史快照版本'}</span>
-                      <ArrowRight className={`w-3.5 h-3.5 transition-transform ${showVersions ? 'rotate-180' : ''}`} />
-                    </button>
-                  ) : <div />}
-
-                  <div className="flex gap-2">
-                    <button 
-                      type="button" 
-                      onClick={() => setIsModalOpen(false)}
-                      className="btn btn-secondary cursor-pointer"
-                    >
-                      取消
-                    </button>
-                    {viewingVersionCode === null && (
-                      <button 
-                        type="submit" 
-                        className="btn btn-primary cursor-pointer"
-                      >
-                        保存配置
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </form>
-
-              {/* Version History Side (only shown if expanded and editing) */}
-              {showVersions && editingSkillId && (
-                <div className="w-[340px] border-l border-[var(--color-border)] p-6 overflow-y-auto shrink-0 bg-[var(--color-bg-sidebar)]/25 animate-slide-in">
-                  <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-4 flex items-center gap-1">
-                    <span>版本快照历史 ({activeSkillVersions.length})</span>
-                  </div>
-                  <div className="space-y-3">
-                    {activeSkillVersions.map((v) => (
-                      <div 
-                        key={v.id} 
-                        className={`p-3 rounded-lg border text-xs transition-all cursor-pointer ${
-                          viewingVersionCode === v.script_content 
-                            ? 'border-[var(--color-success)] bg-[var(--color-success-dim)]/15 text-[var(--color-text-primary)]' 
-                            : 'border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]'
-                        }`}
-                        onClick={() => setViewingVersionCode(v.script_content)}
-                      >
-                        <div className="flex justify-between items-center font-semibold mb-1">
-                          <span className="text-[var(--color-text-primary)]">版本号 V{v.version_number}</span>
-                          <span className="text-[var(--color-text-muted)] text-[10px]">
-                            {new Date(v.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="text-[var(--color-text-muted)] truncate font-mono text-[10px]">
-                          {v.script_content.slice(0, 45).replace(/\n/g, ' ')}...
-                        </div>
-                      </div>
-                    ))}
-                    {activeSkillVersions.length === 0 && (
-                      <div className="text-center py-8 text-xs text-[var(--color-text-muted)] italic">
-                        暂无该 Skill 的历史快照
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

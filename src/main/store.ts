@@ -25,6 +25,17 @@ const store = new Store<StoreSchema>({
     theme: { type: 'string', enum: ['light', 'dark', 'system'] },
     currentProjectId: { type: ['string', 'null'] },
     sidebarWidth: { type: 'number', minimum: 200, maximum: 500 },
+    sidebarCollapsed: { type: 'boolean' },
+    windowBounds: {
+      type: 'object',
+      properties: {
+        width: { type: 'number' },
+        height: { type: 'number' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+      },
+      required: ['width', 'height'],
+    },
   },
   clearInvalidConfig: true,
 });

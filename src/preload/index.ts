@@ -23,13 +23,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setActiveProvider: (id: string) => ipcRenderer.invoke('db:setActiveProvider', id),
     selectDirectory: () => ipcRenderer.invoke('db:selectDirectory'),
     // Phase 3: Agent Library
-    getAgents: () => ipcRenderer.invoke('db:getAgents'),
+    getAgents: (projectId: string) => ipcRenderer.invoke('db:getAgents', projectId),
     saveAgent: (agent: any) => ipcRenderer.invoke('db:saveAgent', agent),
     deleteAgent: (id: string) => ipcRenderer.invoke('db:deleteAgent', id),
     // Phase 3: Skills
-    getSkills: () => ipcRenderer.invoke('db:getSkills'),
-    saveSkill: (skill: any) => ipcRenderer.invoke('db:saveSkill', skill),
-    deleteSkill: (id: string) => ipcRenderer.invoke('db:deleteSkill', id),
+    getSkills: (projectId: string) => ipcRenderer.invoke('db:getSkills', projectId),
+    saveSkill: (projectId: string, skill: any) => ipcRenderer.invoke('db:saveSkill', projectId, skill),
+    deleteSkill: (projectId: string, id: string) => ipcRenderer.invoke('db:deleteSkill', projectId, id),
     getSkillVersions: (skillId: string) => ipcRenderer.invoke('db:getSkillVersions', skillId),
     // Phase 3: MCP Servers
     getMcpServers: () => ipcRenderer.invoke('db:getMcpServers'),

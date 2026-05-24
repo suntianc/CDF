@@ -3,6 +3,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { Agent } from '../../../../shared/types';
 import { 
   Plus, Trash2, Edit2, X, Bot, Layers, Code, Search
@@ -20,6 +21,7 @@ export function AgentLibrary() {
   const { providers, fetchProviders } = useLLMStore();
   const { fetchSkills } = useSkillStore();
   const { fetchMcpServers } = useMcpServerStore();
+  const { currentProjectId } = useProjectStore();
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,11 +31,12 @@ export function AgentLibrary() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchAgents();
+    if (!currentProjectId) return;
+    fetchAgents(currentProjectId);
     fetchProviders();
-    fetchSkills();
+    fetchSkills(currentProjectId);
     fetchMcpServers();
-  }, []);
+  }, [currentProjectId]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -137,7 +140,7 @@ export function AgentLibrary() {
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[11px] bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 text-[var(--color-text-secondary)] flex items-center gap-1">
                       <Code className="w-3 h-3 text-[var(--color-success)]" />
-                      <span>{agent.skillIds?.length || 0} 个 Skills 绑定</span>
+                      <span>{agent.skillNames?.length || 0} 个 Skills 绑定</span>
                     </span>
                   </div>
                 </div>

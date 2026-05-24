@@ -3,6 +3,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { 
   X, Bot, Brain, Layers, Cpu, Code
 } from 'lucide-react';
@@ -19,6 +20,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const { providers } = useLLMStore();
   const { skills } = useSkillStore();
   const { mcpServers } = useMcpServerStore();
+  const { currentProjectId } = useProjectStore();
 
   // Form State
   const [formName, setFormName] = useState('');
@@ -45,7 +47,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         setFormProviderId(agent.provider_id || activeProvider?.id || '');
         setFormSystemPrompt(agent.system_prompt || '');
         setFormMcpIds(agent.mcpServerIds || []);
-        setFormSkillIds(agent.skillIds || []);
+        setFormSkillIds(agent.skillNames || []);
       }
     } else {
       setFormName('');
@@ -72,14 +74,18 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     }
 
     const id = agentId || window.crypto.randomUUID();
+    const existingAgent = agentId ? agents.find((item) => item.id === agentId) : null;
+    const defaultExists = agents.some((item) => item.project_id === (currentProjectId || 'default-project') && item.is_default === 1);
     const payload = {
       id,
+      project_id: currentProjectId || 'default-project',
       name: formName,
       description: formDesc,
       provider_id: formProviderId || null,
       system_prompt: formSystemPrompt,
       mcpServerIds: formMcpIds,
-      skillIds: formSkillIds,
+      skillNames: formSkillIds,
+      is_default: existingAgent?.is_default ?? (defaultExists ? 0 : 1),
     };
 
     try {

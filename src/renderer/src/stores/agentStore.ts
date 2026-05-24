@@ -5,8 +5,8 @@ interface AgentState {
   agents: Agent[];
   isLoading: boolean;
   error: string | null;
-  fetchAgents: () => Promise<void>;
-  saveAgent: (agent: Partial<Agent> & { mcpServerIds?: string[]; skillIds?: string[] }) => Promise<void>;
+  fetchAgents: (projectId: string) => Promise<void>;
+  saveAgent: (agent: Partial<Agent> & { project_id: string; mcpServerIds?: string[]; skillNames?: string[] }) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
 }
 
@@ -15,10 +15,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   isLoading: false,
   error: null,
 
-  fetchAgents: async () => {
+  fetchAgents: async (projectId) => {
     set({ isLoading: true, error: null });
     try {
-      const agents = await window.electronAPI.db.getAgents();
+      const agents = await window.electronAPI.db.getAgents(projectId);
       set({ agents, isLoading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch agents', isLoading: false });

@@ -6,9 +6,9 @@ interface SkillState {
   activeSkillVersions: SkillVersion[];
   isLoading: boolean;
   error: string | null;
-  fetchSkills: () => Promise<void>;
-  saveSkill: (skill: Partial<Skill>) => Promise<void>;
-  deleteSkill: (id: string) => Promise<void>;
+  fetchSkills: (projectId: string) => Promise<void>;
+  saveSkill: (projectId: string, skill: Partial<Skill>) => Promise<void>;
+  deleteSkill: (projectId: string, id: string) => Promise<void>;
   fetchSkillVersions: (skillId: string) => Promise<void>;
 }
 
@@ -18,32 +18,32 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   isLoading: false,
   error: null,
 
-  fetchSkills: async () => {
+  fetchSkills: async (projectId) => {
     set({ isLoading: true, error: null });
     try {
-      const skills = await window.electronAPI.db.getSkills();
+      const skills = await window.electronAPI.db.getSkills(projectId);
       set({ skills, isLoading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch skills', isLoading: false });
     }
   },
 
-  saveSkill: async (skill) => {
+  saveSkill: async (projectId, skill) => {
     set({ isLoading: true, error: null });
     try {
-      await window.electronAPI.db.saveSkill(skill);
-      await get().fetchSkills();
+      await window.electronAPI.db.saveSkill(projectId, skill);
+      await get().fetchSkills(projectId);
     } catch (err: any) {
       set({ error: err.message || 'Failed to save skill', isLoading: false });
       throw err;
     }
   },
 
-  deleteSkill: async (id) => {
+  deleteSkill: async (projectId, id) => {
     set({ isLoading: true, error: null });
     try {
-      await window.electronAPI.db.deleteSkill(id);
-      await get().fetchSkills();
+      await window.electronAPI.db.deleteSkill(projectId, id);
+      await get().fetchSkills(projectId);
     } catch (err: any) {
       set({ error: err.message || 'Failed to delete skill', isLoading: false });
       throw err;

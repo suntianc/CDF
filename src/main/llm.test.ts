@@ -1,80 +1,125 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { anthropicStreamMock, chatAnthropicCtor, anthropicSdkCtor } = vi.hoisted(() => {
-  const anthropicStreamMock = vi.fn();
-  const chatAnthropicCtor = vi.fn(() => ({
-    stream: anthropicStreamMock,
-  }));
-  const anthropicSdkCtor = vi.fn((options) => options);
-  return { anthropicStreamMock, chatAnthropicCtor, anthropicSdkCtor };
-});
-
-vi.mock('@langchain/openai', () => ({
-  ChatOpenAI: vi.fn(),
+const { createDeepAgentRuntimeMock, persistSessionSummaryMock, extractSummaryFromStateMock } = vi.hoisted(() => ({
+  createDeepAgentRuntimeMock: vi.fn(),
+  persistSessionSummaryMock: vi.fn(),
+  extractSummaryFromStateMock: vi.fn(),
 }));
 
-vi.mock('@langchain/ollama', () => ({
-  ChatOllama: vi.fn(),
+vi.mock('./deepagent/runtime', () => ({
+  createDeepAgentRuntime: createDeepAgentRuntimeMock,
+  persistSessionSummary: persistSessionSummaryMock,
+  extractSummaryFromState: extractSummaryFromStateMock,
 }));
 
-vi.mock('@langchain/anthropic', () => ({
-  ChatAnthropic: chatAnthropicCtor,
-}));
-
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: anthropicSdkCtor,
+vi.mock('./deepagent/llm-adapter', () => ({
+  getOllamaBaseUrl: vi.fn((url: string) => url),
 }));
 
 import { runLLMChat } from './llm';
-
-async function* makeStream(chunks: string[]) {
-  for (const chunk of chunks) {
-    yield { content: chunk };
-  }
-}
 
 describe('runLLMChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should pass normalized MiniMax anthropic base url to ChatAnthropic', async () => {
-    anthropicStreamMock.mockResolvedValueOnce(makeStream(['收', '到']));
+  it('should stream assistant tokens and persist summary when runtime completes', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              text: (async function* () {
+                yield '收';
+                yield '到';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: Promise.resolve({ state: 'done' }),
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'ping' }],
+      cleanup: vi.fn(),
+    });
+    extractSummaryFromStateMock.mockReturnValue('summary');
 
     const send = vi.fn();
-    const sender = { send } as any;
-
-    await runLLMChat(sender, 'req-1', {
-      providerType: 'anthropic',
-      apiUrl: 'https://api.minimax.io/anthropic/v1',
-      apiKey: 'sk-cp-test-key',
-      model: 'MiniMax-M2.7-highspeed',
-      messages: [{ role: 'user', content: 'ping' }],
+    await runLLMChat({ send } as any, 'req-1', {
+      projectId: 'project-1',
+      sessionId: 'session-1',
     });
 
-    const anthropicConfig = chatAnthropicCtor.mock.calls[0]?.[0];
-
-    expect(chatAnthropicCtor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        anthropicApiUrl: 'https://api.minimax.io/anthropic',
-        model: 'MiniMax-M2.7-highspeed',
-      })
+    expect(createDeepAgentRuntimeMock).toHaveBeenCalledWith(
+      'project-1',
+      'session-1',
+      undefined
     );
-    expect(anthropicConfig.apiKey).toBeUndefined();
-    expect(anthropicConfig.createClient).toBeTypeOf('function');
+    expect(send).toHaveBeenNthCalledWith(1, 'llm:chunk-req-1', { type: 'message_chunk', text: '收' });
+    expect(send).toHaveBeenNthCalledWith(2, 'llm:chunk-req-1', { type: 'message_chunk', text: '到' });
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-1', { type: 'message_done' });
+    expect(persistSessionSummaryMock).toHaveBeenCalledWith('session-1', 'summary');
+  });
 
-    anthropicConfig.createClient({ baseURL: 'https://api.minimax.io/anthropic' });
-    expect(anthropicSdkCtor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseURL: 'https://api.minimax.io/anthropic',
-        apiKey: null,
-        authToken: 'sk-cp-test-key',
-      })
+  it('should stream tool lifecycle events and runtime errors', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {})(),
+          toolCalls: (async function* () {
+            yield { name: 'tool-a', input: { x: 1 }, output: Promise.resolve('ok') };
+            yield { name: 'tool-b', input: { y: 2 }, output: Promise.reject(new Error('boom')) };
+          })(),
+          output: Promise.resolve({}),
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'run' }],
+      cleanup: vi.fn(),
+    });
+    extractSummaryFromStateMock.mockReturnValue(null);
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-2', {
+      projectId: 'project-1',
+      sessionId: 'session-2',
+    });
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_start', name: 'tool-a', input: { x: 1 } });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_end', name: 'tool-a', output: 'ok' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_start', name: 'tool-b', input: { y: 2 } });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-2', { type: 'tool_error', name: 'tool-b', error: 'boom' });
+  });
+
+  it('should pass runtime model overrides to deepagent runtime', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {})(),
+          toolCalls: (async function* () {})(),
+          output: Promise.resolve({}),
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'ping' }],
+      cleanup: vi.fn(),
+    });
+    extractSummaryFromStateMock.mockReturnValue(null);
+
+    await runLLMChat({ send: vi.fn() } as any, 'req-3', {
+      projectId: 'project-1',
+      sessionId: 'session-3',
+      overrides: {
+        providerId: 'provider-2',
+        model: 'model-2',
+      },
+    });
+
+    expect(createDeepAgentRuntimeMock).toHaveBeenCalledWith(
+      'project-1',
+      'session-3',
+      {
+        providerId: 'provider-2',
+        model: 'model-2',
+      }
     );
-
-    expect(anthropicStreamMock).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenNthCalledWith(1, 'llm:chunk-req-1', { type: 'chunk', text: '收' });
-    expect(send).toHaveBeenNthCalledWith(2, 'llm:chunk-req-1', { type: 'chunk', text: '到' });
-    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-1', { type: 'done' });
   });
 });
