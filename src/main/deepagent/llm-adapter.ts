@@ -130,7 +130,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
   const extractRawReasoning = (data: any): string | undefined => {
     const delta = data?.choices?.[0]?.delta || data?.delta;
     if (!delta) return undefined;
-    const reasoning = delta.reasoning_content || delta.reasoning;
+    const reasoning = delta.reasoning_content || delta.reasoning || delta.thinking;
     if (typeof reasoning === 'string' && reasoning.length > 0) {
       return reasoning;
     }

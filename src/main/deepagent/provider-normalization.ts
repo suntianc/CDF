@@ -50,7 +50,7 @@ export function extractReasoning(chunk: any): string | undefined {
     if (blockReasoning) return blockReasoning;
   }
 
-  const rootReasoning = chunk.reasoning_content || chunk.reasoning || chunk.delta?.reasoning_content;
+  const rootReasoning = chunk.reasoning_content || chunk.reasoning || chunk.thinking || chunk.delta?.reasoning_content || chunk.delta?.thinking;
   if (typeof rootReasoning === 'string' && rootReasoning.length > 0) {
     return rootReasoning;
   }
@@ -59,7 +59,7 @@ export function extractReasoning(chunk: any): string | undefined {
   if (Array.isArray(choices) && choices.length > 0) {
     const delta = choices[0]?.delta;
     if (delta) {
-      const deltaReasoning = delta.reasoning_content || delta.reasoning_details;
+      const deltaReasoning = delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details;
       if (typeof deltaReasoning === 'string' && deltaReasoning.length > 0) {
         return deltaReasoning;
       }
