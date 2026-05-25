@@ -572,7 +572,7 @@ export function ModelSettings() {
                         setFormUrl('https://api.anthropic.com/v1');
                         setFormLimit(200000);
                       } else if (type === 'deepseek') {
-                        setFormUrl('https://api.deepseek.com');
+                        setFormUrl('https://api.deepseek.com/anthropic/v1');
                         setFormLimit(64000);
                       } else if (type === 'glm') {
                         setFormUrl('https://open.bigmodel.cn/api/paas/v4');
@@ -581,10 +581,10 @@ export function ModelSettings() {
                         setFormUrl('https://open.bigmodel.cn/api/paas/v4');
                         setFormLimit(128000);
                       } else if (type === 'minimax') {
-                        setFormUrl('https://api.minimaxi.com/v1');
+                        setFormUrl('https://api.minimaxi.com/anthropic/v1');
                         setFormLimit(64000);
                       } else if (type === 'minimax-overseas') {
-                        setFormUrl('https://api.minimax.io/v1');
+                        setFormUrl('https://api.minimax.io/anthropic/v1');
                         setFormLimit(64000);
                       } else if (type === 'kimi') {
                         setFormUrl('https://api.moonshot.ai/v1');

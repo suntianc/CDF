@@ -6,6 +6,7 @@ import { runLLMChat, fetchOllamaModels, stopLLMChat, resolveLLMApproval } from '
 import {
   buildAnthropicModelsUrl,
   buildOpenAIModelsUrl,
+  isAnthropicCompatibleApiUrl,
   normalizeProviderApiUrl,
   shouldUseAnthropicAuthToken,
 } from '../shared/provider-url';
@@ -299,10 +300,13 @@ export function registerIpcHandlers() {
       return { ok: true, message: `检测到 ${models.length} 个本地模型` };
     }
 
-    const url =
-      provider.provider_type === 'anthropic'
-        ? buildAnthropicModelsUrl(provider.api_url)
-        : buildOpenAIModelsUrl(provider.api_url);
+    const useAnthropicUrl = provider.provider_type === 'anthropic' ||
+      (provider.provider_type === 'deepseek' || provider.provider_type === 'minimax' || provider.provider_type === 'minimax-overseas') &&
+      isAnthropicCompatibleApiUrl(provider.api_url);
+
+    const url = useAnthropicUrl
+      ? buildAnthropicModelsUrl(provider.api_url)
+      : buildOpenAIModelsUrl(provider.api_url);
 
     const headers = buildProviderHeaders(provider.provider_type, provider.api_url, decryptedKey);
 
@@ -325,10 +329,13 @@ export function registerIpcHandlers() {
       return await fetchOllamaModels(provider.api_url || 'http://localhost:11434');
     }
 
-    const url =
-      provider.provider_type === 'anthropic'
-        ? buildAnthropicModelsUrl(provider.api_url)
-        : buildOpenAIModelsUrl(provider.api_url);
+    const useAnthropicUrl = provider.provider_type === 'anthropic' ||
+      (provider.provider_type === 'deepseek' || provider.provider_type === 'minimax' || provider.provider_type === 'minimax-overseas') &&
+      isAnthropicCompatibleApiUrl(provider.api_url);
+
+    const url = useAnthropicUrl
+      ? buildAnthropicModelsUrl(provider.api_url)
+      : buildOpenAIModelsUrl(provider.api_url);
 
     const headers = buildProviderHeaders(provider.provider_type, provider.api_url, decryptedKey);
 
