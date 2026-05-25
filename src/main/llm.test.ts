@@ -1,26 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createDeepAgentRuntimeMock, dbPrepareMock, reasoningCacheMock, textCacheMock } = vi.hoisted(() => ({
+const { createDeepAgentRuntimeMock, dbPrepareMock, modelCaptureMock } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
   dbPrepareMock: vi.fn(),
-  reasoningCacheMock: {
-    currentReasoning: '',
-    clear: vi.fn(function (this: { currentReasoning: string }) {
-      this.currentReasoning = '';
-    }),
-    append: vi.fn(function (this: { currentReasoning: string }, text: string) {
-      this.currentReasoning += text;
-    }),
-  },
-  textCacheMock: {
-    currentText: '',
-    clear: vi.fn(function (this: { currentText: string }) {
-      this.currentText = '';
-    }),
-    append: vi.fn(function (this: { currentText: string }, text: string) {
-      this.currentText += text;
-    }),
-  },
+  modelCaptureMock: new WeakMap<object, { reasoningText: string; normalText: string }>(),
 }));
 
 vi.mock('./deepagent/runtime', () => ({
@@ -30,8 +13,18 @@ vi.mock('./deepagent/runtime', () => ({
 
 vi.mock('./deepagent/llm-adapter', () => ({
   getOllamaBaseUrl: vi.fn((url: string) => url),
-  reasoningCache: reasoningCacheMock,
-  textCache: textCacheMock,
+  takeModelReasoningCapture: vi.fn((model: object) => {
+    const captured = modelCaptureMock.get(model);
+    if (!captured) return '';
+    modelCaptureMock.set(model, { ...captured, reasoningText: '' });
+    return captured.reasoningText;
+  }),
+  takeModelTextCapture: vi.fn((model: object) => {
+    const captured = modelCaptureMock.get(model);
+    if (!captured) return '';
+    modelCaptureMock.set(model, { ...captured, normalText: '' });
+    return captured.normalText;
+  }),
 }));
 
 vi.mock('./database', () => ({
@@ -41,12 +34,12 @@ vi.mock('./database', () => ({
 }));
 
 import { RUN_OUTPUT_GRACE_MS, runLLMChat } from './llm';
+import { appendCurrentText } from './deepagent/stream-accumulator';
 
 describe('runLLMChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    reasoningCacheMock.currentReasoning = '';
-    textCacheMock.currentText = '';
+    // WeakMap cannot be cleared; tests use fresh model objects where capture matters.
     dbPrepareMock.mockImplementation((sql: string) => ({
       run: vi.fn(),
       all: vi.fn(() => []),
@@ -202,7 +195,7 @@ describe('runLLMChat', () => {
       agent: {
         streamEvents: vi.fn().mockResolvedValue({
           messages: (async function* () {
-            textCacheMock.currentText = '当前项目目录如下。';
+            appendCurrentText('当前项目目录如下。');
             yield {
               reasoning: (async function* () {
                 yield '已经读取目录。';
@@ -237,8 +230,96 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '已经读取目录。' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '</think>\n\n' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '当前项目目录如下。' });
-    expect(textCacheMock.clear).toHaveBeenCalled();
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-cached-text', { type: 'message_done' });
+  });
+
+  it('should keep cached text scoped to each concurrent request', async () => {
+    createDeepAgentRuntimeMock.mockImplementation(async (_projectId: string, sessionId: string) => ({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            appendCurrentText(sessionId === 'session-a' ? 'A 目录' : 'B 目录');
+            yield {
+              text: (async function* () {})(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: Promise.resolve({}),
+          interrupts: [],
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '看目录' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    }));
+
+    const sendA = vi.fn();
+    const sendB = vi.fn();
+
+    await Promise.all([
+      runLLMChat({ send: sendA } as any, 'req-a', {
+        projectId: 'project-1',
+        sessionId: 'session-a',
+        message: {
+          id: 'message-a',
+          content: '看目录',
+        },
+      }),
+      runLLMChat({ send: sendB } as any, 'req-b', {
+        projectId: 'project-1',
+        sessionId: 'session-b',
+        message: {
+          id: 'message-b',
+          content: '看目录',
+        },
+      }),
+    ]);
+
+    expect(sendA).toHaveBeenCalledWith('llm:chunk-req-a', { type: 'message_chunk', text: 'A 目录' });
+    expect(sendA).not.toHaveBeenCalledWith('llm:chunk-req-a', { type: 'message_chunk', text: 'B 目录' });
+    expect(sendB).toHaveBeenCalledWith('llm:chunk-req-b', { type: 'message_chunk', text: 'B 目录' });
+    expect(sendB).not.toHaveBeenCalledWith('llm:chunk-req-b', { type: 'message_chunk', text: 'A 目录' });
+  });
+
+  it('should flush model-captured reasoning when async local context is not available', async () => {
+    const model = {};
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            modelCaptureMock.set(model, { reasoningText: '模型实例捕获的思考', normalText: '' });
+            yield {
+              text: (async function* () {})(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: new Promise(() => {}),
+          interrupts: [],
+        }),
+      },
+      model,
+      inputMessages: [{ role: 'user', content: 'ping' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-model-reasoning', {
+      projectId: 'project-1',
+      sessionId: 'session-model-reasoning',
+      message: {
+        id: 'message-model-reasoning',
+        content: 'ping',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(RUN_OUTPUT_GRACE_MS);
+    await promise;
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-model-reasoning', { type: 'message_chunk', text: '<think>' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-model-reasoning', { type: 'message_chunk', text: '模型实例捕获的思考' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-model-reasoning', { type: 'message_chunk', text: '</think>\n\n' });
   });
 
   it('should buffer text streaming behind an active reasoning stream and flash it in order', async () => {

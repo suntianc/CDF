@@ -1,8 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { AIMessageChunk } from '@langchain/core/messages';
-import { ChatGenerationChunk } from '@langchain/core/outputs';
+import type { ChatModelStreamEvent } from '@langchain/core/language_models/event';
 import { ChatOllama } from '@langchain/ollama';
 import { ChatOpenAI } from '@langchain/openai';
 import {
@@ -10,6 +9,44 @@ import {
   normalizeProviderApiUrl,
   shouldUseAnthropicAuthToken,
 } from '../../shared/provider-url';
+import {
+  extractReasoningDetails,
+  normalizeOpenAICompatibleChunk,
+} from './provider-normalization';
+import { appendCurrentReasoning, appendCurrentText } from './stream-accumulator';
+
+
+const modelCapture = new WeakMap<object, { reasoningText: string; normalText: string }>();
+const rawReasoningQueue = new WeakMap<object, string[]>();
+let streamEventSequence = 0;
+
+export function drainModelStreamCapture(model: unknown): { reasoningText: string; normalText: string } {
+  if (!model || typeof model !== 'object') {
+    return { reasoningText: '', normalText: '' };
+  }
+  const captured = modelCapture.get(model);
+  if (!captured) {
+    return { reasoningText: '', normalText: '' };
+  }
+  modelCapture.set(model, { reasoningText: '', normalText: '' });
+  return captured;
+}
+
+export function takeModelReasoningCapture(model: unknown): string {
+  if (!model || typeof model !== 'object') return '';
+  const captured = modelCapture.get(model);
+  if (!captured) return '';
+  modelCapture.set(model, { ...captured, reasoningText: '' });
+  return captured.reasoningText;
+}
+
+export function takeModelTextCapture(model: unknown): string {
+  if (!model || typeof model !== 'object') return '';
+  const captured = modelCapture.get(model);
+  if (!captured) return '';
+  modelCapture.set(model, { ...captured, normalText: '' });
+  return captured.normalText;
+}
 
 export interface RuntimeProviderModelConfig {
   apiKey?: string;
@@ -49,233 +86,141 @@ function patchMiniMaxAssistantRole(model: BaseChatModel): void {
 
   anyModel.completions._generate = async function (...args: unknown[]) {
     const result = await originalGenerate(...args);
-    normalizeMiniMaxToolCalls(result);
     return result;
   };
 }
 
-function extractReasoning(chunk: any): string | undefined {
-  if (!chunk) return undefined;
+function patchOpenAIReasoning(model: BaseChatModel): void {
+  const anyModel = model as any;
+  console.log(`[ADAPTER] 成功在模型上准备应用 OpenAI-compatible stream normalization`);
 
-  // 1. 从 message 属性提取 (LangChain 标准 chunk 包装)
-  const message = chunk.message;
-  if (message) {
-    const standardReasoning = message.additional_kwargs?.reasoning_content || message.reasoning_content;
-    if (typeof standardReasoning === 'string' && standardReasoning.length > 0) {
-      return standardReasoning;
+  const appendModelReasoning = (text: string) => {
+    const captured = modelCapture.get(anyModel) || { reasoningText: '', normalText: '' };
+    captured.reasoningText += text;
+    modelCapture.set(anyModel, captured);
+  };
+
+  const appendModelText = (text: string) => {
+    const captured = modelCapture.get(anyModel) || { reasoningText: '', normalText: '' };
+    captured.normalText += text;
+    modelCapture.set(anyModel, captured);
+  };
+
+  const appendRawReasoning = (text: string) => {
+    const queue = rawReasoningQueue.get(anyModel) || [];
+    queue.push(text);
+    rawReasoningQueue.set(anyModel, queue);
+    appendCurrentReasoning(text);
+    appendModelReasoning(text);
+  };
+
+  const wasCapturedFromRawStream = (text: string): boolean => {
+    const queue = rawReasoningQueue.get(anyModel);
+    if (!queue?.length) return false;
+    if (queue[0] !== text) return false;
+    queue.shift();
+    if (queue.length === 0) {
+      rawReasoningQueue.delete(anyModel);
+    } else {
+      rawReasoningQueue.set(anyModel, queue);
     }
+    return true;
+  };
 
-    // MiniMax 特有的 reasoning_details 提取
-    const reasoningDetails = message.additional_kwargs?.reasoning_details;
-    if (Array.isArray(reasoningDetails) && reasoningDetails.length > 0) {
-      const textParts = reasoningDetails
-        .map((detail: any) => detail?.text)
-        .filter((text: any) => typeof text === 'string' && text.length > 0);
-      if (textParts.length > 0) {
-        return textParts.join('');
-      }
+  const extractRawReasoning = (data: any): string | undefined => {
+    const delta = data?.choices?.[0]?.delta || data?.delta;
+    if (!delta) return undefined;
+    const reasoning = delta.reasoning_content || delta.reasoning;
+    if (typeof reasoning === 'string' && reasoning.length > 0) {
+      return reasoning;
     }
-    if (reasoningDetails && typeof reasoningDetails === 'object') {
-      if (typeof reasoningDetails.text === 'string' && reasoningDetails.text.length > 0) {
-        return reasoningDetails.text;
-      }
-    }
-  }
+    return extractReasoningDetails(delta.reasoning_details);
+  };
 
-  // 2. 从 chunk 的根属性或者 choices 属性中直接提取 (针对某些原始 chunk 或者没有被正确 map 的情况)
-  const rootReasoning = chunk.reasoning_content || chunk.reasoning || chunk.delta?.reasoning_content;
-  if (typeof rootReasoning === 'string' && rootReasoning.length > 0) {
-    return rootReasoning;
-  }
-
-  const choices = chunk.choices || chunk.rawResponse?.choices;
-  if (Array.isArray(choices) && choices.length > 0) {
-    const delta = choices[0]?.delta;
-    if (delta) {
-      const deltaReasoning = delta.reasoning_content || delta.reasoning_details;
-      if (typeof deltaReasoning === 'string' && deltaReasoning.length > 0) {
-        return deltaReasoning;
+  const wrapCompletionWithRetry = (originalCompletionWithRetry: any) => {
+    const fn = async function (this: any, ...args: unknown[]) {
+      const result = await originalCompletionWithRetry.call(this, ...args);
+      const request = args[0] as { stream?: unknown } | undefined;
+      if (!request?.stream || !result || typeof (result as any)[Symbol.asyncIterator] !== 'function') {
+        return result;
       }
-      if (Array.isArray(deltaReasoning) && deltaReasoning.length > 0) {
-        const textParts = deltaReasoning
-          .map((detail: any) => detail?.text)
-          .filter((text: any) => typeof text === 'string' && text.length > 0);
-        if (textParts.length > 0) {
-          return textParts.join('');
+
+      async function* normalizedRawStream() {
+        for await (const data of result as AsyncIterable<any>) {
+          const reasoning = extractRawReasoning(data);
+          if (reasoning) {
+            console.log(`[ADAPTER] 原始 OpenAI-compatible stream 捕获 reasoning chunk! length:`, reasoning.length);
+            appendRawReasoning(reasoning);
+          }
+          yield data;
         }
       }
-      if (deltaReasoning && typeof deltaReasoning === 'object') {
-        if (typeof deltaReasoning.text === 'string' && deltaReasoning.text.length > 0) {
-          return deltaReasoning.text;
-        }
+
+      return normalizedRawStream();
+    };
+    (fn as any).__patched = true;
+    return fn;
+  };
+
+  const patchCompletionWithRetry = (target: any, label: string) => {
+    if (typeof target?.completionWithRetry !== 'function' || target.completionWithRetry.__patched) {
+      return;
+    }
+    const original = target.completionWithRetry.bind(target);
+    target.completionWithRetry = wrapCompletionWithRetry(original);
+    console.log(`[ADAPTER] 已成功 patch ${label} completionWithRetry`);
+  };
+
+  const wrapInvoke = (originalInvoke: any) => {
+    const fn = async function (this: any, input: any, options: any) {
+      if (typeof this._streamResponseChunks !== 'function') {
+        return originalInvoke.call(this, input, options);
       }
-    }
-  }
-
-  // 3. 从 generationInfo 提取
-  const genInfo = chunk.generationInfo;
-  if (genInfo) {
-    const infoReasoning = genInfo.reasoning_content;
-    if (typeof infoReasoning === 'string' && infoReasoning.length > 0) {
-      return infoReasoning;
-    }
-  }
-
-  return undefined;
-}
-
-function createReasoningChunk(text: string, generationInfo?: Record<string, unknown>): ChatGenerationChunk {
-  return new ChatGenerationChunk({
-    text: '',
-    generationInfo,
-    message: new AIMessageChunk({
-      content: '',
-      additional_kwargs: {
-        reasoning_content: text
-      },
-      response_metadata: {
-        model_provider: 'openai',
-      },
-    }),
-  });
-}
-
-export const reasoningCache = {
-  currentReasoning: '',
-  clear() {
-    this.currentReasoning = '';
-  },
-  append(text: string) {
-    this.currentReasoning += text;
-  }
-};
-
-export const textCache = {
-  currentText: '',
-  clear() {
-    this.currentText = '';
-  },
-  append(text: string) {
-    this.currentText += text;
-  }
-};
-
-function clearReasoningFields(chunk: any): void {
-  if (!chunk) return;
-  
-  if (chunk.message) {
-    if (chunk.message.additional_kwargs) {
-      delete chunk.message.additional_kwargs.reasoning_content;
-      delete chunk.message.additional_kwargs.reasoning_details;
-    }
-    delete (chunk.message as any).reasoning_content;
-  }
-  
-  delete (chunk as any).reasoning_content;
-  delete (chunk as any).reasoning;
-  
-  if (chunk.delta) {
-    delete chunk.delta.reasoning_content;
-  }
-  
-  if (Array.isArray(chunk.choices)) {
-    for (const choice of chunk.choices) {
-      if (choice?.delta) {
-        delete choice.delta.reasoning_content;
-        delete choice.delta.reasoning_details;
-      }
-    }
-  }
-  
-  if (chunk.generationInfo) {
-    delete chunk.generationInfo.reasoning_content;
-  }
-}
-
-
-function patchModelInvoke(ModelClass: any, className: string): void {
-  if (!ModelClass || !ModelClass.prototype) return;
-  const proto = ModelClass.prototype;
-  if (proto.invoke && !proto.invoke.__patched) {
-    const originalInvoke = proto.invoke;
-    const patchedInvoke = async function (this: any, input: any, options: any) {
-      console.log(`[ADAPTER] [${className}] invoke 被拦截并转换为流式执行`);
+      console.log(`[ADAPTER] 实例 invoke 被拦截并转换为流式执行`);
       const messages = BaseChatModel._convertInputToPromptValue(input).toChatMessages();
       const [, callOptions] = typeof this._separateRunnableConfigFromCallOptionsCompat === 'function'
         ? this._separateRunnableConfigFromCallOptionsCompat(options)
         : [{}, options];
-      
       const stream = this._streamResponseChunks(messages, callOptions, options?.runManager);
-      
+
       let finalChunk: any = null;
       for await (const chunk of stream) {
-        if (finalChunk === null) {
-          finalChunk = chunk;
-        } else {
-          finalChunk = finalChunk.concat(chunk);
-        }
+        finalChunk = finalChunk === null ? chunk : finalChunk.concat(chunk);
       }
-      
+
       if (!finalChunk) {
         return originalInvoke.call(this, input, options);
       }
-      
+
       return finalChunk.message;
     };
-    (patchedInvoke as any).__patched = true;
-    proto.invoke = patchedInvoke;
-    console.log(`[ADAPTER] 已成功 patch ${className} 原型 invoke`);
-  }
-}
-
-// 自动对已载入的类打原型 invoke 补丁
-patchModelInvoke(ChatOpenAI, 'ChatOpenAI');
-patchModelInvoke(ChatOllama, 'ChatOllama');
-
-function patchOpenAIReasoning(model: BaseChatModel): void {
-  const anyModel = model as any;
-  console.log(`[ADAPTER] 成功在模型上准备应用 patchOpenAIReasoning`);
-
-  // 原型 invoke 也可以在此动态执行，确保双重保险
-  const constructor = anyModel.constructor;
-  if (constructor) {
-    patchModelInvoke(constructor, constructor.name || 'ChatModel');
-  }
+    (fn as any).__patched = true;
+    return fn;
+  };
 
   const wrapStream = (originalStream: any, contextName: string) => {
     const fn = async function* (this: any, ...args: unknown[]) {
       console.log(`[ADAPTER] ${contextName} _streamResponseChunks 被调用，开始消费大模型流...`);
 
       for await (const chunk of originalStream.call(this, ...args)) {
-        const reasoning = extractReasoning(chunk);
-        
-        let hasNormalText = false;
-        if (typeof chunk.text === 'string' && chunk.text.length > 0) {
-          hasNormalText = true;
-        } else if (chunk.message && typeof chunk.message.content === 'string' && chunk.message.content.length > 0) {
-          hasNormalText = true;
-        }
-
-        if (typeof reasoning === 'string' && reasoning.length > 0) {
-          console.log(`[ADAPTER] ${contextName} 收到大模型 reasoning chunk! length:`, reasoning.length);
-          reasoningCache.append(reasoning);
-          // 使用干净的 reasoning chunk，不污染正文 text 属性
-          yield createReasoningChunk(reasoning, chunk.generationInfo);
-          
-          if (!hasNormalText) {
-            continue;
+        const normalized = normalizeOpenAICompatibleChunk(chunk);
+        if (normalized.reasoningDelta) {
+          if (wasCapturedFromRawStream(normalized.reasoningDelta)) {
+            console.log(`[ADAPTER] ${contextName} reasoning chunk 已由原始流捕获，跳过重复缓存`);
+          } else {
+            console.log(`[ADAPTER] ${contextName} 收到大模型 reasoning chunk! length:`, normalized.reasoningDelta.length);
+            appendCurrentReasoning(normalized.reasoningDelta);
+            appendModelReasoning(normalized.reasoningDelta);
           }
-          
-          // 如果同时含有正文，擦除 reasoning 相关元数据以防无限循环，然后继续向下 yield 正文部分
-          clearReasoningFields(chunk);
+        }
+        if (normalized.textDelta) {
+          appendCurrentText(normalized.textDelta);
+          appendModelText(normalized.textDelta);
         }
 
-        const normalText = chunk.text || (chunk.message && typeof chunk.message.content === 'string' ? chunk.message.content : undefined);
-        if (typeof normalText === 'string' && normalText.length > 0) {
-          textCache.append(normalText);
+        for (const normalizedChunk of normalized.chunks) {
+          yield normalizedChunk;
         }
-
-        yield normalizeThinkingTagChunk(chunk);
       }
     };
     (fn as any).__patched = true;
@@ -291,19 +236,20 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
         for (const group of result.generations) {
           if (Array.isArray(group)) {
             for (const gen of group) {
-              const reasoning = extractReasoning(gen);
-              console.log(`[ADAPTER] ${contextName} _generate 收到结果，提取出的 reasoning length:`, reasoning?.length);
-              if (typeof reasoning === 'string' && reasoning.length > 0) {
-                reasoningCache.append(reasoning);
+              const normalized = normalizeOpenAICompatibleChunk(gen);
+              console.log(`[ADAPTER] ${contextName} _generate 收到结果，提取出的 reasoning length:`, normalized.reasoningDelta?.length);
+              if (normalized.reasoningDelta) {
+                appendCurrentReasoning(normalized.reasoningDelta);
+                appendModelReasoning(normalized.reasoningDelta);
                 if (gen.message) {
                   // 确保 reasoning_content 字段存在
                   gen.message.additional_kwargs = gen.message.additional_kwargs || {};
-                  gen.message.additional_kwargs.reasoning_content = reasoning;
+                  gen.message.additional_kwargs.reasoning_content = normalized.reasoningDelta;
                 }
               }
-              const genText = gen.text || (gen.message && typeof gen.message.content === 'string' ? gen.message.content : undefined);
-              if (typeof genText === 'string' && genText.length > 0) {
-                textCache.append(genText);
+              if (normalized.textDelta) {
+                appendCurrentText(normalized.textDelta);
+                appendModelText(normalized.textDelta);
               }
             }
           }
@@ -315,141 +261,224 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
     return fn;
   };
 
-  // 1. patch 实例直接属性 (安全网)
+  const wrapStreamChatModelEvents = () => {
+    const fn = async function* (this: any, messages: any[], options: any, runManager?: any): AsyncGenerator<ChatModelStreamEvent> {
+      console.log(`[ADAPTER] 实例 _streamChatModelEvents 被调用，输出标准 reasoning/text/tool 事件`);
+
+      const streamRunId = `openai-compatible-${Date.now()}-${++streamEventSequence}`;
+      const withStreamRunId = (event: Record<string, unknown>): ChatModelStreamEvent => ({
+        ...event,
+        run_id: streamRunId,
+      } as ChatModelStreamEvent);
+
+      let started = false;
+      let nextIndex = 0;
+      let reasoningIndex: number | undefined;
+      let reasoningText = '';
+      let reasoningFinished = false;
+      let textIndex: number | undefined;
+      let text = '';
+      const toolBlocks = new Map<string, { index: number; id?: string; name?: string; args: string }>();
+
+      const ensureStarted = function* () {
+        if (!started) {
+          started = true;
+          yield withStreamRunId({ event: 'message-start' });
+        }
+      };
+
+      const finishReasoning = function* () {
+        if (reasoningIndex !== undefined && !reasoningFinished) {
+          reasoningFinished = true;
+          yield withStreamRunId({
+            event: 'content-block-finish',
+            index: reasoningIndex,
+            content: { type: 'reasoning', reasoning: reasoningText },
+          });
+        }
+      };
+
+      const finishText = function* () {
+        if (textIndex !== undefined) {
+          yield withStreamRunId({
+            event: 'content-block-finish',
+            index: textIndex,
+            content: { type: 'text', text },
+          });
+          textIndex = undefined;
+          text = '';
+        }
+      };
+
+      const finishTool = function* (tool: { index: number; id?: string; name?: string; args: string }) {
+        let parsedArgs: unknown = {};
+        try {
+          parsedArgs = tool.args ? JSON.parse(tool.args) : {};
+        } catch {
+          yield withStreamRunId({
+            event: 'content-block-finish',
+            index: tool.index,
+            content: {
+              type: 'invalid_tool_call',
+              id: tool.id,
+              name: tool.name,
+              args: tool.args,
+              error: 'Failed to parse tool call arguments as JSON',
+            },
+          });
+          return;
+        }
+        yield withStreamRunId({
+          event: 'content-block-finish',
+          index: tool.index,
+          content: {
+            type: 'tool_call',
+            id: tool.id,
+            name: tool.name || '',
+            args: parsedArgs,
+          },
+        });
+      };
+
+      try {
+        for await (const chunk of this._streamResponseChunks(messages, options, runManager)) {
+          for (const event of ensureStarted()) yield event;
+
+          const normalized = normalizeOpenAICompatibleChunk(chunk);
+          const chunks = normalized.chunks.length > 0 ? normalized.chunks : [chunk];
+
+          if (normalized.reasoningDelta) {
+            if (textIndex !== undefined) {
+              for (const event of finishText()) yield event;
+            }
+            if (reasoningIndex === undefined || reasoningFinished) {
+              reasoningIndex = nextIndex++;
+              reasoningFinished = false;
+              yield withStreamRunId({
+                event: 'content-block-start',
+                index: reasoningIndex,
+                content: { type: 'reasoning', reasoning: '' },
+              });
+            }
+            reasoningText += normalized.reasoningDelta;
+            yield withStreamRunId({
+              event: 'content-block-delta',
+              index: reasoningIndex,
+              delta: { type: 'reasoning-delta', reasoning: normalized.reasoningDelta },
+            });
+          }
+
+          if (normalized.textDelta) {
+            for (const event of finishReasoning()) yield event;
+            if (textIndex === undefined) {
+              textIndex = nextIndex++;
+              yield withStreamRunId({
+                event: 'content-block-start',
+                index: textIndex,
+                content: { type: 'text', text: '' },
+              });
+            }
+            text += normalized.textDelta;
+            yield withStreamRunId({
+              event: 'content-block-delta',
+              index: textIndex,
+              delta: { type: 'text-delta', text: normalized.textDelta },
+            });
+          }
+
+          for (const normalizedChunk of chunks) {
+            const toolChunks = (normalizedChunk as any).message?.tool_call_chunks;
+            if (!Array.isArray(toolChunks) || toolChunks.length === 0) continue;
+
+            for (const event of finishReasoning()) yield event;
+            for (const event of finishText()) yield event;
+
+            for (const toolChunk of toolChunks) {
+              const key = String(toolChunk.index ?? toolChunk.id ?? toolBlocks.size);
+              let tool = toolBlocks.get(key);
+              if (!tool) {
+                tool = {
+                  index: nextIndex++,
+                  id: toolChunk.id,
+                  name: toolChunk.name,
+                  args: '',
+                };
+                toolBlocks.set(key, tool);
+                yield withStreamRunId({
+                  event: 'content-block-start',
+                  index: tool.index,
+                  content: {
+                    type: 'tool_call_chunk',
+                    id: tool.id,
+                    name: tool.name,
+                    args: '',
+                    index: tool.index,
+                  },
+                });
+              }
+              if (toolChunk.id) tool.id = toolChunk.id;
+              if (toolChunk.name) tool.name = toolChunk.name;
+              tool.args += toolChunk.args || '';
+              yield withStreamRunId({
+                event: 'content-block-delta',
+                index: tool.index,
+                delta: {
+                  type: 'block-delta',
+                  fields: {
+                    type: 'tool_call_chunk',
+                    id: tool.id,
+                    name: tool.name,
+                    args: tool.args,
+                  },
+                },
+              });
+            }
+          }
+        }
+
+        if (!started) {
+          for (const event of ensureStarted()) yield event;
+        }
+        for (const event of finishReasoning()) yield event;
+        for (const event of finishText()) yield event;
+        for (const tool of toolBlocks.values()) {
+          for (const event of finishTool(tool)) yield event;
+        }
+        yield withStreamRunId({ event: 'message-finish', reason: 'stop' });
+      } catch (error: any) {
+        yield withStreamRunId({
+          event: 'error',
+          message: error?.message || String(error),
+        });
+        throw error;
+      }
+    };
+    (fn as any).__patched = true;
+    return fn;
+  };
+
+  // 只包装当前模型实例，避免修改 ChatOpenAI/ChatOllama 原型导致其它 provider 串联受影响。
+  if (typeof anyModel.invoke === 'function' && !anyModel.invoke.__patched) {
+    const original = anyModel.invoke.bind(anyModel);
+    anyModel.invoke = wrapInvoke(original);
+    console.log(`[ADAPTER] 已成功 patch 实例 invoke`);
+  }
   if (typeof anyModel._streamResponseChunks === 'function' && !anyModel._streamResponseChunks.__patched) {
     const original = anyModel._streamResponseChunks.bind(anyModel);
-    anyModel._streamResponseChunks = wrapStream(original, '顶层实例');
-    console.log(`[ADAPTER] 已成功 patch 顶层实例 _streamResponseChunks`);
+    anyModel._streamResponseChunks = wrapStream(original, '实例');
+    console.log(`[ADAPTER] 已成功 patch 实例 _streamResponseChunks`);
   }
   if (typeof anyModel._generate === 'function' && !anyModel._generate.__patched) {
     const original = anyModel._generate.bind(anyModel);
-    anyModel._generate = wrapGenerate(original, '顶层实例');
-    console.log(`[ADAPTER] 已成功 patch 顶层实例 _generate`);
+    anyModel._generate = wrapGenerate(original, '实例');
+    console.log(`[ADAPTER] 已成功 patch 实例 _generate`);
   }
-
-  // 2. patch 原型链 (针对 Object.create() 克隆实例等绕过情况的拦截)
-  const proto = Object.getPrototypeOf(model);
-  if (proto) {
-    if (typeof proto._streamResponseChunks === 'function' && !proto._streamResponseChunks.__patched) {
-      const original = proto._streamResponseChunks;
-      proto._streamResponseChunks = wrapStream(original, '原型链');
-      console.log(`[ADAPTER] 已成功 patch 原型链 _streamResponseChunks`);
-    }
-    if (typeof proto._generate === 'function' && !proto._generate.__patched) {
-      const original = proto._generate;
-      proto._generate = wrapGenerate(original, '原型链');
-      console.log(`[ADAPTER] 已成功 patch 原型链 _generate`);
-    }
+  if (typeof anyModel._streamChatModelEvents === 'function' && !anyModel._streamChatModelEvents.__patched) {
+    anyModel._streamChatModelEvents = wrapStreamChatModelEvents();
+    console.log(`[ADAPTER] 已成功 patch 实例 _streamChatModelEvents`);
   }
-
-  // 3. patch completions 与 responses 属性上的方法 (双重保险)
-  if (anyModel.completions) {
-    if (typeof anyModel.completions._streamResponseChunks === 'function' && !anyModel.completions._streamResponseChunks.__patched) {
-      const original = anyModel.completions._streamResponseChunks.bind(anyModel.completions);
-      anyModel.completions._streamResponseChunks = wrapStream(original, 'completions');
-      console.log(`[ADAPTER] 已成功 patch completions._streamResponseChunks`);
-    }
-    if (typeof anyModel.completions._generate === 'function' && !anyModel.completions._generate.__patched) {
-      const original = anyModel.completions._generate.bind(anyModel.completions);
-      anyModel.completions._generate = wrapGenerate(original, 'completions');
-      console.log(`[ADAPTER] 已成功 patch completions._generate`);
-    }
-  }
-
-  if (anyModel.responses) {
-    if (typeof anyModel.responses._streamResponseChunks === 'function' && !anyModel.responses._streamResponseChunks.__patched) {
-      const original = anyModel.responses._streamResponseChunks.bind(anyModel.responses);
-      anyModel.responses._streamResponseChunks = wrapStream(original, 'responses');
-      console.log(`[ADAPTER] 已成功 patch responses._streamResponseChunks`);
-    }
-    if (typeof anyModel.responses._generate === 'function' && !anyModel.responses._generate.__patched) {
-      const original = anyModel.responses._generate.bind(anyModel.responses);
-      anyModel.responses._generate = wrapGenerate(original, 'responses');
-      console.log(`[ADAPTER] 已成功 patch responses._generate`);
-    }
-  }
-}
-
-function normalizeThinkingTagChunk(chunk: ChatGenerationChunk): ChatGenerationChunk {
-  if (typeof chunk.text !== 'string' || !chunk.text.includes('<thinking')) return chunk;
-  return createTextChunk(normalizeThinkingTags(chunk.text), chunk.generationInfo);
-}
-
-function normalizeThinkingTags(text: string): string {
-  return text
-    .replace(/<thinking>/g, '<think>')
-    .replace(/<\/thinking>/g, '</think>');
-}
-
-function createTextChunk(text: string, generationInfo?: Record<string, unknown>): ChatGenerationChunk {
-  return new ChatGenerationChunk({
-    text,
-    generationInfo,
-    message: new AIMessageChunk({
-      content: text,
-      response_metadata: {
-        model_provider: 'openai',
-        usage: {},
-      },
-    }),
-  });
-}
-
-export function normalizeMiniMaxToolCalls(result: any): void {
-  for (const generationGroup of result?.generations ?? []) {
-    for (const generation of generationGroup ?? []) {
-      const message = generation?.message;
-      const blocks = Array.isArray(message?.content)
-        ? message.content
-        : Array.isArray(message?.contentBlocks)
-          ? message.contentBlocks
-          : [];
-      const extracted = blocks
-        .filter((block: any) =>
-          block?.type === 'text' &&
-          typeof block.id === 'string' &&
-          typeof block.name === 'string' &&
-          block.args !== undefined
-        )
-        .map((block: any) => ({
-          type: 'tool_call',
-          id: block.id,
-          name: block.name,
-          args: parseToolArgs(block.args),
-        }));
-
-      if (extracted.length === 0) continue;
-      blocks.forEach((block: any) => {
-        if (
-          block?.type === 'text' &&
-          typeof block.id === 'string' &&
-          typeof block.name === 'string' &&
-          block.args !== undefined
-        ) {
-          block.type = 'tool_call';
-          block.args = parseToolArgs(block.args);
-          delete block.text;
-        }
-      });
-      const existing = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-      const existingIds = new Set(existing.map((call: any) => call.id).filter(Boolean));
-      message.tool_calls = [
-        ...existing,
-        ...extracted.filter((call: any) => !existingIds.has(call.id)),
-      ];
-    }
-  }
-}
-
-function parseToolArgs(value: unknown): unknown {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
+  patchCompletionWithRetry(anyModel, '实例');
+  patchCompletionWithRetry(anyModel.completions, '实例 completions');
 }
 
 export function createLangChainModel(config: RuntimeProviderModelConfig): BaseChatModel {
@@ -460,11 +489,8 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
   switch (config.providerType) {
     case 'openai':
     case 'custom':
-    case 'deepseek':
     case 'glm':
     case 'glm-overseas':
-    case 'minimax':
-    case 'minimax-overseas':
     case 'kimi':
     case 'qwen':
     case 'mimo': {
@@ -473,11 +499,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         temperature: 0,
         streaming: true,
       };
-      if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
-        modelConfig.modelKwargs = {
-          reasoning_split: true,
-        };
-      }
       if (config.apiKey) modelConfig.apiKey = config.apiKey;
       if (normalizedApiUrl) {
         modelConfig.configuration = {
@@ -486,6 +507,31 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
       }
       model = new ChatOpenAI(modelConfig);
       patchOpenAIReasoning(model);
+      break;
+    }
+    case 'deepseek':
+    case 'minimax':
+    case 'minimax-overseas': {
+      const modelConfig: Record<string, unknown> = {
+        model: modelName,
+        temperature: 0,
+        streaming: true,
+        maxTokens: 4096,
+      };
+      const useAuthToken = shouldUseAnthropicAuthToken(normalizedApiUrl, config.apiKey);
+      if (config.apiKey && !useAuthToken) modelConfig.apiKey = config.apiKey;
+      if (normalizedApiUrl) {
+        modelConfig.anthropicApiUrl = normalizeAnthropicApiUrl(normalizedApiUrl);
+      }
+      if (config.apiKey && useAuthToken) {
+        modelConfig.createClient = (options: ConstructorParameters<typeof Anthropic>[0]) =>
+          new Anthropic({
+            ...options,
+            apiKey: null,
+            authToken: config.apiKey!.trim(),
+          });
+      }
+      model = new ChatAnthropic(modelConfig);
       if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
         patchMiniMaxAssistantRole(model);
       }

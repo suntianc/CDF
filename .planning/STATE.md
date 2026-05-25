@@ -72,3 +72,4 @@ Plan: Not started
 | 2026-05-24 | 20260524-master-agent-subagents | Master Agent 调用其它 Agent 最小闭环 | complete |
 | 2026-05-24 | 260524-ojt | DeepAgents 原生上下文管理实施 | complete |
 | 2026-05-24 | 20260524-agent-trust-foundation | Agent 桌面应用信任底座 | complete |
+| 2026-05-25 | 20260525-openai-compatible-provider-adapter | OpenAI-Compatible Provider 适配层加固 | complete |

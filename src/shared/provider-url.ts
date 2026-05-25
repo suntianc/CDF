@@ -17,6 +17,17 @@ export function isMiniMaxAnthropicApiUrl(apiUrl?: string): boolean {
   );
 }
 
+export function isDeepSeekAnthropicApiUrl(apiUrl?: string): boolean {
+  const normalized = normalizeProviderApiUrl(apiUrl);
+  if (!normalized) return false;
+
+  return /^https:\/\/api\.deepseek\.com\/anthropic(?:\/|$)/i.test(normalized);
+}
+
+export function isAnthropicCompatibleApiUrl(apiUrl?: string): boolean {
+  return isMiniMaxAnthropicApiUrl(apiUrl) || isDeepSeekAnthropicApiUrl(apiUrl);
+}
+
 export function shouldUseAnthropicAuthToken(apiUrl?: string, apiKey?: string): boolean {
   if (!apiKey) return false;
   return isMiniMaxAnthropicApiUrl(apiUrl) && /^sk-cp-/i.test(apiKey.trim());

@@ -1,8 +1,9 @@
 import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
-import { getOllamaBaseUrl, reasoningCache, textCache } from './deepagent/llm-adapter';
+import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
 import { DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime } from './deepagent/runtime';
+import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
   AgentRunStatus,
@@ -164,6 +165,25 @@ function toApprovalRequest(runId: string, interruptValue: any) {
   };
 }
 
+function markTextSent(accumulator: LLMStreamAccumulator): void {
+  accumulator.hasSentText = true;
+}
+
+function markReasoningSent(accumulator: LLMStreamAccumulator): void {
+  accumulator.hasSentReasoning = true;
+}
+
+function takeReasoningText(accumulator: LLMStreamAccumulator, model: unknown): string {
+  const accumulatorText = accumulator.takeReasoning();
+  const modelText = takeModelReasoningCapture(model);
+  return accumulatorText || modelText;
+}
+
+function getFallbackText(accumulator: LLMStreamAccumulator, model: unknown): string {
+  const modelText = takeModelTextCapture(model);
+  return accumulator.normalText.trim() ? accumulator.normalText : modelText;
+}
+
 export function resolveLLMApproval(requestId: string, resolution: AgentApprovalResolution): void {
   const key = `${requestId}:${resolution.approvalId}`;
   const resolver = pendingApprovals.get(key);
@@ -185,20 +205,19 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
   const channel = `llm:chunk-${requestId}`;
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
+  const accumulator = createStreamAccumulator();
 
-  let cleanup = async () => {};
-  reasoningCache.clear();
-  textCache.clear();
-
-  try {
-    const runtime = await createDeepAgentRuntime(
-      payload.projectId,
-      payload.sessionId,
-      payload.message,
-      payload.agentId,
-      payload.overrides
-    );
-    cleanup = runtime.cleanup;
+  return runWithStreamAccumulator(accumulator, async () => {
+    let cleanup = async () => {};
+    try {
+      const runtime = await createDeepAgentRuntime(
+        payload.projectId,
+        payload.sessionId,
+        payload.message,
+        payload.agentId,
+        payload.overrides
+      );
+      cleanup = runtime.cleanup;
 
     const runId = createRun(payload.sessionId, runtime.agentId, requestId);
     sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
@@ -206,7 +225,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     let nextInput: any = { messages: runtime.inputMessages };
 
     while (!controller.signal.aborted) {
-      let hasSentText = false;
+      accumulator.hasSentText = false;
+      accumulator.hasSentReasoning = false;
       const run = await runtime.agent.streamEvents(
         nextInput,
         {
@@ -242,13 +262,14 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           }
 
           const checkAndFlushCache = () => {
-            if (!hasSentReasoning && reasoningCache.currentReasoning) {
+            const reasoningText = takeReasoningText(accumulator, runtime.model);
+            if (!hasSentReasoning && reasoningText) {
               hasSentReasoning = true;
-              console.log(`[LLM STREAM] 双重保险：从 reasoningCache 冲刷发送思考内容`);
+              markReasoningSent(accumulator);
+              console.log(`[LLM STREAM] 双重保险：从 request accumulator 冲刷发送思考内容`);
               sender.send(channel, { type: 'message_chunk', text: '<think>' });
-              sender.send(channel, { type: 'message_chunk', text: reasoningCache.currentReasoning });
+              sender.send(channel, { type: 'message_chunk', text: reasoningText });
               sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
-              reasoningCache.clear();
             }
           };
 
@@ -259,6 +280,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               if (!hasReasoning) {
                 hasReasoning = true;
                 hasSentReasoning = true;
+                markReasoningSent(accumulator);
                 console.log(`[LLM STREAM] 监听到 Native Reasoning 字段流开启，向前端发送 <think>`);
                 sender.send(channel, { type: 'message_chunk', text: '<think>' });
               }
@@ -274,7 +296,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             if (textBuffer.length > 0 && !controller.signal.aborted) {
               console.log(`[LLM STREAM] Reasoning 流结束，正在冲刷缓存的 Text Tokens:`, JSON.stringify(textBuffer.join('')));
               for (const t of textBuffer) {
-                hasSentText = true;
+                markTextSent(accumulator);
                 sender.send(channel, { type: 'message_chunk', text: t });
               }
               textBuffer.length = 0;
@@ -289,7 +311,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 textBuffer.push(token);
               } else {
                 checkAndFlushCache();
-                hasSentText = true;
+                markTextSent(accumulator);
                 sender.send(channel, { type: 'message_chunk', text: token });
               }
             }
@@ -303,12 +325,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         for await (const call of run.toolCalls) {
           if (controller.signal.aborted) break;
 
-          if (reasoningCache.currentReasoning) {
-            console.log(`[LLM STREAM] 在工具调用前冲刷发送缓存 of 思考`);
+          const reasoningText = takeReasoningText(accumulator, runtime.model);
+          if (reasoningText) {
+            console.log(`[LLM STREAM] 在工具调用前冲刷发送 request accumulator 思考`);
+            markReasoningSent(accumulator);
             sender.send(channel, { type: 'message_chunk', text: '<think>' });
-            sender.send(channel, { type: 'message_chunk', text: reasoningCache.currentReasoning });
+            sender.send(channel, { type: 'message_chunk', text: reasoningText });
             sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
-            reasoningCache.clear();
           }
 
           const toolCallId = call.callId || crypto.randomUUID();
@@ -357,27 +380,31 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         output = undefined;
       }
 
-      if (reasoningCache.currentReasoning) {
+      const reasoningText = takeReasoningText(accumulator, runtime.model);
+      if (reasoningText) {
         console.log(`[LLM STREAM] 轮次结束前冲刷发送残留的思考`);
+        markReasoningSent(accumulator);
         sender.send(channel, { type: 'message_chunk', text: '<think>' });
-        sender.send(channel, { type: 'message_chunk', text: reasoningCache.currentReasoning });
+        sender.send(channel, { type: 'message_chunk', text: reasoningText });
         sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
-        reasoningCache.clear();
       }
 
-      if (!hasSentText) {
+      if (!accumulator.hasSentText) {
         const assistantContent = getLatestAssistantContent(output);
         if (assistantContent && assistantContent.trim()) {
           console.log(`[LLM STREAM] 非流式输出检测，向前端补发正文 content length:`, assistantContent.length);
           sender.send(channel, { type: 'message_chunk', text: assistantContent });
-          hasSentText = true;
-        } else if (textCache.currentText.trim()) {
-          console.log(`[LLM STREAM] 从 textCache 补发正文 content length:`, textCache.currentText.length);
-          sender.send(channel, { type: 'message_chunk', text: textCache.currentText });
-          hasSentText = true;
+          markTextSent(accumulator);
+        } else {
+          const fallbackText = getFallbackText(accumulator, runtime.model);
+          if (fallbackText.trim()) {
+            console.log(`[LLM STREAM] 从 request accumulator 补发正文 content length:`, fallbackText.length);
+            sender.send(channel, { type: 'message_chunk', text: fallbackText });
+            markTextSent(accumulator);
+          }
         }
       }
-      textCache.clear();
+      accumulator.clearText();
 
       let interruptValue = getInterruptValue(output);
       if (!interruptValue) {
@@ -473,6 +500,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     activeRequests.delete(requestId);
     await cleanup();
   }
+  });
 }
 
 export async function fetchOllamaModels(apiUrl: string): Promise<string[]> {

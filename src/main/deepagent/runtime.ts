@@ -335,6 +335,7 @@ export async function createDeepAgentRuntime(
   return {
     agentId: agentRow.id,
     agent: deepAgent,
+    model,
     inputMessages: messages,
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
