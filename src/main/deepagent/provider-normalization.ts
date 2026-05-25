@@ -122,7 +122,7 @@ export function createReasoningChunk(text: string, generationInfo?: Record<strin
 function extractReasoningBlocks(content: unknown): string | undefined {
   if (!Array.isArray(content)) return undefined;
   const textParts = content
-    .filter((block: any) => block?.type === 'reasoning')
+    .filter((block: any) => block?.type === 'reasoning' || block?.type === 'thinking')
     .map((block: any) => block.reasoning || block.thinking || block.text)
     .filter((text: any) => typeof text === 'string' && text.length > 0);
   return textParts.length > 0 ? textParts.join('') : undefined;
