@@ -104,6 +104,21 @@ try {
   }
 }
 
+// Tool configs table for built-in tools with API keys
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tool_configs (
+    id TEXT PRIMARY KEY,
+    tool_type TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT,
+    is_enabled INTEGER DEFAULT 0,
+    is_default INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )
+`);
+
 // Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS agents (

@@ -10,6 +10,8 @@ import { createLangChainModel } from './llm-adapter';
 import { loadMcpTools } from './mcp-connector';
 import { resolveAgentSkillsConfig } from './skill-manager';
 import { createDeleteFileTool } from './file-tools';
+import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
+import { createBashTool } from './bash-tool';
 import type { MCPServer } from '../../shared/types';
 
 interface RuntimeAgentRow {
@@ -320,13 +322,42 @@ export async function createDeepAgentRuntime(
 
   const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
 
+  const builtInTools: any[] = [createDeleteFileTool(project.path), createBashTool()];
+
+  function loadSearchProviderConfig(toolType: string): SearchProviderConfig | null {
+    const row = db.prepare(
+      "SELECT api_key, config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
+    ).get(toolType) as { api_key: string | null; config: string | null } | undefined;
+    if (!row || !row.api_key) return null;
+    return {
+      decryptedKey: decryptApiKey(row.api_key),
+      config: row.config ? JSON.parse(row.config) : {},
+    };
+  }
+
+  try {
+    const tavilyConfig = loadSearchProviderConfig('tavily');
+    console.log('[DEBUG] tavilyConfig:', tavilyConfig);
+    if (tavilyConfig) {
+      builtInTools.push(createTavilyTool(tavilyConfig));
+    }
+
+    const anysearchConfig = loadSearchProviderConfig('anysearch');
+    console.log('[DEBUG] anysearchConfig:', anysearchConfig);
+    if (anysearchConfig) {
+      builtInTools.push(createAnysearchTool(anysearchConfig));
+    }
+  } catch (err) {
+    console.warn('[RUNTIME] Failed to load built-in search tools config:', err);
+  }
+
   const deepAgent = createDeepAgent({
     model,
     backend,
     systemPrompt: systemPrompt || undefined,
     skills: skillsSources,
     permissions,
-    tools: [...mcpRuntime.tools, createDeleteFileTool(project.path)],
+    tools: [...mcpRuntime.tools, ...builtInTools],
     interruptOn: DEFAULT_INTERRUPT_ON,
     checkpointer,
     memory: memory.length ? memory : undefined,

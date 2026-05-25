@@ -90,6 +90,30 @@ export interface MCPServer {
   updated_at: number;
 }
 
+export type SearchProviderType = 'tavily' | 'anysearch';
+
+export interface SearchProvider {
+  id: string;
+  tool_type: SearchProviderType;  // 'tavily' | 'anysearch'
+  name: string;
+  api_key?: string;
+  config?: Record<string, unknown>;
+  is_enabled: boolean;
+  is_default: boolean;
+  hasKey?: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SearchResult {
+  title: string;
+  url: string;
+  content: string;
+  source: SearchProviderType;
+  score: number;
+  published_at?: string;
+}
+
 export type LLMStreamEvent =
   | { type: 'run_started'; runId: string; agentId: string; status: AgentRunStatus }
   | { type: 'run_updated'; runId: string; status: AgentRunStatus; error?: string }
@@ -197,6 +221,10 @@ export interface ElectronAPI {
     checkMcpHealth: (id: string) => Promise<{ ok: boolean; message?: string }>;
     toggleMcpConnection: (id: string, connected: boolean) => Promise<void>;
     selectFile: () => Promise<{ name: string; script_type: 'bash' | 'python' | 'javascript'; content: string } | null>;
+    // Phase 4: Tool Configs
+    getToolConfigs: () => Promise<SearchProvider[]>;
+    saveToolConfig: (config: any) => Promise<SearchProvider>;
+    deleteToolConfig: (id: string) => Promise<void>;
   };
   llm: {
     chat: (requestId: string, payload: { projectId: string; sessionId: string; agentId?: string | null; message: { id: string; content: string }; overrides?: ChatRuntimeOverrides }) => Promise<void>;

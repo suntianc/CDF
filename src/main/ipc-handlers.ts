@@ -542,6 +542,59 @@ export function registerIpcHandlers() {
     db.prepare('UPDATE mcp_servers SET is_connected = ?, updated_at = ? WHERE id = ?').run(connected ? 1 : 0, Date.now(), id);
   });
 
+  // ===== Phase 4: Tool Configs IPC Handlers =====
+
+  ipcMain.handle('db:getToolConfigs', () => {
+    const configs = db.prepare('SELECT * FROM tool_configs ORDER BY updated_at DESC').all() as any[];
+    return configs.map(c => ({
+      ...c,
+      config: c.config ? JSON.parse(c.config) : null,
+      is_enabled: !!c.is_enabled,
+      is_default: !!c.is_default,
+      hasKey: !!c.api_key,
+      api_key: c.api_key ? '••••••••' : '',
+    }));
+  });
+
+  ipcMain.handle('db:saveToolConfig', (_, config: any) => {
+    const { id, tool_type, name, api_key, config: configData, is_enabled, is_default } = config;
+    const now = Date.now();
+
+    let finalApiKey: string | null = null;
+    const existing = db.prepare('SELECT api_key FROM tool_configs WHERE id = ?').get(id) as any;
+    if (api_key && api_key !== '••••••••') {
+      finalApiKey = encryptApiKey(api_key);
+    } else if (existing) {
+      finalApiKey = existing.api_key;
+    }
+
+    const configStr = configData ? JSON.stringify(configData) : null;
+
+    if (is_default) {
+      db.prepare('UPDATE tool_configs SET is_default = 0 WHERE tool_type = ?').run(tool_type);
+    }
+
+    if (existing) {
+      db.prepare(`
+        UPDATE tool_configs SET tool_type = ?, name = ?, api_key = ?, config = ?, is_enabled = ?, is_default = ?, updated_at = ?
+        WHERE id = ?
+      `).run(tool_type, name, finalApiKey, configStr, is_enabled ? 1 : 0, is_default ? 1 : 0, now, id);
+    } else {
+      db.prepare(`
+        INSERT INTO tool_configs (id, tool_type, name, api_key, config, is_enabled, is_default, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, tool_type, name, finalApiKey, configStr, is_enabled ? 1 : 0, is_default ? 1 : 0, now, now);
+    }
+
+    return {
+      id, tool_type, name, config: configData, is_enabled: !!is_enabled, is_default: !!is_default, hasKey: !!finalApiKey
+    };
+  });
+
+  ipcMain.handle('db:deleteToolConfig', (_, id: string) => {
+    db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+  });
+
   ipcMain.handle('db:checkMcpHealth', async (_, id: string) => {
     const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as any;
     if (!server) {

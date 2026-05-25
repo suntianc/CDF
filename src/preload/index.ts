@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     toggleMcpConnection: (id: string, connected: boolean) => ipcRenderer.invoke('db:toggleMcpConnection', id, connected),
     checkMcpHealth: (id: string) => ipcRenderer.invoke('db:checkMcpHealth', id),
     selectFile: () => ipcRenderer.invoke('db:selectFile'),
+    // Phase 4: Tool Configs
+    getToolConfigs: () => ipcRenderer.invoke('db:getToolConfigs'),
+    saveToolConfig: (config: any) => ipcRenderer.invoke('db:saveToolConfig', config),
+    deleteToolConfig: (id: string) => ipcRenderer.invoke('db:deleteToolConfig', id),
   },
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
