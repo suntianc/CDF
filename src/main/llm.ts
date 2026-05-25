@@ -1,7 +1,7 @@
 import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
-import { getOllamaBaseUrl } from './deepagent/llm-adapter';
+import { getOllamaBaseUrl, reasoningCache, textCache } from './deepagent/llm-adapter';
 import { DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime } from './deepagent/runtime';
 import type {
   AgentApprovalResolution,
@@ -25,7 +25,7 @@ export interface ChatPayload {
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
-export const RUN_OUTPUT_GRACE_MS = 1000;
+export const RUN_OUTPUT_GRACE_MS = 10000;
 
 function safeStringify(value: unknown): string | null {
   if (value === undefined) return null;
@@ -95,6 +95,47 @@ function getInterruptValue(output: any) {
   return output?.__interrupt__?.[0]?.value || output?.interrupts?.[0]?.value || null;
 }
 
+function getLatestAssistantContent(output: any): string | null {
+  if (!output) return null;
+  
+  let messages: any[] = [];
+  if (Array.isArray(output)) {
+    messages = output;
+  } else if (Array.isArray(output.messages)) {
+    messages = output.messages;
+  } else if (output.values && Array.isArray(output.values.messages)) {
+    messages = output.values.messages;
+  }
+  
+  if (messages.length === 0) return null;
+  
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg) continue;
+    
+    const isAssistant = 
+      msg.role === 'assistant' ||
+      msg._getType?.() === 'ai' ||
+      (msg.constructor && (msg.constructor.name === 'AIMessage' || msg.constructor.name === 'AIMessageChunk'));
+      
+    if (isAssistant) {
+      let content = msg.content;
+      if (typeof content === 'string') {
+        return content;
+      }
+      if (Array.isArray(content)) {
+        const textParts = content
+          .filter((part: any) => part?.type === 'text' && typeof part.text === 'string')
+          .map((part: any) => part.text);
+        if (textParts.length > 0) {
+          return textParts.join('');
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{ resolved: true; value: T } | { resolved: false }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<{ resolved: false }>((resolve) => {
@@ -146,6 +187,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
   activeRequests.set(requestId, controller);
 
   let cleanup = async () => {};
+  reasoningCache.clear();
+  textCache.clear();
 
   try {
     const runtime = await createDeepAgentRuntime(
@@ -163,6 +206,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     let nextInput: any = { messages: runtime.inputMessages };
 
     while (!controller.signal.aborted) {
+      let hasSentText = false;
       const run = await runtime.agent.streamEvents(
         nextInput,
         {
@@ -179,6 +223,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           if (controller.signal.aborted) break;
 
           let isReasoningDone = false;
+          let hasSentReasoning = false;
           const textBuffer: string[] = [];
 
           console.log(`[LLM STREAM] === 新消息 Chunk ===`);
@@ -196,12 +241,24 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             console.log(`[LLM STREAM] 深度探测失败:`, e?.message);
           }
 
+          const checkAndFlushCache = () => {
+            if (!hasSentReasoning && reasoningCache.currentReasoning) {
+              hasSentReasoning = true;
+              console.log(`[LLM STREAM] 双重保险：从 reasoningCache 冲刷发送思考内容`);
+              sender.send(channel, { type: 'message_chunk', text: '<think>' });
+              sender.send(channel, { type: 'message_chunk', text: reasoningCache.currentReasoning });
+              sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+              reasoningCache.clear();
+            }
+          };
+
           const consumeReasoning = async () => {
             let hasReasoning = false;
             for await (const token of msg.reasoning ?? []) {
               if (controller.signal.aborted) break;
               if (!hasReasoning) {
                 hasReasoning = true;
+                hasSentReasoning = true;
                 console.log(`[LLM STREAM] 监听到 Native Reasoning 字段流开启，向前端发送 <think>`);
                 sender.send(channel, { type: 'message_chunk', text: '<think>' });
               }
@@ -213,9 +270,11 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
             }
             isReasoningDone = true;
+            checkAndFlushCache();
             if (textBuffer.length > 0 && !controller.signal.aborted) {
               console.log(`[LLM STREAM] Reasoning 流结束，正在冲刷缓存的 Text Tokens:`, JSON.stringify(textBuffer.join('')));
               for (const t of textBuffer) {
+                hasSentText = true;
                 sender.send(channel, { type: 'message_chunk', text: t });
               }
               textBuffer.length = 0;
@@ -229,6 +288,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               if (msg.reasoning && !isReasoningDone) {
                 textBuffer.push(token);
               } else {
+                checkAndFlushCache();
+                hasSentText = true;
                 sender.send(channel, { type: 'message_chunk', text: token });
               }
             }
@@ -241,6 +302,15 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       const toolStreamPromise = (async () => {
         for await (const call of run.toolCalls) {
           if (controller.signal.aborted) break;
+
+          if (reasoningCache.currentReasoning) {
+            console.log(`[LLM STREAM] 在工具调用前冲刷发送缓存 of 思考`);
+            sender.send(channel, { type: 'message_chunk', text: '<think>' });
+            sender.send(channel, { type: 'message_chunk', text: reasoningCache.currentReasoning });
+            sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+            reasoningCache.clear();
+          }
+
           const toolCallId = call.callId || crypto.randomUUID();
           upsertToolCall(runId, toolCallId, call.name, call.input);
           sender.send(channel, {
@@ -277,9 +347,37 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       try {
         const result = await withTimeout(run.output, RUN_OUTPUT_GRACE_MS);
         output = result.resolved ? result.value : undefined;
+        console.log(`[LLM STREAM] withTimeout run.output 结果: resolved = ${result.resolved}, 是否有 value = ${!!result.value}`);
+        if (output) {
+          const assistantContent = getLatestAssistantContent(output);
+          console.log(`[LLM STREAM] 从 output 提取出的 latest assistantContent 长度 =`, assistantContent?.length ?? 0);
+        }
       } catch (err: any) {
+        console.log(`[LLM STREAM] withTimeout 发生错误:`, err?.message);
         output = undefined;
       }
+
+      if (reasoningCache.currentReasoning) {
+        console.log(`[LLM STREAM] 轮次结束前冲刷发送残留的思考`);
+        sender.send(channel, { type: 'message_chunk', text: '<think>' });
+        sender.send(channel, { type: 'message_chunk', text: reasoningCache.currentReasoning });
+        sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+        reasoningCache.clear();
+      }
+
+      if (!hasSentText) {
+        const assistantContent = getLatestAssistantContent(output);
+        if (assistantContent && assistantContent.trim()) {
+          console.log(`[LLM STREAM] 非流式输出检测，向前端补发正文 content length:`, assistantContent.length);
+          sender.send(channel, { type: 'message_chunk', text: assistantContent });
+          hasSentText = true;
+        } else if (textCache.currentText.trim()) {
+          console.log(`[LLM STREAM] 从 textCache 补发正文 content length:`, textCache.currentText.length);
+          sender.send(channel, { type: 'message_chunk', text: textCache.currentText });
+          hasSentText = true;
+        }
+      }
+      textCache.clear();
 
       let interruptValue = getInterruptValue(output);
       if (!interruptValue) {

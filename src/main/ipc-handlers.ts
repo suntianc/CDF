@@ -200,6 +200,10 @@ export function registerIpcHandlers() {
     return { id, session_id, role, content, created_at: now, tokens };
   });
 
+  ipcMain.handle('db:deleteMessage', (_, id: string) => {
+    db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+  });
+
   // Database handlers: LLM Providers
   ipcMain.handle('db:getProviders', () => {
     const providers = db.prepare('SELECT * FROM llm_providers ORDER BY created_at DESC').all() as any[];

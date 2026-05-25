@@ -343,7 +343,16 @@ const formatDuration = (seconds: number): string => {
 
 const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLast: boolean; isStreaming: boolean }) => {
   const isFinished = useMemo(() => message.content.includes('</think>'), [message.content]);
-  const [thinkExpanded, setThinkExpanded] = useState(!isFinished);
+  
+  // 刚刚生成的消息（2分钟以内创建），在流式或刚结束时默认保持展开，防止意外重装折叠
+  const isRecent = useMemo(() => {
+    return (Date.now() - message.created_at) < 120 * 1000;
+  }, [message.created_at]);
+
+  const [thinkExpanded, setThinkExpanded] = useState(() => {
+    if (isRecent) return true;
+    return !isFinished;
+  });
 
   // 计时的 React 状态
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -425,24 +434,22 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
         : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
 
       return (
-        <div className="mb-3 flex flex-col transition-all duration-200">
-          {/* Thinking Header */}
+        <div className="mb-2.5 flex flex-col transition-all duration-200">
+          {/* Thinking Header (Flat Text style) */}
           <div 
             onClick={() => setThinkExpanded(!thinkExpanded)}
-            className="flex items-center gap-1.5 py-1 cursor-pointer select-none text-[12px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors w-fit font-medium"
+            className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
           >
+            <span>{thinkExpanded ? '▼' : '▶'}</span>
             <span>{headerText}</span>
-            <span className="text-[9px] opacity-80 font-normal">
-              {thinkExpanded ? '▼' : '▶'}
-            </span>
           </div>
           
-          {/* Thinking Body */}
+          {/* Thinking Body (Flat sidebar line style) */}
           {thinkExpanded && (
-            <div className="pl-3.5 py-1 text-[12px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal border-l border-[var(--color-border)]/80 animate-slide-down">
+            <div className="mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal animate-slide-down">
               {thinkContent}
               {!finished && (
-                <span className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-accent)]/70 animate-pulse vertical-middle" />
+                <span className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-text-muted)]/70 animate-pulse vertical-middle" />
               )}
             </div>
           )}
@@ -675,9 +682,19 @@ export function ChatArea({
   };
 
   // Auto scroll to bottom on new message
+  const lastMessageContent = messages.length > 0 ? messages[messages.length - 1].content : '';
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isStreaming]);
+    if (!messagesEndRef.current) return;
+    if (isStreaming) {
+      // 流式输入过程中，使用 auto 避免平滑动画打断导致的重绘抖动
+      messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+    } else {
+      // 流式结束或新发送时，使用 smooth 优雅归位
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [lastMessageContent, isStreaming, lastMessageId]);
 
 
 

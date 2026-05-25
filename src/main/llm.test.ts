@@ -1,8 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createDeepAgentRuntimeMock, dbPrepareMock } = vi.hoisted(() => ({
+const { createDeepAgentRuntimeMock, dbPrepareMock, reasoningCacheMock, textCacheMock } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
   dbPrepareMock: vi.fn(),
+  reasoningCacheMock: {
+    currentReasoning: '',
+    clear: vi.fn(function (this: { currentReasoning: string }) {
+      this.currentReasoning = '';
+    }),
+    append: vi.fn(function (this: { currentReasoning: string }, text: string) {
+      this.currentReasoning += text;
+    }),
+  },
+  textCacheMock: {
+    currentText: '',
+    clear: vi.fn(function (this: { currentText: string }) {
+      this.currentText = '';
+    }),
+    append: vi.fn(function (this: { currentText: string }, text: string) {
+      this.currentText += text;
+    }),
+  },
 }));
 
 vi.mock('./deepagent/runtime', () => ({
@@ -12,6 +30,8 @@ vi.mock('./deepagent/runtime', () => ({
 
 vi.mock('./deepagent/llm-adapter', () => ({
   getOllamaBaseUrl: vi.fn((url: string) => url),
+  reasoningCache: reasoningCacheMock,
+  textCache: textCacheMock,
 }));
 
 vi.mock('./database', () => ({
@@ -25,6 +45,8 @@ import { RUN_OUTPUT_GRACE_MS, runLLMChat } from './llm';
 describe('runLLMChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    reasoningCacheMock.currentReasoning = '';
+    textCacheMock.currentText = '';
     dbPrepareMock.mockImplementation((sql: string) => ({
       run: vi.fn(),
       all: vi.fn(() => []),
@@ -172,6 +194,51 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '</think>\n\n' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '我来读取。' });
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-hang', { type: 'message_done' });
+  });
+
+  it('should flush cached text when stream events expose reasoning but no text', async () => {
+    vi.useFakeTimers();
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            textCacheMock.currentText = '当前项目目录如下。';
+            yield {
+              reasoning: (async function* () {
+                yield '已经读取目录。';
+              })(),
+              text: (async function* () {})(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: new Promise(() => {}),
+          interrupts: [],
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '看一下目录' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-cached-text', {
+      projectId: 'project-1',
+      sessionId: 'session-cached-text',
+      message: {
+        id: 'message-cached-text',
+        content: '看一下目录',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(RUN_OUTPUT_GRACE_MS);
+    await promise;
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '<think>' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '已经读取目录。' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '</think>\n\n' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '当前项目目录如下。' });
+    expect(textCacheMock.clear).toHaveBeenCalled();
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-cached-text', { type: 'message_done' });
   });
 
   it('should buffer text streaming behind an active reasoning stream and flash it in order', async () => {

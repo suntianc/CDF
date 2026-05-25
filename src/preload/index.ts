@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
     getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
     saveMessage: (message: any) => ipcRenderer.invoke('db:saveMessage', message),
+    deleteMessage: (id: string) => ipcRenderer.invoke('db:deleteMessage', id),
     getProviders: () => ipcRenderer.invoke('db:getProviders'),
     saveProvider: (provider: any) => ipcRenderer.invoke('db:saveProvider', provider),
     deleteProvider: (id: string) => ipcRenderer.invoke('db:deleteProvider', id),

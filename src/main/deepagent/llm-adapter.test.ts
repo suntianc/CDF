@@ -95,21 +95,18 @@ describe('createLangChainModel', () => {
       };
     };
 
-    const chunks = [];
+    const chunks: any[] = [];
     for await (const chunk of model._streamResponseChunks([], {})) {
-      chunks.push({
-        text: chunk.text,
-        tool_call_chunks: chunk.message.tool_call_chunks,
-      });
+      chunks.push(chunk);
     }
 
-    expect(chunks.map((chunk) => chunk.text)).toEqual([
-      '<think>先思考',
+    expect(chunks.map((c) => c.text)).toEqual(['', '', '']);
+    expect(chunks.map((c) => c.message.additional_kwargs?.reasoning_content)).toEqual([
+      '先思考',
       '再调用工具',
-      '</think>\n\n',
-      '',
+      undefined,
     ]);
-    expect(chunks[3].tool_call_chunks).toEqual([
+    expect(chunks[2].message.tool_call_chunks).toEqual([
       {
         id: 'call-1',
         index: 0,
@@ -145,6 +142,40 @@ describe('createLangChainModel', () => {
     }
 
     expect(chunks).toEqual(['<think>标签思考</think>\n正文']);
+  });
+
+  it('should split reasoning and normal text if they are returned in a single chunk', async () => {
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      defaultModel: 'MiniMax-M2.7-highspeed',
+      providerType: 'minimax',
+    }) as any;
+
+    model.completions.completionWithRetry = async function* () {
+      yield {
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            reasoning_content: '合并思考内容',
+            content: '普通正文内容',
+          },
+        }],
+      };
+    };
+
+    const chunks: any[] = [];
+    for await (const chunk of model._streamResponseChunks([], {})) {
+      chunks.push({
+        text: chunk.text,
+        reasoning: chunk.message.additional_kwargs?.reasoning_content,
+      });
+    }
+
+    expect(chunks).toEqual([
+      { text: '', reasoning: '合并思考内容' },
+      { text: '普通正文内容', reasoning: undefined },
+    ]);
   });
 
   it('should promote MiniMax content-block tool calls to AIMessage tool_calls', () => {

@@ -124,36 +124,158 @@ function extractReasoning(chunk: any): string | undefined {
   return undefined;
 }
 
+function createReasoningChunk(text: string, generationInfo?: Record<string, unknown>): ChatGenerationChunk {
+  return new ChatGenerationChunk({
+    text: '',
+    generationInfo,
+    message: new AIMessageChunk({
+      content: '',
+      additional_kwargs: {
+        reasoning_content: text
+      },
+      response_metadata: {
+        model_provider: 'openai',
+      },
+    }),
+  });
+}
+
+export const reasoningCache = {
+  currentReasoning: '',
+  clear() {
+    this.currentReasoning = '';
+  },
+  append(text: string) {
+    this.currentReasoning += text;
+  }
+};
+
+export const textCache = {
+  currentText: '',
+  clear() {
+    this.currentText = '';
+  },
+  append(text: string) {
+    this.currentText += text;
+  }
+};
+
+function clearReasoningFields(chunk: any): void {
+  if (!chunk) return;
+  
+  if (chunk.message) {
+    if (chunk.message.additional_kwargs) {
+      delete chunk.message.additional_kwargs.reasoning_content;
+      delete chunk.message.additional_kwargs.reasoning_details;
+    }
+    delete (chunk.message as any).reasoning_content;
+  }
+  
+  delete (chunk as any).reasoning_content;
+  delete (chunk as any).reasoning;
+  
+  if (chunk.delta) {
+    delete chunk.delta.reasoning_content;
+  }
+  
+  if (Array.isArray(chunk.choices)) {
+    for (const choice of chunk.choices) {
+      if (choice?.delta) {
+        delete choice.delta.reasoning_content;
+        delete choice.delta.reasoning_details;
+      }
+    }
+  }
+  
+  if (chunk.generationInfo) {
+    delete chunk.generationInfo.reasoning_content;
+  }
+}
+
+
+function patchModelInvoke(ModelClass: any, className: string): void {
+  if (!ModelClass || !ModelClass.prototype) return;
+  const proto = ModelClass.prototype;
+  if (proto.invoke && !proto.invoke.__patched) {
+    const originalInvoke = proto.invoke;
+    const patchedInvoke = async function (this: any, input: any, options: any) {
+      console.log(`[ADAPTER] [${className}] invoke 被拦截并转换为流式执行`);
+      const messages = BaseChatModel._convertInputToPromptValue(input).toChatMessages();
+      const [, callOptions] = typeof this._separateRunnableConfigFromCallOptionsCompat === 'function'
+        ? this._separateRunnableConfigFromCallOptionsCompat(options)
+        : [{}, options];
+      
+      const stream = this._streamResponseChunks(messages, callOptions, options?.runManager);
+      
+      let finalChunk: any = null;
+      for await (const chunk of stream) {
+        if (finalChunk === null) {
+          finalChunk = chunk;
+        } else {
+          finalChunk = finalChunk.concat(chunk);
+        }
+      }
+      
+      if (!finalChunk) {
+        return originalInvoke.call(this, input, options);
+      }
+      
+      return finalChunk.message;
+    };
+    (patchedInvoke as any).__patched = true;
+    proto.invoke = patchedInvoke;
+    console.log(`[ADAPTER] 已成功 patch ${className} 原型 invoke`);
+  }
+}
+
+// 自动对已载入的类打原型 invoke 补丁
+patchModelInvoke(ChatOpenAI, 'ChatOpenAI');
+patchModelInvoke(ChatOllama, 'ChatOllama');
+
 function patchOpenAIReasoning(model: BaseChatModel): void {
   const anyModel = model as any;
   console.log(`[ADAPTER] 成功在模型上准备应用 patchOpenAIReasoning`);
 
+  // 原型 invoke 也可以在此动态执行，确保双重保险
+  const constructor = anyModel.constructor;
+  if (constructor) {
+    patchModelInvoke(constructor, constructor.name || 'ChatModel');
+  }
+
   const wrapStream = (originalStream: any, contextName: string) => {
     const fn = async function* (this: any, ...args: unknown[]) {
-      let reasoningOpen = false;
-      let lastGenerationInfo: Record<string, unknown> | undefined;
       console.log(`[ADAPTER] ${contextName} _streamResponseChunks 被调用，开始消费大模型流...`);
 
       for await (const chunk of originalStream.call(this, ...args)) {
-        lastGenerationInfo = chunk.generationInfo;
         const reasoning = extractReasoning(chunk);
-        console.log(`[ADAPTER] ${contextName} 收到大模型 chunk! text:`, JSON.stringify(chunk.text), `提取出的 reasoning:`, JSON.stringify(reasoning), `additional_kwargs:`, JSON.stringify(chunk.message?.additional_kwargs));
-        if (typeof reasoning === 'string' && reasoning.length > 0) {
-          yield createTextChunk(`${reasoningOpen ? '' : '<think>'}${reasoning}`, chunk.generationInfo);
-          reasoningOpen = true;
-          continue;
+        
+        let hasNormalText = false;
+        if (typeof chunk.text === 'string' && chunk.text.length > 0) {
+          hasNormalText = true;
+        } else if (chunk.message && typeof chunk.message.content === 'string' && chunk.message.content.length > 0) {
+          hasNormalText = true;
         }
 
-        if (reasoningOpen) {
-          yield createTextChunk('</think>\n\n', chunk.generationInfo);
-          reasoningOpen = false;
+        if (typeof reasoning === 'string' && reasoning.length > 0) {
+          console.log(`[ADAPTER] ${contextName} 收到大模型 reasoning chunk! length:`, reasoning.length);
+          reasoningCache.append(reasoning);
+          // 使用干净的 reasoning chunk，不污染正文 text 属性
+          yield createReasoningChunk(reasoning, chunk.generationInfo);
+          
+          if (!hasNormalText) {
+            continue;
+          }
+          
+          // 如果同时含有正文，擦除 reasoning 相关元数据以防无限循环，然后继续向下 yield 正文部分
+          clearReasoningFields(chunk);
+        }
+
+        const normalText = chunk.text || (chunk.message && typeof chunk.message.content === 'string' ? chunk.message.content : undefined);
+        if (typeof normalText === 'string' && normalText.length > 0) {
+          textCache.append(normalText);
         }
 
         yield normalizeThinkingTagChunk(chunk);
-      }
-
-      if (reasoningOpen) {
-        yield createTextChunk('</think>\n\n', lastGenerationInfo);
       }
     };
     (fn as any).__patched = true;
@@ -164,25 +286,24 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
     const fn = async function (this: any, ...args: unknown[]) {
       console.log(`[ADAPTER] ${contextName} _generate 被调用`);
       const result = await originalGenerate.call(this, ...args);
+      // 保持原本 message 纯净，不污染 content
       if (result && Array.isArray(result.generations)) {
         for (const group of result.generations) {
           if (Array.isArray(group)) {
             for (const gen of group) {
               const reasoning = extractReasoning(gen);
-              console.log(`[ADAPTER] ${contextName} _generate 收到结果，提取出的 reasoning:`, JSON.stringify(reasoning));
+              console.log(`[ADAPTER] ${contextName} _generate 收到结果，提取出的 reasoning length:`, reasoning?.length);
               if (typeof reasoning === 'string' && reasoning.length > 0) {
-                const prefix = `<think>${reasoning}</think>\n\n`;
-                gen.text = prefix + (gen.text || '');
+                reasoningCache.append(reasoning);
                 if (gen.message) {
-                  if (typeof gen.message.content === 'string') {
-                    gen.message.content = prefix + gen.message.content;
-                  } else if (Array.isArray(gen.message.content)) {
-                    gen.message.content = [
-                      { type: 'text', text: prefix },
-                      ...gen.message.content
-                    ];
-                  }
+                  // 确保 reasoning_content 字段存在
+                  gen.message.additional_kwargs = gen.message.additional_kwargs || {};
+                  gen.message.additional_kwargs.reasoning_content = reasoning;
                 }
+              }
+              const genText = gen.text || (gen.message && typeof gen.message.content === 'string' ? gen.message.content : undefined);
+              if (typeof genText === 'string' && genText.length > 0) {
+                textCache.append(genText);
               }
             }
           }
@@ -206,7 +327,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
     console.log(`[ADAPTER] 已成功 patch 顶层实例 _generate`);
   }
 
-  // 2. patch 原型链 (这是针对 Object.create() 克隆实例等绕过情况的降维打击)
+  // 2. patch 原型链 (针对 Object.create() 克隆实例等绕过情况的拦截)
   const proto = Object.getPrototypeOf(model);
   if (proto) {
     if (typeof proto._streamResponseChunks === 'function' && !proto._streamResponseChunks.__patched) {

@@ -173,6 +173,7 @@ export interface ElectronAPI {
     deleteSession: (sessionId: string) => Promise<void>;
     getMessages: (sessionId: string) => Promise<Message[]>;
     saveMessage: (message: any) => Promise<Message>;
+    deleteMessage: (id: string) => Promise<void>;
     getProviders: () => Promise<LLMProvider[]>;
     saveProvider: (provider: any) => Promise<LLMProvider>;
     deleteProvider: (id: string) => Promise<void>;
