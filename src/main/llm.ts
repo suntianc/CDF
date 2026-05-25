@@ -307,7 +307,9 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             for await (const token of msg.text) {
               if (controller.signal.aborted) break;
               console.log(`[LLM STREAM] Text Token:`, JSON.stringify(token));
-              if (msg.reasoning && !isReasoningDone) {
+              // reasoning 存在（不是 null/undefined/空数组）且未完成时才积压文本
+              const hasReasoningSource = msg.reasoning != null && !Array.isArray(msg.reasoning);
+              if (hasReasoningSource && !isReasoningDone) {
                 textBuffer.push(token);
               } else {
                 checkAndFlushCache();
