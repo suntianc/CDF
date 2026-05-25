@@ -206,6 +206,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
   const accumulator = createStreamAccumulator();
+  accumulator.sender = sender;
+  accumulator.channel = channel;
 
   return runWithStreamAccumulator(accumulator, async () => {
     let cleanup = async () => {};
@@ -382,13 +384,21 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         output = undefined;
       }
 
-      const reasoningText = takeReasoningText(accumulator, runtime.model);
-      if (reasoningText) {
-        console.log(`[LLM STREAM] 轮次结束前冲刷发送残留的思考`);
-        markReasoningSent(accumulator);
-        sender.send(channel, { type: 'message_chunk', text: '<think>' });
-        sender.send(channel, { type: 'message_chunk', text: reasoningText });
+      if (accumulator.hasSentReasoning && !accumulator.hasSentReasoningClosed) {
+        console.log(`[LLM STREAM] 闭合未结束的实时思考流`);
         sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+        accumulator.hasSentReasoningClosed = true;
+      }
+
+      if (!accumulator.hasSentReasoning) {
+        const reasoningText = takeReasoningText(accumulator, runtime.model);
+        if (reasoningText) {
+          console.log(`[LLM STREAM] 轮次结束前冲刷发送残留的思考`);
+          markReasoningSent(accumulator);
+          sender.send(channel, { type: 'message_chunk', text: '<think>' });
+          sender.send(channel, { type: 'message_chunk', text: reasoningText });
+          sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+        }
       }
 
       if (!accumulator.hasSentText) {

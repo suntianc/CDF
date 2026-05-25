@@ -13,7 +13,7 @@ import {
   extractReasoningDetails,
   normalizeOpenAICompatibleChunk,
 } from './provider-normalization';
-import { appendCurrentReasoning, appendCurrentText } from './stream-accumulator';
+import { appendCurrentReasoning, appendCurrentText, getCurrentStreamAccumulator } from './stream-accumulator';
 
 
 const modelCapture = new WeakMap<object, { reasoningText: string; normalText: string }>();
@@ -181,18 +181,30 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
       const [, callOptions] = typeof this._separateRunnableConfigFromCallOptionsCompat === 'function'
         ? this._separateRunnableConfigFromCallOptionsCompat(options)
         : [{}, options];
-      const stream = this._streamResponseChunks(messages, callOptions, options?.runManager);
 
-      let finalChunk: any = null;
-      for await (const chunk of stream) {
-        finalChunk = finalChunk === null ? chunk : finalChunk.concat(chunk);
+      const accumulator = getCurrentStreamAccumulator();
+      if (accumulator) {
+        accumulator.isInPatchedInvoke = true;
       }
 
-      if (!finalChunk) {
-        return originalInvoke.call(this, input, options);
-      }
+      try {
+        const stream = this._streamResponseChunks(messages, callOptions, options?.runManager);
 
-      return finalChunk.message;
+        let finalChunk: any = null;
+        for await (const chunk of stream) {
+          finalChunk = finalChunk === null ? chunk : finalChunk.concat(chunk);
+        }
+
+        if (!finalChunk) {
+          return originalInvoke.call(this, input, options);
+        }
+
+        return finalChunk.message;
+      } finally {
+        if (accumulator) {
+          accumulator.isInPatchedInvoke = false;
+        }
+      }
     };
     (fn as any).__patched = true;
     return fn;

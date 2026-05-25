@@ -5,13 +5,32 @@ export class LLMStreamAccumulator {
   normalText = '';
   hasSentText = false;
   hasSentReasoning = false;
+  hasSentReasoningClosed = false;
+  isInPatchedInvoke = false;
+  sender?: any;
+  channel?: string;
 
   appendReasoning(text: string): void {
     this.reasoningText += text;
+    if (this.isInPatchedInvoke && this.sender && this.channel) {
+      if (!this.hasSentReasoning) {
+        this.hasSentReasoning = true;
+        this.sender.send(this.channel, { type: 'message_chunk', text: '<think>' });
+      }
+      this.sender.send(this.channel, { type: 'message_chunk', text });
+    }
   }
 
   appendText(text: string): void {
     this.normalText += text;
+    if (this.isInPatchedInvoke && this.sender && this.channel) {
+      if (this.hasSentReasoning && !this.hasSentReasoningClosed) {
+        this.sender.send(this.channel, { type: 'message_chunk', text: '</think>\n\n' });
+        this.hasSentReasoningClosed = true;
+      }
+      this.hasSentText = true;
+      this.sender.send(this.channel, { type: 'message_chunk', text });
+    }
   }
 
   takeReasoning(): string {

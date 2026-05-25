@@ -381,6 +381,67 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
     }
   }, [isFinished, elapsedSeconds, finalDuration]);
 
+  // === 平滑吐字缓冲队列 ===
+  const [displayedContent, setDisplayedContent] = useState(message.content);
+  const targetContentRef = useRef(message.content);
+  const displayedContentRef = useRef(message.content);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 当内容发生改变或者流式状态改变时更新
+  useEffect(() => {
+    targetContentRef.current = message.content;
+
+    if (!isStreaming || !isLast) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      setDisplayedContent(message.content);
+      displayedContentRef.current = message.content;
+      return;
+    }
+
+    // 正在流式中，如果当前显示内容落后于目标内容，并且定时器没在跑，启动它
+    const startQueue = () => {
+      if (timerRef.current) return;
+
+      const tick = () => {
+        const target = targetContentRef.current;
+        const current = displayedContentRef.current;
+
+        if (current.length < target.length) {
+          const diff = target.length - current.length;
+          // 按比例追赶：落后越多，步长越大，但最少 1 个字符，最多一次追赶 diff/5 字符以保持平滑
+          const step = Math.max(1, Math.min(diff, Math.ceil(diff / 5)));
+          const nextContent = target.slice(0, current.length + step);
+          
+          setDisplayedContent(nextContent);
+          displayedContentRef.current = nextContent;
+
+          timerRef.current = setTimeout(tick, 20); // 20ms 的间隔，大约 50fps，非常丝滑
+        } else {
+          // 已经赶上，挂起定时器
+          timerRef.current = null;
+        }
+      };
+
+      tick();
+    };
+
+    if (displayedContentRef.current.length < message.content.length) {
+      startQueue();
+    }
+  }, [message.content, isStreaming, isLast]);
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
   // Helper to parse tool JSON
   const toolInfo = useMemo(() => {
     if (message.role !== 'system') return null;
@@ -398,18 +459,33 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
   const renderMessageContent = (content: string) => {
     if (!content) return null;
 
+    // 清洗多余的 </think> 标签（例如由于主进程补发与大模型输出重叠产生的冗余闭合标签）
+    let cleanContent = content;
+    const thinkCount = (cleanContent.match(/<think>/g) || []).length;
+    const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
+    if (thinkEndCount > thinkCount) {
+      if (thinkCount === 0) {
+        cleanContent = cleanContent.replace(/<\/think>/g, '');
+      } else {
+        const lastIdx = cleanContent.lastIndexOf('</think>');
+        if (lastIdx !== -1) {
+          cleanContent = cleanContent.substring(0, lastIdx) + cleanContent.substring(lastIdx + 8);
+        }
+      }
+    }
+
     let thinkContent = '';
-    let mainContent = content;
-    const thinkStartIdx = content.indexOf('<think>');
+    let mainContent = cleanContent;
+    const thinkStartIdx = cleanContent.indexOf('<think>');
 
     if (thinkStartIdx !== -1) {
-      const thinkEndIdx = content.indexOf('</think>');
+      const thinkEndIdx = cleanContent.indexOf('</think>');
       if (thinkEndIdx !== -1) {
-        thinkContent = content.substring(thinkStartIdx + 7, thinkEndIdx).trim();
-        mainContent = (content.substring(0, thinkStartIdx) + content.substring(thinkEndIdx + 8)).trim();
+        thinkContent = cleanContent.substring(thinkStartIdx + 7, thinkEndIdx).trim();
+        mainContent = (cleanContent.substring(0, thinkStartIdx) + cleanContent.substring(thinkEndIdx + 8)).trim();
       } else {
-        thinkContent = content.substring(thinkStartIdx + 7).trim();
-        mainContent = content.substring(0, thinkStartIdx).trim();
+        thinkContent = cleanContent.substring(thinkStartIdx + 7).trim();
+        mainContent = cleanContent.substring(0, thinkStartIdx).trim();
       }
     }
 
@@ -491,7 +567,7 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
   return (
     <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
       <div className="message-bubble animate-pop-in">
-        {renderMessageContent(message.content)}
+        {renderMessageContent(displayedContent)}
         <div className="message-time">
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}
@@ -535,6 +611,16 @@ export function ChatArea({
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    // 如果滚动条距离底部大于 50px，说明用户手动往上滚动了，我们需要暂停自动吸底
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+    shouldAutoScrollRef.current = isAtBottom;
+  };
 
   // Defensive mount-time isStreaming reset to prevent stuck loading states
   useEffect(() => {
@@ -681,20 +767,67 @@ export function ChatArea({
     setComposerModelSelectorOpen(false);
   };
 
-  // Auto scroll to bottom on new message
-  const lastMessageContent = messages.length > 0 ? messages[messages.length - 1].content : '';
-  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
-
+  // 消息数量改变时（如发送新消息或流式中间产生工具消息）
   useEffect(() => {
-    if (!messagesEndRef.current) return;
-    if (isStreaming) {
-      // 流式输入过程中，使用 auto 避免平滑动画打断导致的重绘抖动
-      messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+    const lastMsg = messages[messages.length - 1];
+    const isUserSent = lastMsg && lastMsg.role === 'user';
+
+    if (isUserSent) {
+      // 只有当最新消息是用户发送的，才无条件强制重置锁定并滚到底部
+      shouldAutoScrollRef.current = true;
+      const container = scrollContainerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
     } else {
-      // 流式结束或新发送时，使用 smooth 优雅归位
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      // 其它情况（如流式中间增加工具消息），只有在原本就处于自动滚动时才跟随滚动
+      const container = scrollContainerRef.current;
+      if (container && shouldAutoScrollRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
     }
-  }, [lastMessageContent, isStreaming, lastMessageId]);
+  }, [messages.length]);
+
+  // 当切换会话时，重置自动滚动，并强制滚到底部
+  useEffect(() => {
+    shouldAutoScrollRef.current = true;
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [activeSessionId]);
+
+  // 当流式刚刚结束时，如果用户没有手动往上滚，则执行一次平滑滚动到底部
+  useEffect(() => {
+    if (isStreaming) return;
+    const container = scrollContainerRef.current;
+    if (container && shouldAutoScrollRef.current) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [isStreaming]);
+
+  // 流式输出期间，在 requestAnimationFrame 中平滑维持滚动到底部
+  useEffect(() => {
+    if (!isStreaming) return;
+
+    let active = true;
+    const updateScroll = () => {
+      if (!active) return;
+      const container = scrollContainerRef.current;
+      if (container && shouldAutoScrollRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+      requestAnimationFrame(updateScroll);
+    };
+
+    requestAnimationFrame(updateScroll);
+    return () => {
+      active = false;
+    };
+  }, [isStreaming]);
 
 
 
@@ -954,7 +1087,12 @@ export function ChatArea({
 
         {/* Messages Viewport */}
         <div className="flex-1 relative overflow-hidden">
-          <div className="messages absolute inset-0 overflow-y-auto" style={{ paddingBottom: '180px' }}>
+          <div 
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="messages absolute inset-0 overflow-y-auto" 
+            style={{ paddingBottom: '180px' }}
+          >
             {/* Messages List */}
             {renderItems.map((item, idx) => {
               if (item.type === 'tool_group') {
