@@ -174,7 +174,7 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-hang', { type: 'message_done' });
   });
 
-  it('should not block text streaming behind a delayed reasoning stream', async () => {
+  it('should buffer text streaming behind an active reasoning stream and flash it in order', async () => {
     let releaseReasoning!: () => void;
     const reasoningGate = new Promise<void>((resolve) => {
       releaseReasoning = resolve;
@@ -213,15 +213,17 @@ describe('runLLMChat', () => {
       },
     });
 
-    await vi.waitFor(() => {
-      expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '即时回复' });
-    });
-    expect(send).not.toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '稍后思考' });
+    // 此时由于 reasoning 流未结束，即使 text 流产出了 "即时回复"，也不应被发送
+    await new Promise((r) => setTimeout(r, 100));
+    expect(send).not.toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '即时回复' });
 
     releaseReasoning();
     await promise;
 
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '<think>' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '稍后思考' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '</think>\n\n' });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-concurrent', { type: 'message_chunk', text: '即时回复' });
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-concurrent', { type: 'message_done' });
   });
 

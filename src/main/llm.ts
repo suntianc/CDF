@@ -178,25 +178,59 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
 
+          let isReasoningDone = false;
+          const textBuffer: string[] = [];
+
+          console.log(`[LLM STREAM] === 新消息 Chunk ===`);
+          console.log(`[LLM STREAM] 是否存在 msg.reasoning:`, msg.reasoning !== undefined && msg.reasoning !== null);
+          try {
+            console.log(`[LLM STREAM] msg 所有的键:`, Object.keys(msg || {}));
+            console.log(`[LLM STREAM] msg.reasoning 的类型:`, typeof msg?.reasoning);
+            if (msg && typeof msg === 'object') {
+              for (const key of Object.getOwnPropertyNames(msg)) {
+                const val = (msg as any)[key];
+                console.log(`[LLM STREAM] 探测 msg.${key} =`, typeof val === 'object' ? safeStringify(val) : typeof val);
+              }
+            }
+          } catch (e: any) {
+            console.log(`[LLM STREAM] 深度探测失败:`, e?.message);
+          }
+
           const consumeReasoning = async () => {
             let hasReasoning = false;
             for await (const token of msg.reasoning ?? []) {
               if (controller.signal.aborted) break;
               if (!hasReasoning) {
                 hasReasoning = true;
+                console.log(`[LLM STREAM] 监听到 Native Reasoning 字段流开启，向前端发送 <think>`);
                 sender.send(channel, { type: 'message_chunk', text: '<think>' });
               }
+              console.log(`[LLM STREAM] Native Reasoning Token:`, JSON.stringify(token));
               sender.send(channel, { type: 'message_chunk', text: token });
             }
             if (hasReasoning && !controller.signal.aborted) {
+              console.log(`[LLM STREAM] Native Reasoning 字段流结束，向前端发送 </think>`);
               sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+            }
+            isReasoningDone = true;
+            if (textBuffer.length > 0 && !controller.signal.aborted) {
+              console.log(`[LLM STREAM] Reasoning 流结束，正在冲刷缓存的 Text Tokens:`, JSON.stringify(textBuffer.join('')));
+              for (const t of textBuffer) {
+                sender.send(channel, { type: 'message_chunk', text: t });
+              }
+              textBuffer.length = 0;
             }
           };
 
           const consumeText = async () => {
             for await (const token of msg.text) {
               if (controller.signal.aborted) break;
-              sender.send(channel, { type: 'message_chunk', text: token });
+              console.log(`[LLM STREAM] Text Token:`, JSON.stringify(token));
+              if (msg.reasoning && !isReasoningDone) {
+                textBuffer.push(token);
+              } else {
+                sender.send(channel, { type: 'message_chunk', text: token });
+              }
             }
           };
 

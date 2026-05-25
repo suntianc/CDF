@@ -96,7 +96,7 @@ describe('createLangChainModel', () => {
     };
 
     const chunks = [];
-    for await (const chunk of model.completions._streamResponseChunks([], {})) {
+    for await (const chunk of model._streamResponseChunks([], {})) {
       chunks.push({
         text: chunk.text,
         tool_call_chunks: chunk.message.tool_call_chunks,
@@ -118,6 +118,33 @@ describe('createLangChainModel', () => {
         type: 'tool_call_chunk',
       },
     ]);
+  });
+
+  it('should normalize MiniMax literal thinking tags to think tags', async () => {
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      defaultModel: 'MiniMax-M2.7-highspeed',
+      providerType: 'minimax',
+    }) as any;
+
+    model.completions.completionWithRetry = async function* () {
+      yield {
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            content: '<thinking>标签思考</thinking>\n正文',
+          },
+        }],
+      };
+    };
+
+    const chunks = [];
+    for await (const chunk of model._streamResponseChunks([], {})) {
+      chunks.push(chunk.text);
+    }
+
+    expect(chunks).toEqual(['<think>标签思考</think>\n正文']);
   });
 
   it('should promote MiniMax content-block tool calls to AIMessage tool_calls', () => {

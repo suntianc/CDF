@@ -674,8 +674,6 @@ export function ChatArea({
     setComposerModelSelectorOpen(false);
   };
 
-  console.log('ChatArea rendering state:', { activeSessionId, isStreaming, inputVal: `"${inputVal}"`, currentProjectId });
-
   // Auto scroll to bottom on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
