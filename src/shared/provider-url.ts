@@ -24,8 +24,20 @@ export function isDeepSeekAnthropicApiUrl(apiUrl?: string): boolean {
   return /^https:\/\/api\.deepseek\.com\/anthropic(?:\/v1)?(?:\/|$)/i.test(normalized);
 }
 
+export function isGLMAnthropicApiUrl(apiUrl?: string): boolean {
+  const normalized = normalizeProviderApiUrl(apiUrl);
+  if (!normalized) return false;
+
+  // 国内: https://open.bigmodel.cn/api/anthropic
+  // 海外: https://api.z.ai/api/anthropic
+  return (
+    /^https:\/\/open\.bigmodel\.cn\/api\/anthropic(?:\/v1)?(?:\/|$)/i.test(normalized) ||
+    /^https:\/\/api\.z\.ai\/api\/anthropic(?:\/v1)?(?:\/|$)/i.test(normalized)
+  );
+}
+
 export function isAnthropicCompatibleApiUrl(apiUrl?: string): boolean {
-  return isMiniMaxAnthropicApiUrl(apiUrl) || isDeepSeekAnthropicApiUrl(apiUrl);
+  return isMiniMaxAnthropicApiUrl(apiUrl) || isDeepSeekAnthropicApiUrl(apiUrl) || isGLMAnthropicApiUrl(apiUrl);
 }
 
 export function shouldUseAnthropicAuthToken(apiUrl?: string, apiKey?: string): boolean {

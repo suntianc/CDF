@@ -489,8 +489,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
   switch (config.providerType) {
     case 'openai':
     case 'custom':
-    case 'glm':
-    case 'glm-overseas':
     case 'kimi':
     case 'qwen':
     case 'mimo': {
@@ -511,7 +509,9 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
     }
     case 'deepseek':
     case 'minimax':
-    case 'minimax-overseas': {
+    case 'minimax-overseas':
+    case 'glm':
+    case 'glm-overseas': {
       const modelConfig: Record<string, unknown> = {
         model: modelName,
         temperature: 0,

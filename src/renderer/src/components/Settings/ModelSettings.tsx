@@ -575,10 +575,10 @@ export function ModelSettings() {
                         setFormUrl('https://api.deepseek.com/anthropic/v1');
                         setFormLimit(64000);
                       } else if (type === 'glm') {
-                        setFormUrl('https://open.bigmodel.cn/api/paas/v4');
+                        setFormUrl('https://open.bigmodel.cn/api/anthropic/v1');
                         setFormLimit(128000);
                       } else if (type === 'glm-overseas') {
-                        setFormUrl('https://open.bigmodel.cn/api/paas/v4');
+                        setFormUrl('https://api.z.ai/api/anthropic/v1');
                         setFormLimit(128000);
                       } else if (type === 'minimax') {
                         setFormUrl('https://api.minimaxi.com/anthropic/v1');
