@@ -674,7 +674,10 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
       if (!interruptValue) {
         if (terminal === 'failed') {
-          throw new Error('Agent run failed.');
+          // 子代理失败不应该中断主 Agent 会话，只返回失败状态
+          updateRun(runId, 'failed');
+          sender.send(channel, { type: 'run_updated', runId, status: 'failed', error: 'Subagent execution failed' });
+          break;
         }
         updateRun(runId, 'completed');
         sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
