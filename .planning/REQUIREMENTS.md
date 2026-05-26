@@ -25,9 +25,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **AGNT-01**: 创建/编辑/删除 Agent 角色定义
 - [ ] **AGNT-02**: Agent 资产库面板
-- [ ] **AGNT-03**: Agent 配置：指定 LLM、提供者
-- [ ] **AGNT-04**: Agent 配置：绑定 MCP 资源
-- [ ] **AGNT-05**: Agent 配置：绑定 Skills
+- [x] **AGNT-03**: Agent 配置：指定 LLM、提供者
+- [x] **AGNT-04**: Agent 配置：绑定 MCP 资源
+- [x] **AGNT-05**: Agent 配置：绑定 Skills
 
 ### Skills 管理 (Skills)
 
@@ -122,9 +122,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LLM-03 | Phase 2 | Pending |
 | AGNT-01 | Phase 3 | Pending |
 | AGNT-02 | Phase 3 | Pending |
-| AGNT-03 | Phase 3 | Pending |
-| AGNT-04 | Phase 3 | Pending |
-| AGNT-05 | Phase 3 | Pending |
+| AGNT-03 | Phase 3 | Complete |
+| AGNT-04 | Phase 3 | Complete |
+| AGNT-05 | Phase 3 | Complete |
 | SKIL-01 | Phase 3 | Pending |
 | SKIL-02 | Phase 3 | Pending |
 | SKIL-03 | Phase 3 | Pending |
