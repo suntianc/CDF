@@ -385,6 +385,7 @@ export async function createDeepAgentRuntime(
     systemPrompt: string;
     tools: any[];
     model?: string;
+    modelProvider?: string;
     responseFormat: z.ZodType;
   }> = [];
 
@@ -406,12 +407,17 @@ export async function createDeepAgentRuntime(
       const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
       const { skillsSources: subSkillsSources, permissions: subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
 
+      const providerRow = agentRow.provider_id
+        ? (db.prepare('SELECT default_model, provider_type FROM llm_providers WHERE id = ?').get(agentRow.provider_id) as { default_model: string; provider_type: string } | undefined)
+        : undefined;
+
       subagents.push({
         name: agentSlug,  // D-03: slug as stable key
         description: agentRow.description || '',
         systemPrompt: (agentRow.system_prompt || '') + `\n\n你必须返回符合以下 JSON Schema 的结果，不要返回 JSON 以外的任何内容：${JSON.stringify({ type: 'object', properties: { status: { type: 'string', enum: ['success', 'failure'] }, artifacts: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' }, error: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } } }, required: ['status', 'artifacts', 'summary'] })}`,
         tools: [...subMcpRuntime.tools],
-        model: agentRow.provider_id ? (db.prepare('SELECT default_model FROM llm_providers WHERE id = ?').get(agentRow.provider_id) as { default_model: string } | undefined)?.default_model : undefined,
+        model: providerRow?.default_model,
+        modelProvider: providerRow?.provider_type,
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
       });
     }
