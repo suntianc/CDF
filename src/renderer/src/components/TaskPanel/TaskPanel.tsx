@@ -108,9 +108,10 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
   }, [activeRunId, agentRuns]);
 
   const toolSummary = useMemo(() => {
-    const total = agentToolCalls.length;
-    const running = agentToolCalls.filter((toolCall) => toolCall.status === 'running').length;
-    const failed = agentToolCalls.filter((toolCall) => toolCall.status === 'error');
+    const calls = agentToolCalls ?? [];
+    const total = calls.length;
+    const running = calls.filter((toolCall) => toolCall.status === 'running').length;
+    const failed = calls.filter((toolCall) => toolCall.status === 'error');
     return {
       total,
       running,
