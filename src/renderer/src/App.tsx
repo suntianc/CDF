@@ -14,9 +14,8 @@ import { PanelLeft } from 'lucide-react';
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'agents' | 'plugins' | 'tools'>('chat');
+  const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
   const { setTheme } = useThemeStore();
-  const { taskPanelOpen, setTaskPanelOpen } = useProjectStore();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
 
@@ -36,10 +35,10 @@ export default function App() {
   }, [setTheme]);
 
   useEffect(() => {
-    if (pendingApproval) {
+    if (pendingApproval && activeView === 'chat') {
       setTaskPanelOpen(true);
     }
-  }, [pendingApproval, setTaskPanelOpen]);
+  }, [pendingApproval, activeView, setTaskPanelOpen]);
 
   return (
     <div className={`flex h-screen bg-[var(--bg-app)] relative ${sidebarCollapsed ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
@@ -71,7 +70,7 @@ export default function App() {
       </main>
 
       <TaskPanel 
-        isOpen={taskPanelOpen} 
+        isOpen={activeView === 'chat' && taskPanelOpen} 
         onClose={() => setTaskPanelOpen(false)} 
         width={taskPanelWidth}
         onResize={(w) => setTaskPanelWidth(w)}

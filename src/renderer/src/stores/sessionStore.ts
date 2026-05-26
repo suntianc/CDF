@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useProjectStore } from './projectStore';
 import {
   AgentApprovalRequest,
   AgentRun,
@@ -124,12 +125,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   selectSession: async (sessionId: string | null) => {
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], activeRunId: null, pendingApproval: null, error: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null, pendingApproval: null, error: null });
       return;
     }
     try {
       const messages = await window.electronAPI.db.getMessages(sessionId);
-      set({ activeSessionId: sessionId, messages, error: null });
+      set({ activeSessionId: sessionId, messages, delegatedTasks: [], error: null });
       await get().fetchAgentActivity(sessionId);
     } catch (err: any) {
       set({ error: err.message || 'Failed to load messages for session' });
@@ -142,15 +143,118 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         typeof window.electronAPI.db.getAgentRuns !== 'function' ||
         typeof window.electronAPI.db.getAgentToolCalls !== 'function'
       ) {
-        set({ agentRuns: [], agentToolCalls: [], activeRunId: null });
+        set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
         return;
       }
       const runs = await window.electronAPI.db.getAgentRuns(sessionId);
       const activeRun = runs[0] || null;
       const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+
+      const tasks: DelegatedTask[] = [];
+      for (const call of toolCalls) {
+        if (call.tool_name === 'task') {
+          let agentSlug = 'unknown';
+          let goal = '';
+          try {
+            const input = call.input ? JSON.parse(call.input) : {};
+            agentSlug = input.subagent_type || input.name || 'unknown';
+            if (input.task) {
+              try {
+                const taskPackage = JSON.parse(input.task);
+                goal = taskPackage.goal || '';
+              } catch {
+                goal = input.name || '任务执行';
+              }
+            } else if (input.description) {
+              goal = input.description;
+            }
+          } catch (e) {
+            console.warn('[sessionStore] Failed to parse task tool call input:', call.input, e);
+          }
+
+          let status: 'running' | 'success' | 'failure' = 'success';
+          let errorCode: string | undefined;
+          let parsedResult: any;
+
+          if (call.status === 'running') {
+            status = 'running';
+          } else if (call.status === 'error') {
+            status = 'failure';
+            errorCode = 'UNKNOWN';
+            const msg = call.error || '';
+            if (msg.toLowerCase().includes('timeout')) errorCode = 'TIMEOUT';
+            else if (msg.toLowerCase().includes('interrupt') || msg.toLowerCase().includes('cancel')) errorCode = 'INTERRUPTED';
+            parsedResult = {
+              status: 'failure',
+              artifacts: [],
+              summary: '',
+              error: { code: errorCode, message: msg }
+            };
+          } else {
+            try {
+              const rawOutput = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
+              const parsedOutput = JSON.parse(rawOutput);
+              if (parsedOutput && typeof parsedOutput === 'object') {
+                if (parsedOutput.status === 'failure') {
+                  status = 'failure';
+                  errorCode = parsedOutput.error?.code || 'PARSE_FAILED';
+                  parsedResult = parsedOutput;
+                } else if (parsedOutput.summary !== undefined) {
+                  status = 'success';
+                  parsedResult = parsedOutput;
+                } else {
+                  if (parsedOutput.lg_name === 'Command' && parsedOutput.update?.messages?.length > 0) {
+                    const toolMsg = parsedOutput.update.messages[parsedOutput.update.messages.length - 1];
+                    const content = typeof toolMsg === 'object' ? toolMsg.kwargs?.content : toolMsg;
+                    if (typeof content === 'string') {
+                      try {
+                        parsedResult = JSON.parse(content);
+                        if (parsedResult.status === 'failure') {
+                          status = 'failure';
+                          errorCode = parsedResult.error?.code || 'PARSE_FAILED';
+                        }
+                      } catch {
+                        parsedResult = { status: 'success', artifacts: [], summary: content.slice(0, 500) };
+                      }
+                    } else {
+                      parsedResult = { status: 'success', artifacts: [], summary: '任务执行完成' };
+                    }
+                  } else {
+                    parsedResult = { status: 'success', artifacts: [], summary: '任务执行完成' };
+                  }
+                }
+              }
+            } catch (e: any) {
+              status = 'failure';
+              errorCode = 'PARSE_FAILED';
+              parsedResult = {
+                status: 'failure',
+                artifacts: [],
+                summary: '',
+                error: { code: 'PARSE_FAILED', message: e?.message || 'unknown parse error' }
+              };
+            }
+          }
+
+          tasks.push({
+            taskId: call.id,
+            agentSlug,
+            agentName: agentSlug,
+            goal,
+            status,
+            chunks: [],
+            result: parsedResult,
+            errorCode,
+            startedAt: call.started_at,
+            completedAt: call.ended_at || undefined
+          });
+        }
+      }
+
       set({
         agentRuns: runs,
         agentToolCalls: toolCalls,
+        delegatedTasks: tasks,
         activeRunId: activeRun?.id || null,
       });
     } catch (err: any) {
@@ -246,6 +350,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
 
           if (data.type === 'delegated_task_start') {
+            const projectStore = useProjectStore.getState();
+            if (projectStore.activeView === 'chat') {
+              projectStore.setTaskPanelOpen(true);
+            }
             set((state) => ({
               delegatedTasks: [
                 ...state.delegatedTasks,
@@ -256,6 +364,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   goal: data.goal,
                   status: 'running',
                   chunks: [],
+                  startedAt: Date.now(),
                 },
               ],
             }));
@@ -282,6 +391,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                       status: data.status,
                       result: data.result,
                       errorCode: data.errorCode,
+                      completedAt: Date.now(),
                     }
                   : task
               ),
@@ -315,6 +425,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
 
           if (data.type === 'tool_start') {
+            const projectStore = useProjectStore.getState();
+            if (projectStore.activeView === 'chat') {
+              projectStore.setTaskPanelOpen(true);
+            }
             // 1. 如果上一段助手有说话，将其持久化写入 SQLite
             if (accumulatedContent.trim()) {
               const prevMsg = {

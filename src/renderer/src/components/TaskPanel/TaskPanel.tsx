@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
+import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useSessionStore, type DelegatedTask } from '../../stores/sessionStore';
+import { useAgentStore } from '../../stores/agentStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
 
 interface TaskPanelProps {
@@ -102,6 +103,47 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
     fetchAgentActivity,
     resolveApproval,
   } = useSessionStore();
+
+  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
+  const [, setTick] = useState(0);
+
+  const agents = useAgentStore((state) => state.agents);
+
+  const isTaskExpanded = (taskId: string, status: string) => {
+    if (expandedTasks[taskId] !== undefined) {
+      return expandedTasks[taskId];
+    }
+    return status === 'running';
+  };
+
+  const toggleTaskExpand = (taskId: string, status: string) => {
+    setExpandedTasks((prev) => ({
+      ...prev,
+      [taskId]: !isTaskExpanded(taskId, status),
+    }));
+  };
+
+  const hasRunningTask = delegatedTasks.some((t) => t.status === 'running');
+  useEffect(() => {
+    if (!hasRunningTask) return;
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [hasRunningTask]);
+
+  const getElapsedTimeText = (startedAt?: number, completedAt?: number) => {
+    if (!startedAt) return null;
+    const end = completedAt ?? Date.now();
+    const seconds = Math.max(0, Math.round((end - startedAt) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  };
+
+  const getAgentName = (task: DelegatedTask) => {
+    const matched = agents.find((a) => a.slug === task.agentSlug || a.name === task.agentSlug);
+    return matched ? matched.name : (task.agentName || task.agentSlug);
+  };
 
   const activeRun = useMemo(() => {
     return agentRuns.find((run) => run.id === activeRunId) || agentRuns[0] || null;
@@ -285,43 +327,117 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
           <div className="text-xs text-[var(--color-text-muted)]">本轮暂无需要关注的工具活动。</div>
         )}
 
-        {delegatedTasks.length > 0 && (
-          <div className="space-y-3">
-            <div className="text-xs font-semibold text-[var(--color-text-primary)]">委派任务</div>
-            {delegatedTasks.map((task) => (
-              <div
-                key={task.taskId}
-                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2"
-              >
-                <div className="flex items-center gap-2">
-                  <DelegatedTaskStatusIcon status={task.status} />
-                  <div className="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                    {task.agentName}
-                  </div>
-                  <div className="text-[10px] text-[var(--color-text-muted)] font-mono">
-                    {task.agentSlug}
-                  </div>
+        {delegatedTasks.length > 0 && (() => {
+          const total = delegatedTasks.length;
+          const completedCount = delegatedTasks.filter(t => t.status === 'success' || t.status === 'failure').length;
+          const percentage = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+          const allSubagentsComplete = total > 0 && delegatedTasks.every(t => t.status === 'success' || t.status === 'failure');
+          const isMasterRunning = activeRun && activeRun.status === 'running';
+
+          return (
+            <div className="space-y-3">
+              {/* Subagent Progress Bar */}
+              <div className="space-y-1.5 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg p-3">
+                <div className="flex items-center justify-between text-[11px] font-medium text-[var(--color-text-secondary)]">
+                  <span>子代理进度</span>
+                  <span>{completedCount}/{total} 已完成</span>
                 </div>
-                {task.goal && (
-                  <div className="text-[11px] text-[var(--color-text-muted)] line-clamp-2">
-                    {task.goal}
-                  </div>
-                )}
-                {task.status === 'failure' && task.errorCode && (
-                  <div className="text-xs text-[var(--color-danger)]">
-                    任务执行失败: {task.errorCode}
-                    {task.result?.error?.message && ` - ${task.result.error.message}`}
-                  </div>
-                )}
-                {task.status === 'success' && task.result?.summary && (
-                  <div className="text-[11px] text-[var(--color-text-muted)] line-clamp-2">
-                    {task.result.summary}
-                  </div>
-                )}
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40">
+                  <div
+                    className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out"
+                    style={{ width: `${percentage}%` }}
+                  />
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Synthesis Indicator */}
+              {allSubagentsComplete && isMasterRunning && (
+                <div className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-[11px] text-[var(--color-accent)] font-medium animate-pulse">
+                  <Loader className="w-3.5 h-3.5 animate-spin" />
+                  <span>正在整合 {total} 个子代理的执行结果...</span>
+                </div>
+              )}
+
+              <div className="text-xs font-semibold text-[var(--color-text-primary)]">委派任务</div>
+              {delegatedTasks.map((task) => {
+                const expanded = isTaskExpanded(task.taskId, task.status);
+                const duration = getElapsedTimeText(task.startedAt, task.completedAt);
+                return (
+                  <div
+                    key={task.taskId}
+                    className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2"
+                  >
+                    {/* Collapsible Card Header */}
+                    <div
+                      onClick={() => toggleTaskExpand(task.taskId, task.status)}
+                      className="flex items-center justify-between cursor-pointer select-none group/hdr"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {expanded ? (
+                          <ChevronDown className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)] group-hover/hdr:text-[var(--color-text-secondary)] transition-colors" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)] group-hover/hdr:text-[var(--color-text-secondary)] transition-colors" />
+                        )}
+                        <DelegatedTaskStatusIcon status={task.status} />
+                        <span className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
+                          {getAgentName(task)}
+                        </span>
+                        <span className="text-[10px] font-mono text-[var(--color-text-muted)] truncate max-w-[80px]">
+                          {task.agentSlug}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {duration && (
+                          <span className="text-[10px] text-[var(--color-text-muted)] font-medium">
+                            {duration}
+                          </span>
+                        )}
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          task.status === 'running'
+                            ? 'bg-blue-500/10 text-blue-500 border border-blue-500/25'
+                            : task.status === 'success'
+                              ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/25'
+                              : 'bg-[var(--color-danger)]/10 text-[var(--color-danger)] border border-[var(--color-danger)]/25'
+                        }`}>
+                          {task.status === 'running' ? '运行中' : task.status === 'success' ? '已完成' : '失败'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Collapsible Card Body */}
+                    {expanded && (
+                      <div className="space-y-2 mt-2 pt-2 border-t border-[var(--color-border)]/50">
+                        {task.goal && (
+                          <div className="text-[11px] text-[var(--color-text-secondary)] font-normal leading-relaxed">
+                            <span className="font-semibold text-[var(--color-text-muted)] mr-1">目标:</span>
+                            {task.goal}
+                          </div>
+                        )}
+
+                        {/* Monospaced Log Console */}
+                        <div className="rounded-md bg-[var(--color-bg-app)] border border-[var(--color-border)] p-2 font-mono text-[10.5px] leading-relaxed text-[var(--color-text-primary)] overflow-x-auto whitespace-pre-wrap break-words max-h-36 overflow-y-auto">
+                          {task.status === 'running' ? (
+                            <>
+                              {task.chunks.length > 0 ? task.chunks.join('') : '子代理正在准备初始化环境...'}
+                              <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse align-middle" />
+                            </>
+                          ) : task.status === 'failure' ? (
+                            <div className="text-[var(--color-danger)] space-y-1">
+                              <div>任务失败: {task.errorCode}</div>
+                              {task.result?.error?.message && <div className="text-[10px] opacity-90 leading-normal">{task.result.error.message}</div>}
+                            </div>
+                          ) : (
+                            task.result?.summary || '任务执行完成'
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {delegatedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
           <div className="text-xs text-[var(--color-text-muted)]">暂无委派子任务</div>

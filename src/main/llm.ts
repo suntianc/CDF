@@ -406,8 +406,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           // D-12: Detect task tool calls and emit delegated_task_start
           if (call.name === 'task') {
             const taskId = toolCallId;
-            const input = call.input as { name?: string; task?: string };
-            const agentSlug = input?.name || 'unknown';
+            const input = call.input as { name?: string; task?: string; subagent_type?: string; description?: string };
+            const agentSlug = input?.subagent_type || input?.name || 'unknown';
             let goal = '';
 
             // D-03: task input's task field is a JSON string containing goal
@@ -419,9 +419,19 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 console.warn('[LLM] Failed to parse task input JSON:', input.task);
                 goal = input?.name || '任务执行';
               }
+            } else if (input?.description) {
+              goal = input.description;
             }
 
-            const agentName = agentSlug; // fallback to slug
+            let agentName = agentSlug; // fallback to slug
+            try {
+              const agentRow = db.prepare('SELECT name FROM agents WHERE slug = ? OR name = ?').get(agentSlug, agentSlug) as { name: string } | undefined;
+              if (agentRow) {
+                agentName = agentRow.name;
+              }
+            } catch (dbErr) {
+              console.warn('[LLM] Failed to query agent name for slug:', agentSlug, dbErr);
+            }
 
             sender.send(channel, {
               type: 'delegated_task_start',
