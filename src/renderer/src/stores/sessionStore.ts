@@ -326,6 +326,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               };
               window.electronAPI.db.saveMessage(prevMsg).catch((err) => {
                 console.error('Failed to save intermediate assistant message:', err);
+                set({ error: '消息保存失败，对话历史可能不完整' });
               });
             }
 
