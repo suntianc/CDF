@@ -363,6 +363,8 @@ export async function createDeepAgentRuntime(
     console.warn('[RUNTIME] Failed to load built-in search tools config:', err);
   }
 
+  console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);
+
   // D-06/D-07/D-17: Build subagents list from subagentIds
   // 如果没有传入 subagentIds，自动查询该项目下的所有 Agent 作为子代理
   let effectiveSubagentIds = subagentIds;
