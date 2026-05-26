@@ -33,7 +33,7 @@ vi.mock('./database', () => ({
   },
 }));
 
-import { RUN_OUTPUT_GRACE_MS, runLLMChat } from './llm';
+import { resolveLLMApproval, runLLMChat, stopLLMChat } from './llm';
 import { appendCurrentText } from './deepagent/stream-accumulator';
 
 describe('runLLMChat', () => {
@@ -144,8 +144,12 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_error', name: 'tool-b', error: 'boom' }));
   });
 
-  it('should complete when run.output does not resolve after streams finish', async () => {
+  it('should not complete before run.output resolves after streams finish', async () => {
     vi.useFakeTimers();
+    let resolveOutput!: (value: unknown) => void;
+    const output = new Promise((resolve) => {
+      resolveOutput = resolve;
+    });
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
         streamEvents: vi.fn().mockResolvedValue({
@@ -160,7 +164,7 @@ describe('runLLMChat', () => {
             };
           })(),
           toolCalls: (async function* () {})(),
-          output: new Promise(() => {}),
+          output,
           interrupts: [],
         }),
       },
@@ -179,18 +183,271 @@ describe('runLLMChat', () => {
       },
     });
 
-    await vi.advanceTimersByTimeAsync(RUN_OUTPUT_GRACE_MS);
-    await promise;
-
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '<think>' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '需要先查找 README。' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '</think>\n\n' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_chunk', text: '我来读取。' });
+    expect(send).not.toHaveBeenCalledWith('llm:chunk-req-hang', { type: 'message_done' });
+
+    resolveOutput({});
+    await promise;
+
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-hang', { type: 'message_done' });
   });
 
+  it('should emit approval request when output contains an interrupt', async () => {
+    const firstRun = {
+      messages: (async function* () {})(),
+      toolCalls: (async function* () {})(),
+      output: Promise.resolve({
+        __interrupt__: [
+          {
+            value: {
+              actionRequests: [
+                {
+                  name: 'write_file',
+                  args: { file_path: '/test.txt', content: 'hello' },
+                  description: 'Tool execution requires approval',
+                },
+              ],
+              reviewConfigs: [
+                {
+                  actionName: 'write_file',
+                  allowedDecisions: ['approve', 'edit', 'reject'],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    };
+    const secondRun = {
+      messages: (async function* () {})(),
+      toolCalls: (async function* () {})(),
+      output: Promise.resolve({}),
+    };
+    const streamEvents = vi.fn()
+      .mockResolvedValueOnce(firstRun)
+      .mockResolvedValueOnce(secondRun);
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+      },
+      inputMessages: [{ role: 'user', content: '写文件' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-approval', {
+      projectId: 'project-1',
+      sessionId: 'session-approval',
+      message: {
+        id: 'message-approval',
+        content: '写文件',
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith(
+        'llm:chunk-req-approval',
+        expect.objectContaining({ type: 'approval_required' })
+      );
+    });
+    const approvalEvent = send.mock.calls.find(([, payload]) => payload.type === 'approval_required')?.[1];
+    expect(approvalEvent.approval.actions).toEqual([
+      {
+        name: 'write_file',
+        args: { file_path: '/test.txt', content: 'hello' },
+        description: 'Tool execution requires approval',
+        allowedDecisions: ['approve', 'edit', 'reject'],
+      },
+    ]);
+
+    resolveLLMApproval('req-approval', {
+      approvalId: approvalEvent.approval.id,
+      decisions: [{ type: 'approve' }],
+    });
+    await promise;
+
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-approval',
+      expect.objectContaining({ type: 'run_updated', status: 'waiting_approval' })
+    );
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-approval',
+      expect.objectContaining({ type: 'approval_resolved', status: 'approved' })
+    );
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-approval', { type: 'message_done' });
+  });
+
+  it('should emit approval request from stream interrupt payload fallback', async () => {
+    const interruptPayload = {
+      actionRequests: [
+        {
+          name: 'edit_file',
+          args: { file_path: '/test.txt', old_string: 'a', new_string: 'b' },
+          description: 'Tool execution requires approval',
+        },
+      ],
+      reviewConfigs: [
+        {
+          actionName: 'edit_file',
+          allowedDecisions: ['approve', 'edit', 'reject'],
+        },
+      ],
+    };
+    const streamEvents = vi.fn()
+      .mockResolvedValueOnce({
+        messages: (async function* () {})(),
+        toolCalls: (async function* () {})(),
+        output: new Promise(() => {}),
+        interrupts: [{ interruptId: 'interrupt-1', payload: interruptPayload }],
+      })
+      .mockResolvedValueOnce({
+        messages: (async function* () {})(),
+        toolCalls: (async function* () {})(),
+        output: Promise.resolve({}),
+        interrupts: [],
+      });
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+      },
+      inputMessages: [{ role: 'user', content: '改文件' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-interrupt-payload', {
+      projectId: 'project-1',
+      sessionId: 'session-interrupt-payload',
+      message: {
+        id: 'message-interrupt-payload',
+        content: '改文件',
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith(
+        'llm:chunk-req-interrupt-payload',
+        expect.objectContaining({ type: 'approval_required' })
+      );
+    });
+    const approvalEvent = send.mock.calls.find(([, payload]) => payload.type === 'approval_required')?.[1];
+    expect(approvalEvent.approval.actions[0]).toEqual({
+      name: 'edit_file',
+      args: { file_path: '/test.txt', old_string: 'a', new_string: 'b' },
+      description: 'Tool execution requires approval',
+      allowedDecisions: ['approve', 'edit', 'reject'],
+    });
+
+    resolveLLMApproval('req-interrupt-payload', {
+      approvalId: approvalEvent.approval.id,
+      decisions: [{ type: 'approve' }],
+    });
+    await promise;
+
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-interrupt-payload',
+      expect.objectContaining({ type: 'approval_resolved', status: 'approved' })
+    );
+  });
+
+  it('should complete from lifecycle when output stays pending after streams finish', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              text: (async function* () {
+                yield '完成了';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          lifecycle: (async function* () {
+            yield { namespace: [], event: 'completed' };
+          })(),
+          output: new Promise(() => {}),
+          interrupts: [],
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '收尾' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-lifecycle-complete', {
+      projectId: 'project-1',
+      sessionId: 'session-lifecycle-complete',
+      message: {
+        id: 'message-lifecycle-complete',
+        content: '收尾',
+      },
+    });
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-lifecycle-complete', { type: 'message_chunk', text: '完成了' });
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-lifecycle-complete',
+      expect.objectContaining({ type: 'run_updated', status: 'completed' })
+    );
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-lifecycle-complete', { type: 'message_done' });
+  });
+
+  it('should abort a run while waiting for pending output', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              text: (async function* () {
+                yield '等待中';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: new Promise(() => {}),
+          interrupts: [],
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '停止测试' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-stop-output', {
+      projectId: 'project-1',
+      sessionId: 'session-stop-output',
+      message: {
+        id: 'message-stop-output',
+        content: '停止测试',
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith('llm:chunk-req-stop-output', { type: 'message_chunk', text: '等待中' });
+    });
+    stopLLMChat('req-stop-output');
+    await promise;
+
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-stop-output',
+      expect.objectContaining({ type: 'run_updated', status: 'aborted' })
+    );
+    expect(send).not.toHaveBeenCalledWith(
+      'llm:chunk-req-stop-output',
+      expect.objectContaining({ type: 'run_updated', status: 'completed' })
+    );
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-stop-output', { type: 'message_done' });
+  });
+
   it('should flush cached text when stream events expose reasoning but no text', async () => {
-    vi.useFakeTimers();
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
         streamEvents: vi.fn().mockResolvedValue({
@@ -204,7 +461,7 @@ describe('runLLMChat', () => {
             };
           })(),
           toolCalls: (async function* () {})(),
-          output: new Promise(() => {}),
+          output: Promise.resolve({}),
           interrupts: [],
         }),
       },
@@ -214,7 +471,7 @@ describe('runLLMChat', () => {
     });
 
     const send = vi.fn();
-    const promise = runLLMChat({ send } as any, 'req-cached-text', {
+    await runLLMChat({ send } as any, 'req-cached-text', {
       projectId: 'project-1',
       sessionId: 'session-cached-text',
       message: {
@@ -222,9 +479,6 @@ describe('runLLMChat', () => {
         content: '看一下目录',
       },
     });
-
-    await vi.advanceTimersByTimeAsync(RUN_OUTPUT_GRACE_MS);
-    await promise;
 
     expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '<think>' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-cached-text', { type: 'message_chunk', text: '已经读取目录。' });
@@ -293,7 +547,7 @@ describe('runLLMChat', () => {
             };
           })(),
           toolCalls: (async function* () {})(),
-          output: new Promise(() => {}),
+          output: Promise.resolve({}),
           interrupts: [],
         }),
       },
@@ -303,9 +557,8 @@ describe('runLLMChat', () => {
       cleanup: vi.fn(),
     });
 
-    vi.useFakeTimers();
     const send = vi.fn();
-    const promise = runLLMChat({ send } as any, 'req-model-reasoning', {
+    await runLLMChat({ send } as any, 'req-model-reasoning', {
       projectId: 'project-1',
       sessionId: 'session-model-reasoning',
       message: {
@@ -313,9 +566,6 @@ describe('runLLMChat', () => {
         content: 'ping',
       },
     });
-
-    await vi.advanceTimersByTimeAsync(RUN_OUTPUT_GRACE_MS);
-    await promise;
 
     expect(send).toHaveBeenCalledWith('llm:chunk-req-model-reasoning', { type: 'message_chunk', text: '<think>' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-model-reasoning', { type: 'message_chunk', text: '模型实例捕获的思考' });

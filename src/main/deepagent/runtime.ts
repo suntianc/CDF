@@ -12,6 +12,7 @@ import { resolveAgentSkillsConfig } from './skill-manager';
 import { createDeleteFileTool } from './file-tools';
 import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
 import { createBashTool } from './bash-tool';
+import { createFetchTool } from './fetch-tool';
 import type { MCPServer } from '../../shared/types';
 
 interface RuntimeAgentRow {
@@ -322,7 +323,7 @@ export async function createDeepAgentRuntime(
 
   const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
 
-  const builtInTools: any[] = [createDeleteFileTool(project.path), createBashTool()];
+  const builtInTools: any[] = [createDeleteFileTool(project.path), createBashTool(), createFetchTool()];
 
   function loadSearchProviderConfig(toolType: string): SearchProviderConfig | null {
     const row = db.prepare(

@@ -26,7 +26,6 @@ export interface ChatPayload {
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
-export const RUN_OUTPUT_GRACE_MS = 10000;
 
 function safeStringify(value: unknown): string | null {
   if (value === undefined) return null;
@@ -96,6 +95,57 @@ function getInterruptValue(output: any) {
   return output?.__interrupt__?.[0]?.value || output?.interrupts?.[0]?.value || null;
 }
 
+function getStreamInterruptValue(run: any) {
+  const interrupts = run?.interrupts;
+  if (!Array.isArray(interrupts) || interrupts.length === 0) {
+    return null;
+  }
+  const interrupt = interrupts[0];
+  return interrupt?.value || interrupt?.payload || null;
+}
+
+async function waitForRunTerminal(run: any, signal: AbortSignal): Promise<'completed' | 'interrupted' | 'failed' | null> {
+  const lifecycle = run?.lifecycle;
+  if (!lifecycle || typeof lifecycle[Symbol.asyncIterator] !== 'function') {
+    return null;
+  }
+  for await (const entry of lifecycle) {
+    if (signal.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if (Array.isArray(entry?.namespace) && entry.namespace.length > 0) {
+      continue;
+    }
+    if (entry?.event === 'completed' || entry?.event === 'interrupted' || entry?.event === 'failed') {
+      return entry.event;
+    }
+  }
+  return null;
+}
+
+function waitForAbort(signal: AbortSignal): Promise<never> {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+  return new Promise((_, reject) => {
+    signal.addEventListener('abort', () => {
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
+}
+
+async function waitForRunOutputOrTerminal(run: any, signal: AbortSignal): Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }> {
+  const outputPromise = Promise.resolve(run.output).then((output) => ({ output, terminal: null }));
+  const waits: Array<Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }>> = [
+    outputPromise,
+    waitForAbort(signal),
+  ];
+  if (run?.lifecycle && typeof run.lifecycle[Symbol.asyncIterator] === 'function') {
+    waits.push(waitForRunTerminal(run, signal).then((terminal) => ({ output: undefined, terminal })));
+  }
+  return Promise.race(waits);
+}
+
 function getLatestAssistantContent(output: any): string | null {
   if (!output) return null;
   
@@ -135,19 +185,6 @@ function getLatestAssistantContent(output: any): string | null {
     }
   }
   return null;
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{ resolved: true; value: T } | { resolved: false }> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<{ resolved: false }>((resolve) => {
-    timer = setTimeout(() => resolve({ resolved: false }), timeoutMs);
-  });
-  return Promise.race([
-    promise.then((value) => ({ resolved: true as const, value })),
-    timeout,
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
 }
 
 function toApprovalRequest(runId: string, interruptValue: any) {
@@ -370,18 +407,26 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
       await Promise.all([messageStreamPromise, toolStreamPromise]);
 
+      let interruptValue = getStreamInterruptValue(run);
       let output: any;
-      try {
-        const result = await withTimeout(run.output, RUN_OUTPUT_GRACE_MS);
-        output = result.resolved ? result.value : undefined;
-        console.log(`[LLM STREAM] withTimeout run.output 结果: resolved = ${result.resolved}, 是否有 value = ${!!result.value}`);
-        if (output) {
-          const assistantContent = getLatestAssistantContent(output);
-          console.log(`[LLM STREAM] 从 output 提取出的 latest assistantContent 长度 =`, assistantContent?.length ?? 0);
+      let terminal: 'completed' | 'interrupted' | 'failed' | null = null;
+      if (!interruptValue) {
+        try {
+          const result = await waitForRunOutputOrTerminal(run, controller.signal);
+          output = result.output;
+          terminal = result.terminal;
+          console.log(`[LLM STREAM] run.output 已返回，是否有 value = ${!!output}`);
+          if (output) {
+            const assistantContent = getLatestAssistantContent(output);
+            console.log(`[LLM STREAM] 从 output 提取出的 latest assistantContent 长度 =`, assistantContent?.length ?? 0);
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError' || controller.signal.aborted) {
+            throw err;
+          }
+          console.log(`[LLM STREAM] run.output 发生错误:`, err?.message);
+          output = undefined;
         }
-      } catch (err: any) {
-        console.log(`[LLM STREAM] withTimeout 发生错误:`, err?.message);
-        output = undefined;
       }
 
       if (accumulator.hasSentReasoning && !accumulator.hasSentReasoningClosed) {
@@ -418,19 +463,19 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       }
       accumulator.clearText();
 
-      let interruptValue = getInterruptValue(output);
+      interruptValue ||= getInterruptValue(output);
       if (!interruptValue) {
         try {
-          const interrupts = (run as any).interrupts;
-          if (interrupts && interrupts.length > 0) {
-            interruptValue = interrupts[0]?.value || null;
-          }
+          interruptValue = getStreamInterruptValue(run);
         } catch {
           // ignore optional interrupt fallback
         }
       }
 
       if (!interruptValue) {
+        if (terminal === 'failed') {
+          throw new Error('Agent run failed.');
+        }
         updateRun(runId, 'completed');
         sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
         break;
