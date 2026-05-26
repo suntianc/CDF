@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { PanelLeft, Search, Settings, MessageSquare, Trash2, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Clock, Bot } from 'lucide-react';
+import { PanelLeft, Search, Settings, MessageSquare, Trash2, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Clock, Bot, Wrench } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { useProjectStore } from '../../stores/projectStore';
@@ -9,10 +9,10 @@ import styles from './Sidebar.module.css';
 interface SidebarProps {
   collapsed: boolean;
   width: number;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins';
+  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools';
   onCollapse: () => void;
   onResize: (width: number) => void;
-  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins') => void;
+  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools') => void;
 }
 
 export function Sidebar({
@@ -171,6 +171,13 @@ export function Sidebar({
           >
             <LayoutGrid className="w-4 h-4" />
             Skills & MCP 管理
+          </div>
+          <div 
+            className={`${styles.settingsMenuItem} ${activeView === 'tools' ? styles.active : ''}`}
+            onClick={() => onChangeView('tools')}
+          >
+            <Wrench className="w-4 h-4" />
+            工具配置
           </div>
         </div>
       )}

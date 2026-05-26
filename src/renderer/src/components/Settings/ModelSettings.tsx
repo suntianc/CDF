@@ -368,7 +368,7 @@ export function ModelSettings() {
               <div className="provider-card-head">
                 <div className="provider-meta">
                   <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0">
-                    <ProviderIcon provider={mapProviderTypeToIcon(p.provider_type)} size={32} />
+                    <ProviderIcon provider={mapProviderTypeToIcon(p.provider_type)} size={32} shape="square" />
                   </div>
                   <div>
                     <div className="provider-name flex items-center gap-2">

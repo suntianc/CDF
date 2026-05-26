@@ -130,11 +130,11 @@ export function AgentLibrary() {
               <div key={agent.id} className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all group">
                 <div>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-lg bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0 group-hover:scale-105 transition-transform">
                       {provider ? (
-                        <ProviderIcon provider={mapProviderTypeToIcon(provider.provider_type)} size={28} />
+                        <ProviderIcon provider={mapProviderTypeToIcon(provider.provider_type)} size={32} shape="square" />
                       ) : (
-                        <Bot className="w-5 h-5 text-[var(--color-accent)]" />
+                        <Bot className="w-6 h-6 text-[var(--color-accent)]" />
                       )}
                     </div>
                     <div className="truncate">

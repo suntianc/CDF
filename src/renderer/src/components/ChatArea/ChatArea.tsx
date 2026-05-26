@@ -341,8 +341,16 @@ const formatDuration = (seconds: number): string => {
   return remainingMinutes > 0 ? `${hours} 小时 ${remainingMinutes} 分` : `${hours} 小时`;
 };
 
+const checkThinkingFinished = (content: string): boolean => {
+  if (!content) return true;
+  const lastThink = content.lastIndexOf('<think>');
+  if (lastThink === -1) return true;
+  const lastThinkEnd = content.lastIndexOf('</think>');
+  return lastThinkEnd > lastThink;
+};
+
 const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLast: boolean; isStreaming: boolean }) => {
-  const isFinished = useMemo(() => message.content.includes('</think>'), [message.content]);
+  const isFinished = useMemo(() => checkThinkingFinished(message.content), [message.content]);
   
   // 刚刚生成的消息（2分钟以内创建），在流式或刚结束时默认保持展开，防止意外重装折叠
   const isRecent = useMemo(() => {
@@ -474,24 +482,37 @@ const MessageItem = memo(({ message, isLast, isStreaming }: { message: any; isLa
       }
     }
 
-    let thinkContent = '';
-    let mainContent = cleanContent;
-    const thinkStartIdx = cleanContent.indexOf('<think>');
+    let thinkParts: string[] = [];
+    let mainContent = '';
+    let remaining = cleanContent;
+    let isThinkingFinished = true;
 
-    if (thinkStartIdx !== -1) {
-      const thinkEndIdx = cleanContent.indexOf('</think>');
-      if (thinkEndIdx !== -1) {
-        thinkContent = cleanContent.substring(thinkStartIdx + 7, thinkEndIdx).trim();
-        mainContent = (cleanContent.substring(0, thinkStartIdx) + cleanContent.substring(thinkEndIdx + 8)).trim();
+    while (true) {
+      const startIdx = remaining.indexOf('<think>');
+      if (startIdx === -1) {
+        mainContent += remaining;
+        break;
+      }
+      mainContent += remaining.substring(0, startIdx);
+      
+      const endIdx = remaining.indexOf('</think>', startIdx);
+      if (endIdx !== -1) {
+        thinkParts.push(remaining.substring(startIdx + 7, endIdx));
+        remaining = remaining.substring(endIdx + 8);
       } else {
-        thinkContent = cleanContent.substring(thinkStartIdx + 7).trim();
-        mainContent = cleanContent.substring(0, thinkStartIdx).trim();
+        thinkParts.push(remaining.substring(startIdx + 7));
+        isThinkingFinished = false;
+        remaining = '';
+        break;
       }
     }
 
+    const thinkContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
+    mainContent = mainContent.trim();
+
     const renderThink = () => {
       if (!thinkContent) return null;
-      const finished = content.includes('</think>');
+      const finished = isThinkingFinished;
 
       const getThinkingTime = () => {
         if (!finished) {
@@ -613,6 +634,9 @@ export function ChatArea({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
+  const isComposingRef = useRef(false);
+  const justFinishedComposingRef = useRef(false);
+  const compositionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleScroll = () => {
     const container = scrollContainerRef.current;
@@ -630,6 +654,14 @@ export function ChatArea({
   useEffect(() => {
     fetchProviders();
   }, [fetchProviders]);
+
+  useEffect(() => {
+    return () => {
+      if (compositionEndTimerRef.current) {
+        clearTimeout(compositionEndTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentProjectId) return;
@@ -843,9 +875,48 @@ export function ChatArea({
     });
   };
 
+  const handleCompositionStart = () => {
+    if (compositionEndTimerRef.current) {
+      clearTimeout(compositionEndTimerRef.current);
+      compositionEndTimerRef.current = null;
+    }
+    isComposingRef.current = true;
+    justFinishedComposingRef.current = false;
+  };
+
+  const handleCompositionEnd = () => {
+    isComposingRef.current = false;
+    justFinishedComposingRef.current = true;
+    if (compositionEndTimerRef.current) {
+      clearTimeout(compositionEndTimerRef.current);
+    }
+    compositionEndTimerRef.current = setTimeout(() => {
+      justFinishedComposingRef.current = false;
+      compositionEndTimerRef.current = null;
+    }, 200);
+  };
+
+  const consumeJustFinishedComposing = () => {
+    justFinishedComposingRef.current = false;
+    if (compositionEndTimerRef.current) {
+      clearTimeout(compositionEndTimerRef.current);
+      compositionEndTimerRef.current = null;
+    }
+  };
+
+  const isComposingKeyEvent = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number; which?: number };
+    return isComposingRef.current || e.isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229 || nativeEvent.which === 229;
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.isComposing) return; // 拦截输入法确认时的回车事件
+    if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (justFinishedComposingRef.current) {
+        consumeJustFinishedComposing();
+        e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
+        return;
+      }
       if (isStreaming) {
         // 如果正在生成回复，回车只执行普通换行，不阻止默认行为也不发送
         return;
@@ -947,9 +1018,16 @@ export function ChatArea({
               rows={1}
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
               onKeyDown={(e) => {
-                if (e.isComposing) return; // 拦截输入法确认时的回车事件
+                if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
                 if (e.key === 'Enter' && !e.shiftKey) {
+                  if (justFinishedComposingRef.current) {
+                    consumeJustFinishedComposing();
+                    e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
+                    return;
+                  }
                   e.preventDefault();
                   handleWelcomeSend();
                 }
@@ -1147,11 +1225,13 @@ export function ChatArea({
 
         {/* Input Composer Panel */}
         <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/95 to-transparent z-10 pointer-events-none">
-          <form onSubmit={handleSend} className="max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg pointer-events-auto">
+          <form onSubmit={(e) => e.preventDefault()} className="max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg pointer-events-auto">
             {/* Upper: Text Input Area */}
             <textarea
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
               onKeyDown={handleKeyDown}
               placeholder="给 Master Agent 发送消息..."
               rows={2}
@@ -1223,7 +1303,8 @@ export function ChatArea({
                   </button>
                 ) : (
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={() => handleSend()}
                     disabled={!inputVal.trim() || isStreaming}
                     className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
                     aria-label="发送消息"

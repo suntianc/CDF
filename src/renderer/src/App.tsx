@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { ModelSettings } from './components/Settings/ModelSettings';
+import { ToolSettings } from './components/Settings/ToolSettings';
 import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { useThemeStore } from './stores/themeStore';
@@ -13,7 +14,7 @@ import { PanelLeft } from 'lucide-react';
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'agents' | 'plugins'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'agents' | 'plugins' | 'tools'>('chat');
   const { setTheme } = useThemeStore();
   const { taskPanelOpen, setTaskPanelOpen } = useProjectStore();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
@@ -54,6 +55,7 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <div key={activeView} className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up">
           {activeView === 'settings' && <ModelSettings />}
+          {activeView === 'tools' && <ToolSettings />}
           {activeView === 'agents' && <AgentLibrary />}
           {activeView === 'plugins' && <PluginsPanel />}
           {activeView === 'chat' && (
