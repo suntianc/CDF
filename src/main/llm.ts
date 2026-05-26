@@ -450,7 +450,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
               try {
                 const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
-                const parsed = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(rawOutput));
+                let parsed = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(rawOutput));
                 if (parsed.success) {
                   parsedResult = parsed.data;
                   if (parsedResult.status === 'failure') {
@@ -458,14 +458,55 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                     errorCode = parsedResult.error?.code;
                   }
                 } else {
-                  status = 'failure';
-                  errorCode = 'PARSE_FAILED';
-                  parsedResult = {
-                    status: 'failure',
-                    artifacts: [],
-                    summary: '',
-                    error: { code: 'PARSE_FAILED', message: `无法解析子Agent返回: ${rawOutput.slice(0, 200)}` },
-                  };
+                  // Fallback: try to extract content from LangChain Command object
+                  // Command format: {"lg_name":"Command","update":{"messages":[ToolMessage]}}
+                  const cmd = JSON.parse(rawOutput);
+                  if (cmd?.lg_name === 'Command' && cmd?.update?.messages?.length > 0) {
+                    const toolMsg = cmd.update.messages[cmd.update.messages.length - 1];
+                    const content = typeof toolMsg === 'object' ? toolMsg.kwargs?.content : toolMsg;
+                    if (typeof content === 'string') {
+                      try {
+                        const innerParsed = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(content));
+                        if (innerParsed.success) {
+                          parsedResult = innerParsed.data;
+                          if (parsedResult.status === 'failure') {
+                            status = 'failure';
+                            errorCode = parsedResult.error?.code;
+                          }
+                        } else {
+                          // Content is not JSON - treat as plain text result
+                          parsedResult = {
+                            status: 'success' as const,
+                            artifacts: [],
+                            summary: content.slice(0, 500),
+                          };
+                        }
+                      } catch {
+                        // Content parse failed - treat as plain text
+                        parsedResult = {
+                          status: 'success' as const,
+                          artifacts: [],
+                          summary: typeof content === 'string' ? content.slice(0, 500) : String(content).slice(0, 500),
+                        };
+                      }
+                    } else {
+                      // No content found
+                      parsedResult = {
+                        status: 'success' as const,
+                        artifacts: [],
+                        summary: '任务执行完成',
+                      };
+                    }
+                  } else {
+                    status = 'failure';
+                    errorCode = 'PARSE_FAILED';
+                    parsedResult = {
+                      status: 'failure',
+                      artifacts: [],
+                      summary: '',
+                      error: { code: 'PARSE_FAILED', message: `无法解析子Agent返回: ${rawOutput.slice(0, 200)}` },
+                    };
+                  }
                 }
               } catch (err: any) {
                 status = 'failure';
