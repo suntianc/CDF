@@ -10,8 +10,14 @@ interface McpCacheEntry {
   configHash: string;
 }
 
-// 按 agentId 缓存 MCP 长连接，配置不变时复用
+// 按 agentId 缓存 MCP 长连接，配置不变时复用（Agent 运行时用）
 const mcpCache = new Map<string, McpCacheEntry>();
+
+// 按 serverId 缓存 MCP 长连接，供健康检查复用
+const serverClients = new Map<string, { client: MultiServerMCPClient; lastUsed: number }>();
+
+// 连接过期时间：5分钟
+const CONNECTION_TTL = 5 * 60 * 1000;
 
 function hashServers(servers: MCPServer[]): string {
   return JSON.stringify(
@@ -55,6 +61,71 @@ export function createMcpClient(servers: MCPServer[]): MultiServerMCPClient {
     useStandardContentBlocks: true,
     onConnectionError: 'ignore',
   });
+}
+
+/**
+ * 按 serverId 获取或创建 MCP 客户端（健康检查复用）
+ */
+export async function getOrCreateServerClient(server: MCPServer): Promise<MultiServerMCPClient> {
+  const cached = serverClients.get(server.id);
+  if (cached && Date.now() - cached.lastUsed < CONNECTION_TTL) {
+    return cached.client;
+  }
+
+  // 关闭旧连接（如果存在）
+  if (cached?.client) {
+    await cached.client.close().catch(() => {});
+  }
+
+  const client = createMcpClient([server]);
+  serverClients.set(server.id, { client, lastUsed: Date.now() });
+  return client;
+}
+
+/**
+ * 健康检查：复用连接，失败时清理缓存
+ */
+export async function checkMcpServerHealth(
+  server: MCPServer
+): Promise<{ ok: boolean; tools: number; message: string }> {
+  try {
+    const client = await getOrCreateServerClient(server);
+    // 更新最后使用时间
+    const entry = serverClients.get(server.id);
+    if (entry) entry.lastUsed = Date.now();
+
+    const tools = await client.getTools();
+    return { ok: true, tools: tools.length, message: `检测到 ${tools.length} 个工具` };
+  } catch (err: any) {
+    // 连接失效，清理缓存，下次会重建
+    const cached = serverClients.get(server.id);
+    if (cached?.client) {
+      await cached.client.close().catch(() => {});
+    }
+    serverClients.delete(server.id);
+    return { ok: false, tools: 0, message: err.message || '连接失败' };
+  }
+}
+
+/**
+ * 断开指定 MCP 服务器连接（供 UI 调用）
+ */
+export async function disconnectMcpServer(serverId: string): Promise<void> {
+  const cached = serverClients.get(serverId);
+  if (cached?.client) {
+    await cached.client.close().catch(() => {});
+  }
+  serverClients.delete(serverId);
+}
+
+/**
+ * 断开所有 MCP 服务器连接（应用退出时调用）
+ */
+export async function disconnectAllMcpServers(): Promise<void> {
+  for (const [serverId, cached] of serverClients) {
+    await cached.client.close().catch(() => {});
+  }
+  serverClients.clear();
 }
 
 export async function loadMcpTools(

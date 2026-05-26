@@ -17,7 +17,8 @@ import {
   savePhysicalSkill,
   deletePhysicalSkill,
 } from './deepagent/skill-manager';
-import { createMcpClient } from './deepagent/mcp-connector';
+import { checkMcpServerHealth, disconnectMcpServer, disconnectAllMcpServers } from './deepagent/mcp-connector';
+import { MCPServer } from '../shared/types';
 
 const getProviderLabel = (type: string): string => {
   switch (type) {
@@ -601,22 +602,16 @@ export function registerIpcHandlers() {
       return { ok: false, message: 'MCP server not found' };
     }
 
-    try {
-      const client = createMcpClient([
-        {
-          ...server,
-          config: server.config ? JSON.parse(server.config) : {},
-          is_connected: !!server.is_connected,
-        },
-      ]);
-      const tools = await client.getTools();
-      await client.close();
-      db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 1 WHERE id = ?').run(Date.now(), id);
-      return { ok: true, message: `检测到 ${tools.length} 个工具` };
-    } catch (err: any) {
-      db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = 0 WHERE id = ?').run(Date.now(), id);
-      return { ok: false, message: err.message || 'Connection failed' };
-    }
+    const mcpServer: MCPServer = {
+      ...server,
+      config: server.config ? JSON.parse(server.config) : {},
+      is_connected: !!server.is_connected,
+    };
+
+    const result = await checkMcpServerHealth(mcpServer);
+    db.prepare('UPDATE mcp_servers SET last_health_check = ?, is_connected = ? WHERE id = ?')
+      .run(Date.now(), result.ok ? 1 : 0, id);
+    return result;
   });
 
   // ===== Phase 3 & Phase 4: deepagents Runtime IPC Handlers =====

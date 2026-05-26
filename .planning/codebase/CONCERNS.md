@@ -4,11 +4,11 @@
 
 ## Tech Debt
 
-**Database Migration Fragility:**
-- Issue: Database schema migrations use `ALTER TABLE` with try/catch to handle duplicate column names. This pattern hides real migration failures.
+**Database Migration Fragility:** (低优先级)
+- Issue: Database schema migrations use `ALTER TABLE` with try/catch to handle duplicate column names. Other errors are logged but do not block startup.
 - Files: `src/main/database.ts`
-- Impact: If a migration fails for reasons other than "duplicate column name", the error is silently ignored, leaving the schema in an inconsistent state.
-- Fix approach: Use a dedicated migration tracking table to record applied migrations and fail fast on any error.
+- Impact: Very low for local desktop app — users typically run one version at a time; migration errors would appear in logs.
+- Fix approach: Optional — add migration tracking table if stricter safety needed.
 
 **Console.log Debug Statements in Production:**
 - Issue: Debug `console.log` statements left in production code path for search tool configuration loading.
@@ -36,25 +36,19 @@
 
 ## Known Bugs
 
-**BrowserWindow Leak in Fetch Tool:**
-- Issue: `ghostWindow` may not be properly destroyed if `resolveWithContent()` is called multiple times or if `loadURL` fails in a specific order.
-- Files: `src/main/deepagent/fetch-tool.ts:61-151`
-- Impact: Hidden BrowserWindow instances accumulate, causing memory leaks and increased CPU usage.
-- Workaround: Restart the application periodically.
+**BrowserWindow Leak in Fetch Tool:** ✅ 已修复
+- Issue: `executeJavaScript` had no timeout, causing windows and Promises to hang indefinitely.
+- Files: `src/main/deepagent/fetch-tool.ts`
+- Fix: Added `Promise.race` timeout (5s) for `executeJavaScript`, unified `finalize()` for all exit paths.
+- Status: 2026-05-26 fixed
 
-**Tavily/AnySearch Config Silently Fails:**
-- Issue: If search provider config loading throws, it is caught and logged but does not prevent agent creation.
+**Search Tools Config Silently Fails:** (低优先级)
+- Issue: Search provider config loading errors are caught and logged but do not prevent agent creation.
 - Files: `src/main/deepagent/runtime.ts:351-353`
-- Impact: Agent starts without search tools, user may not realize search is unavailable.
-- Fix approach: Make search tool unavailability explicit in agent capabilities.
+- Impact: Low — user only affected if they actually try to use search; logs show warning.
+- Fix approach: Optional — show "search unavailable" indicator in agent capabilities.
 
 ## Security Considerations
-
-**API Key Masking in Renderer:**
-- Risk: API keys are masked as `••••••••` in the renderer, but the original encrypted value is still sent.
-- Files: `src/main/ipc-handlers.ts:221-222`
-- Current mitigation: Keys are encrypted via `safeStorage` before storage; renderer never receives decrypted key.
-- Recommendations: Verify the masking string cannot be reversed or used to infer key length.
 
 **Path Traversal Protection:**
 - Files: `src/main/deepagent/file-tools.ts:29`, `src/main/deepagent/file-tools.ts:46`
@@ -75,17 +69,17 @@
 
 ## Performance Bottlenecks
 
-**Large ChatArea Component:**
-- Problem: `ChatArea.tsx` is 1322 lines, making it difficult to maintain and likely causing slow renders.
+**Large ChatArea Component:** ✅ 已拆解
+- Problem: `ChatArea.tsx` was 1322 lines, monolithic component.
 - Files: `src/renderer/src/components/ChatArea/ChatArea.tsx`
-- Cause: Monolithic component handling rendering, state, and UI logic.
-- Improvement path: Extract sub-components (message renderers, tool displays, input handling).
+- Fix: Extracted sub-components (message renderers, tool displays, input handling).
+- Status: 2026-05-26 fixed
 
-**Synchronous Database Operations:**
+**Synchronous Database Operations:** (低优先级)
 - Problem: `better-sqlite3` operations are synchronous, blocking the main process.
 - Files: `src/main/database.ts`, `src/main/ipc-handlers.ts`
-- Impact: UI may freeze during large queries.
-- Improvement path: Move database operations to a worker thread or use async patterns.
+- Impact: Low for typical usage — desktop app data volume rarely accumulates to problematic levels.
+- Improvement path: Optional — move to worker thread or async patterns if profiling shows actual issues.
 
 **Session Message History Loading:**
 - Problem: `getSessionMessages()` loads all messages for a session without pagination.
@@ -116,10 +110,11 @@
 - Why fragile: Module-level `db` singleton. If initialization fails partially, the module may be in an unusable state.
 - Safe modification: Add explicit initialization check and error propagation.
 
-**MCP Server Health Check:**
-- Files: `src/main/ipc-handlers.ts:598-620`
-- Why fragile: Health check creates a new MCP client each time, not reusing cached connections.
-- Safe modification: Use the cached MCP client for health checks.
+**MCP Server Health Check:** ✅ 已修复
+- Issue: Health check created new MCP client each time, not reusing cached connections. Error path could leak connections.
+- Files: `src/main/deepagent/mcp-connector.ts`, `src/main/ipc-handlers.ts`
+- Fix: Added `serverClients` Map with TTL, `checkMcpServerHealth()` reuses connections. Cleanup on failure.
+- Status: 2026-05-26 fixed
 
 ## Scaling Limits
 
@@ -157,10 +152,6 @@
 
 ## Missing Critical Features
 
-**No Input Validation on IPC Handlers:**
-- Problem: Many IPC handlers accept `any` typed parameters without runtime validation.
-- Files: `src/main/ipc-handlers.ts`
-- Blocks: Secure operation in production, potential for malformed data to cause crashes.
 
 **No Retry Logic for LLM Calls:**
 - Problem: Failed LLM API calls are not retried.

@@ -54,19 +54,27 @@ interface FetchInput {
   timeout?: number;
 }
 
+const EXECUTE_JAVASCRIPT_TIMEOUT = 5000;
+
 async function fetchPageAsMarkdown(url: string, timeout: number = 12000): Promise<string> {
   return new Promise((resolve, reject) => {
     const sess = getFetchSession();
 
-    const ghostWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        session: sess || undefined,
-        images: false,
-        webSecurity: true,
-        javascript: true,
-      },
-    });
+    let ghostWindow: BrowserWindow | null = null;
+    try {
+      ghostWindow = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          session: sess || undefined,
+          images: false,
+          webSecurity: true,
+          javascript: true,
+        },
+      });
+    } catch (e) {
+      reject(new Error(`创建窗口失败: ${e instanceof Error ? e.message : String(e)}`));
+      return;
+    }
 
     if (sess) {
       registerRequestFilter(sess);
@@ -82,28 +90,48 @@ async function fetchPageAsMarkdown(url: string, timeout: number = 12000): Promis
         clearTimeout(timer);
         timer = null;
       }
-      if (!ghostWindow.isDestroyed()) {
+      if (ghostWindow && !ghostWindow.isDestroyed()) {
         ghostWindow.webContents.removeAllListeners();
         ghostWindow.destroy();
       }
+      ghostWindow = null;
     }
 
-    async function resolveWithContent() {
+    const finalize = (result: string | Error, isSuccess: boolean) => {
       if (isFinished) return;
       isFinished = true;
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (isSuccess) {
+        resolve(result as string);
+      } else {
+        reject(result);
+      }
+      cleanup();
+    };
+
+    async function resolveWithContent() {
+      if (isFinished || !ghostWindow) return;
 
       try {
-        const html = await ghostWindow.webContents.executeJavaScript(
-          'document.documentElement.outerHTML'
-        );
+        // 关键修复：为 executeJavaScript 增加超时控制，防止窗口永久挂起
+        const html = await Promise.race([
+          ghostWindow.webContents.executeJavaScript(
+            'document.documentElement.outerHTML'
+          ),
+          new Promise<string>((_, rej) =>
+            setTimeout(() => rej(new Error('executeJavaScript timeout')), EXECUTE_JAVASCRIPT_TIMEOUT)
+          ),
+        ]);
 
-        const doc = new JSDOM(html, { url });
+        const doc = new JSDOM(html as string, { url });
         const reader = new Readability(doc.window.document);
         const article = reader.parse();
 
         if (!article || !article.content) {
-          resolve('⚠️ 抓取成功，但未能从该页面提取到有效的高价值核心正文。');
+          finalize('⚠️ 抓取成功，但未能从该页面提取到有效的高价值核心正文。', true);
           return;
         }
 
@@ -111,11 +139,12 @@ async function fetchPageAsMarkdown(url: string, timeout: number = 12000): Promis
         const title = article.title || '无标题';
         const result = `# ${title}\n\n${markdown}`;
 
-        resolve(result);
+        finalize(result, true);
       } catch (error) {
-        reject(new Error(`解析网页文本失败: ${error instanceof Error ? error.message : String(error)}`));
-      } finally {
-        cleanup();
+        finalize(
+          new Error(`解析网页文本失败: ${error instanceof Error ? error.message : String(error)}`),
+          false
+        );
       }
     }
 
@@ -130,22 +159,16 @@ async function fetchPageAsMarkdown(url: string, timeout: number = 12000): Promis
       resolveWithContent();
     });
 
-    ghostWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    ghostWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
       if (errorCode === -3) return;
       if (!isFinished) {
-        isFinished = true;
-        if (timer) clearTimeout(timer);
-        reject(new Error(`网络请求失败: ${errorDescription} (错误码: ${errorCode})`));
-        cleanup();
+        finalize(new Error(`网络请求失败: ${errorDescription} (错误码: ${errorCode})`), false);
       }
     });
 
     ghostWindow.loadURL(url).catch((err) => {
       if (!isFinished) {
-        isFinished = true;
-        if (timer) clearTimeout(timer);
-        reject(new Error(`无法初始化 URL 加载: ${err?.message || err}`));
-        cleanup();
+        finalize(new Error(`无法初始化 URL 加载: ${err?.message || err}`), false);
       }
     });
   });
