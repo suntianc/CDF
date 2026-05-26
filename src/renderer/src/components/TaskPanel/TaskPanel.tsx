@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
-import { useSessionStore } from '../../stores/sessionStore';
+import { useSessionStore, type DelegatedTask } from '../../stores/sessionStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
 
 interface TaskPanelProps {
@@ -30,6 +30,17 @@ function RunStatusIcon({ status }: { status?: AgentRunStatus }) {
       return <ShieldAlert className="w-4 h-4 text-[var(--color-warning)]" />;
     default:
       return <Loader className="w-4 h-4 animate-spin text-[var(--color-accent)]" />;
+  }
+}
+
+function DelegatedTaskStatusIcon({ status }: { status: 'running' | 'success' | 'failure' }) {
+  switch (status) {
+    case 'running':
+      return <Loader className="w-4 h-4 animate-spin text-[var(--color-accent)]" />;
+    case 'success':
+      return <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />;
+    case 'failure':
+      return <XCircle className="w-4 h-4 text-[var(--color-danger)]" />;
   }
 }
 
@@ -86,6 +97,7 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
     activeRunId,
     agentRuns,
     agentToolCalls,
+    delegatedTasks,
     pendingApproval,
     fetchAgentActivity,
     resolveApproval,
@@ -270,6 +282,48 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
 
         {activeRun && toolSummary.total === 0 && !pendingApproval && (
           <div className="text-xs text-[var(--color-text-muted)]">本轮暂无需要关注的工具活动。</div>
+        )}
+
+        {delegatedTasks.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-xs font-semibold text-[var(--color-text-primary)]">委派任务</div>
+            {delegatedTasks.map((task) => (
+              <div
+                key={task.taskId}
+                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2"
+              >
+                <div className="flex items-center gap-2">
+                  <DelegatedTaskStatusIcon status={task.status} />
+                  <div className="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                    {task.agentName}
+                  </div>
+                  <div className="text-[10px] text-[var(--color-text-muted)] font-mono">
+                    {task.agentSlug}
+                  </div>
+                </div>
+                {task.goal && (
+                  <div className="text-[11px] text-[var(--color-text-muted)] line-clamp-2">
+                    {task.goal}
+                  </div>
+                )}
+                {task.status === 'failure' && task.errorCode && (
+                  <div className="text-xs text-[var(--color-danger)]">
+                    任务执行失败: {task.errorCode}
+                    {task.result?.error?.message && ` - ${task.result.error.message}`}
+                  </div>
+                )}
+                {task.status === 'success' && task.result?.summary && (
+                  <div className="text-[11px] text-[var(--color-text-muted)] line-clamp-2">
+                    {task.result.summary}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {delegatedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
+          <div className="text-xs text-[var(--color-text-muted)]">暂无委派子任务</div>
         )}
       </div>
     </aside>
