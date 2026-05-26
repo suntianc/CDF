@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { z } from 'zod';
 import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
@@ -13,12 +14,15 @@ import { createDeleteFileTool } from './file-tools';
 import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
 import { createBashTool } from './bash-tool';
 import { createFetchTool } from './fetch-tool';
-import type { MCPServer } from '../../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer } from '../../shared/types';
+// Re-export for DelegatedTaskResultSchema consumers (types.ts)
+export { DELEGATED_TASK_RESULT_SCHEMA };
 
 interface RuntimeAgentRow {
   id: string;
   project_id: string;
   name: string;
+  slug?: string | null;  // D-03: task(name) stable key
   description?: string | null;
   provider_id?: string | null;
   system_prompt?: string | null;
@@ -212,7 +216,7 @@ function getProvider(providerId: string | null | undefined) {
 function registerCdfHarnessProfile(providerType: string, modelName: string): void {
   const profile = {
     generalPurposeSubagent: { enabled: false },
-    excludedTools: ['task'],
+    excludedTools: [],  // D-15: task tool enabled for subagent delegation
   };
 
   const registerSafely = (key: string | null | undefined) => {
@@ -288,7 +292,15 @@ function getAgentMcpServers(agentId: string): MCPServer[] {
 }
 
 function buildProjectContext(project: RuntimeProjectRow): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n文件工具中的项目根目录已经挂载为虚拟路径 \`/\`。\n使用 ls、read_file、write_file、edit_file、glob、grep、delete_file 时，路径必须基于这个虚拟根目录，例如 \`/src/main.ts\` 或 \`/README.md\`。\n不要在文件工具参数中包含宿主机真实路径、用户主目录路径或项目目录前缀。\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复“我先看看/我再确认/继续搜索”就结束。如果路径不对，先用 \`ls\` 读取 \`/\` 或用 \`glob\` 搜索候选文件来自行恢复。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n文件工具中的项目根目录已经挂载为虚拟路径 \`/\`。\n使用 ls、read_file、write_file、edit_file、glob、grep、delete_file 时，路径必须基于这个虚拟根目录，例如 \`/src/main.ts\` 或 \`/README.md\`。\n不要在文件工具参数中包含宿主机真实路径、用户主目录路径或项目目录前缀。\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。如果路径不对，先用 \`ls\` 读取 \`/\` 或用 \`glob\` 搜索候选文件来自行恢复。`;
+}
+
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
 }
 
 export async function createDeepAgentRuntime(
@@ -296,7 +308,8 @@ export async function createDeepAgentRuntime(
   sessionId: string,
   currentMessage: RuntimeInputMessage,
   agentId?: string | null,
-  overrides?: RuntimeModelOverrides
+  overrides?: RuntimeModelOverrides,
+  subagentIds?: string[]  // D-17: agent IDs to configure as subagents
 ) {
   const project = getProject(projectId);
   const agentRow = getRuntimeAgent(projectId, agentId);
@@ -352,6 +365,39 @@ export async function createDeepAgentRuntime(
     console.warn('[RUNTIME] Failed to load built-in search tools config:', err);
   }
 
+  // D-06/D-07/D-17: Build subagents list from subagentIds
+  const subagents: Array<{
+    name: string;
+    description?: string;
+    systemPrompt: string;
+    tools: any[];
+    model?: string;
+    responseFormat: z.ZodType;
+  }> = [];
+
+  if (subagentIds && subagentIds.length > 0) {
+    for (const subId of subagentIds) {
+      const agentRow = db.prepare('SELECT * FROM agents WHERE id = ?').get(subId) as RuntimeAgentRow | undefined;
+      if (!agentRow) continue;
+
+      // D-03: slug is the stable key for task(name)
+      const agentSlug = agentRow.slug || generateSlug(agentRow.name);
+
+      const subMcpServers = getAgentMcpServers(agentRow.id);
+      const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
+      const { skillsSources: subSkillsSources, permissions: subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+
+      subagents.push({
+        name: agentSlug,  // D-03: slug as stable key
+        description: agentRow.description || '',
+        systemPrompt: (agentRow.system_prompt || '') + `\n\n你必须返回符合以下 JSON Schema 的结果，不要返回 JSON 以外的任何内容：${JSON.stringify({ type: 'object', properties: { status: { type: 'string', enum: ['success', 'failure'] }, artifacts: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' }, error: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } } }, required: ['status', 'artifacts', 'summary'] })}`,
+        tools: [...subMcpRuntime.tools],
+        model: agentRow.provider_id ? (db.prepare('SELECT default_model FROM llm_providers WHERE id = ?').get(agentRow.provider_id) as { default_model: string } | undefined)?.default_model : undefined,
+        responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
+      });
+    }
+  }
+
   const deepAgent = createDeepAgent({
     model,
     backend,
@@ -359,6 +405,7 @@ export async function createDeepAgentRuntime(
     skills: skillsSources,
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools],
+    subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     interruptOn: DEFAULT_INTERRUPT_ON,
     checkpointer,
     memory: memory.length ? memory : undefined,

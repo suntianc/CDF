@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { DELEGATED_TASK_RESULT_SCHEMA } from '../../shared/types';
 
 const {
   createDeepAgentMock,
@@ -166,7 +167,7 @@ describe('createDeepAgentRuntime', () => {
     });
     expect(registerHarnessProfileMock).toHaveBeenCalledWith('llama3', expect.objectContaining({
       generalPurposeSubagent: { enabled: false },
-      excludedTools: ['task'],
+      excludedTools: [],  // D-15: task tool enabled
     }));
     expect(params.systemPrompt).toContain('虚拟路径 `/`');
     expect(params.systemPrompt).toContain('/src/main.ts');
@@ -221,5 +222,99 @@ describe('createDeepAgentRuntime', () => {
     expect(createDeepAgentMock).toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+
+  it('should pass subagents to createDeepAgent when subagentIds provided', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('FROM agents WHERE id')) {
+          if (arg === 'agent-2') return { ...agent2, slug: 'code-agent' };
+          if (arg === 'agent-1') return agent;
+          return undefined;
+        }
+        if (sql.includes('FROM llm_providers')) {
+          if (arg === 'provider-1') return provider;
+          if (arg === 'provider-2') return provider2;
+          return undefined;
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
+        if (sql.includes('FROM agent_skills')) return [];
+        if (sql.includes('FROM messages')) return [];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.subagents).toBeDefined();
+    expect(Array.isArray(params.subagents)).toBe(true);
+    expect(params.subagents.length).toBeGreaterThan(0);
+    expect(params.subagents[0].name).toBe('code-agent');  // D-03: slug as stable key
+    expect(params.subagents[0].responseFormat).toBe(DELEGATED_TASK_RESULT_SCHEMA);  // D-10
+  });
+
+  it('should have task tool enabled when subagentIds provided (excludedTools: [])', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    expect(registerHarnessProfileMock).toHaveBeenCalledWith(
+      'llama3',
+      expect.objectContaining({
+        excludedTools: [],  // D-15: task tool enabled
+        generalPurposeSubagent: { enabled: false },  // D-05
+      })
+    );
+  });
+
+  it('should not pass subagents when subagentIds is empty', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, []);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.subagents).toBeUndefined();
+  });
+
+  it('should not pass subagents when subagentIds is undefined', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.subagents).toBeUndefined();
+  });
+
+  it('should use generated slug when agent.slug is null', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('FROM agents WHERE id')) {
+          if (arg === 'agent-2') return { ...agent2, slug: null, name: 'Code Agent' };  // slug is null
+          if (arg === 'agent-1') return agent;
+          return undefined;
+        }
+        if (sql.includes('FROM llm_providers')) {
+          if (arg === 'provider-1') return provider;
+          if (arg === 'provider-2') return provider2;
+          return undefined;
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
+        if (sql.includes('FROM agent_skills')) return [];
+        if (sql.includes('FROM messages')) return [];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.subagents[0].name).toBe('code-agent');  // generated from 'Code Agent'
   });
 });

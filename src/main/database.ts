@@ -125,6 +125,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    slug TEXT,
     description TEXT,
     provider_id TEXT,
     system_prompt TEXT,
@@ -211,6 +212,33 @@ try {
   db.prepare(`UPDATE agents SET project_id = ? WHERE project_id IS NULL OR project_id = ''`).run('default-project');
 } catch (error) {
   console.error('Failed to backfill agents.project_id:', error);
+}
+
+// D-03: Add slug column for stable task(name) key
+try {
+  db.exec(`ALTER TABLE agents ADD COLUMN slug TEXT`);
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Failed to migrate agents table (slug):', error);
+  }
+}
+
+// D-03: Backfill existing agents' slug from name
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+try {
+  const agentsWithoutSlug = db.prepare('SELECT id, name FROM agents WHERE slug IS NULL OR slug = ""').all() as Array<{ id: string; name: string }>;
+  for (const agent of agentsWithoutSlug) {
+    const slug = generateSlug(agent.name);
+    db.prepare('UPDATE agents SET slug = ? WHERE id = ?').run(slug, agent.id);
+  }
+} catch (error) {
+  console.error('Failed to backfill agents.slug:', error);
 }
 
 // Insert default project if no projects exist

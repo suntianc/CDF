@@ -1,3 +1,17 @@
+import { z } from 'zod';
+
+// D-03/D-10: Schema for subagent delegated task results
+export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
+  status: z.enum(['success', 'failure']),
+  artifacts: z.array(z.string()),
+  summary: z.string(),
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+  }).optional(),
+});
+export type DelegatedTaskResult = z.infer<typeof DELEGATED_TASK_RESULT_SCHEMA>;
+
 export interface Project {
   id: string;
   name: string;
@@ -124,7 +138,10 @@ export type LLMStreamEvent =
   | { type: 'tool_error'; id?: string; name: string; error: string }
   | { type: 'approval_required'; approval: AgentApprovalRequest }
   | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
-  | { type: 'runtime_error'; error: string };
+  | { type: 'runtime_error'; error: string }
+  | { type: 'delegated_task_start'; taskId: string; agentSlug: string; agentName: string; goal: string }
+  | { type: 'delegated_task_chunk'; taskId: string; text: string }
+  | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string };
 
 export interface ChatRuntimeOverrides {
   providerId?: string;
