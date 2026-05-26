@@ -546,6 +546,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         cleanup();
         // 移除未持久化的 assistant 占位和工具消息
         const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
+        pendingToolMessages.clear();
         set((state) => ({
           messages: state.messages.filter(
             (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
