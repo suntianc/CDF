@@ -416,7 +416,8 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 const taskPackage = JSON.parse(input.task);
                 goal = taskPackage.goal || '';
               } catch {
-                // ignore parse error
+                console.warn('[LLM] Failed to parse task input JSON:', input.task);
+                goal = input?.name || '任务执行';
               }
             }
 
