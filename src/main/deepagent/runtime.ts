@@ -376,7 +376,13 @@ export async function createDeepAgentRuntime(
   }> = [];
 
   if (subagentIds && subagentIds.length > 0) {
+    // UUID v4 format validation regex
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     for (const subId of subagentIds) {
+      if (!UUID_REGEX.test(subId)) {
+        console.warn(`[runtime] Invalid UUID format for subagentId: ${subId}`);
+        continue;
+      }
       const agentRow = db.prepare('SELECT * FROM agents WHERE id = ?').get(subId) as RuntimeAgentRow | undefined;
       if (!agentRow) continue;
 
