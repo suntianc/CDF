@@ -84,13 +84,24 @@
 
 ### Phase 03.1: 实现子agent调用流程 (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** 实现 Master Agent 调用子Agent 的完整流程。核心机制：subagentIds 白名单控制可委派范围、Agent.slug 作为 task(name) 稳定调用键、统一 responseFormat 结构化输出、Runtime 统一包装异常状态、TaskPanel 展示委派执行状态
+
 **Depends on:** Phase 3
-**Plans:** 0 plans
+
+**Requirements:** AGNT-03, AGNT-04, AGNT-05
+
+**Success Criteria** (what must be TRUE):
+1. Master Agent 可通过 task(name) 工具调用白名单内的子Agent
+2. 子Agent 返回符合 DelegatedTaskResultSchema 的结构化 JSON
+3. Runtime 正确包装 timeout/interrupted/parse_failed 异常为 failure 状态
+4. TaskPanel 展示委派任务节点，显示 running/success/failure 状态
+5. 失败时 TaskPanel 显示 error.code（TIMEOUT/INTERRUPTED/PARSE_FAILED/其他）
+
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 03.1 to break down)
+- [ ] 03.1-01-PLAN.md — Runtime 核心：subagentIds 参数、task tool 启用、子Agent 映射、异常包装、单元测试
+- [ ] 03.1-02-PLAN.md — TaskPanel 集成：delegated-task 事件流、委派任务节点渲染
 
 ### Phase 4: Workflow System
 
