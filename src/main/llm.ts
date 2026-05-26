@@ -10,6 +10,25 @@ import type {
   AgentToolCallStatus,
 } from '../shared/types';
 
+/**
+ * Build task tool input package for subagent delegation.
+ * D-03: Agent.slug is the task(name) unique stable key.
+ *
+ * @param agentSlug - Subagent's slug (stable key)
+ * @param goal - Task description
+ * @returns Task tool input object { name, task: jsonString }
+ */
+export function buildTaskPackage(agentSlug: string, goal: string): { name: string; task: string } {
+  const taskPackage = {
+    name: agentSlug,
+    goal,
+  };
+  return {
+    name: agentSlug,
+    task: JSON.stringify(taskPackage),
+  };
+}
+
 export interface ChatPayload {
   projectId: string;
   sessionId: string;
