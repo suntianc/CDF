@@ -257,6 +257,39 @@ export function stopLLMChat(requestId: string): void {
   }
 }
 
+async function checkAndSendTodos(
+  runtime: any,
+  sessionId: string,
+  sender: WebContents,
+  channel: string,
+  lastTodosJsonRef: { current: string }
+) {
+  try {
+    if (typeof runtime?.agent?.getState !== 'function') {
+      return;
+    }
+    const state = await runtime.agent.getState({
+      configurable: {
+        thread_id: sessionId,
+        checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
+      },
+    });
+    const todos = state.values?.todos;
+    if (Array.isArray(todos)) {
+      const todosJson = JSON.stringify(todos);
+      if (todosJson !== lastTodosJsonRef.current) {
+        lastTodosJsonRef.current = todosJson;
+        sender.send(channel, {
+          type: 'todos_update',
+          todos,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[LLM] Failed to check and send todos:', err);
+  }
+}
+
 export async function runLLMChat(sender: WebContents, requestId: string, payload: ChatPayload): Promise<void> {
   const channel = `llm:chunk-${requestId}`;
   const controller = new AbortController();
@@ -267,8 +300,10 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
   return runWithStreamAccumulator(accumulator, async () => {
     let cleanup = async () => {};
+    let runtime: any = null;
+    const lastTodosJsonRef = { current: '' };
     try {
-      const runtime = await createDeepAgentRuntime(
+      runtime = await createDeepAgentRuntime(
         payload.projectId,
         payload.sessionId,
         payload.message,
@@ -280,11 +315,14 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     const runId = createRun(payload.sessionId, runtime.agentId, requestId);
     sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
 
+    await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
+
     let nextInput: any = { messages: runtime.inputMessages };
 
     while (!controller.signal.aborted) {
       accumulator.hasSentText = false;
       accumulator.hasSentReasoning = false;
+      await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
       const run = await runtime.agent.streamEvents(
         nextInput,
         {
@@ -304,7 +342,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           let hasSentReasoning = false;
           const textBuffer: string[] = [];
 
-          console.log(`[LLM STREAM] === 新消息 Chunk ===`);
           console.log(`[LLM STREAM] 是否存在 msg.reasoning:`, msg.reasoning !== undefined && msg.reasoning !== null);
           try {
             console.log(`[LLM STREAM] msg 所有的键:`, Object.keys(msg || {}));
@@ -324,7 +361,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             if (!hasSentReasoning && reasoningText) {
               hasSentReasoning = true;
               markReasoningSent(accumulator);
-              console.log(`[LLM STREAM] 双重保险：从 request accumulator 冲刷发送思考内容`);
               sender.send(channel, { type: 'message_chunk', text: '<think>' });
               sender.send(channel, { type: 'message_chunk', text: reasoningText });
               sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
@@ -339,20 +375,16 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 hasReasoning = true;
                 hasSentReasoning = true;
                 markReasoningSent(accumulator);
-                console.log(`[LLM STREAM] 监听到 Native Reasoning 字段流开启，向前端发送 <think>`);
                 sender.send(channel, { type: 'message_chunk', text: '<think>' });
               }
-              console.log(`[LLM STREAM] Native Reasoning Token:`, JSON.stringify(token));
               sender.send(channel, { type: 'message_chunk', text: token });
             }
             if (hasReasoning && !controller.signal.aborted) {
-              console.log(`[LLM STREAM] Native Reasoning 字段流结束，向前端发送 </think>`);
               sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
             }
             isReasoningDone = true;
             checkAndFlushCache();
             if (textBuffer.length > 0 && !controller.signal.aborted) {
-              console.log(`[LLM STREAM] Reasoning 流结束，正在冲刷缓存的 Text Tokens:`, JSON.stringify(textBuffer.join('')));
               for (const t of textBuffer) {
                 markTextSent(accumulator);
                 sender.send(channel, { type: 'message_chunk', text: t });
@@ -364,7 +396,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           const consumeText = async () => {
             for await (const token of msg.text) {
               if (controller.signal.aborted) break;
-              console.log(`[LLM STREAM] Text Token:`, JSON.stringify(token));
               // reasoning 存在（不是 null/undefined/空数组）且未完成时才积压文本
               const hasReasoningSource = msg.reasoning != null && !Array.isArray(msg.reasoning);
               if (hasReasoningSource && !isReasoningDone) {
@@ -574,6 +605,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       })();
 
       await Promise.all([messageStreamPromise, toolStreamPromise]);
+      await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
 
       let interruptValue = getStreamInterruptValue(run);
       let output: any;
@@ -699,6 +731,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       sender.send(channel, { type: 'run_updated', runId, status: 'aborted' });
     }
 
+    await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
     sender.send(channel, { type: 'message_done' });
   } catch (error: any) {
     const runId = getLatestRunId(requestId);
@@ -711,6 +744,9 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         status,
         error: error?.message || String(error),
       });
+    }
+    if (runtime) {
+      await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
     }
     if (error?.name === 'AbortError' || controller.signal.aborted) {
       sender.send(channel, { type: 'message_done' });

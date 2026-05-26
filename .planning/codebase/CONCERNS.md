@@ -10,11 +10,11 @@
 - Impact: Very low for local desktop app — users typically run one version at a time; migration errors would appear in logs.
 - Fix approach: Optional — add migration tracking table if stricter safety needed.
 
-**Console.log Debug Statements in Production:**
-- Issue: Debug `console.log` statements left in production code path for search tool configuration loading.
-- Files: `src/main/deepagent/runtime.ts:341`, `src/main/deepagent/runtime.ts:347`
-- Impact: Pollutes logs and may leak configuration details in production.
-- Fix approach: Replace with proper structured logging (electron-log) or remove.
+**Console.log Debug Statements in Production:** ✅ 已清理
+- Issue: Debug `console.log` statements left in production code path for search tool configuration loading and LLM streaming.
+- Files: `src/main/deepagent/runtime.ts` (tavilyConfig/anysearchConfig DEBUG logs), `src/main/llm.ts` (per-token JSON.stringify logs)
+- Fix: Removed `[DEBUG] tavilyConfig`, `[DEBUG] anysearchConfig` logs and verbose per-token JSON.stringify logs in LLM streaming.
+- Status: 2026-05-27 fixed
 
 **Hardcoded Chrome Version in Fetch Tool:**
 - Issue: `getDefaultUserAgent()` uses hardcoded Chrome version `124.0.0.0`.

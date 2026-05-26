@@ -351,13 +351,11 @@ export async function createDeepAgentRuntime(
 
   try {
     const tavilyConfig = loadSearchProviderConfig('tavily');
-    console.log('[DEBUG] tavilyConfig:', tavilyConfig);
     if (tavilyConfig) {
       builtInTools.push(createTavilyTool(tavilyConfig));
     }
 
     const anysearchConfig = loadSearchProviderConfig('anysearch');
-    console.log('[DEBUG] anysearchConfig:', anysearchConfig);
     if (anysearchConfig) {
       builtInTools.push(createAnysearchTool(anysearchConfig));
     }
