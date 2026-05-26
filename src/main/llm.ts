@@ -674,14 +674,16 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
       if (!interruptValue) {
         if (terminal === 'failed') {
-          // 子代理失败不应该中断主 Agent 会话，只返回失败状态
+          // 根据官方文档模式：将失败信息存入状态，让 LLM 看到并决定如何处理
+          // 不 break，让 while 循环继续，LLM 可以看到失败结果
           updateRun(runId, 'failed');
           sender.send(channel, { type: 'run_updated', runId, status: 'failed', error: 'Subagent execution failed' });
+          // output 包含失败信息，继续让 LLM 看到并处理
+        } else {
+          updateRun(runId, 'completed');
+          sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
           break;
         }
-        updateRun(runId, 'completed');
-        sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
-        break;
       }
 
       const approval = toApprovalRequest(runId, interruptValue);
