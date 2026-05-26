@@ -2,7 +2,7 @@ import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
-import { DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime } from './deepagent/runtime';
+import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime } from './deepagent/runtime';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
@@ -384,6 +384,34 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             input: call.input,
           });
 
+          // D-12: Detect task tool calls and emit delegated_task_start
+          if (call.name === 'task') {
+            const taskId = toolCallId;
+            const input = call.input as { name?: string; task?: string };
+            const agentSlug = input?.name || 'unknown';
+            let goal = '';
+
+            // D-03: task input's task field is a JSON string containing goal
+            if (input?.task) {
+              try {
+                const taskPackage = JSON.parse(input.task);
+                goal = taskPackage.goal || '';
+              } catch {
+                // ignore parse error
+              }
+            }
+
+            const agentName = agentSlug; // fallback to slug
+
+            sender.send(channel, {
+              type: 'delegated_task_start',
+              taskId,
+              agentSlug,
+              agentName,
+              goal,
+            });
+          }
+
           try {
             const output = await call.output;
             updateToolCall(toolCallId, 'success', output);
@@ -393,6 +421,51 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               name: call.name,
               output,
             });
+
+            // D-11/D-14: Parse task tool output and emit delegated_task_end
+            if (call.name === 'task') {
+              let parsedResult;
+              let errorCode: string | undefined;
+              let status: 'success' | 'failure' = 'success';
+
+              try {
+                const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
+                const parsed = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(rawOutput));
+                if (parsed.success) {
+                  parsedResult = parsed.data;
+                  if (parsedResult.status === 'failure') {
+                    status = 'failure';
+                    errorCode = parsedResult.error?.code;
+                  }
+                } else {
+                  status = 'failure';
+                  errorCode = 'PARSE_FAILED';
+                  parsedResult = {
+                    status: 'failure',
+                    artifacts: [],
+                    summary: '',
+                    error: { code: 'PARSE_FAILED', message: `无法解析子Agent返回: ${rawOutput.slice(0, 200)}` },
+                  };
+                }
+              } catch (err: any) {
+                status = 'failure';
+                errorCode = 'PARSE_FAILED';
+                parsedResult = {
+                  status: 'failure',
+                  artifacts: [],
+                  summary: '',
+                  error: { code: 'PARSE_FAILED', message: err?.message || 'unknown parse error' },
+                };
+              }
+
+              sender.send(channel, {
+                type: 'delegated_task_end',
+                taskId: toolCallId,
+                status,
+                result: parsedResult,
+                errorCode,
+              });
+            }
           } catch (error: any) {
             updateToolCall(toolCallId, 'error', undefined, error?.message || String(error));
             sender.send(channel, {
@@ -401,6 +474,30 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               name: call.name,
               error: error?.message || String(error),
             });
+
+            if (call.name === 'task') {
+              // D-11: Classify error type and wrap
+              let errorCode = 'UNKNOWN';
+              const msg = error?.message || '';
+              if (msg.toLowerCase().includes('timeout')) {
+                errorCode = 'TIMEOUT';
+              } else if (msg.toLowerCase().includes('interrupt') || msg.toLowerCase().includes('cancel')) {
+                errorCode = 'INTERRUPTED';
+              }
+
+              sender.send(channel, {
+                type: 'delegated_task_end',
+                taskId: toolCallId,
+                status: 'failure',
+                result: {
+                  status: 'failure',
+                  artifacts: [],
+                  summary: '',
+                  error: { code: errorCode, message: msg },
+                },
+                errorCode,
+              });
+            }
           }
         }
       })();
