@@ -70,39 +70,26 @@ db.exec(`
   );
 `);
 
-// Safe migration for sessions parent_session_id & summary
-try {
-  db.exec(`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate sessions table (parent_session_id):', error);
+// Safe migration helper - ignores 'duplicate column name' errors
+const safeMigrate = (description: string, sql: string) => {
+  try {
+    db.exec(sql);
+  } catch (error: any) {
+    if (!error.message.includes('duplicate column name')) {
+      console.error(`Failed to migrate ${description}:`, error);
+    }
   }
-}
+};
 
-try {
-  db.exec(`ALTER TABLE sessions ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate sessions table (agent_id):', error);
-  }
-}
+// Safe migration for sessions parent_session_id & summary
+safeMigrate('sessions table (parent_session_id)', `ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`);
+safeMigrate('sessions table (agent_id)', `ALTER TABLE sessions ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`);
 
 // Safe migration for llm_providers models
-try {
-  db.exec(`ALTER TABLE llm_providers ADD COLUMN models TEXT;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate llm_providers table (models):', error);
-  }
-}
+safeMigrate('llm_providers table (models)', `ALTER TABLE llm_providers ADD COLUMN models TEXT;`);
 
-try {
-  db.exec(`ALTER TABLE sessions ADD COLUMN summary TEXT;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate sessions table (summary):', error);
-  }
-}
+// Safe migration for sessions summary
+safeMigrate('sessions table (summary)', `ALTER TABLE sessions ADD COLUMN summary TEXT;`);
 
 // Tool configs table for built-in tools with API keys
 db.exec(`
