@@ -17,7 +17,7 @@ import {
   savePhysicalSkill,
   deletePhysicalSkill,
 } from './deepagent/skill-manager';
-import { checkMcpServerHealth, disconnectMcpServer, disconnectAllMcpServers } from './deepagent/mcp-connector';
+import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
 
 const getProviderLabel = (type: string): string => {
@@ -539,8 +539,12 @@ export function registerIpcHandlers() {
     db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
   });
 
-  ipcMain.handle('db:toggleMcpConnection', (_, id: string, connected: boolean) => {
+  ipcMain.handle('db:toggleMcpConnection', async (_, id: string, connected: boolean) => {
     db.prepare('UPDATE mcp_servers SET is_connected = ?, updated_at = ? WHERE id = ?').run(connected ? 1 : 0, Date.now(), id);
+    // 断开时清理实际连接
+    if (!connected) {
+      await disconnectMcpServer(id);
+    }
   });
 
   // ===== Phase 4: Tool Configs IPC Handlers =====
