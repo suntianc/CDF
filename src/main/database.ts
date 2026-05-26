@@ -219,7 +219,7 @@ function generateSlug(name: string): string {
     .slice(0, 50);
 }
 try {
-  const agentsWithoutSlug = db.prepare('SELECT id, name FROM agents WHERE slug IS NULL OR slug = ""').all() as Array<{ id: string; name: string }>;
+  const agentsWithoutSlug = db.prepare("SELECT id, name FROM agents WHERE slug IS NULL OR slug = ''").all() as Array<{ id: string; name: string }>;
   for (const agent of agentsWithoutSlug) {
     const slug = generateSlug(agent.name);
     db.prepare('UPDATE agents SET slug = ? WHERE id = ?').run(slug, agent.id);
