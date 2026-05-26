@@ -24,6 +24,22 @@ export function estimateTokens(text: string): number {
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
+interface DelegatedTask {
+  taskId: string;
+  agentSlug: string;
+  agentName: string;
+  goal: string;
+  status: 'running' | 'success' | 'failure';
+  chunks: string[];
+  result?: {
+    status: 'success' | 'failure';
+    artifacts: string[];
+    summary: string;
+    error?: { code: string; message: string };
+  };
+  errorCode?: string;
+}
+
 interface SessionState {
   sessions: Session[];
   activeSessionId: string | null;
@@ -33,6 +49,7 @@ interface SessionState {
   activeRunId: string | null;
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
+  delegatedTasks: DelegatedTask[];
   pendingApproval: AgentApprovalRequest | null;
   error: string | null;
   fetchSessions: (projectId: string) => Promise<void>;
@@ -56,6 +73,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeRunId: null,
   agentRuns: [],
   agentToolCalls: [],
+  delegatedTasks: [],
   pendingApproval: null,
   error: null,
 
@@ -224,6 +242,50 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
           if (data.type === 'approval_resolved') {
             set({ pendingApproval: null });
+            return;
+          }
+
+          if (data.type === 'delegated_task_start') {
+            set((state) => ({
+              delegatedTasks: [
+                ...state.delegatedTasks,
+                {
+                  taskId: data.taskId,
+                  agentSlug: data.agentSlug,
+                  agentName: data.agentName,
+                  goal: data.goal,
+                  status: 'running',
+                  chunks: [],
+                },
+              ],
+            }));
+            return;
+          }
+
+          if (data.type === 'delegated_task_chunk') {
+            set((state) => ({
+              delegatedTasks: state.delegatedTasks.map((task) =>
+                task.taskId === data.taskId
+                  ? { ...task, chunks: [...task.chunks, data.text] }
+                  : task
+              ),
+            }));
+            return;
+          }
+
+          if (data.type === 'delegated_task_end') {
+            set((state) => ({
+              delegatedTasks: state.delegatedTasks.map((task) =>
+                task.taskId === data.taskId
+                  ? {
+                      ...task,
+                      status: data.status,
+                      result: data.result,
+                      errorCode: data.errorCode,
+                    }
+                  : task
+              ),
+            }));
             return;
           }
 
