@@ -24,7 +24,7 @@ export function estimateTokens(text: string): number {
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
-interface DelegatedTask {
+export interface DelegatedTask {
   taskId: string;
   agentSlug: string;
   agentName: string;
