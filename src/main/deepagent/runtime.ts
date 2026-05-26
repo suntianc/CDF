@@ -48,7 +48,7 @@ interface RuntimeInputMessage {
   content: string;
 }
 
-export const DEEPAGENT_CHECKPOINT_NAMESPACE = 'cdf-master-runtime-v3';
+export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
 
 const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['interruptOn'] = {
   write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
@@ -366,19 +366,29 @@ export async function createDeepAgentRuntime(
   }
 
   // D-06/D-07/D-17: Build subagents list from subagentIds
+  // 如果没有传入 subagentIds，自动查询该项目下的所有 Agent 作为子代理
+  let effectiveSubagentIds = subagentIds;
+  if (!effectiveSubagentIds || effectiveSubagentIds.length === 0) {
+    const allAgents = db.prepare(
+      'SELECT id FROM agents WHERE project_id = ? AND id != ?'
+    ).all(projectId, agentRow.id) as { id: string }[];
+    effectiveSubagentIds = allAgents.map(a => a.id);
+    console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
+  }
+
   const subagents: Array<{
     name: string;
-    description?: string;
+    description: string;
     systemPrompt: string;
     tools: any[];
     model?: string;
     responseFormat: z.ZodType;
   }> = [];
 
-  if (subagentIds && subagentIds.length > 0) {
+  if (effectiveSubagentIds && effectiveSubagentIds.length > 0) {
     // Basic ID format validation (accept UUIDs and simple test IDs)
     const ID_REGEX = /^[0-9a-zA-Z_-]+$/;
-    for (const subId of subagentIds) {
+    for (const subId of effectiveSubagentIds) {
       if (!ID_REGEX.test(subId)) {
         console.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
         continue;
