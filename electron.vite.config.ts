@@ -5,12 +5,13 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ external: ['canvas'] })],
     build: {
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts')
-        }
+        },
+        external: ['jsdom', '@mozilla/readability', 'turndown', 'canvas', '@napi-rs/canvas']
       }
     }
   },
