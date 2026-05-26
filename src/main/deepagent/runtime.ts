@@ -368,10 +368,13 @@ export async function createDeepAgentRuntime(
   // D-06/D-07/D-17: Build subagents list from subagentIds
   // 如果没有传入 subagentIds，自动查询该项目下的所有 Agent 作为子代理
   let effectiveSubagentIds = subagentIds;
+  console.log(`[runtime] effectiveSubagentIds initial: ${JSON.stringify(effectiveSubagentIds)}, !effectiveSubagentIds=${!effectiveSubagentIds}`);
   if (!effectiveSubagentIds || effectiveSubagentIds.length === 0) {
+    console.log(`[runtime] Entering auto-discover branch`);
     const allAgents = db.prepare(
       'SELECT id FROM agents WHERE project_id = ? AND id != ?'
     ).all(projectId, agentRow.id) as { id: string }[];
+    console.log(`[runtime] Query returned ${allAgents.length} agents`);
     effectiveSubagentIds = allAgents.map(a => a.id);
     console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
   }
