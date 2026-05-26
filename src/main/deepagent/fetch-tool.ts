@@ -6,6 +6,21 @@ import { tool } from '@langchain/core/tools';
 
 const turndownService = new TurndownService();
 
+// 动态生成 User-Agent
+function getDefaultUserAgent(): string {
+  const platform = process.platform;
+  const arch = process.arch;
+  const chromeVersion = '124.0.0.0';
+
+  if (platform === 'darwin') {
+    return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+  } else if (platform === 'win32') {
+    return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+  } else {
+    return `Mozilla/5.0 (X11; Linux ${arch}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+  }
+}
+
 // 延迟初始化 session，只有在 Electron 环境中才创建
 let fetchSession: Electron.Session | null = null;
 let isRequestFilterRegistered = false;
@@ -57,9 +72,7 @@ async function fetchPageAsMarkdown(url: string, timeout: number = 12000): Promis
       registerRequestFilter(sess);
     }
 
-    ghostWindow.webContents.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
+    ghostWindow.webContents.setUserAgent(getDefaultUserAgent());
 
     let isFinished = false;
     let timer: NodeJS.Timeout | null = null;
