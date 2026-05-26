@@ -97,11 +97,11 @@
 4. TaskPanel 展示委派任务节点，显示 running/success/failure 状态
 5. 失败时 TaskPanel 显示 error.code（TIMEOUT/INTERRUPTED/PARSE_FAILED/其他）
 
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 03.1-01-PLAN.md — Runtime 核心：subagentIds 参数、task tool 启用、子Agent 映射、异常包装、单元测试
-- [ ] 03.1-02-PLAN.md — TaskPanel 集成：delegated-task 事件流、委派任务节点渲染
+- [x] 03.1-01-PLAN.md — Runtime 核心：subagentIds 参数、task tool 启用、子Agent 映射、异常包装、单元测试
+- [x] 03.1-02-PLAN.md — TaskPanel 集成：delegated-task 事件流、委派任务节点渲染
 
 ### Phase 4: Workflow System
 
