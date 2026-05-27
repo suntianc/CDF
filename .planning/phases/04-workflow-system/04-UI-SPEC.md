@@ -40,9 +40,8 @@ Declared values (must be multiples of 4):
 | 3xl | 64px | ReactFlow grid spacing, page-level padding |
 
 Exceptions:
-- `6px`: ReactFlow node internal gaps, scrollbar thumb size, border radius sm (`--radius-sm`).
-- `10px`: Sidebar item padding, dropdown/select trigger padding.
-- `12px`: Node-to-node default horizontal/vertical spacing, drag-and-drop panel list gaps.
+- `8px`: ReactFlow node internal gaps, scrollbar thumb size, border radius sm (`--radius-sm`).
+- `12px`: Node-to-node default horizontal/vertical spacing, drag-and-drop panel list gaps, sidebar item padding, dropdown/select trigger padding.
 
 ---
 
@@ -51,9 +50,9 @@ Exceptions:
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px | 400 | 1.5 |
-| Label | 12px | 500 | 1.4 |
+| Label | 12px | 400 | 1.4 |
 | Heading | 18px | 600 | 1.2 |
-| Display | 28px | 700 | 1.2 |
+| Display | 28px | 600 | 1.2 |
 
 ---
 
@@ -77,6 +76,17 @@ Semantic states:
 - Success: `#22c55e` (Green) — Running node completed successfully
 - Warning: `#f59e0b` (Amber) — Running node paused, awaiting user approval/feedback
 - Info: `#3b82f6` (Blue) — Node currently running/executing
+
+---
+
+## Visual Hierarchy & Focal Point
+
+- **Primary Focal Point:** The interactive workflow canvas (ReactFlow editor grid) serves as the primary visual anchor of the interface, displaying active nodes, connection lines, and execution states.
+- **Secondary Focal Point:** The side drawer / configuration panel (collapsible detail panel on the right) which details node parameters and logs during execution.
+- **Hierarchy Establishment:**
+  - **Focal Anchors:** Active node execution outlines (pulsing active highlight) and accent-colored connection lines guide the user's attention to the running execution path.
+  - **Contrast:** Deep background surface contrast (`#212121` canvas vs `#191919` sidebar/drawers) visually separates the workspace from navigation and settings.
+  - **Size & Weight:** Large Display titles (`28px`, semibold `600`) establish entry headings, while smaller Labels (`12px`, `400`) and Body text (`14px`, `400`) group supporting metadata and logs.
 
 ---
 
