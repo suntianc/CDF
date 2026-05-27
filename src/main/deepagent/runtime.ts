@@ -510,7 +510,8 @@ export async function createDeepAgentRuntime(
 
       const subMcpServers = getAgentMcpServers(agentRow.id);
       const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
-      const { skillsSources: subSkillsSources, permissions: subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+      const { skillsSources: _subSkillsSources, permissions: _subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+      // TODO(03.2-03): Use _subSkillsSources and _subPermissions in subagent config
 
       const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
       const subagentModel = createLangChainModel({
