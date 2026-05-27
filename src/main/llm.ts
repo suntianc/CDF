@@ -290,26 +290,6 @@ async function checkAndSendTodos(
   }
 }
 
-function startTodoPolling(
-  runtime: any,
-  sessionId: string,
-  sender: WebContents,
-  channel: string,
-  lastTodosJsonRef: { current: string },
-  signal: AbortSignal
-): () => void {
-  let inFlight = false;
-  const timer = setInterval(() => {
-    if (signal.aborted || inFlight) return;
-    inFlight = true;
-    checkAndSendTodos(runtime, sessionId, sender, channel, lastTodosJsonRef)
-      .finally(() => {
-        inFlight = false;
-      });
-  }, 500);
-
-  return () => clearInterval(timer);
-}
 
 export async function runLLMChat(sender: WebContents, requestId: string, payload: ChatPayload): Promise<void> {
   const channel = `llm:chunk-${requestId}`;
@@ -322,7 +302,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
   return runWithStreamAccumulator(accumulator, async () => {
     let cleanup = async () => {};
     let runtime: any = null;
-    let stopTodoPolling = () => {};
     const lastTodosJsonRef = { current: '' };
     try {
       runtime = await createDeepAgentRuntime(
@@ -338,7 +317,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
 
     await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
-    stopTodoPolling = startTodoPolling(runtime, payload.sessionId, sender, channel, lastTodosJsonRef, controller.signal);
 
     let nextInput: any = { messages: runtime.inputMessages };
 
@@ -629,7 +607,35 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       })();
 
-      await Promise.all([messageStreamPromise, toolStreamPromise]);
+      const valuesStreamPromise = (async () => {
+        if (!run.values || typeof run.values[Symbol.asyncIterator] !== 'function') return;
+        const valuesIter = run.values[Symbol.asyncIterator]();
+        const abortPromise = waitForAbort(controller.signal).catch(() => {});
+        try {
+          while (true) {
+            const next = await Promise.race([
+              valuesIter.next(),
+              abortPromise.then(() => ({ done: true as const, value: undefined })),
+            ]);
+            if (next.done) break;
+            const todos = next.value?.todos;
+            if (Array.isArray(todos)) {
+              const todosJson = JSON.stringify(todos);
+              if (todosJson !== lastTodosJsonRef.current) {
+                lastTodosJsonRef.current = todosJson;
+                sender.send(channel, {
+                  type: 'todos_update',
+                  todos,
+                });
+              }
+            }
+          }
+        } catch {
+          // iterator error or abort — silently stop
+        }
+      })();
+
+      await Promise.all([messageStreamPromise, toolStreamPromise, valuesStreamPromise]);
       await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
 
       let interruptValue = getStreamInterruptValue(run);
@@ -789,7 +795,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     }
   } finally {
     activeRequests.delete(requestId);
-    stopTodoPolling();
     await cleanup();
   }
   });
