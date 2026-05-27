@@ -12,10 +12,8 @@ import { AgentEditDialog } from './AgentEditDialog';
 import { ProviderIcon } from '@lobehub/icons';
 
 const mapProviderTypeToIcon = (type: string): string => {
-  if (type === 'glm' || type === 'glm-overseas') return 'zhipu';
-  if (type === 'kimi') return 'moonshot';
+  if (type === 'glm-overseas') return 'zhipu';
   if (type === 'minimax-overseas') return 'minimax';
-  if (type === 'mimo') return 'xiaomimimo';
   return type;
 };
 

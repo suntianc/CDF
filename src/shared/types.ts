@@ -44,7 +44,7 @@ export interface Message {
 export interface LLMProvider {
   id: string;
   name: string;
-  provider_type: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'glm' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'kimi' | 'qwen' | 'mimo';
+  provider_type: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'zhipu' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'moonshot' | 'qwen' | 'xiaomimimo';
   api_key?: string;
   api_url?: string;
   default_model: string;

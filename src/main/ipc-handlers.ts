@@ -25,13 +25,13 @@ const getProviderLabel = (type: string): string => {
     case 'openai': return 'OpenAI';
     case 'anthropic': return 'Anthropic';
     case 'deepseek': return 'DeepSeek';
-    case 'glm': return 'GLM CN';
+    case 'zhipu': return 'GLM CN';
     case 'glm-overseas': return 'GLM EN';
     case 'minimax': return 'Minimax CN';
     case 'minimax-overseas': return 'Minimax EN';
-    case 'kimi': return 'Kimi';
+    case 'moonshot': return 'Kimi';
     case 'qwen': return 'Qwen';
-    case 'mimo': return 'Xiaomi MiMo';
+    case 'xiaomimimo': return 'Xiaomi MiMo';
     case 'ollama': return 'Ollama';
     case 'custom': return 'OpenAI Compatible';
     default: return 'OpenAI Compatible';

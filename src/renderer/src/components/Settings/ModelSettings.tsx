@@ -12,13 +12,13 @@ const getDefaultModelForType = (type: string) => {
     case 'openai': return 'gpt-4o';
     case 'anthropic': return 'claude-3-5-sonnet-20241022';
     case 'deepseek': return 'deepseek-chat';
-    case 'glm':
+    case 'zhipu':
     case 'glm-overseas': return 'glm-4-flash';
     case 'minimax':
     case 'minimax-overseas': return 'abab6.5g-chat';
-    case 'kimi': return 'moonshot-v1-8k';
+    case 'moonshot': return 'moonshot-v1-8k';
     case 'qwen': return 'qwen-plus';
-    case 'mimo': return 'mimo-chat';
+    case 'xiaomimimo': return 'mimo-chat';
     default: return 'gpt-4o';
   }
 };
@@ -28,13 +28,13 @@ const getProviderLabel = (type: string): string => {
     case 'openai': return 'OpenAI';
     case 'anthropic': return 'Anthropic';
     case 'deepseek': return 'DeepSeek';
-    case 'glm': return 'GLM CN';
+    case 'zhipu': return 'GLM CN';
     case 'glm-overseas': return 'GLM EN';
     case 'minimax': return 'Minimax CN';
     case 'minimax-overseas': return 'Minimax EN';
-    case 'kimi': return 'Kimi';
+    case 'moonshot': return 'Kimi';
     case 'qwen': return 'Qwen';
-    case 'mimo': return 'Xiaomi MiMo';
+    case 'xiaomimimo': return 'Xiaomi MiMo';
     case 'ollama': return 'Ollama';
     case 'custom': return 'OpenAI Compatible';
     default: return 'OpenAI Compatible';
@@ -42,10 +42,8 @@ const getProviderLabel = (type: string): string => {
 };
 
 const mapProviderTypeToIcon = (type: string): string => {
-  if (type === 'glm' || type === 'glm-overseas') return 'zhipu';
-  if (type === 'kimi') return 'moonshot';
+  if (type === 'glm-overseas') return 'zhipu';
   if (type === 'minimax-overseas') return 'minimax';
-  if (type === 'mimo') return 'xiaomimimo';
   return type;
 };
 
@@ -575,7 +573,7 @@ export function ModelSettings() {
                       } else if (type === 'deepseek') {
                         setFormUrl('https://api.deepseek.com/anthropic/v1');
                         setFormLimit(64000);
-                      } else if (type === 'glm') {
+                      } else if (type === 'zhipu') {
                         setFormUrl('https://open.bigmodel.cn/api/anthropic/v1');
                         setFormLimit(128000);
                       } else if (type === 'glm-overseas') {
@@ -587,13 +585,13 @@ export function ModelSettings() {
                       } else if (type === 'minimax-overseas') {
                         setFormUrl('https://api.minimax.io/anthropic/v1');
                         setFormLimit(64000);
-                      } else if (type === 'kimi') {
+                      } else if (type === 'moonshot') {
                         setFormUrl('https://api.moonshot.ai/v1');
                         setFormLimit(128000);
                       } else if (type === 'qwen') {
                         setFormUrl('https://dashscope.aliyuncs.com/compatible-mode/v1');
                         setFormLimit(128000);
-                      } else if (type === 'mimo') {
+                      } else if (type === 'xiaomimimo') {
                         setFormUrl('https://api.xiaomimimo.com/v1');
                         setFormLimit(64000);
                       } else {
@@ -604,13 +602,13 @@ export function ModelSettings() {
                       { value: 'openai', label: 'OpenAI' },
                       { value: 'anthropic', label: 'Anthropic' },
                       { value: 'deepseek', label: 'DeepSeek' },
-                      { value: 'glm', label: 'GLM CN' },
+                      { value: 'zhipu', label: 'GLM CN' },
                       { value: 'glm-overseas', label: 'GLM EN' },
                       { value: 'minimax', label: 'Minimax CN' },
                       { value: 'minimax-overseas', label: 'Minimax EN' },
-                      { value: 'kimi', label: 'Kimi' },
+                      { value: 'moonshot', label: 'Kimi' },
                       { value: 'qwen', label: 'Qwen' },
-                      { value: 'mimo', label: 'Xiaomi MiMo' },
+                      { value: 'xiaomimimo', label: 'Xiaomi MiMo' },
                       { value: 'ollama', label: 'Ollama' },
                       { value: 'custom', label: 'OpenAI Compatible' }
                     ]}

@@ -106,6 +106,17 @@ db.exec(`
   )
 `);
 
+// Data migration: rename provider_type to match lobehub icon enum values
+try {
+  db.prepare("UPDATE llm_providers SET provider_type = 'zhipu' WHERE provider_type = 'glm'").run();
+  db.prepare("UPDATE llm_providers SET provider_type = 'moonshot' WHERE provider_type = 'kimi'").run();
+  db.prepare("UPDATE llm_providers SET provider_type = 'xiaomimimo' WHERE provider_type = 'mimo'").run();
+} catch (error) {
+  console.error('Failed to migrate provider_type values:', error);
+}
+
+// Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
+
 // Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS agents (
@@ -291,7 +302,7 @@ try {
       {
         id: 'default-glm',
         name: 'GLM CN',
-        provider_type: 'glm',
+        provider_type: 'zhipu',
         api_url: 'https://open.bigmodel.cn/api/paas/v4',
         default_model: 'glm-4-flash',
         context_limit: 128000,
@@ -331,7 +342,7 @@ try {
       {
         id: 'default-kimi',
         name: 'Kimi',
-        provider_type: 'kimi',
+        provider_type: 'moonshot',
         api_url: 'https://api.moonshot.ai/v1',
         default_model: 'moonshot-v1-8k',
         context_limit: 128000,
@@ -351,7 +362,7 @@ try {
       {
         id: 'default-mimo',
         name: 'Xiaomi MiMo',
-        provider_type: 'mimo',
+        provider_type: 'xiaomimimo',
         api_url: 'https://api.xiaomimimo.com/v1',
         default_model: 'mimo-chat',
         context_limit: 64000,

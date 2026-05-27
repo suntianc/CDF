@@ -52,7 +52,7 @@ export interface RuntimeProviderModelConfig {
   apiKey?: string;
   apiUrl?: string;
   defaultModel: string;
-  providerType: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'glm' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'kimi' | 'qwen' | 'mimo';
+  providerType: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'zhipu' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'moonshot' | 'qwen' | 'xiaomimimo';
   model?: string;
 }
 
@@ -501,9 +501,9 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
   switch (config.providerType) {
     case 'openai':
     case 'custom':
-    case 'kimi':
+    case 'moonshot':
     case 'qwen':
-    case 'mimo': {
+    case 'xiaomimimo': {
       const modelConfig: Record<string, unknown> = {
         model: modelName,
         temperature: 0,
@@ -522,7 +522,7 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
     case 'deepseek':
     case 'minimax':
     case 'minimax-overseas':
-    case 'glm':
+    case 'zhipu':
     case 'glm-overseas': {
       const modelConfig: Record<string, unknown> = {
         model: modelName,
