@@ -19,6 +19,7 @@ import {
 } from './deepagent/skill-manager';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
+import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
 
 const getProviderLabel = (type: string): string => {
   switch (type) {
@@ -704,4 +705,7 @@ export function registerIpcHandlers() {
       output: r.output ? JSON.parse(r.output) : undefined,
     }));
   });
+
+  // ===== Phase 4: Workflow Runtime IPC Handlers =====
+  registerWorkflowIpcHandlers();
 }
