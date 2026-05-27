@@ -206,6 +206,93 @@ export interface AgentApprovalResolution {
   }>;
 }
 
+// ===== Phase 4: Workflow System Types =====
+
+export type WorkflowNodeType = 'start' | 'agent' | 'end';
+
+export interface WorkflowNode {
+  id: string;
+  type: WorkflowNodeType;
+  position: { x: number; y: number };
+  data: {
+    label: string;
+    agentId?: string;
+    description?: string;
+    retryCount?: number;
+    failureStrategy?: 'retry' | 'skip' | 'stop';
+  };
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+  metadata?: {
+    condition?: string;
+    maxIterations?: number;
+    targets?: Record<string, string>;
+  };
+}
+
+export interface WorkflowDefinition {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  viewport?: { x: number; y: number; zoom: number };
+}
+
+export interface Workflow {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string;
+  graph_data: WorkflowDefinition;
+  status: 'draft' | 'active';
+  created_at: number;
+  updated_at: number;
+}
+
+export type WorkflowExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+
+export interface WorkflowExecution {
+  id: string;
+  workflow_id: string;
+  project_id: string;
+  trigger_source: 'editor' | 'chat' | 'schedule';
+  status: WorkflowExecutionStatus;
+  input: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  error?: string;
+  started_at: number;
+  ended_at?: number;
+}
+
+export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface WorkflowNodeRun {
+  id: string;
+  execution_id: string;
+  node_id: string;
+  node_name: string;
+  status: WorkflowNodeRunStatus;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  error?: string;
+  error_type?: string;
+  retry_count: number;
+  started_at: number;
+  ended_at?: number;
+}
+
+export type WorkflowStreamEvent =
+  | { type: 'workflow_start'; executionId: string; workflowId: string }
+  | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string }
+  | { type: 'node_end'; executionId: string; nodeId: string; duration_ms: number; outputKeys: string[] }
+  | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
+  | { type: 'workflow_end'; executionId: string; status: WorkflowExecutionStatus; duration_ms: number }
+  | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number };
+
 export interface ElectronAPI {
   store: {
     get: (key: string) => Promise<any>;
@@ -248,6 +335,14 @@ export interface ElectronAPI {
     getToolConfigs: () => Promise<SearchProvider[]>;
     saveToolConfig: (config: any) => Promise<SearchProvider>;
     deleteToolConfig: (id: string) => Promise<void>;
+    // Phase 4: Workflows
+    getWorkflows: (projectId: string) => Promise<Workflow[]>;
+    getWorkflow: (id: string) => Promise<Workflow | undefined>;
+    saveWorkflow: (workflow: any) => Promise<Workflow>;
+    deleteWorkflow: (id: string) => Promise<void>;
+    getWorkflowExecutions: (workflowId: string) => Promise<WorkflowExecution[]>;
+    getWorkflowExecution: (id: string) => Promise<WorkflowExecution | undefined>;
+    getWorkflowNodeRuns: (executionId: string) => Promise<WorkflowNodeRun[]>;
   };
   llm: {
     chat: (requestId: string, payload: { projectId: string; sessionId: string; agentId?: string | null; message: { id: string; content: string }; overrides?: ChatRuntimeOverrides }) => Promise<void>;
@@ -263,6 +358,11 @@ export interface ElectronAPI {
   };
   deepagents: {
     createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) => Promise<{ agentId: string }>;
+  };
+  workflow: {
+    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
+    stopWorkflow: (executionId: string) => Promise<void>;
+    onWorkflowEvent: (executionId: string, callback: (event: any, data: WorkflowStreamEvent) => void) => () => void;
   };
   platform: string;
 }
