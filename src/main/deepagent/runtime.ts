@@ -510,8 +510,7 @@ export async function createDeepAgentRuntime(
 
       const subMcpServers = getAgentMcpServers(agentRow.id);
       const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
-      const { skillsSources: _subSkillsSources, permissions: _subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
-      // TODO(03.2-03): Use _subSkillsSources and _subPermissions in subagent config
+      const { skillsSources: subSkillsSources, permissions: _subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
 
       const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
       const subagentModel = createLangChainModel({
@@ -526,8 +525,9 @@ export async function createDeepAgentRuntime(
       subagents.push({
         name: agentSlug,  // D-03: slug as stable key
         description: agentRow.description || '',
-        systemPrompt: (agentRow.system_prompt || '') + `\n\n你必须返回符合以下 JSON Schema 的结果，不要返回 JSON 以外的任何内容：${JSON.stringify({ type: 'object', properties: { status: { type: 'string', enum: ['success', 'failure'] }, artifacts: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' }, error: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } } }, required: ['status', 'artifacts', 'summary'] })}`,
-        tools: [...subMcpRuntime.tools],
+        systemPrompt: agentRow.system_prompt || '',
+        tools: [...subMcpRuntime.tools, ...builtInTools],
+        skills: subSkillsSources.length > 0 ? subSkillsSources : undefined,
         model: subagentModel,
         middleware: createSubagentResilienceMiddleware(),
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
