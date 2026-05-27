@@ -42,11 +42,17 @@ vi.mock('deepagents', () => ({
   registerHarnessProfile: registerHarnessProfileMock,
   FilesystemBackend: class FilesystemBackend {
     options: unknown;
-
     constructor(options: unknown) {
       this.options = options;
     }
   },
+  CompositeBackend: class CompositeBackend {
+    options: unknown;
+    constructor(primary: unknown, secondary: unknown) {
+      this.options = { primary, secondary };
+    }
+  },
+  StateBackend: class StateBackend {},
 }));
 
 vi.mock('../database', () => ({
@@ -156,12 +162,12 @@ describe('createDeepAgentRuntime', () => {
     expect(createDeepAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         checkpointer: expect.objectContaining({ getTuple: checkpointGetTupleMock }),
-        memory: ['/AGENTS.md'],
+        memory: ['/workspace/AGENTS.md'],
         permissions: [{ operations: ['read', 'write'], paths: ['/*', '/**/*'] }],
       })
     );
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    expect(params.backend.options).toEqual({ rootDir: tempProjectPath, virtualMode: true });
+    expect(params.backend.options.secondary['/workspace/'].options).toEqual({ rootDir: tempProjectPath, virtualMode: true });
     expect(checkpointGetTupleMock).toHaveBeenCalledWith({
       configurable: {
         thread_id: 'session-1',
@@ -172,10 +178,10 @@ describe('createDeepAgentRuntime', () => {
       generalPurposeSubagent: { enabled: false },
       excludedTools: [],  // D-15: task tool enabled
     }));
-    expect(params.systemPrompt).toContain('虚拟路径 `/`');
-    expect(params.systemPrompt).toContain('/src/main.ts');
+    expect(params.systemPrompt).toContain('虚拟路径 `/workspace/`');
+    expect(params.systemPrompt).toContain('/workspace/src/main.ts');
     expect(params.systemPrompt).toContain('必须在当前轮次继续调用合适的文件工具');
-    expect(params.systemPrompt).toContain('ls` 读取 `/`');
+    expect(params.systemPrompt).toContain('ls` 读取 `/workspace/`');
     expect(params.systemPrompt).not.toContain(tempProjectPath);
     expect(params.systemPrompt).not.toContain('[可委派 Agent]');
     expect(params.subagents).toBeUndefined();

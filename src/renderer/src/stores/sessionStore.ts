@@ -67,6 +67,20 @@ interface SessionState {
   clearError: () => void;
 }
 
+interface StreamingSessionState {
+  messages: Message[];
+  todos: TodoItem[];
+  delegatedTasks: DelegatedTask[];
+  agentRuns: AgentRun[];
+  agentToolCalls: AgentToolCall[];
+  activeRunId: string | null;
+  pendingApproval: AgentApprovalRequest | null;
+  isStreaming: boolean;
+  streamingMessageId: string | null;
+}
+
+const streamingSessionsCache = new Map<string, StreamingSessionState>();
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
@@ -128,13 +142,40 @@ export const useSessionStore = create<SessionState>((set, get) => ({
  
   selectSession: async (sessionId: string | null) => {
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null });
       return;
     }
     try {
-      const messages = await window.electronAPI.db.getMessages(sessionId);
-      set({ activeSessionId: sessionId, messages, delegatedTasks: [], todos: [], error: null });
-      await get().fetchAgentActivity(sessionId);
+      const cached = streamingSessionsCache.get(sessionId);
+      if (cached) {
+        set({
+          activeSessionId: sessionId,
+          messages: cached.messages,
+          todos: cached.todos,
+          delegatedTasks: cached.delegatedTasks,
+          agentRuns: cached.agentRuns,
+          agentToolCalls: cached.agentToolCalls,
+          activeRunId: cached.activeRunId,
+          pendingApproval: cached.pendingApproval,
+          isStreaming: cached.isStreaming,
+          streamingMessageId: cached.streamingMessageId,
+          error: null,
+        });
+      } else {
+        const messages = await window.electronAPI.db.getMessages(sessionId);
+        set({
+          activeSessionId: sessionId,
+          messages,
+          delegatedTasks: [],
+          todos: [],
+          error: null,
+          isStreaming: false,
+          streamingMessageId: null,
+          activeRunId: null,
+          pendingApproval: null,
+        });
+        await get().fetchAgentActivity(sessionId);
+      }
     } catch (err: any) {
       set({ error: err.message || 'Failed to load messages for session' });
     }
@@ -326,15 +367,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         created_at: Date.now(),
       };
 
-      set((state) => ({
-        messages: [...state.messages, userMsg, assistantMsgPlaceholder],
+      const initialState: StreamingSessionState = {
+        messages: [...get().messages, userMsg, assistantMsgPlaceholder],
+        todos: [],
+        delegatedTasks: [],
+        agentRuns: [],
+        agentToolCalls: [],
+        activeRunId: null,
+        pendingApproval: null,
         isStreaming: true,
         streamingMessageId: assistantMsgId,
-        activeRunId: null,
-        todos: [],
-        pendingApproval: null,
-        error: null,
-      }));
+      };
+
+      streamingSessionsCache.set(activeSessionId, initialState);
+
+      set(initialState);
 
       let accumulatedContent = '';
       let cleanup = () => {};
@@ -343,143 +390,125 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       const streamPromise = new Promise<void>((resolve, reject) => {
         cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data: LLMStreamEvent) => {
+          const cached = streamingSessionsCache.get(activeSessionId);
+          if (!cached) return;
+
           if (data.type === 'todos_update') {
-            set({ todos: data.todos });
-            return;
+            cached.todos = data.todos;
           }
 
-          if (data.type === 'run_started') {
-            set((state) => ({
-              activeRunId: data.runId,
-              agentRuns: [
-                {
-                  id: data.runId,
-                  session_id: activeSessionId!,
-                  agent_id: data.agentId,
-                  request_id: assistantMsgId,
-                  status: data.status,
-                  started_at: Date.now(),
-                  ended_at: null,
-                  aborted: 0,
-                },
-                ...state.agentRuns.filter((run) => run.id !== data.runId),
-              ],
-              agentToolCalls: [],
-            }));
-            return;
+          else if (data.type === 'run_started') {
+            cached.activeRunId = data.runId;
+            cached.agentRuns = [
+              {
+                id: data.runId,
+                session_id: activeSessionId,
+                agent_id: data.agentId,
+                request_id: assistantMsgId,
+                status: data.status,
+                started_at: Date.now(),
+                ended_at: null,
+                aborted: 0,
+              },
+              ...cached.agentRuns.filter((run) => run.id !== data.runId),
+            ];
+            cached.agentToolCalls = [];
           }
 
-          if (data.type === 'run_updated') {
-            set((state) => ({
-              agentRuns: state.agentRuns.map((run) =>
-                run.id === data.runId ? { ...run, status: data.status, error: data.error || run.error || null, ended_at: ['completed', 'failed', 'aborted'].includes(data.status) ? Date.now() : run.ended_at } : run
-              ),
-            }));
-            return;
+          else if (data.type === 'run_updated') {
+            cached.agentRuns = cached.agentRuns.map((run) =>
+              run.id === data.runId ? { ...run, status: data.status, error: data.error || run.error || null, ended_at: ['completed', 'failed', 'aborted'].includes(data.status) ? Date.now() : run.ended_at } : run
+            );
           }
 
-          if (data.type === 'approval_required') {
-            set({ pendingApproval: data.approval });
-            return;
+          else if (data.type === 'approval_required') {
+            cached.pendingApproval = data.approval;
           }
 
-          if (data.type === 'approval_resolved') {
-            set({ pendingApproval: null });
-            return;
+          else if (data.type === 'approval_resolved') {
+            cached.pendingApproval = null;
           }
 
-          if (data.type === 'delegated_task_start') {
+          else if (data.type === 'delegated_task_start') {
             const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat') {
+            if (projectStore.activeView === 'chat' && get().activeSessionId === activeSessionId) {
               projectStore.setTaskPanelOpen(true);
             }
-            set((state) => ({
-              delegatedTasks: [
-                ...state.delegatedTasks,
-                {
-                  taskId: data.taskId,
-                  agentSlug: data.agentSlug,
-                  agentName: data.agentName,
-                  goal: data.goal,
-                  status: 'running',
-                  chunks: [],
-                  startedAt: Date.now(),
-                },
-              ],
-            }));
-            return;
+            cached.delegatedTasks = [
+              ...cached.delegatedTasks,
+              {
+                taskId: data.taskId,
+                agentSlug: data.agentSlug,
+                agentName: data.agentName,
+                goal: data.goal,
+                status: 'running',
+                chunks: [],
+                startedAt: Date.now(),
+              },
+            ];
           }
 
-          if (data.type === 'delegated_task_chunk') {
-            set((state) => ({
-              delegatedTasks: state.delegatedTasks.map((task) =>
-                task.taskId === data.taskId
-                  ? { ...task, chunks: [...task.chunks, data.text] }
-                  : task
-              ),
-            }));
-            return;
+          else if (data.type === 'delegated_task_chunk') {
+            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
+              task.taskId === data.taskId
+                ? { ...task, chunks: [...task.chunks, data.text] }
+                : task
+            );
           }
 
-          if (data.type === 'delegated_task_end') {
-            set((state) => ({
-              delegatedTasks: state.delegatedTasks.map((task) =>
-                task.taskId === data.taskId
-                  ? {
-                      ...task,
-                      status: data.status,
-                      result: data.result,
-                      errorCode: data.errorCode,
-                      completedAt: Date.now(),
-                    }
-                  : task
-              ),
-            }));
-            return;
+          else if (data.type === 'delegated_task_end') {
+            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
+              task.taskId === data.taskId
+                ? {
+                    ...task,
+                    status: data.status,
+                    result: data.result,
+                    errorCode: data.errorCode,
+                    completedAt: Date.now(),
+                  }
+                : task
+            );
           }
 
-          if (data.type === 'message_chunk' && data.text) {
-            const hasMsg = get().messages.some((m) => m.id === currentAssistantMsgId);
+          else if (data.type === 'message_chunk' && data.text) {
+            const hasMsg = cached.messages.some((m) => m.id === currentAssistantMsgId);
             if (!hasMsg) {
               const newPlaceholder: Message = {
                 id: currentAssistantMsgId,
-                session_id: activeSessionId!,
+                session_id: activeSessionId,
                 role: 'assistant',
                 content: '',
                 tokens: 0,
                 created_at: Date.now(),
               };
-              set((state) => ({
-                messages: [...state.messages, newPlaceholder],
-              }));
+              cached.messages = [...cached.messages, newPlaceholder];
             }
 
             accumulatedContent += data.text;
-            set((state) => ({
-              messages: state.messages.map((m) =>
-                m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
-              ),
-            }));
-            return;
+            cached.messages = cached.messages.map((m) =>
+              m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
+            );
           }
 
-          if (data.type === 'tool_start') {
+          else if (data.type === 'tool_start') {
             const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat') {
+            if (projectStore.activeView === 'chat' && get().activeSessionId === activeSessionId) {
               projectStore.setTaskPanelOpen(true);
             }
             // 1. 如果上一段助手有说话，将其持久化写入 SQLite
             if (accumulatedContent.trim()) {
               const prevMsg = {
                 id: currentAssistantMsgId,
-                session_id: activeSessionId!,
+                session_id: activeSessionId,
                 role: 'assistant' as const,
                 content: accumulatedContent,
                 tokens: estimateTokens(accumulatedContent),
               };
               window.electronAPI.db.saveMessage(prevMsg).catch((err) => {
                 console.error('Failed to save intermediate assistant message:', err);
-                set({ error: '消息保存失败，对话历史可能不完整' });
+                if (get().activeSessionId === activeSessionId) {
+                  set({ error: '消息保存失败，对话历史可能不完整' });
+                }
               });
             }
 
@@ -500,47 +529,43 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
             const toolMsg: Message = {
               id: toolMessageId,
-              session_id: activeSessionId!,
+              session_id: activeSessionId,
               role: 'system',
               content: JSON.stringify(toolMsgContent),
               created_at: Date.now(),
               tokens: 0,
             };
 
-            const hasExistingMsg = get().messages.some((m) => m.id === toolMessageId);
+            const hasExistingMsg = cached.messages.some((m) => m.id === toolMessageId);
 
             if (hasExistingMsg) {
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === toolMessageId ? { ...m, content: JSON.stringify(toolMsgContent) } : m
-                ),
-                agentToolCalls: state.agentToolCalls.map((tc) =>
-                  tc.id === toolMessageId
-                    ? { ...tc, status: 'running', input: JSON.stringify(data.input ?? null) }
-                    : tc
-                ),
-              }));
+              cached.messages = cached.messages.map((m) =>
+                m.id === toolMessageId ? { ...m, content: JSON.stringify(toolMsgContent) } : m
+              );
+              cached.agentToolCalls = cached.agentToolCalls.map((tc) =>
+                tc.id === toolMessageId
+                  ? { ...tc, status: 'running', input: JSON.stringify(data.input ?? null) }
+                  : tc
+              );
             } else {
-              set((state) => ({
-                messages: [...state.messages, toolMsg],
-                agentToolCalls: data.id
-                  ? [
-                      ...state.agentToolCalls,
-                      {
-                        id: data.id,
-                        run_id: state.activeRunId || '',
-                        tool_name: data.name,
-                        input: JSON.stringify(data.input ?? null),
-                        output: null,
-                        status: 'running',
-                        error: null,
-                        approval_status: null,
-                        started_at: Date.now(),
-                        ended_at: null,
-                      },
-                    ]
-                  : state.agentToolCalls,
-              }));
+              cached.messages = [...cached.messages, toolMsg];
+              if (data.id) {
+                cached.agentToolCalls = [
+                  ...cached.agentToolCalls,
+                  {
+                    id: data.id,
+                    run_id: cached.activeRunId || '',
+                    tool_name: data.name,
+                    input: JSON.stringify(data.input ?? null),
+                    output: null,
+                    status: 'running',
+                    error: null,
+                    started_at: Date.now(),
+                    ended_at: null,
+                    approval_status: null,
+                  },
+                ];
+              }
 
               window.electronAPI.db.saveMessage(toolMsg).catch((err) => {
                 console.error('Failed to save tool start message:', err);
@@ -550,10 +575,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             // 3. 准备切换下一段助手消息
             currentAssistantMsgId = window.crypto.randomUUID();
             accumulatedContent = '';
-            return;
           }
 
-          if (data.type === 'tool_end' || data.type === 'tool_error') {
+          else if (data.type === 'tool_end' || data.type === 'tool_error') {
             let toolMessageId = data.id;
             if (!toolMessageId) {
               const queue = pendingToolMessages.get(data.name) || [];
@@ -578,7 +602,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   }
                 }
                 if (Array.isArray(todosList)) {
-                  set({ todos: todosList });
+                  cached.todos = todosList;
                 }
               } catch (err) {
                 console.warn('Failed to parse todos from write_todos tool output:', err);
@@ -588,7 +612,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             if (toolMessageId) {
               const isEnd = data.type === 'tool_end';
               
-              const currentMsg = get().messages.find(m => m.id === toolMessageId);
+              const currentMsg = cached.messages.find(m => m.id === toolMessageId);
               let parsedContent: any = {};
               if (currentMsg) {
                 try {
@@ -609,26 +633,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
               const updatedContent = JSON.stringify(newContentObj);
 
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === toolMessageId ? { ...m, content: updatedContent } : m
-                ),
-                agentToolCalls: state.agentToolCalls.map((toolCall) =>
-                  toolCall.id === toolMessageId
-                    ? {
-                        ...toolCall,
-                        status: isEnd ? 'success' : 'error',
-                        output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
-                        error: !isEnd ? data.error : null,
-                        ended_at: Date.now(),
-                      }
-                    : toolCall
-                ),
-              }));
+              cached.messages = cached.messages.map((m) =>
+                m.id === toolMessageId ? { ...m, content: updatedContent } : m
+              );
+              cached.agentToolCalls = cached.agentToolCalls.map((toolCall) =>
+                toolCall.id === toolMessageId
+                  ? {
+                      ...toolCall,
+                      status: isEnd ? 'success' : 'error',
+                      output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
+                      error: !isEnd ? data.error : null,
+                      ended_at: Date.now(),
+                    }
+                  : toolCall
+              );
 
               const savedMsg = {
                 id: toolMessageId,
-                session_id: activeSessionId!,
+                session_id: activeSessionId,
                 role: 'system' as const,
                 content: updatedContent,
                 created_at: currentMsg?.created_at || Date.now(),
@@ -639,17 +661,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 console.error('Failed to save tool output to db:', err);
               });
             }
-            return;
           }
 
-          if (data.type === 'message_done') {
+          else if (data.type === 'message_done') {
             cleanup();
             try {
               if (accumulatedContent.trim()) {
                 const assistantTokens = estimateTokens(accumulatedContent);
                 const finalAssistantMsg = {
                   id: currentAssistantMsgId,
-                  session_id: activeSessionId!,
+                  session_id: activeSessionId,
                   role: 'assistant' as const,
                   content: accumulatedContent,
                   tokens: assistantTokens,
@@ -657,52 +678,92 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
                 await window.electronAPI.db.saveMessage(finalAssistantMsg);
                 
-                set((state) => ({
-                  messages: state.messages
-                    .map((m) =>
-                      m.id === currentAssistantMsgId ? { ...m, tokens: assistantTokens } : m
-                    )
-                    .filter((m) => !(m.role === 'assistant' && m.content === '')),
-                  isStreaming: false,
-                  streamingMessageId: null,
-                  pendingApproval: null,
-                }));
+                cached.messages = cached.messages
+                  .map((m) =>
+                    m.id === currentAssistantMsgId ? { ...m, tokens: assistantTokens } : m
+                  )
+                  .filter((m) => !(m.role === 'assistant' && m.content === ''));
               } else {
-                set((state) => ({
-                  messages: state.messages.filter((m) => !(m.role === 'assistant' && m.content === '')),
+                cached.messages = cached.messages.filter((m) => !(m.role === 'assistant' && m.content === ''));
+              }
+              cached.isStreaming = false;
+              cached.streamingMessageId = null;
+              cached.pendingApproval = null;
+
+              if (get().activeSessionId === activeSessionId) {
+                set({
+                  messages: cached.messages,
                   isStreaming: false,
                   streamingMessageId: null,
                   pendingApproval: null,
-                }));
+                  todos: cached.todos,
+                  delegatedTasks: cached.delegatedTasks,
+                  agentRuns: cached.agentRuns,
+                  agentToolCalls: cached.agentToolCalls,
+                  activeRunId: cached.activeRunId,
+                });
               }
+              streamingSessionsCache.delete(activeSessionId);
               resolve();
             } catch (err: any) {
               console.error('Failed to save message or complete stream:', err);
-              set((state) => ({
-                messages: state.messages.filter((m) => !(m.role === 'assistant' && m.content === '')),
-                isStreaming: false,
-                streamingMessageId: null,
-                pendingApproval: null,
-                error: err.message || '保存回复消息失败',
-              }));
+              cached.messages = cached.messages.filter((m) => !(m.role === 'assistant' && m.content === ''));
+              cached.isStreaming = false;
+              cached.streamingMessageId = null;
+              cached.pendingApproval = null;
+
+              if (get().activeSessionId === activeSessionId) {
+                set({
+                  messages: cached.messages,
+                  isStreaming: false,
+                  streamingMessageId: null,
+                  pendingApproval: null,
+                  error: err.message || '保存回复消息失败',
+                });
+              }
+              streamingSessionsCache.delete(activeSessionId);
               reject(err);
             }
             return;
           }
 
-          if (data.type === 'runtime_error') {
+          else if (data.type === 'runtime_error') {
             cleanup();
             const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
-            set((state) => ({
-              messages: state.messages.filter(
-                (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
-              ),
-              isStreaming: false,
-              streamingMessageId: null,
-              pendingApproval: null,
-              error: data.error || '对话请求出错',
-            }));
+            cached.messages = cached.messages.filter(
+              (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+            );
+            cached.isStreaming = false;
+            cached.streamingMessageId = null;
+            cached.pendingApproval = null;
+
+            if (get().activeSessionId === activeSessionId) {
+              set({
+                messages: cached.messages,
+                isStreaming: false,
+                streamingMessageId: null,
+                pendingApproval: null,
+                error: data.error || '对话请求出错',
+              });
+            }
+            streamingSessionsCache.delete(activeSessionId);
             reject(new Error(data.error || '对话请求出错'));
+            return;
+          }
+
+          // Sync with Zustand if currently active
+          if (get().activeSessionId === activeSessionId) {
+            set({
+              messages: cached.messages,
+              todos: cached.todos,
+              delegatedTasks: cached.delegatedTasks,
+              agentRuns: cached.agentRuns,
+              agentToolCalls: cached.agentToolCalls,
+              activeRunId: cached.activeRunId,
+              pendingApproval: cached.pendingApproval,
+              isStreaming: cached.isStreaming,
+              streamingMessageId: cached.streamingMessageId,
+            });
           }
         });
       });
@@ -724,23 +785,37 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // 移除未持久化的 assistant 占位和工具消息
         const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
         pendingToolMessages.clear();
-        set((state) => ({
-          messages: state.messages.filter(
+        const cached = streamingSessionsCache.get(activeSessionId);
+        if (cached) {
+          cached.messages = cached.messages.filter(
             (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
-          ),
-          isStreaming: false,
-          streamingMessageId: null,
-          pendingApproval: null,
-          error: err.message || '发送消息失败',
-        }));
+          );
+          cached.isStreaming = false;
+          cached.streamingMessageId = null;
+          cached.pendingApproval = null;
+        }
+        if (get().activeSessionId === activeSessionId) {
+          set((state) => ({
+            messages: state.messages.filter(
+              (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+            ),
+            isStreaming: false,
+            streamingMessageId: null,
+            pendingApproval: null,
+            error: err.message || '发送消息失败',
+          }));
+        }
+        streamingSessionsCache.delete(activeSessionId);
       }
     } catch (err: any) {
-      set({
-        isStreaming: false,
-        streamingMessageId: null,
-        pendingApproval: null,
-        error: err.message || '发送消息失败',
-      });
+      if (get().activeSessionId === activeSessionId) {
+        set({
+          isStreaming: false,
+          streamingMessageId: null,
+          error: err.message || '发送消息失败',
+        });
+      }
+      streamingSessionsCache.delete(activeSessionId);
     }
   },
 
