@@ -339,6 +339,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => {
     const { activeSessionId, isStreaming, sessions } = get();
     if (!activeSessionId || isStreaming) return;
+    set({ todos: [] });
     const activeSession = sessions.find((session) => session.id === activeSessionId);
 
     const userMsgId = window.crypto.randomUUID();
