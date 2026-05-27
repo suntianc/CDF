@@ -24,16 +24,15 @@ export function createConditionalRouter(
   condition: string,
   maxIterations?: number,
 ): (state: Record<string, unknown>) => string {
+  const effectiveMax = maxIterations ?? MAX_LOOP_ITERATIONS;
   return (state: Record<string, unknown>): string => {
     const routing = (state.routing as Record<string, unknown>) ?? {};
 
-    // 循环保护：检查迭代计数器
-    if (maxIterations !== undefined) {
-      const loopKey = `__loop_${condition}`;
-      const count = (routing[loopKey] as number) ?? 0;
-      if (count >= maxIterations) {
-        return '__max_iterations_exceeded__';
-      }
+    // 循环保护：检查迭代计数器（由计数器递增节点维护）
+    const loopKey = `__loop_${condition}`;
+    const count = (routing[loopKey] as number) ?? 0;
+    if (count >= effectiveMax) {
+      return '__max_iterations_exceeded__';
     }
 
     // 读取路由决策
@@ -61,7 +60,7 @@ export function createConditionalRouter(
  */
 export function buildWorkflowGraph(
   workflowDef: WorkflowDefinition,
-  nodeExecutor: (node: WorkflowNode) => (state: Record<string, unknown>) => Promise<Record<string, unknown>>,
+  nodeExecutor: (node: WorkflowNode, upstreamNodeIds: string[]) => (state: Record<string, unknown>) => Promise<Record<string, unknown>>,
 ) {
   const builder = new StateGraph(WorkflowState);
 
@@ -74,7 +73,7 @@ export function buildWorkflowGraph(
       .filter((e) => e.target === node.id && e.source !== 'start')
       .map((e) => e.source);
 
-    const executor = nodeExecutor(node);
+    const executor = nodeExecutor(node, upstreamNodeIds);
 
     builder.addNode(node.id, async (state: Record<string, unknown>) => {
       try {
@@ -117,6 +116,18 @@ export function buildWorkflowGraph(
 
     if (edge.metadata?.condition) {
       // 条件边（D-09: Agent 输出或 Master Agent 决定）
+      // D-10: 循环保护 — 插入计数器递增节点
+      const counterNodeName = `__counter_${edge.metadata.condition}`;
+      builder.addNode(counterNodeName, (state: Record<string, unknown>) => {
+        const routing = (state.routing as Record<string, unknown>) ?? {};
+        const loopKey = `__loop_${edge.metadata!.condition}`;
+        const count = (routing[loopKey] as number) ?? 0;
+        return { routing: { [loopKey]: count + 1 } };
+      });
+
+      // 源节点 → 计数器节点（替代直接条件边）
+      builder.addEdge(sourceNode as any, counterNodeName as any);
+      // 计数器节点 → 条件路由
       const targets = edge.metadata.targets ?? {};
       const targetValues = Object.values(targets);
       const routeMap = [...targetValues, '__default__', '__max_iterations_exceeded__'].reduce(
@@ -126,7 +137,7 @@ export function buildWorkflowGraph(
         },
         {} as Record<string, string>,
       );
-      builder.addConditionalEdges(sourceNode as any, createConditionalRouter(edge.metadata.condition, edge.metadata.maxIterations), routeMap as any);
+      builder.addConditionalEdges(counterNodeName as any, createConditionalRouter(edge.metadata.condition, edge.metadata.maxIterations), routeMap as any);
     } else {
       // 普通边
       builder.addEdge(sourceNode as any, targetNode as any);
