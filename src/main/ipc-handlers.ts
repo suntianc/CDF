@@ -19,6 +19,7 @@ import {
 } from './deepagent/skill-manager';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
+import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
 
 const getProviderLabel = (type: string): string => {
   switch (type) {
@@ -632,4 +633,79 @@ export function registerIpcHandlers() {
     agentInstances.set(agentId, { config });
     return { agentId };
   });
+
+  // ===== Phase 4: Workflow CRUD IPC Handlers =====
+
+  ipcMain.handle('db:getWorkflows', (_, projectId: string) => {
+    const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
+    return rows.map(r => ({
+      ...r,
+      graph_data: r.graph_data ? JSON.parse(r.graph_data) : { nodes: [], edges: [] },
+    }));
+  });
+
+  ipcMain.handle('db:getWorkflow', (_, id: string) => {
+    const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
+    if (!row) return undefined;
+    return {
+      ...row,
+      graph_data: row.graph_data ? JSON.parse(row.graph_data) : { nodes: [], edges: [] },
+    };
+  });
+
+  ipcMain.handle('db:saveWorkflow', (_, workflow: any) => {
+    const { id, project_id, name, description, graph_data, status } = workflow;
+    const now = Date.now();
+    const graphDataStr = graph_data ? JSON.stringify(graph_data) : '{"nodes":[],"edges":[]}';
+
+    const existing = db.prepare('SELECT id FROM workflows WHERE id = ?').get(id);
+    if (existing) {
+      db.prepare(`
+        UPDATE workflows SET name = ?, description = ?, graph_data = ?, status = ?, updated_at = ?
+        WHERE id = ?
+      `).run(name, description || null, graphDataStr, status || 'draft', now, id);
+    } else {
+      db.prepare(`
+        INSERT INTO workflows (id, project_id, name, description, graph_data, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, project_id, name, description || null, graphDataStr, status || 'draft', now, now);
+    }
+
+    return { id, project_id, name, description, graph_data: graph_data || { nodes: [], edges: [] }, status: status || 'draft', created_at: now, updated_at: now };
+  });
+
+  ipcMain.handle('db:deleteWorkflow', (_, id: string) => {
+    db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+  });
+
+  ipcMain.handle('db:getWorkflowExecutions', (_, workflowId: string) => {
+    const rows = db.prepare('SELECT * FROM workflow_executions WHERE workflow_id = ? ORDER BY started_at DESC').all(workflowId) as any[];
+    return rows.map(r => ({
+      ...r,
+      input: r.input ? JSON.parse(r.input) : {},
+      output: r.output ? JSON.parse(r.output) : undefined,
+    }));
+  });
+
+  ipcMain.handle('db:getWorkflowExecution', (_, id: string) => {
+    const row = db.prepare('SELECT * FROM workflow_executions WHERE id = ?').get(id) as any;
+    if (!row) return undefined;
+    return {
+      ...row,
+      input: row.input ? JSON.parse(row.input) : {},
+      output: row.output ? JSON.parse(row.output) : undefined,
+    };
+  });
+
+  ipcMain.handle('db:getWorkflowNodeRuns', (_, executionId: string) => {
+    const rows = db.prepare('SELECT * FROM workflow_node_runs WHERE execution_id = ? ORDER BY started_at').all(executionId) as any[];
+    return rows.map(r => ({
+      ...r,
+      input: r.input ? JSON.parse(r.input) : undefined,
+      output: r.output ? JSON.parse(r.output) : undefined,
+    }));
+  });
+
+  // ===== Phase 4: Workflow Runtime IPC Handlers =====
+  registerWorkflowIpcHandlers();
 }
