@@ -67,7 +67,7 @@ export function ChatArea({
     }
 
     setShowCompletedTodos(true);
-    const timer = setTimeout(() => setShowCompletedTodos(false), 5000);
+    const timer = setTimeout(() => setShowCompletedTodos(false), 2000);
     return () => clearTimeout(timer);
   }, [allTodosCompleted, todos]);
 
