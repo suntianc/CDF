@@ -486,7 +486,9 @@ export async function createDeepAgentRuntime(
     }
 
     const arxivConfig = loadFreeToolConfig('arxiv');
-    builtInTools.push(createArxivTool(arxivConfig));
+    if (arxivConfig) {
+      builtInTools.push(createArxivTool(arxivConfig));
+    }
   } catch (err) {
     console.warn('[RUNTIME] Failed to load built-in search tools config:', err);
   }
