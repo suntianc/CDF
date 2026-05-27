@@ -5,7 +5,7 @@
 - [x] **Phase 1: Foundation Workspace** - 基础架构、主题切换、项目管理基础设施
 - [x] **Phase 2: AI Chat Engine** - Master Agent 对话界面、多轮对话、LLM 提供者配置
 - [x] **Phase 3: Agent Integration** - Agent 资产管理、Skills 管理、MCP 服务器管理
-- [ ] **Phase 4: Workflow System** - ReactFlow 可视化工作流编辑器、执行引擎
+- [x] **Phase 4: Workflow System** - ReactFlow 可视化工作流编辑器、执行引擎 (completed 2026-05-27)
 - [ ] **Phase 5: Project Management** - 多项目管理面板、项目级数据隔离
 
 ---
@@ -135,7 +135,7 @@ Plans:
 6. 节点失败时汇报给 Master Agent 决断
 7. 用户可保存和加载工作流
 
-**Plans:** TBD
+**Plans:** 4/4 plans complete
 
 **UI hint:** yes
 
@@ -168,7 +168,7 @@ Plans:
 | 2. AI Chat Engine | 1/1 | Completed | 2026-05-22 |
 | 3. Agent Integration | 5/5 | Completed | 2026-05-23 |
 | 03.2. deepagents Review | 6/6 | Complete    | 2026-05-27 |
-| 4. Workflow System | 0/1 | Not started | - |
+| 4. Workflow System | 4/4 | Complete   | 2026-05-27 |
 | 5. Project Management | 0/1 | Not started | - |
 
 ---
