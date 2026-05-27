@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-last_updated: 2026-05-27T04:35:28.208Z
+last_updated: 2026-05-27T06:04:39.000Z
 progress:
   total_phases: 7
   completed_phases: 4
@@ -37,6 +37,8 @@ Plan: Not started
 | 2026-05-24 | 20260524-agent-trust-foundation | Agent 桌面应用信任底座 | complete |
 | 2026-05-25 | 20260525-openai-compatible-provider-adapter | OpenAI-Compatible Provider 适配层加固 | complete |
 | 2026-05-27 | 260527-isd | todo 轮询 → run.values 事件驱动 | complete |
+| 2026-05-27 | 260527-j8h | TodoList 跨回合残留修复 | complete |
+| 2026-05-27 | 260527-j8h | TodoList 跨轮次数据残留修复 | complete |
 
 ## Accumulated Context
 
