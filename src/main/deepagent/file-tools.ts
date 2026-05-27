@@ -40,7 +40,13 @@ function isProtectedPath(virtualPath: string): boolean {
 }
 
 function resolveProjectFile(projectPath: string, virtualPath: string): string {
-  const target = path.resolve(projectPath, virtualPath.slice(1));
+  // Strip /workspace/ prefix to match CompositeBackend's path resolution.
+  // CompositeBackend routes /workspace/* to FilesystemBackend(rootDir=projectPath),
+  // which strips the prefix internally. This custom tool must do the same.
+  const stripped = virtualPath.startsWith('/workspace/')
+    ? virtualPath.slice('/workspace/'.length)
+    : virtualPath.slice(1);
+  const target = path.resolve(projectPath, stripped);
   const relative = path.relative(projectPath, target);
   if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error(`Path is outside project: ${virtualPath}`);
