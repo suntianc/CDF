@@ -294,41 +294,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           });
         }
       }
-      let sessionTodos: TodoItem[] = [];
-      const writeTodosCalls = toolCalls.filter(c => c.tool_name === 'write_todos' && c.status === 'success');
-      if (writeTodosCalls.length > 0) {
-        // Sort by ended_at desc to get the latest one
-        writeTodosCalls.sort((a, b) => (b.ended_at || 0) - (a.ended_at || 0));
-        const latestCall = writeTodosCalls[0];
-        try {
-          const rawOutput = typeof latestCall.output === 'string' ? latestCall.output : JSON.stringify(latestCall.output);
-          const outputObj = JSON.parse(rawOutput);
-          let todosList = null;
-          if (outputObj && typeof outputObj === 'object') {
-            if (Array.isArray(outputObj)) {
-              todosList = outputObj;
-            } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
-              todosList = outputObj.update.todos;
-            } else if (outputObj.value && typeof outputObj.value === 'object') {
-              const val = outputObj.value;
-              if (val.update && Array.isArray(val.update.todos)) {
-                todosList = val.update.todos;
-              }
-            }
-          }
-          if (Array.isArray(todosList)) {
-            sessionTodos = todosList;
-          }
-        } catch (e) {
-          console.warn('[sessionStore] Failed to parse historic write_todos:', e);
-        }
-      }
+      // Don't reconstruct todos from DB — they arrive in real-time via run.values
+      // during active streaming. Reconstructing from historic write_todos tool calls
+      // causes stale todos to flash on session switch.
 
       set({
         agentRuns: runs,
         agentToolCalls: toolCalls,
         delegatedTasks: tasks,
-        todos: sessionTodos,
+        todos: [],
         activeRunId: activeRun?.id || null,
       });
     } catch (err: any) {
