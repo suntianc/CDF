@@ -87,15 +87,15 @@
 **Goal:** 系统性复核 deepagents.js 集成代码，按模块检查 API 兼容性 + 最佳实践，发现问题直接修复
 **Requirements**: REVIEW-03.2-RUNTIME, REVIEW-03.2-CONTEXT, REVIEW-03.2-SUBAGENT, REVIEW-03.2-HUMAN, REVIEW-03.2-OPTIMIZE, REVIEW-03.2-REPORT
 **Depends on:** Phase 3
-**Plans:** 6 plans
+**Plans:** 6/6 plans complete
 
 Plans:
 - [x] 03.2-01-PLAN.md — 模块 1：任务规划与协调 — Runtime 创建、Agent 配置、createDeepAgent 参数
-- [ ] 03.2-02-PLAN.md — 模块 2：环境操作与上下文管理 — 上下文窗口管理、总结策略、会话持久化
-- [ ] 03.2-03-PLAN.md — 模块 3：子代理委派 — task(name, task)、subagentIds、responseFormat、异常包装
-- [ ] 03.2-04-PLAN.md — 模块 4：人机协同 — approval_required 机制、用户确认流程
-- [ ] 03.2-05-PLAN.md — 模块 5：持续优化 — 整体架构一致性、代码质量、模式统一性
-- [ ] 03.2-06-PLAN.md — 综合报告：汇总所有模块复核结果，生成最终报告
+- [x] 03.2-02-PLAN.md — 模块 2：环境操作与上下文管理 — 上下文窗口管理、总结策略、会话持久化
+- [x] 03.2-03-PLAN.md — 模块 3：子代理委派 — task(name, task)、subagentIds、responseFormat、异常包装
+- [x] 03.2-04-PLAN.md — 模块 4：人机协同 — approval_required 机制、用户确认流程
+- [x] 03.2-05-PLAN.md — 模块 5：持续优化 — 整体架构一致性、代码质量、模式统一性
+- [x] 03.2-06-PLAN.md — 综合报告：汇总所有模块复核结果，生成最终报告
 
 ### Phase 03.1: 实现子agent调用流程 (INSERTED)
 
@@ -167,7 +167,7 @@ Plans:
 | 1. Foundation Workspace | 1/1 | Completed | 2026-05-21 |
 | 2. AI Chat Engine | 1/1 | Completed | 2026-05-22 |
 | 3. Agent Integration | 5/5 | Completed | 2026-05-23 |
-| 03.2. deepagents Review | 1/6 | Executing | - |
+| 03.2. deepagents Review | 6/6 | Complete    | 2026-05-27 |
 | 4. Workflow System | 0/1 | Not started | - |
 | 5. Project Management | 0/1 | Not started | - |
 
