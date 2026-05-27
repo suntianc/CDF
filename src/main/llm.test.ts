@@ -7,7 +7,7 @@ const { createDeepAgentRuntimeMock, dbPrepareMock, modelCaptureMock } = vi.hoist
 }));
 
 vi.mock('./deepagent/runtime', () => ({
-  DEEPAGENT_CHECKPOINT_NAMESPACE: 'cdf-master-runtime-v3',
+  DEEPAGENT_CHECKPOINT_NAMESPACE: '',
   createDeepAgentRuntime: createDeepAgentRuntimeMock,
 }));
 
@@ -102,7 +102,7 @@ describe('runLLMChat', () => {
         version: 'v3',
         configurable: {
           thread_id: 'session-1',
-          checkpoint_ns: 'cdf-master-runtime-v3',
+          checkpoint_ns: '',
         },
       })
     );
@@ -665,5 +665,110 @@ describe('runLLMChat', () => {
         model: 'model-2',
       }
     );
+  });
+
+  it('should stream todos_update event when agent state contains todos', async () => {
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {
+        yield {
+          text: (async function* () {
+            yield 'Hello';
+          })(),
+        };
+      })(),
+      toolCalls: (async function* () {})(),
+      output: Promise.resolve({ state: 'done' }),
+    });
+
+    const getState = vi.fn().mockResolvedValue({
+      values: {
+        todos: [
+          { content: 'Step 1', status: 'completed' },
+          { content: 'Step 2', status: 'in_progress' },
+          { content: 'Step 3', status: 'pending' },
+        ],
+      },
+    });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+        getState,
+      },
+      inputMessages: [{ role: 'user', content: 'run plan' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-4', {
+      projectId: 'project-1',
+      sessionId: 'session-4',
+      message: {
+        id: 'message-4',
+        content: 'run plan',
+      },
+    });
+
+    expect(getState).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-4', {
+      type: 'todos_update',
+      todos: [
+        { content: 'Step 1', status: 'completed' },
+        { content: 'Step 2', status: 'in_progress' },
+        { content: 'Step 3', status: 'pending' },
+      ],
+    });
+  });
+
+  it('should refresh todos immediately after tool completion', async () => {
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {})(),
+      toolCalls: (async function* () {
+        yield { callId: 'tool-1', name: 'write_file', input: { path: '/a.txt' }, output: Promise.resolve('ok') };
+      })(),
+      output: Promise.resolve({ state: 'done' }),
+    });
+
+    const getState = vi
+      .fn()
+      .mockResolvedValueOnce({ values: {} })
+      .mockResolvedValueOnce({ values: {} })
+      .mockResolvedValueOnce({
+        values: {
+          todos: [
+            { content: 'Write file', status: 'completed' },
+            { content: 'Summarize result', status: 'in_progress' },
+          ],
+        },
+      });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+        getState,
+      },
+      inputMessages: [{ role: 'user', content: 'run plan' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-tool-todos', {
+      projectId: 'project-1',
+      sessionId: 'session-tool-todos',
+      message: {
+        id: 'message-tool-todos',
+        content: 'run plan',
+      },
+    });
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-tool-todos', {
+      type: 'todos_update',
+      todos: [
+        { content: 'Write file', status: 'completed' },
+        { content: 'Summarize result', status: 'in_progress' },
+      ],
+    });
   });
 });

@@ -1,9 +1,9 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { z } from 'zod';
 import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
 import { decryptApiKey } from '../security';
 import { createDeepAgent, FilesystemBackend, registerHarnessProfile } from 'deepagents';
@@ -303,6 +303,117 @@ function generateSlug(name: string): string {
     .slice(0, 50);
 }
 
+function getRecoverableToolErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  if (lower.includes('timeout') || lower.includes('timed out')) return 'TIMEOUT';
+  if (lower.includes('rate limit') || lower.includes('429')) return 'RATE_LIMIT';
+  if (lower.includes('permission') || lower.includes('unauthorized') || lower.includes('forbidden')) return 'PERMISSION_DENIED';
+  if (lower.includes('not found') || lower.includes('enoent')) return 'NOT_FOUND';
+  return 'TOOL_FAILED';
+}
+
+function getRecoverableToolErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+  return String(error);
+}
+
+function isTransientRuntimeError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  const name = error.name.toLowerCase();
+  return (
+    name.includes('timeout') ||
+    name.includes('network') ||
+    name.includes('rate') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('rate limit') ||
+    message.includes('429') ||
+    message.includes('500') ||
+    message.includes('502') ||
+    message.includes('503') ||
+    message.includes('504') ||
+    message.includes('econnreset') ||
+    message.includes('econnrefused') ||
+    message.includes('etimedout')
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || error.message === 'Aborted');
+}
+
+function createRecoverableToolErrorMiddleware() {
+  return createMiddleware({
+    name: 'RecoverableToolErrorMiddleware',
+    wrapToolCall: async (request, handler) => {
+      try {
+        return await handler(request);
+      } catch (error) {
+        if (isAbortError(error) || request.runtime?.signal?.aborted) {
+          throw error;
+        }
+
+        const toolName = request.toolCall.name;
+        const message = getRecoverableToolErrorMessage(error);
+        const code = getRecoverableToolErrorCode(error);
+        const content = toolName === 'task'
+          ? JSON.stringify({
+            status: 'failure',
+            artifacts: [],
+            summary: '子代理执行失败，主 Agent 需要根据错误继续决策。',
+            error: { code, message },
+          })
+          : `Tool error (${toolName}): ${message}\n\nThe tool call failed. Treat this as an observation and decide the next step.`;
+
+        return new ToolMessage({
+          content,
+          tool_call_id: request.toolCall.id || crypto.randomUUID(),
+          name: toolName,
+        });
+      }
+    },
+  });
+}
+
+function formatRecoverableToolErrorObservation(error: Error): string {
+  const code = getRecoverableToolErrorCode(error);
+  const message = getRecoverableToolErrorMessage(error);
+  return [
+    `Tool error (${code}): ${message}`,
+    '',
+    'The tool call failed but the subagent run is still active. Treat this as an observation, update your todo list or plan, and decide whether to retry with adjusted input, skip this step, or summarize the blocker.',
+  ].join('\n');
+}
+
+function formatRecoverableModelErrorObservation(error: Error): string {
+  const code = getRecoverableToolErrorCode(error);
+  const message = getRecoverableToolErrorMessage(error);
+  return [
+    `Model call error (${code}): ${message}`,
+    '',
+    'The model call failed after retry handling. Preserve the current task context and return a structured failure summary instead of crashing the parent run.',
+  ].join('\n');
+}
+
+function createSubagentResilienceMiddleware() {
+  return [
+    createRecoverableToolErrorMiddleware(),
+    toolRetryMiddleware({
+      maxRetries: 2,
+      retryOn: isTransientRuntimeError,
+      onFailure: formatRecoverableToolErrorObservation,
+    }),
+    modelRetryMiddleware({
+      maxRetries: 2,
+      retryOn: isTransientRuntimeError,
+      onFailure: formatRecoverableModelErrorObservation,
+    }),
+  ];
+}
+
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
@@ -379,15 +490,7 @@ export async function createDeepAgentRuntime(
     console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
   }
 
-  const subagents: Array<{
-    name: string;
-    description: string;
-    systemPrompt: string;
-    tools: any[];
-    model?: string;
-    modelProvider?: string;
-    responseFormat: z.ZodType;
-  }> = [];
+  const subagents: any[] = [];
 
   if (effectiveSubagentIds && effectiveSubagentIds.length > 0) {
     // Basic ID format validation (accept UUIDs and simple test IDs)
@@ -407,17 +510,23 @@ export async function createDeepAgentRuntime(
       const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
       const { skillsSources: subSkillsSources, permissions: subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
 
-      const providerRow = agentRow.provider_id
-        ? (db.prepare('SELECT default_model, provider_type FROM llm_providers WHERE id = ?').get(agentRow.provider_id) as { default_model: string; provider_type: string } | undefined)
-        : undefined;
+      const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
+      const subagentModel = createLangChainModel({
+        apiKey: providerRow.api_key,
+        apiUrl: providerRow.api_url,
+        defaultModel: providerRow.default_model,
+        providerType: providerRow.provider_type,
+      });
+
+      console.log(`[runtime] Subagent ${agentSlug}: provider_id=${agentRow.provider_id}, default_model=${providerRow?.default_model}, provider_type=${providerRow?.provider_type}`);
 
       subagents.push({
         name: agentSlug,  // D-03: slug as stable key
         description: agentRow.description || '',
         systemPrompt: (agentRow.system_prompt || '') + `\n\n你必须返回符合以下 JSON Schema 的结果，不要返回 JSON 以外的任何内容：${JSON.stringify({ type: 'object', properties: { status: { type: 'string', enum: ['success', 'failure'] }, artifacts: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' }, error: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } } }, required: ['status', 'artifacts', 'summary'] })}`,
         tools: [...subMcpRuntime.tools],
-        model: providerRow?.default_model,
-        modelProvider: providerRow?.provider_type,
+        model: subagentModel,
+        middleware: createSubagentResilienceMiddleware(),
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
       });
     }
@@ -431,6 +540,7 @@ export async function createDeepAgentRuntime(
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
+    middleware: [createRecoverableToolErrorMiddleware()],
     interruptOn: DEFAULT_INTERRUPT_ON,
     checkpointer,
     memory: memory.length ? memory : undefined,

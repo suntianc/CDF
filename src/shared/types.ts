@@ -128,6 +128,11 @@ export interface SearchResult {
   published_at?: string;
 }
 
+export interface TodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
 export type LLMStreamEvent =
   | { type: 'run_started'; runId: string; agentId: string; status: AgentRunStatus }
   | { type: 'run_updated'; runId: string; status: AgentRunStatus; error?: string }
@@ -141,7 +146,8 @@ export type LLMStreamEvent =
   | { type: 'runtime_error'; error: string }
   | { type: 'delegated_task_start'; taskId: string; agentSlug: string; agentName: string; goal: string }
   | { type: 'delegated_task_chunk'; taskId: string; text: string }
-  | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string };
+  | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
+  | { type: 'todos_update'; todos: TodoItem[] };
 
 export interface ChatRuntimeOverrides {
   providerId?: string;

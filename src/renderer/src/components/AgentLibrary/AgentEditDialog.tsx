@@ -98,6 +98,13 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       showToast('Agent 名称不能为空', 'error');
       return;
     }
+
+    const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
+    if (!ENGLISH_NAME_REGEX.test(formName.trim())) {
+      showToast('Agent 名称只能用英文（可以包含数字、空格、横线或下划线）', 'error');
+      return;
+    }
+
     if (!formProviderId) {
       showToast('请先去“模型配置”页面添加并激活一个 LLM 大脑！', 'error');
       return;

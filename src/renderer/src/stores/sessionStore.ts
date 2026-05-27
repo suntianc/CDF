@@ -8,6 +8,7 @@ import {
   LLMStreamEvent,
   Message,
   Session,
+  TodoItem,
 } from '../../../shared/types';
 
 export function estimateTokens(text: string): number {
@@ -51,6 +52,7 @@ interface SessionState {
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
   delegatedTasks: DelegatedTask[];
+  todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
   error: string | null;
   fetchSessions: (projectId: string) => Promise<void>;
@@ -75,6 +77,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   agentRuns: [],
   agentToolCalls: [],
   delegatedTasks: [],
+  todos: [],
   pendingApproval: null,
   error: null,
 
@@ -116,21 +119,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (activeSessionId) {
         await get().selectSession(activeSessionId);
       } else {
-        set({ messages: [], agentRuns: [], agentToolCalls: [], activeRunId: null, pendingApproval: null });
+        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null });
       }
     } catch (err: any) {
       set({ error: err.message || 'Failed to delete session' });
     }
   },
-
+ 
   selectSession: async (sessionId: string | null) => {
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null, pendingApproval: null, error: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null });
       return;
     }
     try {
       const messages = await window.electronAPI.db.getMessages(sessionId);
-      set({ activeSessionId: sessionId, messages, delegatedTasks: [], error: null });
+      set({ activeSessionId: sessionId, messages, delegatedTasks: [], todos: [], error: null });
       await get().fetchAgentActivity(sessionId);
     } catch (err: any) {
       set({ error: err.message || 'Failed to load messages for session' });
@@ -250,11 +253,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           });
         }
       }
+      let sessionTodos: TodoItem[] = [];
+      const writeTodosCalls = toolCalls.filter(c => c.tool_name === 'write_todos' && c.status === 'success');
+      if (writeTodosCalls.length > 0) {
+        // Sort by ended_at desc to get the latest one
+        writeTodosCalls.sort((a, b) => (b.ended_at || 0) - (a.ended_at || 0));
+        const latestCall = writeTodosCalls[0];
+        try {
+          const rawOutput = typeof latestCall.output === 'string' ? latestCall.output : JSON.stringify(latestCall.output);
+          const outputObj = JSON.parse(rawOutput);
+          let todosList = null;
+          if (outputObj && typeof outputObj === 'object') {
+            if (Array.isArray(outputObj)) {
+              todosList = outputObj;
+            } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
+              todosList = outputObj.update.todos;
+            } else if (outputObj.value && typeof outputObj.value === 'object') {
+              const val = outputObj.value;
+              if (val.update && Array.isArray(val.update.todos)) {
+                todosList = val.update.todos;
+              }
+            }
+          }
+          if (Array.isArray(todosList)) {
+            sessionTodos = todosList;
+          }
+        } catch (e) {
+          console.warn('[sessionStore] Failed to parse historic write_todos:', e);
+        }
+      }
 
       set({
         agentRuns: runs,
         agentToolCalls: toolCalls,
         delegatedTasks: tasks,
+        todos: sessionTodos,
         activeRunId: activeRun?.id || null,
       });
     } catch (err: any) {
@@ -298,6 +331,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isStreaming: true,
         streamingMessageId: assistantMsgId,
         activeRunId: null,
+        todos: [],
         pendingApproval: null,
         error: null,
       }));
@@ -309,6 +343,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       const streamPromise = new Promise<void>((resolve, reject) => {
         cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data: LLMStreamEvent) => {
+          if (data.type === 'todos_update') {
+            set({ todos: data.todos });
+            return;
+          }
+
           if (data.type === 'run_started') {
             set((state) => ({
               activeRunId: data.runId,
@@ -520,6 +559,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               const queue = pendingToolMessages.get(data.name) || [];
               toolMessageId = queue.shift();
               pendingToolMessages.set(data.name, queue);
+            }
+
+            if (data.type === 'tool_end' && data.name === 'write_todos') {
+              try {
+                const outputObj = typeof data.output === 'string' ? JSON.parse(data.output) : data.output;
+                let todosList = null;
+                if (outputObj && typeof outputObj === 'object') {
+                  if (Array.isArray(outputObj)) {
+                    todosList = outputObj;
+                  } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
+                    todosList = outputObj.update.todos;
+                  } else if (outputObj.value && typeof outputObj.value === 'object') {
+                    const val = outputObj.value;
+                    if (val.update && Array.isArray(val.update.todos)) {
+                      todosList = val.update.todos;
+                    }
+                  }
+                }
+                if (Array.isArray(todosList)) {
+                  set({ todos: todosList });
+                }
+              } catch (err) {
+                console.warn('Failed to parse todos from write_todos tool output:', err);
+              }
             }
 
             if (toolMessageId) {

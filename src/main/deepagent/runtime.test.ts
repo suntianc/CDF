@@ -60,7 +60,10 @@ vi.mock('../security', () => ({
 }));
 
 vi.mock('./llm-adapter', () => ({
-  createLangChainModel: vi.fn(() => ({ model: 'mock-model' })),
+  createLangChainModel: vi.fn((config: { defaultModel: string; model?: string; providerType: string }) => ({
+    model: config.model || config.defaultModel,
+    providerType: config.providerType,
+  })),
 }));
 
 vi.mock('./mcp-connector', () => ({
@@ -162,7 +165,7 @@ describe('createDeepAgentRuntime', () => {
     expect(checkpointGetTupleMock).toHaveBeenCalledWith({
       configurable: {
         thread_id: 'session-1',
-        checkpoint_ns: 'cdf-master-runtime-v3',
+        checkpoint_ns: '',
       },
     });
     expect(registerHarnessProfileMock).toHaveBeenCalledWith('llama3', expect.objectContaining({
@@ -258,6 +261,98 @@ describe('createDeepAgentRuntime', () => {
     expect(params.subagents.length).toBeGreaterThan(0);
     expect(params.subagents[0].name).toBe('code-agent');  // D-03: slug as stable key
     expect(params.subagents[0].responseFormat).toBe(DELEGATED_TASK_RESULT_SCHEMA);  // D-10
+    expect(params.subagents[0].model).toEqual({ model: 'llama4', providerType: 'ollama' });
+    expect(params.subagents[0].modelProvider).toBeUndefined();
+    expect(params.subagents[0].middleware.map((item: { name?: string }) => item.name)).toEqual(
+      expect.arrayContaining(['RecoverableToolErrorMiddleware', 'toolRetryMiddleware', 'modelRetryMiddleware'])
+    );
+  });
+
+  it('should pass MiniMax subagent models as model instances instead of provider strings', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('FROM agents WHERE id')) {
+          if (arg === 'agent-2') return { ...agent2, slug: 'minimax-agent' };
+          if (arg === 'agent-1') return agent;
+          return undefined;
+        }
+        if (sql.includes('FROM llm_providers')) {
+          if (arg === 'provider-1') return provider;
+          if (arg === 'provider-2') {
+            return {
+              ...provider2,
+              provider_type: 'minimax',
+              api_url: 'https://api.minimaxi.com/anthropic/v1',
+              default_model: 'MiniMax-M2.7-highspeed',
+            };
+          }
+          return undefined;
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
+        if (sql.includes('FROM agent_skills')) return [];
+        if (sql.includes('FROM messages')) return [];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.subagents[0].model).toEqual({ model: 'MiniMax-M2.7-highspeed', providerType: 'minimax' });
+    expect(params.subagents[0].modelProvider).toBeUndefined();
+  });
+
+  it('should convert task tool errors into failure ToolMessages for the main agent', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' });
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const recoverableMiddleware = params.middleware.find((item: { name?: string }) => item.name === 'RecoverableToolErrorMiddleware');
+    const result = await recoverableMiddleware.wrapToolCall(
+      {
+        toolCall: { id: 'tool-call-1', name: 'task', args: {} },
+        runtime: { signal: { aborted: false } },
+        state: {},
+      },
+      async () => {
+        throw new Error('Subagent agent failed');
+      }
+    );
+
+    expect(result.tool_call_id).toBe('tool-call-1');
+    expect(JSON.parse(result.content)).toEqual({
+      status: 'failure',
+      artifacts: [],
+      summary: '子代理执行失败，主 Agent 需要根据错误继续决策。',
+      error: { code: 'TOOL_FAILED', message: 'Subagent agent failed' },
+    });
+  });
+
+  it('should let subagents observe tool failures instead of crashing their graph', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const retryMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'toolRetryMiddleware');
+    const result = await retryMiddleware.wrapToolCall(
+      {
+        toolCall: { id: 'sub-tool-call-1', name: 'read_file', args: {} },
+        tool: { name: 'read_file' },
+        runtime: { signal: { aborted: false } },
+        state: {},
+      },
+      async () => {
+        throw new Error('ENOENT: no such file or directory');
+      }
+    );
+
+    expect(result.tool_call_id).toBe('sub-tool-call-1');
+    expect(result.content).toContain('Tool error (NOT_FOUND)');
+    expect(result.content).toContain('subagent run is still active');
   });
 
   it('should have task tool enabled when subagentIds provided (excludedTools: [])', async () => {

@@ -42,6 +42,7 @@ vi.mock('./store', () => ({
 vi.mock('./database', () => ({
   default: {
     prepare: dbPrepareMock,
+    transaction: vi.fn((fn) => fn),
   },
 }));
 
@@ -93,5 +94,32 @@ describe('IPC handlers', () => {
 
     expect(result).toEqual({ ok: true });
     expect(runLLMChatMock).toHaveBeenCalledWith('web-contents', 'request-1', { sessionId: 'session-1' });
+  });
+
+  it('should throw an error in db:saveAgent if agent name contains non-English characters', async () => {
+    registerIpcHandlers();
+    const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
+    expect(saveAgentHandler).toBeTypeOf('function');
+
+    // Invalid names
+    expect(() => saveAgentHandler({}, { name: '智能代理', id: 'agent-1' })).toThrow(
+      'Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.'
+    );
+    expect(() => saveAgentHandler({}, { name: 'Agent 代理', id: 'agent-1' })).toThrow(
+      'Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.'
+    );
+
+    // Valid names should not throw name validation error
+    dbPrepareMock.mockReturnValue({
+      get: vi.fn(() => null),
+      run: vi.fn(),
+    });
+    const result = saveAgentHandler({}, { 
+      id: 'agent-1', 
+      project_id: 'proj-1', 
+      name: 'Smart Agent 123-_', 
+      is_default: false 
+    });
+    expect(result.name).toBe('Smart Agent 123-_');
   });
 });

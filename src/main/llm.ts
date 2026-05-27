@@ -274,7 +274,7 @@ async function checkAndSendTodos(
         checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
       },
     });
-    const todos = state.values?.todos;
+    const todos = state?.values?.todos;
     if (Array.isArray(todos)) {
       const todosJson = JSON.stringify(todos);
       if (todosJson !== lastTodosJsonRef.current) {
@@ -290,6 +290,27 @@ async function checkAndSendTodos(
   }
 }
 
+function startTodoPolling(
+  runtime: any,
+  sessionId: string,
+  sender: WebContents,
+  channel: string,
+  lastTodosJsonRef: { current: string },
+  signal: AbortSignal
+): () => void {
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (signal.aborted || inFlight) return;
+    inFlight = true;
+    checkAndSendTodos(runtime, sessionId, sender, channel, lastTodosJsonRef)
+      .finally(() => {
+        inFlight = false;
+      });
+  }, 500);
+
+  return () => clearInterval(timer);
+}
+
 export async function runLLMChat(sender: WebContents, requestId: string, payload: ChatPayload): Promise<void> {
   const channel = `llm:chunk-${requestId}`;
   const controller = new AbortController();
@@ -301,6 +322,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
   return runWithStreamAccumulator(accumulator, async () => {
     let cleanup = async () => {};
     let runtime: any = null;
+    let stopTodoPolling = () => {};
     const lastTodosJsonRef = { current: '' };
     try {
       runtime = await createDeepAgentRuntime(
@@ -316,6 +338,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
 
     await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
+    stopTodoPolling = startTodoPolling(runtime, payload.sessionId, sender, channel, lastTodosJsonRef, controller.signal);
 
     let nextInput: any = { messages: runtime.inputMessages };
 
@@ -568,6 +591,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 errorCode,
               });
             }
+            await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
           } catch (error: any) {
             updateToolCall(toolCallId, 'error', undefined, error?.message || String(error));
             sender.send(channel, {
@@ -600,6 +624,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 errorCode,
               });
             }
+            await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
           }
         }
       })();
@@ -764,6 +789,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     }
   } finally {
     activeRequests.delete(requestId);
+    stopTodoPolling();
     await cleanup();
   }
   });

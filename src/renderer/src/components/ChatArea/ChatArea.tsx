@@ -12,6 +12,7 @@ import { ToolMessageCard, ToolGroupCard } from './ToolMessageCard';
 
 import { MessageItem } from './MessageItem';
 import { useChatScroll } from './useChatScroll';
+import { TodoList } from './TodoList';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -30,7 +31,7 @@ export function ChatArea({
 }: ChatAreaProps) {
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
-    sessions, activeSessionId, messages, isStreaming, error, 
+    sessions, activeSessionId, messages, isStreaming, error, todos,
     sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage
   } = useSessionStore();
   const { providers, fetchProviders } = useLLMStore();
@@ -41,6 +42,7 @@ export function ChatArea({
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
+  const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
@@ -53,6 +55,21 @@ export function ChatArea({
     activeSessionId,
     isStreaming,
   });
+
+  const hasTodos = todos.length > 0;
+  const allTodosCompleted = hasTodos && todos.every((todo) => todo.status === 'completed');
+  const shouldShowTodos = hasTodos && (!allTodosCompleted || isStreaming || showCompletedTodos);
+
+  useEffect(() => {
+    if (!allTodosCompleted) {
+      setShowCompletedTodos(false);
+      return;
+    }
+
+    setShowCompletedTodos(true);
+    const timer = setTimeout(() => setShowCompletedTodos(false), 5000);
+    return () => clearTimeout(timer);
+  }, [allTodosCompleted, todos]);
 
   // Defensive mount-time isStreaming reset to prevent stuck loading states
   useEffect(() => {
@@ -573,96 +590,101 @@ export function ChatArea({
 
         {/* Input Composer Panel */}
         <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/95 to-transparent z-10 pointer-events-none">
-          <form onSubmit={(e) => e.preventDefault()} className="max-w-[760px] mx-auto flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg pointer-events-auto">
-            {/* Upper: Text Input Area */}
-            <textarea
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onCompositionStart={handleCompositionStart}
-              onCompositionEnd={handleCompositionEnd}
-              onKeyDown={handleKeyDown}
-              placeholder="给 Master Agent 发送消息..."
-              rows={2}
-              className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
-            />
-            
-            {/* Lower: Toolbar Row */}
-            <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
-              <div className="flex items-center gap-1.5">
-                <div 
-                  className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div
-                    onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
-                    className="model-selector-trigger"
+          <div className="max-w-[760px] mx-auto flex flex-col gap-3 pointer-events-auto">
+            {shouldShowTodos && (
+              <TodoList todos={todos} />
+            )}
+            <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
+              {/* Upper: Text Input Area */}
+              <textarea
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                onKeyDown={handleKeyDown}
+                placeholder="给 Master Agent 发送消息..."
+                rows={2}
+                className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
+              />
+              
+              {/* Lower: Toolbar Row */}
+              <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
+                <div className="flex items-center gap-1.5">
+                  <div 
+                    className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <span className="model-selector-label truncate max-w-[150px]">
-                      {currentModelLabel}
-                    </span>
-                    <ChevronDown className="model-chevron w-3.5 h-3.5" />
-                  </div>
-                  <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
-                    {providers.length === 0 ? (
-                      <div 
-                        onClick={() => {
-                          setComposerModelSelectorOpen(false);
-                          onOpenSettings?.();
-                        }}
-                        className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
-                      >
-                        暂无可用提供商，点击去配置
-                      </div>
-                    ) : (
-                      providers.map((p) => (
-                        <div key={p.id} className="model-group">
-                          <div className="model-group-name">{p.name}</div>
-                          {getProviderModels(p).map((m) => (
-                            <div
-                              key={m}
-                              className={`model-select-option ${
-                                (selectedProviderId === p.id && selectedModel === m) ||
-                                (!selectedProviderId && !selectedModel && masterProvider?.id === p.id && masterProvider?.default_model === m)
-                                  ? 'selected'
-                                  : ''
-                              }`}
-                              onClick={() => handleSelectModel(p.id, m)}
-                            >
-                              {m}
-                            </div>
-                          ))}
+                    <div
+                      onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
+                      className="model-selector-trigger"
+                    >
+                      <span className="model-selector-label truncate max-w-[150px]">
+                        {currentModelLabel}
+                      </span>
+                      <ChevronDown className="model-chevron w-3.5 h-3.5" />
+                    </div>
+                    <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
+                      {providers.length === 0 ? (
+                        <div 
+                          onClick={() => {
+                            setComposerModelSelectorOpen(false);
+                            onOpenSettings?.();
+                          }}
+                          className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
+                        >
+                          暂无可用提供商，点击去配置
                         </div>
-                      ))
-                    )}
+                      ) : (
+                        providers.map((p) => (
+                          <div key={p.id} className="model-group">
+                            <div className="model-group-name">{p.name}</div>
+                            {getProviderModels(p).map((m) => (
+                              <div
+                                key={m}
+                                className={`model-select-option ${
+                                  (selectedProviderId === p.id && selectedModel === m) ||
+                                  (!selectedProviderId && !selectedModel && masterProvider?.id === p.id && masterProvider?.default_model === m)
+                                    ? 'selected'
+                                    : ''
+                                }`}
+                                onClick={() => handleSelectModel(p.id, m)}
+                              >
+                                {m}
+                              </div>
+                            ))}
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div>
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={stopMessage}
-                    className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
-                    title="停止生成"
-                    aria-label="停止生成"
-                  >
-                    <Square className="w-4 h-4 fill-current" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleSend()}
-                    disabled={!inputVal.trim() || isStreaming}
-                    className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
-                    aria-label="发送消息"
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                  </button>
-                )}
+                <div>
+                  {isStreaming ? (
+                    <button
+                      type="button"
+                      onClick={stopMessage}
+                      className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
+                      title="停止生成"
+                      aria-label="停止生成"
+                    >
+                      <Square className="w-4 h-4 fill-current" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSend()}
+                      disabled={!inputVal.trim() || isStreaming}
+                      className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
+                      aria-label="发送消息"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       </div>
     </div>

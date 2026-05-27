@@ -403,6 +403,10 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('db:saveAgent', (_, agent: any) => {
     const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerIds, skillNames } = agent;
+    const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
+    if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
+      throw new Error('Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.');
+    }
     const now = Date.now();
     const configStr = config ? JSON.stringify(config) : null;
 
