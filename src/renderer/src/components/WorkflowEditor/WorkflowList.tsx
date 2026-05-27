@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { Workflow } from '../../../../shared/types';
-import { Plus, Trash2, GitBranch, Clock, Play } from 'lucide-react';
+import { Plus, Trash2, GitBranch, Clock, Play, Info } from 'lucide-react';
+
+interface Toast {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
 
 interface WorkflowListProps {
   onSelectWorkflow: (workflow: Workflow) => void;
@@ -13,6 +19,15 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   const { workflows, isLoading, error, fetchWorkflows, deleteWorkflow } = useWorkflowStore();
   const { currentProjectId } = useProjectStore();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3500);
+  };
 
   useEffect(() => {
     if (currentProjectId) {
@@ -22,10 +37,11 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
 
   const handleDelete = async (id: string, name: string) => {
     try {
-      await deleteWorkflow(id);
+      await deleteWorkflow(id, currentProjectId);
+      showToast('✓ 工作流删除成功', 'success');
       setDeleteConfirmId(null);
-    } catch {
-      // error is set in store
+    } catch (err: any) {
+      showToast(err.message || '删除工作流失败', 'error');
     }
   };
 
@@ -39,7 +55,26 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
+      {/* Toast Notification Container */}
+      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+        {toasts.map(t => (
+          <div 
+            key={t.id} 
+            className={`p-3 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg transition-all duration-300 animate-slide-in pointer-events-auto border ${
+              t.type === 'success' 
+                ? 'bg-[var(--color-success-dim)] border-[var(--color-success)]/20 text-[var(--color-success)]' 
+                : t.type === 'error'
+                  ? 'bg-[var(--color-danger-dim)] border-[var(--color-danger)]/20 text-[var(--color-danger)]'
+                  : 'bg-[var(--color-bg-active)] border-[var(--color-border)]/40 text-[var(--color-text-primary)]'
+            }`}
+          >
+            <Info className="w-3.5 h-3.5" />
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Header */}
       <div className="main-topbar shrink-0 h-9 border-b-0" />
 

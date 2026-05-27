@@ -42,6 +42,7 @@ Plan: Not started
 | 2026-05-27 | 260527-jt8 | ArXiv 工具 UI 集成与开关控制 | complete |
 | 2026-05-27 | 260527-k3x | 工具注册表模式重构 + ArXiv 可见性修复 | complete |
 | 2026-05-27 | 260527-b97 | provider_type 统一为 lobehub 枚举值 | complete |
+| 2026-05-27 | 260527-vt1 | 修复工作流保存、重名、删除及外键级联问题 | complete |
 
 ## Accumulated Context
 

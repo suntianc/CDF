@@ -24,8 +24,14 @@ import { AgentNode } from './AgentNode';
 import { NodeConfigDrawer } from './NodeConfigDrawer';
 import { ExecutionPanel } from './ExecutionPanel';
 import {
-  ArrowLeft, Save, Play, Square, GitBranch, Plus, Bot,
+  ArrowLeft, Save, Play, Square, GitBranch, Plus, Bot, Info
 } from 'lucide-react';
+
+interface Toast {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
 
 interface WorkflowEditorProps {
   workflow: Workflow;
@@ -44,7 +50,7 @@ const defaultNodes: Node[] = [
 ] as Node[];
 
 export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
-  const { saveWorkflow, runWorkflow, stopWorkflow, currentExecution } = useWorkflowStore();
+  const { saveWorkflow, runWorkflow, stopWorkflow, currentExecution, workflows } = useWorkflowStore();
   const { currentProjectId } = useProjectStore();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes as Node[]);
@@ -56,11 +62,22 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null as Node | null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3500);
+  }, []);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [workflowId, setWorkflowId] = useState(workflow.id || window.crypto.randomUUID());
 
   // Load existing workflow data
   useEffect(() => {
+    setWorkflowId(workflow.id || window.crypto.randomUUID());
     if (workflow.id && workflow.graph_data) {
       const def = workflow.graph_data as WorkflowDefinition;
       if (def.nodes?.length) {
@@ -81,6 +98,10 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         })));
       }
       setWorkflowName(workflow.name || '新建工作流');
+    } else {
+      setNodes(defaultNodes as Node[]);
+      setEdges([] as Edge[]);
+      setWorkflowName('新建工作流');
     }
   }, [workflow.id]);
 
@@ -142,7 +163,22 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   );
 
   const handleSave = useCallback(async () => {
-    if (!currentProjectId || !rfInstance) return;
+    if (!currentProjectId || !rfInstance) return false;
+
+    const trimmedName = workflowName.trim();
+    if (!trimmedName) {
+      showToast('工作流名称不能为空', 'error');
+      return false;
+    }
+
+    const nameExists = workflows.some(
+      (w) => w.name.trim().toLowerCase() === trimmedName.toLowerCase() && w.id !== workflowId
+    );
+    if (nameExists) {
+      showToast(`工作流「${trimmedName}」已存在，请使用其他名称`, 'error');
+      return false;
+    }
+
     setIsSaving(true);
     try {
       const flow = rfInstance.toObject();
@@ -171,33 +207,38 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       };
 
       await saveWorkflow({
-        id: workflow.id || crypto.randomUUID(),
+        id: workflowId,
         project_id: currentProjectId,
-        name: workflowName,
+        name: trimmedName,
         description: workflow.description || '',
         graph_data: graphData,
         status: workflow.status || 'draft',
       });
-    } catch (err) {
+      showToast('✓ 工作流保存成功', 'success');
+      return true;
+    } catch (err: any) {
       console.error('Failed to save workflow:', err);
-      throw err;
+      showToast(err.message || '保存工作流失败', 'error');
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [currentProjectId, rfInstance, workflow, workflowName, saveWorkflow]);
+  }, [currentProjectId, rfInstance, workflow, workflowName, saveWorkflow, workflows, workflowId, showToast]);
 
   const handleRun = useCallback(async () => {
     if (!currentProjectId) return;
     // Save first
-    await handleSave();
+    const saved = await handleSave();
+    if (!saved) return;
     try {
-      const execId = await runWorkflow(workflow.id, currentProjectId, 'editor');
+      const execId = await runWorkflow(workflowId, currentProjectId, 'editor');
       setExecutionId(execId);
       setIsRunning(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to run workflow:', err);
+      showToast(err.message || '启动工作流失败', 'error');
     }
-  }, [currentProjectId, workflow.id, handleSave, runWorkflow]);
+  }, [currentProjectId, workflowId, handleSave, runWorkflow, showToast]);
 
   const handleStop = useCallback(async () => {
     if (executionId) {
@@ -217,7 +258,26 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
+      {/* Toast Notification Container */}
+      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+        {toasts.map(t => (
+          <div 
+            key={t.id} 
+            className={`p-3 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg transition-all duration-300 animate-slide-in pointer-events-auto border ${
+              t.type === 'success' 
+                ? 'bg-[var(--color-success-dim)] border-[var(--color-success)]/20 text-[var(--color-success)]' 
+                : t.type === 'error'
+                  ? 'bg-[var(--color-danger-dim)] border-[var(--color-danger)]/20 text-[var(--color-danger)]'
+                  : 'bg-[var(--color-bg-active)] border-[var(--color-border)]/40 text-[var(--color-text-primary)]'
+            }`}
+          >
+            <Info className="w-3.5 h-3.5" />
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Top Toolbar */}
       <div className="main-topbar shrink-0 h-12 border-b border-[var(--color-border)]/50 px-4">
         <div className="main-topbar-left">

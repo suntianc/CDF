@@ -13,7 +13,7 @@ interface WorkflowState {
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
   saveWorkflow: (workflow: any) => Promise<Workflow>;
-  deleteWorkflow: (id: string) => Promise<void>;
+  deleteWorkflow: (id: string, projectId?: string) => Promise<void>;
   setCurrentWorkflow: (workflow: Workflow | null) => void;
 
   fetchExecutions: (workflowId: string) => Promise<void>;
@@ -65,13 +65,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  deleteWorkflow: async (id: string) => {
+  deleteWorkflow: async (id: string, projectId?: string) => {
     set({ isLoading: true, error: null });
     try {
       await window.electronAPI.db.deleteWorkflow(id);
-      const currentProject = get().currentWorkflow?.project_id;
-      if (currentProject) {
-        await get().fetchWorkflows(currentProject);
+      const projectToFetch = projectId || get().currentWorkflow?.project_id;
+      if (projectToFetch) {
+        await get().fetchWorkflows(projectToFetch);
+      }
+      if (get().currentWorkflow?.id === id) {
+        set({ currentWorkflow: null });
       }
       set({ isLoading: false });
     } catch (err: any) {
