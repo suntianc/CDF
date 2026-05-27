@@ -118,12 +118,12 @@ export function buildWorkflowGraph(
       // 条件边（D-09: Agent 输出或 Master Agent 决定）
       // D-10: 循环保护 — 插入计数器递增节点
       const counterNodeName = `__counter_${edge.metadata.condition}`;
-      builder.addNode(counterNodeName, (state: Record<string, unknown>) => {
+      builder.addNode(counterNodeName, ((state: Record<string, unknown>) => {
         const routing = (state.routing as Record<string, unknown>) ?? {};
         const loopKey = `__loop_${edge.metadata!.condition}`;
         const count = (routing[loopKey] as number) ?? 0;
         return { routing: { [loopKey]: count + 1 } };
-      });
+      }) as any);
 
       // 源节点 → 计数器节点（替代直接条件边）
       builder.addEdge(sourceNode as any, counterNodeName as any);
