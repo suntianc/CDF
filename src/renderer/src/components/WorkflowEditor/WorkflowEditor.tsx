@@ -127,7 +127,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         y: event.clientY - bounds.top,
       });
 
-      const id = `${type}-${Date.now()}`;
+      const id = `${type}-${crypto.randomUUID()}`;
       const newNode: Node = {
         id,
         type,
@@ -165,12 +165,13 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
           target: e.target,
           sourceHandle: e.sourceHandle,
           targetHandle: e.targetHandle,
+          metadata: (e as any).metadata,
         })) as WorkflowDefinition['edges'],
         viewport: flow.viewport,
       };
 
       await saveWorkflow({
-        id: workflow.id || undefined,
+        id: workflow.id || crypto.randomUUID(),
         project_id: currentProjectId,
         name: workflowName,
         description: workflow.description || '',
@@ -179,6 +180,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       });
     } catch (err) {
       console.error('Failed to save workflow:', err);
+      throw err;
     } finally {
       setIsSaving(false);
     }
