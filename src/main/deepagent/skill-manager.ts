@@ -40,7 +40,8 @@ function toPosix(inputPath: string): string {
 
 function toVirtualPath(projectPath: string, targetPath: string): string {
   const relative = toPosix(path.relative(projectPath, targetPath));
-  return relative.startsWith('/') ? relative : `/${relative}`;
+  const clean = relative.startsWith('/') ? relative : `/${relative}`;
+  return `/workspace${clean}`;
 }
 
 function ensureDir(targetDir: string): void {
@@ -233,9 +234,9 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
   return {
     skillsSources: sources,
     permissions: [
-      { operations: ['read', 'write'] as const, paths: ['/.env', '/.env*', '/.git/*', '/.git/**/*', '/node_modules/*', '/node_modules/**/*', '/out/*', '/out/**/*', '/dist/*', '/dist/**/*', '/Users/*', '/Users/**/*', '/home/*', '/home/**/*', '/private/*', '/private/**/*', '/tmp/*', '/tmp/**/*', '/var/*', '/var/**/*'], mode: 'deny' },
-      { operations: ['read', 'write'] as const, paths: ['/*', '/**/*'] },
-      { operations: ['read', 'write'] as const, paths: ['/.cdf/.runtime/*', '/.cdf/.runtime/**/*'] },
+      { operations: ['read', 'write'] as const, paths: ['/workspace/.env', '/workspace/.env*', '/workspace/.git/*', '/workspace/.git/**/*', '/workspace/node_modules/*', '/workspace/node_modules/**/*', '/workspace/out/*', '/workspace/out/**/*', '/workspace/dist/*', '/workspace/dist/**/*', '/Users/*', '/Users/**/*', '/home/*', '/home/**/*', '/private/*', '/private/**/*', '/tmp/*', '/tmp/**/*', '/var/*', '/var/**/*'], mode: 'deny' },
+      { operations: ['read', 'write'] as const, paths: ['/workspace/*', '/workspace/**/*'] },
+      { operations: ['read', 'write'] as const, paths: ['/workspace/.cdf/.runtime/*', '/workspace/.cdf/.runtime/**/*'] },
     ],
   };
 }

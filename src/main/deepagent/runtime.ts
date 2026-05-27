@@ -6,7 +6,7 @@ import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
 import { decryptApiKey } from '../security';
-import { createDeepAgent, FilesystemBackend, registerHarnessProfile } from 'deepagents';
+import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
 import { loadMcpTools } from './mcp-connector';
 import { resolveAgentSkillsConfig } from './skill-manager';
@@ -292,7 +292,7 @@ function getAgentMcpServers(agentId: string): MCPServer[] {
 }
 
 function buildProjectContext(project: RuntimeProjectRow): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n文件工具中的项目根目录已经挂载为虚拟路径 \`/\`。\n使用 ls、read_file、write_file、edit_file、glob、grep、delete_file 时，路径必须基于这个虚拟根目录，例如 \`/src/main.ts\` 或 \`/README.md\`。\n不要在文件工具参数中包含宿主机真实路径、用户主目录路径或项目目录前缀。\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。如果路径不对，先用 \`ls\` 读取 \`/\` 或用 \`glob\` 搜索候选文件来自行恢复。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n文件工具中的项目根目录已经挂载为虚拟路径 \`/workspace/\`。\n使用 ls、read_file、write_file、edit_file、glob、grep、delete_file 时，路径必须基于这个虚拟根目录，例如 \`/workspace/src/main.ts\` 或 \`/workspace/README.md\`。\n不要在文件工具参数中包含宿主机真实路径、用户主目录路径或项目目录前缀。\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。如果路径不对，先用 \`ls\` 读取 \`/workspace/\` 或用 \`glob\` 搜索候选文件来自行恢复。`;
 }
 
 function generateSlug(name: string): string {
@@ -434,7 +434,9 @@ export async function createDeepAgentRuntime(
     providerType: provider.provider_type,
     model: modelName,
   });
-  const backend = new FilesystemBackend({ rootDir: project.path, virtualMode: true });
+  const backend = new CompositeBackend(new StateBackend(), {
+    "/workspace/": new FilesystemBackend({ rootDir: project.path, virtualMode: true }),
+  });
   const checkpointer = getCheckpointSaver();
   const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
@@ -442,7 +444,7 @@ export async function createDeepAgentRuntime(
   const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers);
   const memory = ['AGENTS.md', 'Claude.md']
     .filter((fileName) => fs.existsSync(path.join(project.path, fileName)))
-    .map((fileName) => `/${fileName}`)
+    .map((fileName) => `/workspace/${fileName}`)
     .slice(0, 1);
 
   const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
