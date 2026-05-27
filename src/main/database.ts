@@ -400,7 +400,7 @@ try {
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflows (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     project_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,

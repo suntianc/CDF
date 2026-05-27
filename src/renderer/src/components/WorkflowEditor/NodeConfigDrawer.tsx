@@ -3,6 +3,7 @@ import { Drawer } from 'vaul';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { X, Bot, Layers, Code, ShieldCheck } from 'lucide-react';
+import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
   isOpen: boolean;
@@ -106,18 +107,15 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode }: NodeCo
 
             <div className="form-group">
               <label className="form-label">选择 Agent</label>
-              <select
-                className="form-input"
+              <CustomSelect
                 value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-              >
-                <option value="">请选择 Agent</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setAgentId(val)}
+                options={[
+                  { value: '', label: '不绑定 Agent (清除选择)' },
+                  ...agents.map((agent) => ({ value: agent.id, label: agent.name }))
+                ]}
+                placeholder="请选择 Agent"
+              />
             </div>
 
             {/* Agent Info Summary (read-only) */}
@@ -146,15 +144,15 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode }: NodeCo
 
             <div className="form-group">
               <label className="form-label">失败策略</label>
-              <select
-                className="form-input"
+              <CustomSelect
                 value={failureStrategy}
-                onChange={(e) => setFailureStrategy(e.target.value as 'retry' | 'skip' | 'stop')}
-              >
-                <option value="retry">重试</option>
-                <option value="skip">跳过并继续</option>
-                <option value="stop">停止并汇报 Master Agent</option>
-              </select>
+                onChange={(val) => setFailureStrategy(val as 'retry' | 'skip' | 'stop')}
+                options={[
+                  { value: 'retry', label: '重试' },
+                  { value: 'skip', label: '跳过并继续' },
+                  { value: 'stop', label: '停止并汇报 Master Agent' },
+                ]}
+              />
             </div>
 
             {failureStrategy === 'retry' && (
