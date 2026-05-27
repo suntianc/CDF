@@ -139,6 +139,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WFLO-05 | Phase 4 | Pending |
 | WFLO-06 | Phase 4 | Pending |
 | WFLO-07 | Phase 4 | Pending |
+| REVIEW-03.2-RUNTIME | Phase 03.2 | Complete |
+| REVIEW-03.2-CONTEXT | Phase 03.2 | Pending |
+| REVIEW-03.2-SUBAGENT | Phase 03.2 | Pending |
+| REVIEW-03.2-HUMAN | Phase 03.2 | Pending |
+| REVIEW-03.2-OPTIMIZE | Phase 03.2 | Pending |
+| REVIEW-03.2-REPORT | Phase 03.2 | Pending |
 
 **Coverage:**
 - v1 requirements: 28 total
