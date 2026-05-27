@@ -45,6 +45,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getToolConfigs: () => ipcRenderer.invoke('db:getToolConfigs'),
     saveToolConfig: (config: any) => ipcRenderer.invoke('db:saveToolConfig', config),
     deleteToolConfig: (id: string) => ipcRenderer.invoke('db:deleteToolConfig', id),
+    // Phase 4: Workflows
+    getWorkflows: (projectId: string) => ipcRenderer.invoke('db:getWorkflows', projectId),
+    getWorkflow: (id: string) => ipcRenderer.invoke('db:getWorkflow', id),
+    saveWorkflow: (workflow: any) => ipcRenderer.invoke('db:saveWorkflow', workflow),
+    deleteWorkflow: (id: string) => ipcRenderer.invoke('db:deleteWorkflow', id),
+    getWorkflowExecutions: (workflowId: string) => ipcRenderer.invoke('db:getWorkflowExecutions', workflowId),
+    getWorkflowExecution: (id: string) => ipcRenderer.invoke('db:getWorkflowExecution', id),
+    getWorkflowNodeRuns: (executionId: string) => ipcRenderer.invoke('db:getWorkflowNodeRuns', executionId),
   },
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
@@ -65,6 +73,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deepagents: {
     createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) =>
       ipcRenderer.invoke('deepagents:createAgent', config),
+  },
+  workflow: {
+    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) =>
+      ipcRenderer.invoke('workflow:run', workflowId, projectId, triggerSource, input),
+    stopWorkflow: (executionId: string) =>
+      ipcRenderer.invoke('workflow:stop', executionId),
+    onWorkflowEvent: (executionId: string, callback: (event: any, data: any) => void) => {
+      const channel = `workflow:event-${executionId}`;
+      const listener = (event: any, data: any) => callback(event, data);
+      ipcRenderer.on(channel, listener);
+      return () => {
+        ipcRenderer.removeListener(channel, listener);
+      };
+    },
   },
   platform: process.platform,
 });
