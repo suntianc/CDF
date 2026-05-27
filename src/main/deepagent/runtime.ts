@@ -452,45 +452,36 @@ export async function createDeepAgentRuntime(
 
   const builtInTools: any[] = [createDeleteFileTool(project.path), createBashTool(), createFetchTool()];
 
-  function loadSearchProviderConfig(toolType: string): SearchProviderConfig | null {
-    const row = db.prepare(
-      "SELECT api_key, config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
-    ).get(toolType) as { api_key: string | null; config: string | null } | undefined;
-    if (!row || !row.api_key) return null;
-    return {
-      decryptedKey: decryptApiKey(row.api_key),
-      config: row.config ? JSON.parse(row.config) : {},
-    };
-  }
+  // ---- Tool Registry: 注册新工具只需在此添加一行 ----
+  const TOOL_REGISTRY = [
+    { toolType: 'tavily',    requiresApiKey: true,  create: createTavilyTool },
+    { toolType: 'anysearch', requiresApiKey: true,  create: createAnysearchTool },
+    { toolType: 'arxiv',     requiresApiKey: false, create: createArxivTool },
+  ];
 
-  function loadFreeToolConfig(toolType: string): SearchProviderConfig | null {
+  function loadToolConfig(toolType: string, requiresApiKey: boolean): SearchProviderConfig | null {
     const row = db.prepare(
-      "SELECT config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
-    ).get(toolType) as { config: string | null } | undefined;
+      requiresApiKey
+        ? "SELECT api_key, config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
+        : "SELECT config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
+    ).get(toolType) as { api_key?: string | null; config: string | null } | undefined;
     if (!row) return null;
+    if (requiresApiKey && !row.api_key) return null;
     return {
-      decryptedKey: '',
+      decryptedKey: row.api_key ? decryptApiKey(row.api_key) : '',
       config: row.config ? JSON.parse(row.config) : {},
     };
   }
 
   try {
-    const tavilyConfig = loadSearchProviderConfig('tavily');
-    if (tavilyConfig) {
-      builtInTools.push(createTavilyTool(tavilyConfig));
-    }
-
-    const anysearchConfig = loadSearchProviderConfig('anysearch');
-    if (anysearchConfig) {
-      builtInTools.push(createAnysearchTool(anysearchConfig));
-    }
-
-    const arxivConfig = loadFreeToolConfig('arxiv');
-    if (arxivConfig) {
-      builtInTools.push(createArxivTool(arxivConfig));
+    for (const entry of TOOL_REGISTRY) {
+      const config = loadToolConfig(entry.toolType, entry.requiresApiKey);
+      if (config) {
+        builtInTools.push(entry.create(config));
+      }
     }
   } catch (err) {
-    console.warn('[RUNTIME] Failed to load built-in search tools config:', err);
+    console.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
   }
 
   console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);
