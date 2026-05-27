@@ -73,7 +73,7 @@ export function Sidebar({
     onChangeView('chat');
   };
 
-  const isSettings = activeView !== 'chat';
+  const isSettings: boolean = activeView !== 'chat';
 
   return (
     <aside

@@ -20,10 +20,10 @@ import { z } from 'zod';
  * - messages: 消息累积（LangGraph 内置 MessagesValue）
  */
 export const WorkflowState = new StateSchema({
-  inputs: z.record(z.unknown()),
+  inputs: z.record(z.string(), z.unknown()),
 
   nodeOutputs: new ReducedValue(
-    z.record(z.unknown()).default(() => ({})),
+    z.record(z.string(), z.unknown()).default(() => ({})),
     {
       reducer: (existing: Record<string, unknown>, update: Record<string, unknown>) => ({
         ...existing,
@@ -33,7 +33,7 @@ export const WorkflowState = new StateSchema({
   ),
 
   routing: new ReducedValue(
-    z.record(z.string()).default(() => ({})),
+    z.record(z.string(), z.string()).default(() => ({})),
     {
       reducer: (existing: Record<string, string>, update: Record<string, string>) => ({
         ...existing,

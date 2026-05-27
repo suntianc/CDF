@@ -68,16 +68,27 @@ function getProvider(providerId: string | null | undefined): ProviderRow {
   return provider;
 }
 
+interface MCPServerRow {
+  id: string;
+  name: string;
+  server_type: 'stdio' | 'sse' | 'http';
+  config: string | null;
+  is_connected: number;
+  last_health_check?: number;
+  created_at: number;
+  updated_at: number;
+}
+
 function getAgentMcpServers(agentId: string): MCPServer[] {
   const rows = db.prepare(`
     SELECT m.* FROM mcp_servers m
     INNER JOIN agent_mcp_servers ams ON ams.mcp_server_id = m.id
     WHERE ams.agent_id = ?
-  `).all(agentId) as Array<MCPServer & { config: string | null; is_connected: number }>;
+  `).all(agentId) as MCPServerRow[];
 
   return rows.map((row) => ({
     ...row,
-    config: row.config ? JSON.parse(row.config as unknown as string) : {},
+    config: row.config ? JSON.parse(row.config) : {},
     is_connected: !!row.is_connected,
   }));
 }
@@ -202,7 +213,8 @@ export function createAgentNodeExecutor(
 
       // 5. 收集结果
       const duration = Date.now() - startTime;
-      const output = result?.messages?.[result.messages.length - 1]?.content ?? result?.output ?? '';
+      const lastMessage = result?.messages?.[result.messages.length - 1];
+      const output = lastMessage?.content ?? '';
 
       return {
         result: typeof output === 'string' ? output : JSON.stringify(output),

@@ -15,6 +15,7 @@ import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from
 import { createBashTool } from './bash-tool';
 import { createFetchTool } from './fetch-tool';
 import { createArxivTool } from './arxiv-tool';
+import { createWorkflowTools } from '../workflow/tools';
 import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
@@ -482,6 +483,14 @@ export async function createDeepAgentRuntime(
     }
   } catch (err) {
     console.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
+  }
+
+  // D-16c: 注册工作流工具 — Master Agent 可通过 Chat 触发工作流执行
+  try {
+    const workflowTools = createWorkflowTools(projectId);
+    builtInTools.push(...workflowTools);
+  } catch (err) {
+    console.warn('[RUNTIME] Failed to load workflow tools:', err);
   }
 
   console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);

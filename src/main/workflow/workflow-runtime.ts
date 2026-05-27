@@ -262,6 +262,12 @@ export function registerWorkflowIpcHandlers(): void {
       projectId,
       triggerSource: triggerSource as 'editor' | 'chat' | 'schedule',
       input,
+      onEvent: (data) => {
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].webContents.send(`workflow:event-${executionId}`, data);
+        }
+      },
     });
     return executionId;
   });

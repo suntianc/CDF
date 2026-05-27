@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 
-export function StartNode({ data }: NodeProps) {
+type StartFlowNode = Node<{ label: string }, 'start'>;
+
+export function StartNode({ data }: NodeProps<StartFlowNode>) {
   return (
     <div
       className="rounded-xl border-2 border-[var(--color-success)] bg-[var(--color-bg-surface)] px-6 py-3 min-w-[100px] text-center shadow-md"
