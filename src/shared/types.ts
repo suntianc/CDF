@@ -96,7 +96,7 @@ export interface SkillVersion {
 export interface MCPServer {
   id: string;
   name: string;
-  server_type: 'stdio' | 'sse';
+  server_type: 'stdio' | 'sse' | 'http';
   config: Record<string, unknown>;
   is_connected: boolean;
   last_health_check?: number;

@@ -46,7 +46,7 @@ function buildServerConfig(server: MCPServer): Record<string, unknown> {
   }
 
   return {
-    transport: 'sse',
+    transport: 'http',
     url: String(config.url || ''),
     headers: typeof config.headers === 'object' && config.headers ? (config.headers as Record<string, string>) : undefined,
   };

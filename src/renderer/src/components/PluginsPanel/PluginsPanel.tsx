@@ -218,7 +218,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
 
   // Form states
   const [formName, setFormName] = useState('');
-  const [formType, setFormType] = useState<'stdio' | 'sse'>('stdio');
+  const [formType, setFormType] = useState<'stdio' | 'http'>('stdio');
   const [formCommand, setFormCommand] = useState('');
   const [formArgsInput, setFormArgsInput] = useState('');
   const [formUrl, setFormUrl] = useState('');
@@ -246,10 +246,12 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
   const openEditModal = (server: MCPServer) => {
     setEditingServerId(server.id);
     setFormName(server.name);
-    setFormType((server.server_type as 'stdio' | 'sse') || 'stdio');
-    
+    // 向后兼容：已有的 'sse' 记录映射为 'http' 表单类型
+    const isRemote = server.server_type === 'sse' || server.server_type === 'http';
+    setFormType(isRemote ? 'http' : 'stdio');
+
     const config = server.config || {};
-    if (server.server_type === 'sse') {
+    if (isRemote) {
       setFormUrl((config.url as string) || '');
       setFormCommand('');
       setFormArgsInput('');
@@ -272,9 +274,9 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
     const id = editingServerId || window.crypto.randomUUID();
     let configPayload: Record<string, unknown> = {};
 
-    if (formType === 'sse') {
+    if (formType === 'http') {
       if (!formUrl.trim()) {
-        showToast('SSE URL 地址不能为空', 'error');
+        showToast('HTTP URL 地址不能为空', 'error');
         return;
       }
       configPayload = { url: formUrl };
@@ -391,8 +393,8 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                     </div>
                   </div>
                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
-                    server.server_type === 'sse' 
-                      ? 'bg-[var(--color-accent-dim)] text-[var(--color-accent)] border-[var(--color-accent)]/10' 
+                    (server.server_type === 'sse' || server.server_type === 'http')
+                      ? 'bg-[var(--color-accent-dim)] text-[var(--color-accent)] border-[var(--color-accent)]/10'
                       : 'bg-[var(--color-info-dim)] text-[var(--color-info)] border-[var(--color-info)]/10'
                   } uppercase scale-95 shrink-0`}>
                     {server.server_type}
@@ -400,9 +402,9 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                 </div>
 
                 <div className="text-[10px] text-[var(--color-text-secondary)] bg-[var(--color-bg-sidebar)]/40 px-2 py-1.5 rounded font-mono truncate select-all border border-[var(--color-border)]/20 mb-3" title={
-                  server.server_type === 'sse' ? (config.url as string) : `${config.command} ${(config.args as string[])?.join(' ')}`
+                  (server.server_type === 'sse' || server.server_type === 'http') ? (config.url as string) : `${config.command} ${(config.args as string[])?.join(' ')}`
                 }>
-                  {server.server_type === 'sse' ? (config.url as string) : `cmd: ${config.command}`}
+                  {(server.server_type === 'sse' || server.server_type === 'http') ? (config.url as string) : `cmd: ${config.command}`}
                 </div>
 
                 <div className="flex items-center justify-between mb-4">
@@ -514,26 +516,26 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                   <label className="form-label">连接协议类型</label>
                   <CustomSelect
                     value={formType}
-                    onChange={(val) => setFormType(val as 'stdio' | 'sse')}
+                    onChange={(val) => setFormType(val as 'stdio' | 'http')}
                     options={[
                       { value: 'stdio', label: 'Stdio (本地命令行)' },
-                      { value: 'sse', label: 'SSE (远程 HTTP 网关)' }
+                      { value: 'http', label: 'HTTP (远程 Streamable HTTP)' }
                     ]}
                   />
                 </div>
               </div>
 
-              {formType === 'sse' ? (
+              {formType === 'http' ? (
                 <div className="form-group">
-                  <label className="form-label">SSE Gateway URL <span className="text-[var(--color-danger)]">*</span></label>
-                  <input 
-                    className="form-input" 
+                  <label className="form-label">HTTP URL <span className="text-[var(--color-danger)]">*</span></label>
+                  <input
+                    className="form-input"
                     value={formUrl}
                     onChange={(e) => setFormUrl(e.target.value)}
-                    placeholder="http://localhost:3000/sse"
+                    placeholder="http://localhost:3000/mcp"
                     required
                   />
-                  <div className="form-hint">远程 MCP 服务器暴露的 HTTP/SSE 连接接口端点</div>
+                  <div className="form-hint">远程 MCP 服务器暴露的 Streamable HTTP 连接端点（兼容 SSE 回退）</div>
                 </div>
               ) : (
                 <>
