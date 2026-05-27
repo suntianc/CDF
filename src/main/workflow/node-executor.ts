@@ -135,6 +135,7 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
  */
 export function createAgentNodeExecutor(
   node: { id: string; type: string; data: { agentId?: string; label?: string; retryCount?: number } },
+  upstreamNodeIds: string[] = [],
 ) {
   const agentId = node.data.agentId;
   if (!agentId) {
@@ -148,9 +149,8 @@ export function createAgentNodeExecutor(
   const skillNames = getAgentSkillNames(agentId);
 
   // 找到上游节点 IDs（用于 state 切片提取）
-  // 注意：upstreamNodeIds 在 buildWorkflowGraph 中通过 edges 分析传入
-  // 这里先用空数组，由 graph-builder 传入
-  const extractState = createNodeStateExtractor(node.id, []);
+  // upstreamNodeIds 由 buildWorkflowGraph 通过 edges 分析传入
+  const extractState = createNodeStateExtractor(node.id, upstreamNodeIds);
 
   return async (state: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const startTime = Date.now();
@@ -202,14 +202,25 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       // 4. 执行 DeepAgent（单次调用，非流式）
-      const result = await Promise.race([
-        agent.invoke({
-          messages: [{ role: 'user', content: taskContext }],
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)), DEFAULT_TIMEOUT_MS)
-        ),
-      ]);
+      let timeoutId: NodeJS.Timeout;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)),
+          DEFAULT_TIMEOUT_MS,
+        );
+      });
+
+      let result: any;
+      try {
+        result = await Promise.race([
+          agent.invoke({
+            messages: [{ role: 'user', content: taskContext }],
+          }),
+          timeoutPromise,
+        ]);
+      } finally {
+        clearTimeout(timeoutId!);
+      }
 
       // 5. 收集结果
       const duration = Date.now() - startTime;
