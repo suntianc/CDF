@@ -39,6 +39,7 @@ Plan: Not started
 | 2026-05-27 | 260527-isd | todo 轮询 → run.values 事件驱动 | complete |
 | 2026-05-27 | 260527-j8h | TodoList 跨回合残留修复 | complete |
 | 2026-05-27 | 260527-j8h | TodoList 跨轮次数据残留修复 | complete |
+| 2026-05-27 | 260527-jt8 | ArXiv 工具 UI 集成与开关控制 | complete |
 
 ## Accumulated Context
 
