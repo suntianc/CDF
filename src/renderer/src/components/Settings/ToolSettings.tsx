@@ -9,6 +9,7 @@ interface ToolMeta {
   desc: string;
   keyPlaceholder: string;
   docUrl?: string;
+  requiresApiKey?: boolean;
   fields: Array<{
     key: string;
     label: string;
@@ -39,6 +40,21 @@ const INTEGRATED_TOOLS: ToolMeta[] = [
     desc: '面向专业垂直领域（如学术论文、代码库、金融证券、医疗法律等）的高级搜索工具。支持过滤指定的专业领域以获得更准确的搜索质量。',
     keyPlaceholder: '请输入 AnySearch 密钥 (Bearer Token)',
     docUrl: 'https://anysearch.com',
+    fields: [
+      {
+        key: 'max_results',
+        label: '最大检索结果条数',
+        type: 'number',
+        default: 5
+      }
+    ]
+  },
+  {
+    id: 'arxiv',
+    name: 'arXiv',
+    desc: '免费的学术论文搜索引擎，覆盖物理学、数学、计算机科学、生物学等领域的预印本论文。无需 API Key，启用即可使用。',
+    keyPlaceholder: '',
+    requiresApiKey: false,
     fields: [
       {
         key: 'max_results',
@@ -128,8 +144,11 @@ export function ToolSettings() {
   }, []);
 
   const handleToggle = async (tool: ToolConfigItem) => {
-    // 没配置 API 的默认停用，不允许启用
-    if (!tool.hasKey && (!tool.api_key || tool.api_key === '••••••••')) {
+    const toolMeta = INTEGRATED_TOOLS.find(t => t.id === tool.tool_type);
+    const needsKey = toolMeta?.requiresApiKey !== false;
+
+    // 没配置 API 的默认停用，不允许启用（不需要 API Key 的工具除外）
+    if (needsKey && !tool.hasKey && (!tool.api_key || tool.api_key === '••••••••')) {
       showToast(`请先配置并保存 ${tool.name} 的 API Key 再启用！`, 'error');
       return;
     }
@@ -163,16 +182,18 @@ export function ToolSettings() {
   const handleSaveConfig = async (tool: ToolConfigItem) => {
     const key = editingKey[tool.id] || '';
     const cfg = editingConfig[tool.id] || {};
+    const toolMeta = INTEGRATED_TOOLS.find(t => t.id === tool.tool_type);
+    const needsKey = toolMeta?.requiresApiKey !== false;
 
     const isKeyValValid = key.trim() !== '' && key !== '••••••••';
     const hasExistingKey = tool.hasKey && key === '••••••••';
-    const isKeyConfigured = hasExistingKey || isKeyValValid;
+    const isKeyConfigured = !needsKey || hasExistingKey || isKeyValValid;
 
     const updated = {
       ...tool,
       api_key: key,
       config: cfg,
-      // 如果没有配置 Key，强制停用工具
+      // 如果没有配置 Key，强制停用工具（不需要 Key 的工具除外）
       is_enabled: isKeyConfigured ? tool.is_enabled : false
     };
 
@@ -188,6 +209,8 @@ export function ToolSettings() {
 
   const expandedTool = configs.find(c => c.id === expandedId);
   const isToolConfigured = (tool: ToolConfigItem) => {
+    const toolMeta = INTEGRATED_TOOLS.find(t => t.id === tool.tool_type);
+    if (toolMeta?.requiresApiKey === false) return true;
     return tool.hasKey || (editingKey[tool.id] && editingKey[tool.id] !== '••••••••');
   };
 
@@ -252,7 +275,7 @@ export function ToolSettings() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 max-w-[1200px]">
             {configs.map(tool => {
               const toolMeta = INTEGRATED_TOOLS.find(t => t.id === tool.tool_type)!;
-              const isConfigured = tool.hasKey || (editingKey[tool.id] && editingKey[tool.id] !== '••••••••');
+              const isConfigured = toolMeta.requiresApiKey === false || tool.hasKey || (editingKey[tool.id] && editingKey[tool.id] !== '••••••••');
               
               return (
                 <div 
@@ -348,7 +371,7 @@ export function ToolSettings() {
               </div>
 
               {/* Warning Alert if unconfigured */}
-              {!isToolConfigured(expandedTool) && (
+              {!isToolConfigured(expandedTool) && INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)?.requiresApiKey !== false && (
                 <div className="p-3 rounded-lg bg-[var(--color-danger-dim)] text-[var(--color-danger)] text-[11px] flex items-start gap-2 border border-[var(--color-danger)]/15 leading-relaxed">
                   <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>未检测到 API 密钥。配置并保存后方可启用此通用工具。</span>
@@ -357,28 +380,30 @@ export function ToolSettings() {
 
               {/* Forms */}
               <div className="flex flex-col gap-5">
-                {/* API Key */}
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                    API 密钥 (API Key / Token)
-                  </label>
-                  <div className="relative">
-                    <input 
-                      type={showKeyMap[expandedTool.id] ? 'text' : 'password'}
-                      value={editingKey[expandedTool.id] || ''}
-                      onChange={(e) => setEditingKey(prev => ({ ...prev, [expandedTool.id]: e.target.value }))}
-                      placeholder={INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.keyPlaceholder}
-                      className="w-full bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/20 outline-none rounded-lg py-2 pl-3 pr-8 text-xs font-mono text-[var(--color-text-primary)] transition-all"
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => setShowKeyMap(prev => ({ ...prev, [expandedTool.id]: !prev[expandedTool.id] }))}
-                      className="absolute right-2.5 top-2.5 hover:text-[var(--color-text-primary)] text-[var(--color-text-muted)] cursor-pointer"
-                    >
-                      {showKeyMap[expandedTool.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
+                {/* API Key (隐藏不需要 API Key 的工具) */}
+                {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)?.requiresApiKey !== false && (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+                      API 密钥 (API Key / Token)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showKeyMap[expandedTool.id] ? 'text' : 'password'}
+                        value={editingKey[expandedTool.id] || ''}
+                        onChange={(e) => setEditingKey(prev => ({ ...prev, [expandedTool.id]: e.target.value }))}
+                        placeholder={INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.keyPlaceholder}
+                        className="w-full bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/20 outline-none rounded-lg py-2 pl-3 pr-8 text-xs font-mono text-[var(--color-text-primary)] transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowKeyMap(prev => ({ ...prev, [expandedTool.id]: !prev[expandedTool.id] }))}
+                        className="absolute right-2.5 top-2.5 hover:text-[var(--color-text-primary)] text-[var(--color-text-muted)] cursor-pointer"
+                      >
+                        {showKeyMap[expandedTool.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Fields */}
                 {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.fields.map(field => {
@@ -425,10 +450,10 @@ export function ToolSettings() {
                 </button>
               </div>
 
-              {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.docUrl && (
-                <a 
-                  href={INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.docUrl} 
-                  target="_blank" 
+              {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)?.requiresApiKey !== false && INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.docUrl && (
+                <a
+                  href={INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.docUrl}
+                  target="_blank"
                   rel="noreferrer"
                   className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
                 >

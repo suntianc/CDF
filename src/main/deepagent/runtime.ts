@@ -14,6 +14,7 @@ import { createDeleteFileTool } from './file-tools';
 import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
 import { createBashTool } from './bash-tool';
 import { createFetchTool } from './fetch-tool';
+import { createArxivTool } from './arxiv-tool';
 import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
@@ -462,6 +463,17 @@ export async function createDeepAgentRuntime(
     };
   }
 
+  function loadFreeToolConfig(toolType: string): SearchProviderConfig | null {
+    const row = db.prepare(
+      "SELECT config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
+    ).get(toolType) as { config: string | null } | undefined;
+    if (!row) return null;
+    return {
+      decryptedKey: '',
+      config: row.config ? JSON.parse(row.config) : {},
+    };
+  }
+
   try {
     const tavilyConfig = loadSearchProviderConfig('tavily');
     if (tavilyConfig) {
@@ -472,6 +484,9 @@ export async function createDeepAgentRuntime(
     if (anysearchConfig) {
       builtInTools.push(createAnysearchTool(anysearchConfig));
     }
+
+    const arxivConfig = loadFreeToolConfig('arxiv');
+    builtInTools.push(createArxivTool(arxivConfig));
   } catch (err) {
     console.warn('[RUNTIME] Failed to load built-in search tools config:', err);
   }
