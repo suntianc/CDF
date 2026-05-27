@@ -47,7 +47,7 @@ export function createWorkflowTools(projectId: string) {
         description: '执行指定的工作流。返回执行 ID。可通过 get_workflow_status 查询执行状态。',
         schema: z.object({
           workflowId: z.string().describe('要执行的工作流 ID'),
-          input: z.record(z.unknown()).optional().describe('可选的输入参数'),
+          input: z.record(z.string(), z.unknown()).optional().describe('可选的输入参数'),
         }),
       },
     ),

@@ -32,29 +32,29 @@ interface WorkflowEditorProps {
   onBack: () => void;
 }
 
-const nodeTypes: NodeTypes = {
+const nodeTypes = {
   start: StartNode,
   agent: AgentNode,
   end: EndNode,
-};
+} satisfies NodeTypes;
 
 const defaultNodes: Node[] = [
   { id: 'start-1', type: 'start', position: { x: 250, y: 50 }, data: { label: '开始' } },
   { id: 'end-1', type: 'end', position: { x: 250, y: 400 }, data: { label: '结束' } },
-];
+] as Node[];
 
 export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   const { saveWorkflow, runWorkflow, stopWorkflow, currentExecution } = useWorkflowStore();
   const { currentProjectId } = useProjectStore();
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes as Node[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const [workflowName, setWorkflowName] = useState(workflow.name || '新建工作流');
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [executionId, setExecutionId] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null as Node | null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -165,7 +165,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
           target: e.target,
           sourceHandle: e.sourceHandle,
           targetHandle: e.targetHandle,
-        })),
+        })) as WorkflowDefinition['edges'],
         viewport: flow.viewport,
       };
 
@@ -321,7 +321,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       <NodeConfigDrawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        node={selectedNode}
+        node={selectedNode ? { id: selectedNode.id, data: selectedNode.data as Record<string, unknown> } as any : null}
         onUpdateNode={handleUpdateNode}
       />
     </div>

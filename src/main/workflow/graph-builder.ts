@@ -110,6 +110,7 @@ export function buildWorkflowGraph(
   }
 
   // 2. 添加边（从 ReactFlow 连接转换）
+  // NOTE: addEdge/addConditionalEdges 泛型 N 仅包含 "__start__"，动态节点 ID 需要 cast
   for (const edge of workflowDef.edges) {
     const sourceNode = edge.source === 'start' ? START : edge.source;
     const targetNode = edge.target === 'end' ? END : edge.target;
@@ -118,29 +119,17 @@ export function buildWorkflowGraph(
       // 条件边（D-09: Agent 输出或 Master Agent 决定）
       const targets = edge.metadata.targets ?? {};
       const targetValues = Object.values(targets);
-
-      builder.addConditionalEdges(
-        sourceNode,
-        createConditionalRouter(edge.metadata.condition, edge.metadata.maxIterations),
-        // 构建路由映射：condition 值 → 目标节点
-        // 包含默认路由和循环保护终止路由
-        [...targetValues, '__default__', '__max_iterations_exceeded__'].reduce(
-          (acc, t) => {
-            // 将路由值映射到目标节点（如果目标节点存在）
-            if (t === '__default__' || t === '__max_iterations_exceeded__') {
-              // 默认路由和循环保护终止路由映射到 END
-              acc[t] = END;
-            } else {
-              acc[t] = t;
-            }
-            return acc;
-          },
-          {} as Record<string, string>,
-        ),
+      const routeMap = [...targetValues, '__default__', '__max_iterations_exceeded__'].reduce(
+        (acc, t) => {
+          acc[t] = (t === '__default__' || t === '__max_iterations_exceeded__') ? END : t;
+          return acc;
+        },
+        {} as Record<string, string>,
       );
+      builder.addConditionalEdges(sourceNode as any, createConditionalRouter(edge.metadata.condition, edge.metadata.maxIterations), routeMap as any);
     } else {
       // 普通边
-      builder.addEdge(sourceNode, targetNode);
+      builder.addEdge(sourceNode as any, targetNode as any);
     }
   }
 

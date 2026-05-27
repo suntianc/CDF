@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 
-export function EndNode({ data }: NodeProps) {
+type EndFlowNode = Node<{ label: string }, 'end'>;
+
+export function EndNode({ data }: NodeProps<EndFlowNode>) {
   return (
     <div
       className="rounded-xl border-2 border-[var(--color-danger)] bg-[var(--color-bg-surface)] px-6 py-3 min-w-[100px] text-center shadow-md"

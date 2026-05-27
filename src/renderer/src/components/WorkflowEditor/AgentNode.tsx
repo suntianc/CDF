@@ -1,14 +1,15 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Bot } from 'lucide-react';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
-interface AgentNodeData {
+interface AgentNodeData extends Record<string, unknown> {
   label: string;
   description?: string;
   agentId?: string;
   status?: WorkflowNodeRunStatus;
-  [key: string]: unknown;
 }
+
+type AgentFlowNode = Node<AgentNodeData, 'agent'>;
 
 const statusStyles: Record<string, { border: string; glow: string; dot: string }> = {
   pending: { border: 'var(--border)', glow: 'none', dot: 'bg-[var(--color-text-muted)]' },
@@ -18,7 +19,7 @@ const statusStyles: Record<string, { border: string; glow: string; dot: string }
   skipped: { border: 'var(--color-warning)', glow: 'none', dot: 'bg-[var(--color-warning)]' },
 };
 
-export function AgentNode({ data, selected }: NodeProps<AgentNodeData>) {
+export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const status = data.status || 'pending';
   const style = statusStyles[status] || statusStyles.pending;
 
