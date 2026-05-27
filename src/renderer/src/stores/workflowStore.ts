@@ -128,7 +128,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   subscribeToExecution: (executionId: string) => {
     const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: any, data: any) => {
       if (data.type === 'workflow_end') {
-        set({ currentExecution: { ...get().currentExecution, status: data.status, ended_at: Date.now() } as WorkflowExecution });
+        const current = get().currentExecution;
+        if (current) {
+          set({ currentExecution: { ...current, status: data.status, ended_at: Date.now() } as WorkflowExecution });
+        }
       } else if (data.type === 'node_start' || data.type === 'node_end' || data.type === 'node_error') {
         // Refresh node runs when node events arrive
         get().fetchNodeRuns(executionId).catch(() => {});
