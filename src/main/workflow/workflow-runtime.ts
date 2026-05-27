@@ -33,8 +33,10 @@ function getWorkflowCheckpointSaver(): SqliteSaver {
 
 function pushWorkflowEvent(executionId: string, event: WorkflowStreamEvent) {
   const windows = BrowserWindow.getAllWindows();
-  if (windows.length > 0) {
-    windows[0].webContents.send(`workflow:event-${executionId}`, event);
+  for (const win of windows) {
+    if (!win.isDestroyed() && win.webContents) {
+      win.webContents.send(`workflow:event-${executionId}`, event);
+    }
   }
 }
 
@@ -106,7 +108,9 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
   try {
     // 3. 构建图
-    const builder = buildWorkflowGraph(graphData, (node) => createAgentNodeExecutor(node));
+    const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) =>
+      createAgentNodeExecutor(node, upstreamNodeIds),
+    );
 
     // 4. 编译图（使用独立 checkpointer — D-16a）
     const checkpointer = getWorkflowCheckpointSaver();
@@ -134,50 +138,20 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
       // chunk 格式: { [nodeId]: stateUpdate }
       for (const [nodeId, stateUpdate] of Object.entries(chunk)) {
         const update = stateUpdate as Record<string, unknown>;
-
-        // 推送 node_start 事件
-        const nodeStartEvent: WorkflowStreamEvent = {
-          type: 'node_start',
-          executionId,
-          nodeId,
-          nodeName: nodeId,
-        };
-        pushWorkflowEvent(executionId, nodeStartEvent);
-        params.onEvent?.(nodeStartEvent);
-
-        // 记录 node run
-        const nodeRunId = crypto.randomUUID();
         const nodeOutputs = update.nodeOutputs as Record<string, unknown> | undefined;
         const errors = update.errors as Array<{ nodeId: string; error: string; timestamp: number }> | undefined;
+        const nodeStartTime = Date.now();
 
-        if (nodeOutputs?.[nodeId]) {
-          allNodeOutputs[nodeId] = nodeOutputs[nodeId];
-
-          // 记录成功
-          db.prepare(`
-            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at)
-            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?)
-          `).run(nodeRunId, executionId, nodeId, nodeId, JSON.stringify(nodeOutputs[nodeId]), now, Date.now());
-
-          const nodeEndEvent: WorkflowStreamEvent = {
-            type: 'node_end',
-            executionId,
-            nodeId,
-            duration_ms: Date.now() - now,
-            outputKeys: Object.keys(nodeOutputs[nodeId] as object),
-          };
-          pushWorkflowEvent(executionId, nodeEndEvent);
-          params.onEvent?.(nodeEndEvent);
-        }
-
-        if (errors) {
+        // CR-03: 错误路径和成功路径互斥，各自生成独立 ID
+        if (errors && errors.length > 0) {
+          // 错误路径：只记录失败
           allErrors.push(...errors);
           for (const err of errors) {
-            // 记录失败
+            const errorRunId = crypto.randomUUID();
             db.prepare(`
               INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at)
               VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?)
-            `).run(nodeRunId, executionId, err.nodeId, err.nodeId, err.error, err.timestamp, Date.now());
+            `).run(errorRunId, executionId, err.nodeId, err.nodeId, err.error, err.timestamp, Date.now());
 
             const nodeErrorEvent: WorkflowStreamEvent = {
               type: 'node_error',
@@ -190,6 +164,25 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
             pushWorkflowEvent(executionId, nodeErrorEvent);
             params.onEvent?.(nodeErrorEvent);
           }
+        } else if (nodeOutputs?.[nodeId]) {
+          // 成功路径：只记录成功
+          allNodeOutputs[nodeId] = nodeOutputs[nodeId];
+          const successRunId = crypto.randomUUID();
+
+          db.prepare(`
+            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at)
+            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?)
+          `).run(successRunId, executionId, nodeId, nodeId, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now());
+
+          const nodeEndEvent: WorkflowStreamEvent = {
+            type: 'node_end',
+            executionId,
+            nodeId,
+            duration_ms: Date.now() - nodeStartTime,
+            outputKeys: Object.keys(nodeOutputs[nodeId] as object),
+          };
+          pushWorkflowEvent(executionId, nodeEndEvent);
+          params.onEvent?.(nodeEndEvent);
         }
       }
     }
