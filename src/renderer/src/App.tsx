@@ -6,9 +6,13 @@ import { ModelSettings } from './components/Settings/ModelSettings';
 import { ToolSettings } from './components/Settings/ToolSettings';
 import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
+import { WorkflowList } from './components/WorkflowEditor/WorkflowList';
+import { WorkflowEditor } from './components/WorkflowEditor/WorkflowEditor';
 import { useThemeStore } from './stores/themeStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
+import { useWorkflowStore } from './stores/workflowStore';
+import { Workflow } from '../shared/types';
 import { PanelLeft } from 'lucide-react';
 
 export default function App() {
@@ -18,6 +22,8 @@ export default function App() {
   const { setTheme } = useThemeStore();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
+  const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
+  const { setCurrentWorkflow } = useWorkflowStore();
 
   useEffect(() => {
     // Initialize theme from persistent store
@@ -58,12 +64,33 @@ export default function App() {
           {activeView === 'agents' && <AgentLibrary />}
           {activeView === 'plugins' && <PluginsPanel />}
           {activeView === 'chat' && (
-            <ChatArea 
+            <ChatArea
               onOpenSettings={() => setActiveView('settings')}
               sidebarCollapsed={sidebarCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(false)}
               taskPanelOpen={taskPanelOpen}
               onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
+            />
+          )}
+          {activeView === 'workflows' && !editingWorkflow && (
+            <WorkflowList
+              onSelectWorkflow={(wf) => {
+                setCurrentWorkflow(wf);
+                setEditingWorkflow(wf);
+              }}
+              onCreateWorkflow={() => {
+                setCurrentWorkflow(null);
+                setEditingWorkflow({ id: '', name: '', project_id: '', graph_data: { nodes: [], edges: [] }, status: 'draft', created_at: 0, updated_at: 0 } as Workflow);
+              }}
+            />
+          )}
+          {activeView === 'workflows' && editingWorkflow && (
+            <WorkflowEditor
+              workflow={editingWorkflow}
+              onBack={() => {
+                setEditingWorkflow(null);
+                setCurrentWorkflow(null);
+              }}
             />
           )}
         </div>
