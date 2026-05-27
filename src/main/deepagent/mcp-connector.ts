@@ -2,8 +2,6 @@ import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import { StructuredToolInterface } from '@langchain/core/tools';
 import { MCPServer } from '../../shared/types';
 
-type McpClientConfig = ConstructorParameters<typeof MultiServerMCPClient>[0];
-
 interface McpCacheEntry {
   client: MultiServerMCPClient | null;
   tools: StructuredToolInterface[];
@@ -122,7 +120,7 @@ export async function disconnectMcpServer(serverId: string): Promise<void> {
  * 断开所有 MCP 服务器连接（应用退出时调用）
  */
 export async function disconnectAllMcpServers(): Promise<void> {
-  for (const [serverId, cached] of serverClients) {
+  for (const [_serverId, cached] of serverClients) {
     await cached.client.close().catch(() => {});
   }
   serverClients.clear();

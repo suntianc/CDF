@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Skill, MCPServer } from '../../../../shared/types';
+import { MCPServer } from '../../../../shared/types';
 import { 
   Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2
 } from 'lucide-react';
@@ -87,7 +87,7 @@ export function PluginsPanel() {
 
 // ==================== SKILLS TAB ====================
 function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
-  const { skills, isLoading, fetchSkills, saveSkill, deleteSkill } = useSkillStore();
+  const { skills, fetchSkills, saveSkill, deleteSkill } = useSkillStore();
   const { currentProjectId } = useProjectStore();
 
   // Search state
@@ -211,7 +211,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
 
 // ==================== MCP TAB ====================
 function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
-  const { mcpServers, isLoading, fetchMcpServers, saveMcpServer, deleteMcpServer, checkMcpHealth, toggleMcpConnection } = useMcpServerStore();
+  const { mcpServers, fetchMcpServers, saveMcpServer, deleteMcpServer, checkMcpHealth, toggleMcpConnection } = useMcpServerStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
