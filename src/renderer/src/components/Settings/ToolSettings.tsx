@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Check, Loader2, AlertCircle, Wrench, Eye, EyeOff, HelpCircle, Save, Info, ShieldAlert, Sliders, X
 } from 'lucide-react';
+import { CustomSelect } from '../ui/CustomSelect';
 
 interface ToolMeta {
   id: string;
@@ -10,11 +11,15 @@ interface ToolMeta {
   keyPlaceholder: string;
   docUrl?: string;
   requiresApiKey?: boolean;
+  exposedTools?: string[];
   fields: Array<{
     key: string;
     label: string;
     type: 'text' | 'number';
     default: any;
+    options?: string[];
+    min?: number;
+    max?: number;
   }>;
 }
 
@@ -25,6 +30,7 @@ const INTEGRATED_TOOLS: ToolMeta[] = [
     desc: '专为大模型设计的智能搜索引擎。提供极高精度的网页内容提取，针对大模型进行了搜索输出优化。常用于通用事实问答与新闻检索。',
     keyPlaceholder: '请输入 Tavily API Key (tvly-...)',
     docUrl: 'https://tavily.com',
+    exposedTools: ['tavily_search'],
     fields: [
       {
         key: 'max_results',
@@ -40,6 +46,7 @@ const INTEGRATED_TOOLS: ToolMeta[] = [
     desc: '面向专业垂直领域（如学术论文、代码库、金融证券、医疗法律等）的高级搜索工具。支持过滤指定的专业领域以获得更准确的搜索质量。',
     keyPlaceholder: '请输入 AnySearch 密钥 (Bearer Token)',
     docUrl: 'https://anysearch.com',
+    exposedTools: ['anysearch'],
     fields: [
       {
         key: 'max_results',
@@ -52,15 +59,32 @@ const INTEGRATED_TOOLS: ToolMeta[] = [
   {
     id: 'arxiv',
     name: 'arXiv',
-    desc: '免费的学术论文搜索引擎，覆盖物理学、数学、计算机科学、生物学等领域的预印本论文。无需 API Key，启用即可使用。',
+    desc: '免费的学术论文搜索引擎。启用后提供论文搜索和按 arXiv ID 批量获取两个 Agent 工具。',
     keyPlaceholder: '',
     requiresApiKey: false,
+    exposedTools: ['arxiv_search', 'arxiv_get_papers'],
     fields: [
       {
         key: 'max_results',
         label: '最大检索结果条数',
         type: 'number',
-        default: 5
+        default: 5,
+        min: 1,
+        max: 2000
+      },
+      {
+        key: 'sort_by',
+        label: '默认排序字段（relevance / lastUpdatedDate / submittedDate）',
+        type: 'text',
+        default: 'relevance',
+        options: ['relevance', 'lastUpdatedDate', 'submittedDate']
+      },
+      {
+        key: 'sort_order',
+        label: '默认排序方向（ascending / descending）',
+        type: 'text',
+        default: 'descending',
+        options: ['descending', 'ascending']
       }
     ]
   }
@@ -280,7 +304,7 @@ export function ToolSettings() {
               return (
                 <div 
                   key={tool.id} 
-                  className="provider-card flex flex-col justify-between h-[160px] border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all"
+                  className="provider-card flex flex-col justify-between min-h-[185px] h-auto py-4 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all"
                 >
                   {/* Top: Icon, name and Toggle Switcher */}
                   <div className="flex items-start justify-between gap-3 select-none">
@@ -326,6 +350,20 @@ export function ToolSettings() {
                     {toolMeta.desc}
                   </p>
 
+                  {toolMeta.exposedTools && (
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {toolMeta.exposedTools.map(toolName => (
+                        <span
+                          key={toolName}
+                          className="inline-flex items-center px-2 py-0.5 rounded-md border border-[var(--color-accent)]/20 bg-[var(--color-accent-dim)] text-[10px] font-mono text-[var(--color-accent-hover)] transition-all select-all hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/15"
+                        >
+                          <Wrench className="w-2.5 h-2.5 mr-1 text-[var(--color-accent-hover)]/70 shrink-0" />
+                          {toolName}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Bottom: Configure Button */}
                   <div className="flex justify-end pt-1">
                     <button 
@@ -362,12 +400,6 @@ export function ToolSettings() {
                     配置 {expandedTool.name}
                   </h3>
                 </div>
-                <button 
-                  onClick={() => setExpandedId(null)}
-                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
 
               {/* Warning Alert if unconfigured */}
@@ -380,6 +412,25 @@ export function ToolSettings() {
 
               {/* Forms */}
               <div className="flex flex-col gap-5">
+                {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)?.exposedTools && (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+                      启用后可用工具
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)!.exposedTools!.map(toolName => (
+                        <span
+                          key={toolName}
+                          className="inline-flex items-center px-2.5 py-1 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent-dim)] text-xs font-mono text-[var(--color-accent-hover)] transition-all select-all hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/15"
+                        >
+                          <Wrench className="w-3 h-3 mr-1 text-[var(--color-accent-hover)]/70 shrink-0" />
+                          {toolName}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* API Key (隐藏不需要 API Key 的工具) */}
                 {INTEGRATED_TOOLS.find(t => t.id === expandedTool.tool_type)?.requiresApiKey !== false && (
                   <div className="flex flex-col gap-2">
@@ -413,20 +464,37 @@ export function ToolSettings() {
                       <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
                         {field.label}
                       </label>
-                      <input 
-                        type="number"
-                        min={1}
-                        max={50}
-                        value={currentVal}
-                        onChange={(e) => setEditingConfig(prev => ({
-                          ...prev,
-                          [expandedTool.id]: {
-                            ...prev[expandedTool.id],
-                            [field.key]: parseInt(e.target.value) || field.default
-                          }
-                        }))}
-                        className="hide-spinners w-24 bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/20 outline-none rounded-lg py-2 px-3 text-xs text-[var(--color-text-primary)] transition-all"
-                      />
+                      {field.options ? (
+                        <CustomSelect
+                          value={currentVal}
+                          onChange={(val) => setEditingConfig(prev => ({
+                            ...prev,
+                            [expandedTool.id]: {
+                              ...prev[expandedTool.id],
+                              [field.key]: val
+                            }
+                          }))}
+                          options={field.options.map(option => ({ value: option, label: option }))}
+                          className="max-w-[260px]"
+                        />
+                      ) : (
+                        <input
+                          type={field.type}
+                          min={field.min ?? 1}
+                          max={field.max ?? 50}
+                          value={currentVal}
+                          onChange={(e) => setEditingConfig(prev => ({
+                            ...prev,
+                            [expandedTool.id]: {
+                              ...prev[expandedTool.id],
+                              [field.key]: field.type === 'number'
+                                ? parseInt(e.target.value) || field.default
+                                : e.target.value
+                            }
+                          }))}
+                          className="hide-spinners w-24 bg-[var(--color-bg-app)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/20 outline-none rounded-lg py-2 px-3 text-xs text-[var(--color-text-primary)] transition-all"
+                        />
+                      )}
                     </div>
                   );
                 })}
