@@ -395,4 +395,54 @@ try {
   console.error('Failed to initialize default LLM providers:', error);
 }
 
+// ===== Phase 4: Workflow System Tables =====
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    graph_data TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS workflow_executions (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    trigger_source TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    input TEXT,
+    output TEXT,
+    error TEXT,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS workflow_node_runs (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    node_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    input TEXT,
+    output TEXT,
+    error TEXT,
+    error_type TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_id);
+  CREATE INDEX IF NOT EXISTS idx_executions_workflow ON workflow_executions(workflow_id);
+  CREATE INDEX IF NOT EXISTS idx_node_runs_execution ON workflow_node_runs(execution_id);
+`);
+
 export default db;
