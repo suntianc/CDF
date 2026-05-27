@@ -231,16 +231,7 @@ function registerCdfHarnessProfile(providerType: string, modelName: string): voi
 
   registerSafely(modelName);
 
-  const isAnthropicLike = [
-    'anthropic',
-    'minimax',
-    'minimax-overseas',
-    'glm',
-    'glm-overseas',
-    'deepseek'
-  ].includes(providerType);
-
-  if (isAnthropicLike) {
+  if (providerType === 'anthropic') {
     registerSafely('anthropic');
     if (modelName && !modelName.includes(':')) registerSafely(`anthropic:${modelName}`);
     return;

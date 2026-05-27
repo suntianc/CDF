@@ -771,4 +771,198 @@ describe('runLLMChat', () => {
       ],
     });
   });
+
+  it('should push todos_update via run.values event stream', async () => {
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {
+        yield {
+          text: (async function* () {
+            yield 'done';
+          })(),
+        };
+      })(),
+      toolCalls: (async function* () {})(),
+      values: (async function* () {
+        yield { todos: [{ content: 'Step A', status: 'in_progress' }] };
+        yield { todos: [{ content: 'Step A', status: 'completed' }, { content: 'Step B', status: 'in_progress' }] };
+      })(),
+      output: Promise.resolve({ state: 'done' }),
+    });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+      },
+      inputMessages: [{ role: 'user', content: 'run with values' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-values-1', {
+      projectId: 'project-1',
+      sessionId: 'session-values-1',
+      message: {
+        id: 'message-values-1',
+        content: 'run with values',
+      },
+    });
+
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-values-1', {
+      type: 'todos_update',
+      todos: [{ content: 'Step A', status: 'in_progress' }],
+    });
+    expect(send).toHaveBeenCalledWith('llm:chunk-req-values-1', {
+      type: 'todos_update',
+      todos: [{ content: 'Step A', status: 'completed' }, { content: 'Step B', status: 'in_progress' }],
+    });
+  });
+
+  it('should stop run.values iteration when signal is aborted', async () => {
+    let resolveOutput!: (value: unknown) => void;
+    const output = new Promise((resolve) => {
+      resolveOutput = resolve;
+    });
+
+    const valuesChunks: Array<{ todos: Array<{ content: string; status: string }> }> = [];
+    let valuesResolve!: () => void;
+    const valuesDone = new Promise<void>((resolve) => {
+      valuesResolve = resolve;
+    });
+
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {})(),
+      toolCalls: (async function* () {})(),
+      values: (async function* () {
+        yield { todos: [{ content: 'Before abort', status: 'in_progress' }] };
+        await new Promise(() => {}); // hang until aborted
+      })(),
+      output,
+      interrupts: [],
+    });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+      },
+      inputMessages: [{ role: 'user', content: 'abort test' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-values-abort', {
+      projectId: 'project-1',
+      sessionId: 'session-values-abort',
+      message: {
+        id: 'message-values-abort',
+        content: 'abort test',
+      },
+    });
+
+    // Wait for the first todos_update to be sent
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith('llm:chunk-req-values-abort', {
+        type: 'todos_update',
+        todos: [{ content: 'Before abort', status: 'in_progress' }],
+      });
+    });
+
+    stopLLMChat('req-values-abort');
+    resolveOutput({});
+    await promise;
+
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-values-abort',
+      expect.objectContaining({ type: 'run_updated', status: 'aborted' })
+    );
+  });
+
+  it('should deduplicate todos in run.values when todosJson has not changed', async () => {
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {
+        yield {
+          text: (async function* () {
+            yield 'ok';
+          })(),
+        };
+      })(),
+      toolCalls: (async function* () {})(),
+      values: (async function* () {
+        yield { todos: [{ content: 'Same', status: 'pending' }] };
+        yield { todos: [{ content: 'Same', status: 'pending' }] }; // duplicate
+        yield { todos: [{ content: 'Same', status: 'completed' }] }; // changed
+      })(),
+      output: Promise.resolve({ state: 'done' }),
+    });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+      },
+      inputMessages: [{ role: 'user', content: 'dedup test' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-values-dedup', {
+      projectId: 'project-1',
+      sessionId: 'session-values-dedup',
+      message: {
+        id: 'message-values-dedup',
+        content: 'dedup test',
+      },
+    });
+
+    const todosUpdates = send.mock.calls.filter(
+      ([channel, payload]) => channel === 'llm:chunk-req-values-dedup' && payload.type === 'todos_update'
+    );
+    // Should have 2 unique todos_update events, not 3
+    expect(todosUpdates).toHaveLength(2);
+    expect(todosUpdates[0][1].todos).toEqual([{ content: 'Same', status: 'pending' }]);
+    expect(todosUpdates[1][1].todos).toEqual([{ content: 'Same', status: 'completed' }]);
+  });
+
+  it('should not send todos_update from run.values when values has no todos field', async () => {
+    const streamEvents = vi.fn().mockResolvedValue({
+      messages: (async function* () {
+        yield {
+          text: (async function* () {
+            yield 'ok';
+          })(),
+        };
+      })(),
+      toolCalls: (async function* () {})(),
+      values: (async function* () {
+        yield { someOtherField: 'value' };
+        yield {};
+      })(),
+      output: Promise.resolve({ state: 'done' }),
+    });
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents,
+      },
+      inputMessages: [{ role: 'user', content: 'no todos' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-values-no-todos', {
+      projectId: 'project-1',
+      sessionId: 'session-values-no-todos',
+      message: {
+        id: 'message-values-no-todos',
+        content: 'no todos',
+      },
+    });
+
+    const todosUpdates = send.mock.calls.filter(
+      ([channel, payload]) => channel === 'llm:chunk-req-values-no-todos' && payload.type === 'todos_update'
+    );
+    expect(todosUpdates).toHaveLength(0);
+  });
 });
