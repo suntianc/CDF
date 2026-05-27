@@ -9,10 +9,10 @@ import styles from './Sidebar.module.css';
 interface SidebarProps {
   collapsed: boolean;
   width: number;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools';
+  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows';
   onCollapse: () => void;
   onResize: (width: number) => void;
-  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools') => void;
+  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows') => void;
 }
 
 export function Sidebar({
@@ -115,7 +115,10 @@ export function Sidebar({
               <span>插件</span>
             </button>
 
-            <button className={styles.sidebarMenuBtn}>
+            <button
+              onClick={() => onChangeView('workflows')}
+              className={`${styles.sidebarMenuBtn} ${activeView === 'workflows' ? styles.active : ''}`}
+            >
               <GitFork className="w-4 h-4" />
               <span>工作流</span>
             </button>
@@ -172,12 +175,19 @@ export function Sidebar({
             <LayoutGrid className="w-4 h-4" />
             Skills & MCP 管理
           </div>
-          <div 
+          <div
             className={`${styles.settingsMenuItem} ${activeView === 'tools' ? styles.active : ''}`}
             onClick={() => onChangeView('tools')}
           >
             <Wrench className="w-4 h-4" />
             工具配置
+          </div>
+          <div
+            className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}
+            onClick={() => onChangeView('workflows')}
+          >
+            <GitFork className="w-4 h-4" />
+            工作流
           </div>
         </div>
       )}
