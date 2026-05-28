@@ -208,9 +208,36 @@ export interface AgentApprovalResolution {
 
 // ===== Phase 4: Workflow System Types =====
 
-export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'end';
+export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'end'
+  | 'tool_mcp' | 'tool_http' | 'variable' | 'transform' | 'condition';
 export type WorkflowAgentNodeKind = 'task' | 'loop' | 'review';
 export type WorkflowEdgeOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte';
+
+/** Node port — 统一输入/输出端口定义（参考 Flowise INode） */
+export interface NodePort {
+  id: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any';
+  required?: boolean;
+  defaultValue?: unknown;
+}
+
+/** Node category for palette grouping */
+export type WorkflowNodeCategory = 'flow' | 'agent' | 'tool' | 'data' | 'logic';
+
+/** 统一节点配置接口 */
+export interface WorkflowNodeConfig {
+  /** 节点分类（用于侧边栏分组） */
+  category: WorkflowNodeCategory;
+  /** 输入端口定义 */
+  inputs: NodePort[];
+  /** 输出端口定义 */
+  outputs: NodePort[];
+  /** 节点图标（lucide icon name） */
+  icon?: string;
+  /** 节点颜色主题 */
+  color?: string;
+}
 
 export interface WorkflowNode {
   id: string;
@@ -229,6 +256,21 @@ export interface WorkflowNode {
     reviewRules?: string;
     retryCount?: number;
     failureStrategy?: 'retry' | 'skip' | 'stop';
+    // Tool node fields
+    toolId?: string;
+    toolType?: 'mcp' | 'http';
+    httpMethod?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    httpUrl?: string;
+    httpHeaders?: Record<string, string>;
+    httpBody?: string;
+    // Variable/Transform node fields
+    variableName?: string;
+    variableValue?: string;
+    transformExpression?: string;
+    // Condition node fields
+    conditionExpression?: string;
+    conditionTrueLabel?: string;
+    conditionFalseLabel?: string;
   };
 }
 
