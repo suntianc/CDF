@@ -111,6 +111,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ error: null });
     try {
       const executionId = await window.electronAPI.workflow.runWorkflow(workflowId, projectId, triggerSource, input);
+      set({
+        currentExecution: {
+          id: executionId,
+          workflow_id: workflowId,
+          project_id: projectId,
+          trigger_source: triggerSource as WorkflowExecution['trigger_source'],
+          status: 'running',
+          input: input || {},
+          started_at: Date.now(),
+        },
+      });
       return executionId;
     } catch (err: any) {
       set({ error: err.message || 'Failed to run workflow' });
@@ -130,11 +141,35 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   subscribeToExecution: (executionId: string) => {
     const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: any, data: any) => {
-      if (data.type === 'workflow_end') {
+      if (data.type === 'workflow_start') {
         const current = get().currentExecution;
-        if (current) {
-          set({ currentExecution: { ...current, status: data.status, ended_at: Date.now() } as WorkflowExecution });
-        }
+        set({
+          currentExecution: {
+            id: executionId,
+            workflow_id: data.workflowId,
+            project_id: current?.project_id || '',
+            trigger_source: 'editor',
+            status: 'running',
+            input: current?.input || {},
+            started_at: current?.started_at || Date.now(),
+          } as WorkflowExecution,
+        });
+      } else if (data.type === 'workflow_end') {
+        const current = get().currentExecution;
+        set({
+          currentExecution: {
+            ...(current ?? {
+              id: executionId,
+              workflow_id: '',
+              project_id: '',
+              trigger_source: 'editor',
+              input: {},
+              started_at: Date.now(),
+            }),
+            status: data.status,
+            ended_at: Date.now(),
+          } as WorkflowExecution,
+        });
       } else if (data.type === 'node_start' || data.type === 'node_end' || data.type === 'node_error') {
         // Refresh node runs when node events arrive
         get().fetchNodeRuns(executionId).catch(() => {});

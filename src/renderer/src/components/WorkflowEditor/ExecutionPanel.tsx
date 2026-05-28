@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { WorkflowStreamEvent, WorkflowNodeRun, WorkflowExecutionStatus } from '../../../../shared/types';
-import { X, Square, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
+import { WorkflowExecution, WorkflowExecutionStatus } from '../../../../shared/types';
+import { X, Square, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, PackageOpen, Target } from 'lucide-react';
 
 interface ExecutionPanelProps {
   executionId: string;
+  taskGoal?: string;
   onClose: () => void;
 }
 
@@ -17,15 +18,36 @@ const statusConfig: Record<string, { icon: typeof Loader2; color: string; label:
   skipped: { icon: AlertTriangle, color: 'text-[var(--color-warning)]', label: '已跳过' },
 };
 
-export function ExecutionPanel({ executionId, onClose }: ExecutionPanelProps) {
+function formatJson(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractNodeArtifact(output: unknown): string {
+  if (!output || typeof output !== 'object') return formatJson(output);
+  const record = output as Record<string, unknown>;
+  if (typeof record.result === 'string') return record.result;
+  return formatJson(output);
+}
+
+export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPanelProps) {
   const { subscribeToExecution, nodeRuns, fetchNodeRuns, stopWorkflow, currentExecution } = useWorkflowStore();
   const [executionStatus, setExecutionStatus] = useState<WorkflowExecutionStatus>('running');
+  const [execution, setExecution] = useState<WorkflowExecution | null>(null);
 
   useEffect(() => {
     if (!executionId) return;
 
     fetchNodeRuns(executionId);
     const unsubscribe = subscribeToExecution(executionId);
+    window.electronAPI.db.getWorkflowExecution(executionId)
+      .then((value) => setExecution(value || null))
+      .catch(() => {});
 
     return () => {
       unsubscribe();
@@ -35,8 +57,13 @@ export function ExecutionPanel({ executionId, onClose }: ExecutionPanelProps) {
   useEffect(() => {
     if (currentExecution?.status) {
       setExecutionStatus(currentExecution.status);
+      if (currentExecution.status !== 'running') {
+        window.electronAPI.db.getWorkflowExecution(executionId)
+          .then((value) => setExecution(value || null))
+          .catch(() => {});
+      }
     }
-  }, [currentExecution?.status]);
+  }, [currentExecution?.status, executionId]);
 
   const handleStop = async () => {
     await stopWorkflow(executionId);
@@ -55,7 +82,7 @@ export function ExecutionPanel({ executionId, onClose }: ExecutionPanelProps) {
   const statusLabel = statusConfig[executionStatus]?.label || executionStatus;
 
   return (
-    <div className="w-[320px] bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]/50 flex flex-col shrink-0">
+    <div className="w-[380px] bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]/50 flex flex-col shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]/50">
         <div className="flex items-center gap-2">
@@ -87,7 +114,19 @@ export function ExecutionPanel({ executionId, onClose }: ExecutionPanelProps) {
       </div>
 
       {/* Node Runs List */}
-      <div className="flex-1 overflow-y-auto px-4 py-2">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {(taskGoal || execution?.input?.taskGoal) && (
+          <div className="rounded-lg border border-[var(--color-border)]/50 bg-[var(--color-bg-surface)] p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+              <span className="text-xs font-semibold text-[var(--color-text-primary)]">任务目标</span>
+            </div>
+            <div className="text-[11px] leading-relaxed text-[var(--color-text-secondary)] whitespace-pre-wrap">
+              {String(taskGoal || execution?.input?.taskGoal)}
+            </div>
+          </div>
+        )}
+
         {nodeRuns.length === 0 ? (
           <div className="text-xs text-[var(--color-text-muted)] text-center py-8">
             {isRunning ? '等待节点执行...' : '暂无执行记录'}
@@ -120,9 +159,31 @@ export function ExecutionPanel({ executionId, onClose }: ExecutionPanelProps) {
                       {run.error}
                     </div>
                   )}
+                  {run.output && (
+                    <details className="mt-2 group">
+                      <summary className="cursor-pointer text-[11px] font-medium text-[var(--color-accent)]">
+                        查看节点产物
+                      </summary>
+                      <pre className="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap rounded bg-black/20 p-2 text-[10px] leading-relaxed text-[var(--color-text-secondary)]">
+                        {extractNodeArtifact(run.output)}
+                      </pre>
+                    </details>
+                  )}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {execution?.output && Object.keys(execution.output).length > 0 && (
+          <div className="rounded-lg border border-[var(--color-success)]/20 bg-[var(--color-success-dim)]/30 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <PackageOpen className="w-3.5 h-3.5 text-[var(--color-success)]" />
+              <span className="text-xs font-semibold text-[var(--color-text-primary)]">工作流产物</span>
+            </div>
+            <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap rounded bg-black/20 p-2 text-[10px] leading-relaxed text-[var(--color-text-secondary)]">
+              {formatJson(execution.output)}
+            </pre>
           </div>
         )}
       </div>

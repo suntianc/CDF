@@ -1,10 +1,14 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot } from 'lucide-react';
+import { Bot, ListTodo, Repeat2, ShieldCheck } from 'lucide-react';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
 interface AgentNodeData extends Record<string, unknown> {
   label: string;
   description?: string;
+  taskDescription?: string;
+  loopCount?: number;
+  reviewSpec?: string;
+  nodeKind?: string;
   agentId?: string;
   status?: WorkflowNodeRunStatus;
 }
@@ -22,6 +26,15 @@ const statusStyles: Record<string, { border: string; glow: string; dot: string }
 export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const status = data.status || 'pending';
   const style = statusStyles[status] || statusStyles.pending;
+  const kind = data.nodeKind || 'task';
+  const config = kind === 'loop'
+    ? { title: data.label || 'Loop 节点', badge: 'Loop', icon: <Repeat2 className="w-3.5 h-3.5 text-[var(--color-info)]" />, bg: 'var(--color-info-dim)' }
+    : kind === 'review'
+      ? { title: data.label || '审查节点', badge: 'Review', icon: <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-warning)]" />, bg: 'var(--color-warning-dim)' }
+      : { title: data.label || '普通任务节点', badge: 'Task', icon: <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" />, bg: 'var(--color-accent-dim)' };
+  const summary = kind === 'review'
+    ? data.reviewSpec
+    : data.taskDescription || data.description;
 
   return (
     <div
@@ -34,18 +47,24 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
       <Handle type="target" position={Position.Top} className="w-3 h-3" />
 
       <div className="px-3 py-2 border-b border-[var(--color-border)]/30 flex items-center gap-2">
-        <div className="w-6 h-6 rounded bg-[var(--color-accent-dim)] flex items-center justify-center shrink-0">
-          <Bot className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+        <div className="w-6 h-6 rounded flex items-center justify-center shrink-0" style={{ background: config.bg }}>
+          {config.icon}
         </div>
         <div className="text-sm font-semibold text-[var(--color-text-primary)] truncate flex-1">
-          {data.label || 'Agent 节点'}
+          {config.title}
         </div>
         <div className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
       </div>
 
-      {data.description && (
-        <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-secondary)] line-clamp-2">
-          {data.description}
+      <div className="px-3 py-1.5 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+        <Bot className="w-3 h-3" />
+        <span>{config.badge}</span>
+        {kind === 'loop' && <span>× {data.loopCount ?? 1}</span>}
+      </div>
+
+      {summary && (
+        <div className="px-3 pb-2 text-[11px] text-[var(--color-text-secondary)] line-clamp-2">
+          {summary}
         </div>
       )}
 
