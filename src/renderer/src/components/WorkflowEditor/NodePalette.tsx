@@ -1,4 +1,4 @@
-import { ListTodo, Repeat2, ShieldCheck, Target, Wrench, Globe, Variable, Shuffle, GitBranch } from 'lucide-react';
+import { ListTodo, Repeat2, ShieldCheck, Target } from 'lucide-react';
 
 interface NodePaletteProps {
   taskGoal: string;
@@ -36,44 +36,6 @@ export function NodePalette({ taskGoal, onTaskGoalChange, onDragStart }: NodePal
         { type: 'task', label: '任务节点', icon: ListTodo, color: 'var(--color-accent)' },
         { type: 'loop', label: 'Loop 节点', icon: Repeat2, color: 'var(--color-info)' },
         { type: 'review', label: '审查节点', icon: ShieldCheck, color: 'var(--color-warning)' },
-      ].map((n) => (
-        <div key={n.type} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] cursor-grab hover:border-[var(--color-accent)]/50 transition-colors text-xs text-[var(--color-text-secondary)]"
-          onDragStart={(e) => onDragStart(e, n.type)} draggable>
-          <n.icon className="w-3.5 h-3.5" style={{ color: n.color }} />
-          {n.label}
-        </div>
-      ))}
-
-      {/* Tool nodes */}
-      <div className="text-[10px] text-[var(--color-text-muted)] mt-2">工具节点</div>
-      {[
-        { type: 'tool_mcp', label: 'MCP 工具', icon: Wrench, color: '#06b6d4' },
-        { type: 'tool_http', label: 'HTTP 请求', icon: Globe, color: '#8b5cf6' },
-      ].map((n) => (
-        <div key={n.type} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] cursor-grab hover:border-[var(--color-accent)]/50 transition-colors text-xs text-[var(--color-text-secondary)]"
-          onDragStart={(e) => onDragStart(e, n.type)} draggable>
-          <n.icon className="w-3.5 h-3.5" style={{ color: n.color }} />
-          {n.label}
-        </div>
-      ))}
-
-      {/* Data nodes */}
-      <div className="text-[10px] text-[var(--color-text-muted)] mt-2">数据处理</div>
-      {[
-        { type: 'variable', label: '变量', icon: Variable, color: '#10b981' },
-        { type: 'transform', label: '数据转换', icon: Shuffle, color: '#f97316' },
-      ].map((n) => (
-        <div key={n.type} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] cursor-grab hover:border-[var(--color-accent)]/50 transition-colors text-xs text-[var(--color-text-secondary)]"
-          onDragStart={(e) => onDragStart(e, n.type)} draggable>
-          <n.icon className="w-3.5 h-3.5" style={{ color: n.color }} />
-          {n.label}
-        </div>
-      ))}
-
-      {/* Logic nodes */}
-      <div className="text-[10px] text-[var(--color-text-muted)] mt-2">逻辑判断</div>
-      {[
-        { type: 'condition', label: '条件判断', icon: GitBranch, color: '#ec4899' },
       ].map((n) => (
         <div key={n.type} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] cursor-grab hover:border-[var(--color-accent)]/50 transition-colors text-xs text-[var(--color-text-secondary)]"
           onDragStart={(e) => onDragStart(e, n.type)} draggable>

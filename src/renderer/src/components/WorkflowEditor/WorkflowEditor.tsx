@@ -23,7 +23,6 @@ import { Workflow, WorkflowNode, WorkflowDefinition, WorkflowEdge, WorkflowStrea
 import { StartNode } from './StartNode';
 import { EndNode } from './EndNode';
 import { AgentNode } from './AgentNode';
-import { ConditionNode } from './ConditionNode';
 import { NodeConfigDrawer } from './NodeConfigDrawer';
 import { EdgeConfigDrawer } from './EdgeConfigDrawer';
 import { ExecutionPanel } from './ExecutionPanel';
@@ -56,7 +55,6 @@ const nodeTypes = {
   loop: AgentNode,
   review: AgentNode,
   end: EndNode,
-  condition: ConditionNode,
 } satisfies NodeTypes;
 
 export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
