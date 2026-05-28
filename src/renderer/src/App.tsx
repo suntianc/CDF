@@ -24,6 +24,7 @@ export default function App() {
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const { setCurrentWorkflow } = useWorkflowStore();
+  const isEditingWorkflow = activeView === 'workflows' && !!editingWorkflow;
 
   useEffect(() => {
     // Initialize theme from persistent store
@@ -47,15 +48,17 @@ export default function App() {
   }, [pendingApproval, activeView, setTaskPanelOpen]);
 
   return (
-    <div className={`flex h-screen bg-[var(--bg-app)] relative ${sidebarCollapsed ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        width={sidebarWidth}
-        activeView={activeView}
-        onCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onResize={(w) => setSidebarWidth(w)}
-        onChangeView={(view) => setActiveView(view)}
-      />
+    <div className={`flex h-screen bg-[var(--bg-app)] relative ${(sidebarCollapsed || isEditingWorkflow) ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
+      {!isEditingWorkflow && (
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          width={sidebarWidth}
+          activeView={activeView}
+          onCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onResize={(w) => setSidebarWidth(w)}
+          onChangeView={(view) => setActiveView(view)}
+        />
+      )}
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <div key={activeView} className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up">
@@ -103,7 +106,7 @@ export default function App() {
         onResize={(w) => setTaskPanelWidth(w)}
       />
 
-      {sidebarCollapsed && (
+      {sidebarCollapsed && !isEditingWorkflow && (
         <button
           onClick={() => setSidebarCollapsed(false)}
           className="absolute top-[5px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag after:absolute after:inset-[-8px] after:content-['']"
