@@ -19,6 +19,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useThemeStore } from '../../stores/themeStore';
 import { Workflow, WorkflowNode, WorkflowDefinition, WorkflowEdge, WorkflowStreamEvent } from '../../../../shared/types';
 import { StartNode } from './StartNode';
 import { EndNode } from './EndNode';
@@ -208,6 +209,7 @@ function validateWorkflowGraph(nodes: Node[], edges: Edge[], mode: 'save' | 'run
 export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   const { saveWorkflow, runWorkflow, stopWorkflow, workflows } = useWorkflowStore();
   const { currentProjectId } = useProjectStore();
+  const { theme } = useThemeStore();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
@@ -765,7 +767,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
             fitView
-            colorMode="dark"
+            colorMode={theme}
             deleteKeyCode={['Delete', 'Backspace']}
           >
             <Background />

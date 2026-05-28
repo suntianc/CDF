@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Drawer } from 'vaul';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { X, Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2 } from 'lucide-react';
+import { Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
@@ -111,12 +111,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               {titleIcon}
               节点配置
             </Drawer.Title>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
 
           {/* Body */}
