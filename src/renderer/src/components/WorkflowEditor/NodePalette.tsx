@@ -10,7 +10,7 @@ interface NodePaletteProps {
  */
 export function NodePalette({ onDragStart }: NodePaletteProps) {
   return (
-    <div className="w-[200px] bg-[var(--color-bg-sidebar)] border-r border-[var(--color-border)]/50 p-3 flex flex-col gap-1.5 shrink-0 overflow-y-auto">
+    <div className="w-[200px] bg-[var(--color-bg-sidebar)] border-r border-[var(--color-border)]/50 p-3 flex flex-col gap-1.5 shrink-0 overflow-y-auto node-palette-container">
       <div className="text-[11px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
         节点面板
       </div>

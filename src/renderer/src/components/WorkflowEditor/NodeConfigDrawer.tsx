@@ -249,9 +249,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
 
             {isReviewNode && (
               <>
-                <div className="rounded-lg border border-[var(--color-warning)]/20 bg-[var(--color-warning-dim)]/20 p-3 text-[11px] leading-relaxed text-[var(--color-text-secondary)]">
-                  审查节点的默认路由条件键是节点 ID：<span className="font-mono text-[var(--color-text-primary)]">{node?.id}</span>。从该节点连出的条件边会用这个键读取审查结果。
-                </div>
                 <div className="form-group">
                   <label className="form-label">规范</label>
                   <textarea

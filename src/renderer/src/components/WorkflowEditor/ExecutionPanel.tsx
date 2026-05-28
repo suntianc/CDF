@@ -82,7 +82,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
   const statusLabel = statusConfig[executionStatus]?.label || executionStatus;
 
   return (
-    <div className="w-[380px] bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]/50 flex flex-col shrink-0">
+    <div className="w-[380px] bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]/50 flex flex-col shrink-0 execution-panel-container">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]/50">
         <div className="flex items-center gap-2">

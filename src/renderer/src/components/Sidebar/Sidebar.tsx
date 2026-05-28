@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { PanelLeft, Search, Settings, MessageSquare, Trash2, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Clock, Bot, Wrench } from 'lucide-react';
+import { PanelLeft, Settings,  GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { useProjectStore } from '../../stores/projectStore';
@@ -93,11 +93,6 @@ export function Sidebar({
               <SquarePen className="w-4 h-4" />
               <span>新对话</span>
             </button>
-
-            <div className={styles.sidebarMenuSearch}>
-              <Search className="w-4 h-4" />
-              <input type="text" placeholder="搜索" />
-            </div>
 
             <button 
               onClick={() => onChangeView('agents')} 

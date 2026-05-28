@@ -55,6 +55,8 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
     onClose();
   };
 
+  const isConditional = Boolean(condition.trim());
+
   return (
     <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()} direction="right">
       <Drawer.Portal>
@@ -77,23 +79,17 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3 text-[11px] text-[var(--color-text-secondary)]">
-              {edge ? `${edge.source} -> ${edge.target}` : '未选择边'}
-            </div>
+            {!isConditional && edge && (
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3 text-[11px] text-[var(--color-text-secondary)]">
+                {edge.source} {"->"} {edge.target}
+              </div>
+            )}
 
             <div className="rounded-lg border border-[var(--color-info)]/20 bg-[var(--color-info-dim)]/40 p-3 text-[11px] leading-relaxed text-[var(--color-text-secondary)]">
               <div className="font-semibold text-[var(--color-text-primary)] mb-1">普通边</div>
-              不填写路由条件键时，这条边会在上游节点完成后直接执行下游节点。
+              无条件顺序执行。上游节点完成后直接执行下游节点。
               <div className="font-semibold text-[var(--color-text-primary)] mt-3 mb-1">条件边</div>
-              条件边通常从审查节点连出。审查节点最终回复需要包含 JSON，例如：
-              <pre className="mt-2 whitespace-pre-wrap rounded bg-black/20 p-2 font-mono text-[10px] text-[var(--color-text-primary)]">
-{`{
-  "routing": {
-    "review-node-id": "80"
-  }
-}`}
-              </pre>
-              路由条件键填审查节点 ID，再选择运算符和值，例如 <span className="font-mono">&gt;= 80</span>，匹配后就会走这条边。
+              根据上游审查节点的输出结果进行条件匹配，满足匹配值后执行此边连接的下游节点。
             </div>
 
             <div className="form-group">
@@ -106,18 +102,20 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">路由条件键</label>
-              <input
-                className="form-input"
-                value={condition}
-                onChange={(e) => setCondition(e.target.value)}
-                placeholder="例如：review_result"
-              />
-              <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
-                留空表示普通顺序边；填写后表示从上游 Agent 输出的 routing 对象里读取这个键。
-              </p>
-            </div>
+            {!isConditional && (
+              <div className="form-group">
+                <label className="form-label">路由条件键</label>
+                <input
+                  className="form-input"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                  placeholder="例如：review_result"
+                />
+                <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                  留空表示普通顺序边；填写后表示从上游 Agent 输出的 routing 对象里读取这个键。
+                </p>
+              </div>
+            )}
 
             {condition.trim() && (
               <>
