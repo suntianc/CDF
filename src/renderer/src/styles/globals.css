@@ -961,13 +961,15 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 /* ─── Todo List Glassmorphism ─── */
 .todo-list-glass {
-  background: rgba(45, 45, 45, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(20, 20, 20, 0.12) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-color: rgba(255, 255, 255, 0.05) !important;
 }
 
 html[data-theme="light"] .todo-list-glass {
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.20) !important;
+  border-color: rgba(0, 0, 0, 0.03) !important;
 }
 
 /* ─── Floating Toast Notification Styles ─── */

@@ -31,7 +31,7 @@ export function ChatArea({
 }: ChatAreaProps) {
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
-    sessions, activeSessionId, messages, isStreaming, error, todos,
+    sessions, activeSessionId, messages, isStreaming, streamingMessageId, activeRunId, error, todos,
     sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage
   } = useSessionStore();
   const { providers, fetchProviders } = useLLMStore();
@@ -42,12 +42,14 @@ export function ChatArea({
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
-  const [showCompletedTodos, setShowCompletedTodos] = useState(false);
+  const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
   const justFinishedComposingRef = useRef(false);
   const compositionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousSessionIdRef = useRef<string | null>(null);
+  const previousHasActivePlanRef = useRef(false);
 
   const { handleScroll } = useChatScroll({
     scrollContainerRef,
@@ -58,16 +60,46 @@ export function ChatArea({
 
   const hasTodos = todos.length > 0;
   const allTodosCompleted = hasTodos && todos.every((todo) => todo.status === 'completed');
-  const shouldShowTodos = hasTodos && (!allTodosCompleted || isStreaming || showCompletedTodos);
+  const hasActiveTodos = hasTodos && todos.some((todo) => todo.status !== 'completed');
+  const hasActivePlan = isStreaming && hasActiveTodos;
+  const shouldShowTodos = hasActivePlan;
+  const todoPlanKey = activeSessionId && hasActivePlan
+    ? `${activeSessionId}:${streamingMessageId || activeRunId || 'pending'}`
+    : null;
+  const todoExpanded = todoPlanKey ? todoExpandedByPlan[todoPlanKey] ?? false : false;
+
+  const toggleTodoExpanded = () => {
+    if (!todoPlanKey) return;
+    setTodoExpandedByPlan((prev) => ({
+      ...prev,
+      [todoPlanKey]: !(prev[todoPlanKey] ?? false),
+    }));
+  };
+
+  useEffect(() => {
+    const previousSessionId = previousSessionIdRef.current;
+    const stayedInSameSession = previousSessionId === activeSessionId;
+    const planStartedInCurrentSession = Boolean(todoPlanKey && stayedInSameSession && !previousHasActivePlanRef.current);
+
+    if (planStartedInCurrentSession) {
+      setTodoExpandedByPlan((prev) => (
+        prev[todoPlanKey] === undefined ? { ...prev, [todoPlanKey]: true } : prev
+      ));
+    }
+
+    previousSessionIdRef.current = activeSessionId;
+    previousHasActivePlanRef.current = hasActivePlan;
+  }, [activeSessionId, hasActivePlan, todoPlanKey]);
 
   useEffect(() => {
     if (!allTodosCompleted) {
-      setShowCompletedTodos(false);
       return;
     }
 
-    setShowCompletedTodos(true);
-    const timer = setTimeout(() => setShowCompletedTodos(false), 2000);
+    const timer = setTimeout(() => {
+      // Clear todos directly in the store when automatically closing the completed todo list
+      useSessionStore.setState({ todos: [] });
+    }, 2000);
     return () => clearTimeout(timer);
   }, [allTodosCompleted, todos]);
 
@@ -234,6 +266,7 @@ export function ChatArea({
 
     const value = inputVal;
     setInputVal('');
+
     await sendMessage(currentProjectId, value, {
       providerId: selectedProviderId || undefined,
       model: selectedModel || undefined,
@@ -589,10 +622,16 @@ export function ChatArea({
         </div>
 
         {/* Input Composer Panel */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/95 to-transparent z-10 pointer-events-none">
-          <div className="max-w-[760px] mx-auto flex flex-col gap-3 pointer-events-auto">
+        <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 z-10 pointer-events-none">
+          {/* Background gradient overlay with fixed height to prevent compression when todo list collapses */}
+          <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/85 to-transparent z-0 pointer-events-none" />
+          <div className="relative z-10 w-full max-w-[760px] mx-auto flex flex-col gap-3 pointer-events-auto">
             {shouldShowTodos && (
-              <TodoList todos={todos} />
+              <TodoList
+                todos={todos}
+                isExpanded={todoExpanded}
+                onToggleExpanded={toggleTodoExpanded}
+              />
             )}
             <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
               {/* Upper: Text Input Area */}

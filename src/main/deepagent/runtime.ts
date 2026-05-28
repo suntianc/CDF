@@ -478,7 +478,8 @@ export async function createDeepAgentRuntime(
     for (const entry of TOOL_REGISTRY) {
       const config = loadToolConfig(entry.toolType, entry.requiresApiKey);
       if (config) {
-        builtInTools.push(entry.create(config));
+        const createdTools = entry.create(config);
+        builtInTools.push(...(Array.isArray(createdTools) ? createdTools : [createdTools]));
       }
     }
   } catch (err) {

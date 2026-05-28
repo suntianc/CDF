@@ -1,14 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { TodoItem } from '../../../../shared/types';
 
 interface TodoListProps {
   todos: TodoItem[];
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
 }
 
-export function TodoList({ todos }: TodoListProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
-
+export function TodoList({ todos, isExpanded, onToggleExpanded }: TodoListProps) {
   const completedCount = useMemo(() => {
     return todos.filter((t) => t.status === 'completed').length;
   }, [todos]);
@@ -23,21 +23,21 @@ export function TodoList({ todos }: TodoListProps) {
         return {
           icon: '✓',
           textClass: 'text-[var(--color-text-muted)] line-through',
-          bgClass: 'bg-[var(--color-success-dim)]/15 border-[var(--color-success)]/15',
+          bgClass: 'bg-[var(--color-success-dim)]/10 border-[var(--color-success)]/10',
           iconClass: 'text-[var(--color-success)] font-bold',
         };
       case 'in_progress':
         return {
           icon: '◉',
           textClass: 'text-[var(--color-text-primary)] font-medium',
-          bgClass: 'bg-[var(--color-warning-dim)]/15 border-[var(--color-warning)]/15',
+          bgClass: 'bg-[var(--color-warning-dim)]/10 border-[var(--color-warning)]/10',
           iconClass: 'text-[var(--color-warning)] animate-pulse font-bold',
         };
       default:
         return {
           icon: '○',
           textClass: 'text-[var(--color-text-secondary)]',
-          bgClass: 'bg-[var(--color-bg-app)]/50 border-[var(--color-border)]',
+          bgClass: 'bg-[var(--color-bg-app)]/20 border-[var(--color-border)]/45',
           iconClass: 'text-[var(--color-text-muted)]',
         };
     }
@@ -45,7 +45,7 @@ export function TodoList({ todos }: TodoListProps) {
 
   return (
     <div 
-      className="relative z-0 mx-auto w-full max-w-[720px] rounded-xl border border-[var(--color-border)] p-3 shadow-xl transition-all duration-300 pointer-events-auto mb-[-24px] pb-[32px] overflow-hidden todo-list-glass"
+      className="relative z-0 mx-auto w-full max-w-[720px] rounded-xl border border-[var(--color-border)] p-3 shadow-xl pointer-events-auto mb-[-24px] pb-[32px] overflow-hidden todo-list-glass"
       style={{
         boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.12)',
       }}
@@ -53,7 +53,7 @@ export function TodoList({ todos }: TodoListProps) {
       {/* Header Row */}
       <div 
         className="flex items-center justify-between cursor-pointer select-none"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={onToggleExpanded}
       >
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-[var(--color-text-primary)] tracking-wider">

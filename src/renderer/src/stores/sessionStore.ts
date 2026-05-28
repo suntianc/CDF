@@ -294,15 +294,40 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           });
         }
       }
-      // Don't reconstruct todos from DB — they arrive in real-time via run.values
-      // during active streaming. Reconstructing from historic write_todos tool calls
-      // causes stale todos to flash on session switch.
+      // Reconstruct the latest successful todos from database history on session switch
+      let latestTodos: TodoItem[] = [];
+      try {
+        if (typeof window.electronAPI.db.getLatestTodos === 'function') {
+          const lastTodosToolCall = await window.electronAPI.db.getLatestTodos(sessionId);
+          if (lastTodosToolCall && lastTodosToolCall.output) {
+            const outputObj = typeof lastTodosToolCall.output === 'string'
+              ? JSON.parse(lastTodosToolCall.output)
+              : lastTodosToolCall.output;
+            let todosList = null;
+            if (Array.isArray(outputObj)) {
+              todosList = outputObj;
+            } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
+              todosList = outputObj.update.todos;
+            } else {
+              const val = outputObj || {};
+              if (val.update && Array.isArray(val.update.todos)) {
+                todosList = val.update.todos;
+              }
+            }
+            if (Array.isArray(todosList)) {
+              latestTodos = todosList;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[sessionStore] Failed to fetch/parse latest todos from DB:', err);
+      }
 
       set({
         agentRuns: runs,
         agentToolCalls: toolCalls,
         delegatedTasks: tasks,
-        todos: [],
+        todos: latestTodos,
         activeRunId: activeRun?.id || null,
       });
     } catch (err: any) {
@@ -313,8 +338,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => {
     const { activeSessionId, isStreaming, sessions } = get();
     if (!activeSessionId || isStreaming) return;
-    set({ todos: [] });
     const activeSession = sessions.find((session) => session.id === activeSessionId);
+
+    // Clear old todos immediately to prevent stale data flashing
+    set({ todos: [] });
 
     const userMsgId = window.crypto.randomUUID();
     const userTokens = estimateTokens(content);
