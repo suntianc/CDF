@@ -60,9 +60,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### 项目管理 (Project)
 
-- [ ] **PROJ-01**: 多项目管理面板
-- [ ] **PROJ-02**: 项目切换
-- [ ] **PROJ-03**: 项目级数据隔离
+- [x] **PROJ-01**: 多项目管理面板 (已由 ProjectTree 组件实现)
+- [x] **PROJ-02**: 项目切换 (已由 projectStore + currentProjectId 实现)
+- [x] **PROJ-03**: 项目级数据隔离 (sessions/agents/workflows 已通过 project_id FK 隔离)
 
 ## v2 Requirements
 
@@ -109,9 +109,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | THEM-01 | Phase 1 | Pending |
 | THEM-02 | Phase 1 | Pending |
 | THEM-03 | Phase 1 | Pending |
-| PROJ-01 | Phase 1 | Pending |
-| PROJ-02 | Phase 1 | Pending |
-| PROJ-03 | Phase 1 | Pending |
+| PROJ-01 | Phase 1 | Done |
+| PROJ-02 | Phase 1 | Done |
+| PROJ-03 | Phase 1 | Done |
 | CHAT-01 | Phase 2 | Pending |
 | CHAT-02 | Phase 2 | Pending |
 | CHAT-03 | Phase 2 | Pending |

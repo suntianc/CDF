@@ -6,7 +6,6 @@
 - [x] **Phase 2: AI Chat Engine** - Master Agent 对话界面、多轮对话、LLM 提供者配置
 - [x] **Phase 3: Agent Integration** - Agent 资产管理、Skills 管理、MCP 服务器管理
 - [x] **Phase 4: Workflow System** - ReactFlow 可视化工作流编辑器、执行引擎 (completed 2026-05-27)
-- [ ] **Phase 5: Project Management** - 多项目管理面板、项目级数据隔离
 
 ---
 
@@ -141,24 +140,6 @@ Plans:
 
 ---
 
-### Phase 5: Project Management
-
-**Goal:** 用户可通过多项目管理面板高效管理多个项目，实现项目级数据隔离
-
-**Depends on:** Phase 4
-
-**Requirements:** PROJ-01, PROJ-02, PROJ-03
-
-**Success Criteria** (what must be TRUE):
-1. 用户可在项目管理面板中查看所有项目
-2. 用户可在面板中快速切换项目
-3. 不同项目的数据完全隔离
-
-**Plans:** TBD
-
-**UI hint:** yes
-
----
 
 ## Progress Table
 
@@ -169,13 +150,11 @@ Plans:
 | 3. Agent Integration | 5/5 | Completed | 2026-05-23 |
 | 03.2. deepagents Review | 6/6 | Complete    | 2026-05-27 |
 | 4. Workflow System | 4/4 | Complete   | 2026-05-27 |
-| 5. Project Management | 0/1 | Not started | - |
-
 ---
 
 ## Coverage
 
-**Requirements:** 28 total v1 requirements
+**Requirements:** 25 total v1 requirements
 
 | Phase | Requirements | Count |
 |-------|--------------|-------|
@@ -183,9 +162,7 @@ Plans:
 | 2 - AI Chat Engine | CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, LLM-01, LLM-02, LLM-03 | 8 |
 | 3 - Agent Integration | AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, SKIL-01, SKIL-02, SKIL-03, MCP-01, MCP-02, MCP-03, MCP-04 | 12 |
 | 4 - Workflow System | WFLO-01, WFLO-02, WFLO-03, WFLO-04, WFLO-05, WFLO-06, WFLO-07 | 7 |
-| 5 - Project Management | PROJ-01, PROJ-02, PROJ-03 | 3 |
-
-**Coverage:** 28/28 requirements mapped
+**Coverage:** 25/25 requirements mapped
 **Unmapped:** 0
 
 
