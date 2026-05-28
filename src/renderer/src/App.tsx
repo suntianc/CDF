@@ -49,19 +49,20 @@ export default function App() {
 
   return (
     <div className={`flex h-screen bg-[var(--bg-app)] relative ${(sidebarCollapsed || isEditingWorkflow) ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
-      {!isEditingWorkflow && (
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          width={sidebarWidth}
-          activeView={activeView}
-          onCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onResize={(w) => setSidebarWidth(w)}
-          onChangeView={(view) => setActiveView(view)}
-        />
-      )}
+      <Sidebar
+        collapsed={sidebarCollapsed || isEditingWorkflow}
+        width={sidebarWidth}
+        activeView={activeView}
+        onCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onResize={(w) => setSidebarWidth(w)}
+        onChangeView={(view) => setActiveView(view)}
+      />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <div key={activeView} className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up">
+        <div 
+          key={activeView === 'workflows' ? `${activeView}-${editingWorkflow ? 'editor' : 'list'}` : activeView} 
+          className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up"
+        >
           {activeView === 'settings' && <ModelSettings />}
           {activeView === 'tools' && <ToolSettings />}
           {activeView === 'agents' && <AgentLibrary />}
