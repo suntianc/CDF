@@ -619,8 +619,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  const selectedAgentNodeCount = selectedNodeIds.filter((nodeId) => isExecutableNodeType(getNodeType(nodes, nodeId))).length;
-  const selectedDeleteCount = selectedAgentNodeCount + selectedEdgeIds.length;
+
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
@@ -644,7 +643,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       </div>
 
       {/* Top Toolbar */}
-      <div className="main-topbar shrink-0 h-12 border-b border-[var(--color-border)]/50 px-4">
+      <div className="main-topbar shrink-0 h-12 border-b border-[var(--color-border)]/50 px-4 !pl-36">
         <div className="main-topbar-left">
           <button onClick={onBack} className="topbar-btn cursor-pointer">
             <ArrowLeft className="w-4 h-4" />
@@ -657,15 +656,6 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
           />
         </div>
         <div className="topbar-actions">
-          <button
-            className="btn btn-danger btn-sm cursor-pointer"
-            onClick={handleDeleteSelected}
-            disabled={selectedDeleteCount === 0}
-            title={selectedDeleteCount > 0 ? '删除选中的节点或边' : '选择任务节点或边后可删除'}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>删除选中</span>
-          </button>
           <button
             className="btn btn-secondary btn-sm cursor-pointer"
             onClick={() => handleSave('save')}
