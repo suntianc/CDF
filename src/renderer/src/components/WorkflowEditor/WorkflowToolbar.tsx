@@ -13,6 +13,8 @@ interface WorkflowToolbarProps {
   isRunning: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 /**
@@ -21,10 +23,10 @@ interface WorkflowToolbarProps {
  */
 export function WorkflowToolbar({
   workflowName, onWorkflowNameChange, onBack, onSave, onRun, onStop,
-  isSaving, isRunning, onUndo, onRedo,
+  isSaving, isRunning, onUndo, onRedo, canUndo, canRedo,
 }: WorkflowToolbarProps) {
   return (
-    <div className="main-topbar shrink-0 h-12 border-b border-[var(--color-border)]/50 px-4 !pl-36">
+    <div className="main-topbar shrink-0 h-12 border-b border-[var(--color-border)]/50 px-4 !pl-36 flex justify-between items-center">
       <div className="main-topbar-left">
         <button onClick={onBack} className="topbar-btn cursor-pointer">
           <ArrowLeft className="w-4 h-4" />
@@ -40,6 +42,7 @@ export function WorkflowToolbar({
         <button
           className="topbar-btn cursor-pointer opacity-60 hover:opacity-100 disabled:opacity-30"
           onClick={onUndo}
+          disabled={!canUndo}
           title="撤销 (Ctrl+Z)"
         >
           <Undo2 className="w-3.5 h-3.5" />
@@ -47,6 +50,7 @@ export function WorkflowToolbar({
         <button
           className="topbar-btn cursor-pointer opacity-60 hover:opacity-100 disabled:opacity-30"
           onClick={onRedo}
+          disabled={!canRedo}
           title="重做 (Ctrl+Y)"
         >
           <Redo2 className="w-3.5 h-3.5" />

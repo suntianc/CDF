@@ -55,6 +55,29 @@ interface FlowState {
   clearHistory: () => void;
 }
 
+function safeClone<T>(obj: T): T {
+  try {
+    return JSON.parse(
+      JSON.stringify(obj, (_, value) => {
+        if (
+          typeof value === 'function' ||
+          typeof value === 'symbol' ||
+          (typeof Element !== 'undefined' && value instanceof Element)
+        ) {
+          return undefined;
+        }
+        return value;
+      })
+    );
+  } catch (e) {
+    console.error('Failed to clone object safely:', e);
+    if (Array.isArray(obj)) {
+      return [...obj] as any;
+    }
+    return { ...obj };
+  }
+}
+
 export const useFlowStore = create<FlowState>((set, get) => ({
   // Selection
   selectedNodeIds: [],
@@ -103,7 +126,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   // Undo/Redo actions
   pushHistory: (nodes, edges) => set((state) => {
     const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push({ nodes: structuredClone(nodes), edges: structuredClone(edges) });
+    newHistory.push({ nodes: safeClone(nodes), edges: safeClone(edges) });
     // Limit history to 50 entries
     if (newHistory.length > 50) newHistory.shift();
     return { history: newHistory, historyIndex: newHistory.length - 1 };

@@ -208,8 +208,7 @@ export interface AgentApprovalResolution {
 
 // ===== Phase 4: Workflow System Types =====
 
-export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'end'
-  | 'tool_mcp' | 'tool_http' | 'variable' | 'transform' | 'condition';
+export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'end';
 export type WorkflowAgentNodeKind = 'task' | 'loop' | 'review';
 export type WorkflowEdgeOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte';
 
@@ -223,7 +222,7 @@ export interface NodePort {
 }
 
 /** Node category for palette grouping */
-export type WorkflowNodeCategory = 'flow' | 'agent' | 'tool' | 'data' | 'logic';
+export type WorkflowNodeCategory = 'flow' | 'agent';
 
 /** 统一节点配置接口 */
 export interface WorkflowNodeConfig {
@@ -256,21 +255,8 @@ export interface WorkflowNode {
     reviewRules?: string;
     retryCount?: number;
     failureStrategy?: 'retry' | 'skip' | 'stop';
-    // Tool node fields
-    toolId?: string;
-    toolType?: 'mcp' | 'http';
-    httpMethod?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-    httpUrl?: string;
-    httpHeaders?: Record<string, string>;
-    httpBody?: string;
-    // Variable/Transform node fields
-    variableName?: string;
-    variableValue?: string;
-    transformExpression?: string;
-    // Condition node fields
-    conditionExpression?: string;
-    conditionTrueLabel?: string;
-    conditionFalseLabel?: string;
+    taskGoal?: string;
+    bgColor?: string;
   };
 }
 

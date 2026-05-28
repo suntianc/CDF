@@ -72,65 +72,6 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
     icon: 'Bot',
     color: '#7c3aed',
   },
-  tool_mcp: {
-    category: 'tool',
-    inputs: [
-      { id: 'params', label: '参数', type: 'object' },
-    ],
-    outputs: [
-      { id: 'result', label: '工具返回', type: 'any' },
-    ],
-    icon: 'Wrench',
-    color: '#06b6d4',
-  },
-  tool_http: {
-    category: 'tool',
-    inputs: [
-      { id: 'url', label: 'URL', type: 'string' },
-      { id: 'headers', label: '请求头', type: 'object' },
-      { id: 'body', label: '请求体', type: 'any' },
-    ],
-    outputs: [
-      { id: 'response', label: '响应', type: 'any' },
-      { id: 'status', label: '状态码', type: 'number' },
-    ],
-    icon: 'Globe',
-    color: '#8b5cf6',
-  },
-  variable: {
-    category: 'data',
-    inputs: [
-      { id: 'value', label: '值', type: 'any' },
-    ],
-    outputs: [
-      { id: 'value', label: '变量值', type: 'any' },
-    ],
-    icon: 'Variable',
-    color: '#10b981',
-  },
-  transform: {
-    category: 'data',
-    inputs: [
-      { id: 'input', label: '输入数据', type: 'any' },
-    ],
-    outputs: [
-      { id: 'output', label: '转换结果', type: 'any' },
-    ],
-    icon: 'Shuffle',
-    color: '#f97316',
-  },
-  condition: {
-    category: 'logic',
-    inputs: [
-      { id: 'value', label: '判断值', type: 'any' },
-    ],
-    outputs: [
-      { id: 'true', label: 'True', type: 'any' },
-      { id: 'false', label: 'False', type: 'any' },
-    ],
-    icon: 'GitBranch',
-    color: '#ec4899',
-  },
 };
 
 /** Get node category for palette grouping */
@@ -147,15 +88,11 @@ export function getNodeTypesByCategory(category: WorkflowNodeCategory): Workflow
 
 /** Check if a node type is executable (runs Agent logic) */
 export function isExecutableNodeType(type?: string | null): boolean {
-  return type === 'agent' || type === 'task' || type === 'loop' || type === 'review'
-    || type === 'tool_mcp' || type === 'tool_http' || type === 'transform';
+  return type === 'agent' || type === 'task' || type === 'loop' || type === 'review';
 }
 
 /** Category display names */
 export const CATEGORY_LABELS: Record<WorkflowNodeCategory, string> = {
   flow: '流程控制',
   agent: 'Agent 节点',
-  tool: '工具节点',
-  data: '数据处理',
-  logic: '逻辑判断',
 };

@@ -23,10 +23,28 @@ interface NodeConfigDrawerProps {
       agentId?: string;
       failureStrategy?: 'retry' | 'skip' | 'stop';
       retryCount?: number;
+      bgColor?: string;
     };
   } | null;
   onUpdateNode: (nodeId: string, data: Record<string, unknown>) => void;
   onDeleteNode?: (nodeId: string) => void;
+}
+
+const colorPresets = [
+  { name: '默认', value: '', class: 'bg-[var(--color-bg-surface)] border border-[var(--color-border)]' },
+  { name: '蓝色', value: 'rgba(59, 130, 246, 0.12)', class: 'bg-[#3b82f6]' },
+  { name: '绿色', value: 'rgba(34, 197, 94, 0.12)', class: 'bg-[#10b981]' },
+  { name: '红色', value: 'rgba(239, 68, 68, 0.12)', class: 'bg-[#ef4444]' },
+  { name: '紫色', value: 'rgba(139, 92, 246, 0.12)', class: 'bg-[#8b5cf6]' },
+  { name: '黄色', value: 'rgba(245, 158, 11, 0.12)', class: 'bg-[#f59e0b]' },
+];
+
+function getFolderName(path?: string): string {
+  if (!path) return '';
+  const trimmed = path.replace(/[/\\]+$/, '');
+  const lastIdx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  if (lastIdx === -1) return trimmed;
+  return trimmed.slice(lastIdx + 1);
 }
 
 export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDeleteNode }: NodeConfigDrawerProps) {
@@ -44,6 +62,19 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [agentId, setAgentId] = useState('');
   const [failureStrategy, setFailureStrategy] = useState<'retry' | 'skip' | 'stop'>('stop');
   const [retryCount, setRetryCount] = useState(3);
+  const [taskGoal, setTaskGoal] = useState('');
+  const [bgColor, setBgColor] = useState('');
+
+  const handleSelectWorkspace = async () => {
+    try {
+      const path = await window.electronAPI.db.selectDirectory();
+      if (path) {
+        setWorkspace(path);
+      }
+    } catch (err) {
+      console.error('Failed to select directory:', err);
+    }
+  };
 
   useEffect(() => {
     if (currentProjectId) {
@@ -64,6 +95,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setAgentId(node.data.agentId || '');
       setFailureStrategy(node.data.failureStrategy || 'stop');
       setRetryCount(node.data.retryCount ?? 3);
+      setTaskGoal(node.data.taskGoal || '');
+      setBgColor(node.data.bgColor || '');
     }
   }, [node]);
 
@@ -86,13 +119,15 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       description,
       taskDescription,
       workspace,
-      workArea,
+      workArea: '',
       loopCount,
       reviewSpec,
       reviewRules,
       agentId,
       failureStrategy,
       retryCount,
+      taskGoal,
+      bgColor,
     });
     onClose();
   };
@@ -124,6 +159,30 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                 placeholder="输入节点名称"
               />
             </div>
+            <div className="form-group">
+              <label className="form-label">节点背景颜色</label>
+              <div className="flex gap-2.5 items-center mt-2">
+                {colorPresets.map((preset) => (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    title={preset.name}
+                    className={`w-6 h-6 rounded-full cursor-pointer transition-all duration-150 relative ${preset.class} ${
+                      bgColor === preset.value
+                        ? 'ring-2 ring-[var(--color-accent)] ring-offset-2 ring-offset-[var(--color-bg-surface)] scale-110'
+                        : 'hover:scale-105'
+                    }`}
+                    onClick={() => setBgColor(preset.value)}
+                  >
+                    {bgColor === preset.value && (
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-bold">
+                        ✓
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {isStartNode && (
               <>
@@ -132,20 +191,31 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                 </div>
                 <div className="form-group">
                   <label className="form-label">工作区路径</label>
-                  <input
-                    className="form-input"
-                    value={workspace}
-                    onChange={(e) => setWorkspace(e.target.value)}
-                    placeholder="例如：/Users/suntc/project/CDF"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      className="form-input flex-1 cursor-pointer"
+                      readOnly
+                      onClick={handleSelectWorkspace}
+                      value={workspace ? getFolderName(workspace) : ''}
+                      placeholder="点击选择工作文件夹"
+                      title={workspace}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary px-3 cursor-pointer shrink-0"
+                      onClick={handleSelectWorkspace}
+                    >
+                      选择
+                    </button>
+                  </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">工作区说明</label>
+                  <label className="form-label">任务目标</label>
                   <textarea
-                    className="form-input min-h-[80px] resize-none py-2"
-                    value={workArea}
-                    onChange={(e) => setWorkArea(e.target.value)}
-                    placeholder="描述这个工作区内要处理的范围、模块或约束"
+                    className="form-input min-h-[120px] resize-none py-2"
+                    value={taskGoal}
+                    onChange={(e) => setTaskGoal(e.target.value)}
+                    placeholder="请描述任务目标"
                   />
                 </div>
               </>
@@ -203,17 +273,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </>
             )}
 
-            {!isStartNode && (
-              <div className="form-group">
-                <label className="form-label">补充描述</label>
-                <textarea
-                  className="form-input min-h-[70px] resize-none py-2"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="可选：给节点补充背景、限制或输出要求"
-                />
-              </div>
-            )}
 
             {needsAgent && (
               <div className="form-group">
@@ -230,29 +289,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </div>
             )}
 
-            {/* Agent Info Summary (read-only) */}
-            {needsAgent && selectedAgent && (
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3 space-y-2">
-                <div className="text-xs font-semibold text-[var(--color-text-primary)] flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[var(--color-success)]" />
-                  Agent 信息摘要（只读）
-                </div>
-                <div className="text-[11px] text-[var(--color-text-secondary)] space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <Bot className="w-3 h-3" />
-                    <span>{selectedAgent.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Layers className="w-3 h-3" />
-                    <span>{selectedAgent.mcpServerIds?.length || 0} 个 MCP 绑定</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Code className="w-3 h-3" />
-                    <span>{selectedAgent.skillNames?.length || 0} 个 Skills 绑定</span>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {needsAgent && <div className="form-group">
               <label className="form-label">失败策略</label>

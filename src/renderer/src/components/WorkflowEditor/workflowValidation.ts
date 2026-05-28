@@ -40,8 +40,8 @@ export function edgeMetadata(edge: Edge): WorkflowEdge['metadata'] | undefined {
 }
 
 export const defaultNodes: Node[] = [
-  { id: START_NODE_ID, type: 'start', position: { x: 250, y: 50 }, data: getDefaultNodeData('start'), deletable: false },
-  { id: END_NODE_ID, type: 'end', position: { x: 250, y: 400 }, data: { label: '结束' }, deletable: false },
+  { id: START_NODE_ID, type: 'start', position: { x: 250, y: 50 }, data: getDefaultNodeData('start'), deletable: false, width: 150, height: 50 },
+  { id: END_NODE_ID, type: 'end', position: { x: 250, y: 400 }, data: { label: '结束' }, deletable: false, width: 150, height: 50 },
 ] as Node[];
 
 export function normalizeWorkflowDefinition(def: WorkflowDefinition): WorkflowDefinition {

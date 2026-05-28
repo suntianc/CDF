@@ -12,6 +12,7 @@ interface AgentNodeData extends Record<string, unknown> {
   nodeKind?: string;
   agentId?: string;
   status?: WorkflowNodeRunStatus;
+  bgColor?: string;
 }
 
 type AgentFlowNode = Node<AgentNodeData, 'agent'>;
@@ -44,13 +45,30 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
 
   return (
     <div
-      className="rounded-lg border-2 bg-[var(--color-bg-surface)] min-w-[180px] max-w-[240px] shadow-md transition-all"
+      className="rounded-lg border-2 w-[210px] shadow-md transition-[border-color,box-shadow,background-color] duration-150 relative"
       style={{
-        borderColor: selected ? 'var(--color-accent)' : style.border,
-        boxShadow: selected ? '0 0 0 2px var(--color-accent-dim)' : style.glow,
+        borderColor: selected ? 'var(--color-info)' : style.border,
+        boxShadow: selected ? '0 0 0 2px var(--color-info-dim)' : style.glow,
+        background: data.bgColor
+          ? `linear-gradient(${data.bgColor}, ${data.bgColor}), var(--color-bg-surface)`
+          : 'var(--color-bg-surface)',
       }}
     >
-      <Handle type="target" position={Position.Top} className="w-3 h-3" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{
+          width: 10,
+          height: 10,
+          backgroundColor: data.bgColor || 'var(--color-bg-surface)',
+          border: `2px solid ${selected ? 'var(--color-info)' : style.border}`,
+          borderRadius: '50%',
+          left: -5,
+          top: '50%',
+          transform: 'translateY(-50%)',
+        }}
+        className="cursor-crosshair"
+      />
 
       <div className="px-3 py-2 border-b border-[var(--color-border)]/30 flex items-center gap-2">
         <div className="w-6 h-6 rounded flex items-center justify-center shrink-0" style={{ background: config.bg }}>
@@ -74,7 +92,21 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
         </div>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="w-3 h-3" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{
+          width: 10,
+          height: 10,
+          backgroundColor: data.bgColor || 'var(--color-bg-surface)',
+          border: `2px solid ${selected ? 'var(--color-info)' : style.border}`,
+          borderRadius: '50%',
+          right: -5,
+          top: '50%',
+          transform: 'translateY(-50%)',
+        }}
+        className="cursor-crosshair"
+      />
     </div>
   );
 });

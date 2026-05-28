@@ -80,10 +80,23 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [edgeDrawerOpen, setEdgeDrawerOpen] = useState(false);
-  const [taskGoal, setTaskGoal] = useState('');
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const historyIndex = useFlowStore((state) => state.historyIndex);
+  const historyLength = useFlowStore((state) => state.history.length);
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < historyLength - 1;
+
+  const takeSnapshot = useCallback((nextNodes?: Node[], nextEdges?: Edge[]) => {
+    const { pushHistory } = useFlowStore.getState();
+    pushHistory(nextNodes || nodesRef.current, nextEdges || edgesRef.current);
+  }, []);
+
+  const onNodeDragStop = useCallback(() => {
+    takeSnapshot();
+  }, [takeSnapshot]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -99,39 +112,48 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   // Load existing workflow data
   useEffect(() => {
     setWorkflowId(workflow.id || window.crypto.randomUUID());
+    let initialNodes: Node[] = [];
+    let initialEdges: Edge[] = [];
     if (workflow.id && workflow.graph_data) {
       const def = normalizeWorkflowDefinition(workflow.graph_data as WorkflowDefinition);
       if (def.nodes?.length) {
-        setNodes(def.nodes.map((n) => ({
+        initialNodes = def.nodes.map((n) => ({
           id: n.id,
           type: n.type,
           position: n.position,
+          width: n.type === 'start' || n.type === 'end' ? 150 : 210,
+          height: n.type === 'start' || n.type === 'end' ? 50 : 100,
           data: { ...n.data },
           deletable: isExecutableNodeType(n.type),
-        })));
+        }));
       }
       if (def.edges?.length) {
-        setEdges(def.edges.map((e) => ({
+        initialEdges = def.edges.map((e) => ({
           id: e.id,
           source: e.source,
           target: e.target,
-          sourceHandle: e.sourceHandle,
-          targetHandle: e.targetHandle,
+          sourceHandle: null,
+          targetHandle: null,
           type: 'default',
           label: getEdgeLabel(e.metadata),
           animated: Boolean(e.metadata?.condition),
           style: e.metadata?.condition ? { stroke: 'var(--color-warning)' } : undefined,
           metadata: e.metadata,
-        })));
-      } else {
-        setEdges([] as Edge[]);
+        }));
       }
+      setNodes(initialNodes);
+      setEdges(initialEdges);
       setWorkflowName(workflow.name || '新建工作流');
     } else {
-      setNodes(defaultNodes as Node[]);
-      setEdges([] as Edge[]);
+      initialNodes = defaultNodes as Node[];
+      initialEdges = [];
+      setNodes(initialNodes);
+      setEdges(initialEdges);
       setWorkflowName('新建工作流');
     }
+    const { clearHistory, pushHistory } = useFlowStore.getState();
+    clearHistory();
+    pushHistory(initialNodes, initialEdges);
   }, [workflow.id, workflow.name, workflow.graph_data, setNodes, setEdges]);
 
   // Stable viewport reference to avoid unnecessary re-application
@@ -189,7 +211,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       const metadata: WorkflowEdge['metadata'] | undefined = sourceIsReview
         ? { condition: connection.source || '', operator: 'eq', routeValue: '通过', compareValue: '通过', maxIterations: 10 }
         : undefined;
-      setEdges((eds) => addEdge({
+      const newEdge = {
         ...connection,
         id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
         type: 'default',
@@ -197,9 +219,12 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         animated: Boolean(metadata),
         style: metadata ? { stroke: 'var(--color-warning)' } : undefined,
         metadata,
-      } as Edge, eds));
+      } as Edge;
+      const nextEds = addEdge(newEdge, edgesRef.current);
+      setEdges(nextEds);
+      takeSnapshot(nodesRef.current, nextEds);
     },
-    [nodes, setEdges],
+    [nodes, setEdges, takeSnapshot],
   );
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
@@ -220,7 +245,10 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       .map((change) => change.id);
     if (removedIds.length > 0) {
       const removedIdSet = new Set(removedIds);
-      setEdges((eds) => eds.filter((edge) => !removedIdSet.has(edge.source) && !removedIdSet.has(edge.target)));
+      const nextEds = edgesRef.current.filter((edge) => !removedIdSet.has(edge.source) && !removedIdSet.has(edge.target));
+      const nextNds = currentNodes.filter((node) => !removedIdSet.has(node.id));
+      setEdges(nextEds);
+      takeSnapshot(nextNds, nextEds);
       setSelectedNodeIds((ids) => ids.filter((id) => !removedIdSet.has(id)));
       setSelectedEdgeIds([]);
       if (selectedNode && removedIdSet.has(selectedNode.id)) {
@@ -228,7 +256,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         setDrawerOpen(false);
       }
     }
-  }, [onNodesChange, selectedNode, setEdges, showToast]);
+  }, [onNodesChange, selectedNode, setEdges, showToast, takeSnapshot]);
 
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
     onEdgesChange(changes);
@@ -238,30 +266,35 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       .map((change) => change.id);
     if (removedIds.length > 0) {
       const removedIdSet = new Set(removedIds);
+      const nextEds = edgesRef.current.filter((edge) => !removedIdSet.has(edge.id));
+      takeSnapshot(nodesRef.current, nextEds);
+
       setSelectedEdgeIds((ids) => ids.filter((id) => !removedIdSet.has(id)));
       if (selectedEdge && removedIdSet.has(selectedEdge.id)) {
         setSelectedEdge(null);
         setEdgeDrawerOpen(false);
       }
     }
-  }, [onEdgesChange, selectedEdge]);
+  }, [onEdgesChange, selectedEdge, takeSnapshot]);
 
   const deleteEdgesById = useCallback((edgeIds: string[]) => {
     const edgeIdSet = new Set(edgeIds);
     if (edgeIdSet.size === 0) return;
-    setEdges((eds) => eds.filter((edge) => !edgeIdSet.has(edge.id)));
+    const nextEds = edgesRef.current.filter((edge) => !edgeIdSet.has(edge.id));
+    setEdges(nextEds);
+    takeSnapshot(nodesRef.current, nextEds);
     setSelectedEdgeIds((ids) => ids.filter((id) => !edgeIdSet.has(id)));
     if (selectedEdge && edgeIdSet.has(selectedEdge.id)) {
       setSelectedEdge(null);
       setEdgeDrawerOpen(false);
     }
     showToast(`已删除 ${edgeIdSet.size} 条边`, 'success');
-  }, [selectedEdge, setEdges, showToast]);
+  }, [selectedEdge, setEdges, showToast, takeSnapshot]);
 
   const deleteNodesById = useCallback((nodeIds: string[]) => {
     const requestedIds = new Set(nodeIds);
     const deletableIds = new Set(
-      nodes
+      nodesRef.current
         .filter((node) => requestedIds.has(node.id) && isExecutableNodeType(node.type))
         .map((node) => node.id)
     );
@@ -271,8 +304,13 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       return;
     }
 
-    setNodes((nds) => nds.filter((node) => !deletableIds.has(node.id)));
-    setEdges((eds) => eds.filter((edge) => !deletableIds.has(edge.source) && !deletableIds.has(edge.target)));
+    const nextNds = nodesRef.current.filter((node) => !deletableIds.has(node.id));
+    const nextEds = edgesRef.current.filter((edge) => !deletableIds.has(edge.source) && !deletableIds.has(edge.target));
+
+    setNodes(nextNds);
+    setEdges(nextEds);
+    takeSnapshot(nextNds, nextEds);
+
     setSelectedNodeIds((ids) => ids.filter((id) => !deletableIds.has(id)));
     setSelectedEdgeIds([]);
     if (selectedNode && deletableIds.has(selectedNode.id)) {
@@ -280,7 +318,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       setDrawerOpen(false);
     }
     showToast(`已删除 ${deletableIds.size} 个节点`, 'success');
-  }, [nodes, selectedNode, setEdges, setNodes, showToast]);
+  }, [selectedNode, setEdges, setNodes, showToast, takeSnapshot]);
 
   const handleDeleteSelected = useCallback(() => {
     deleteEdgesById(selectedEdgeIds);
@@ -323,20 +361,24 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
 
   const handleUpdateNode = useCallback(
     (nodeId: string, data: Record<string, unknown>) => {
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n,
-        ),
+      const nextNds = nodesRef.current.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n
       );
+      setNodes(nextNds);
+      takeSnapshot(nextNds, edgesRef.current);
     },
-    [setNodes],
+    [setNodes, takeSnapshot],
   );
 
   const handleUpdateEdge = useCallback(
     (edgeId: string, updates: Partial<Edge>) => {
-      setEdges((eds) => eds.map((edge) => edge.id === edgeId ? { ...edge, ...updates } : edge));
+      const nextEds = edgesRef.current.map((edge) =>
+        edge.id === edgeId ? { ...edge, ...updates } : edge
+      );
+      setEdges(nextEds);
+      takeSnapshot(nodesRef.current, nextEds);
     },
-    [setEdges],
+    [setEdges, takeSnapshot],
   );
 
   // Drag & drop from panel
@@ -356,22 +398,33 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         return;
       }
 
-      const position = rfInstance.screenToFlowPosition({
+      const flowPos = rfInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
+
+      const nodeWidth = type === 'start' || type === 'end' ? 150 : 210;
+      const nodeHeight = type === 'start' || type === 'end' ? 50 : 100;
+      const position = {
+        x: flowPos.x - nodeWidth / 2,
+        y: flowPos.y - nodeHeight / 2,
+      };
 
       const id = type === 'start' ? START_NODE_ID : type === 'end' ? END_NODE_ID : `${type}-${crypto.randomUUID()}`;
       const newNode: Node = {
         id,
         type,
         position,
+        width: type === 'start' || type === 'end' ? 150 : 210,
+        height: type === 'start' || type === 'end' ? 50 : 100,
         deletable: isExecutableNodeType(type),
         data: getDefaultNodeData(type),
       };
-      setNodes((nds) => [...nds, newNode]);
+      const nextNds = [...currentNodes, newNode];
+      setNodes(nextNds);
+      takeSnapshot(nextNds, edgesRef.current);
     },
-    [rfInstance, setNodes, showToast],
+    [rfInstance, setNodes, showToast, takeSnapshot],
   );
 
   const handleSave = useCallback(async (mode: 'save' | 'run' = 'save') => {
@@ -419,6 +472,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             failureStrategy: (n.data as Record<string, unknown>).failureStrategy as 'retry' | 'skip' | 'stop' | undefined,
             retryCount: (n.data as Record<string, unknown>).retryCount as number | undefined,
             taskGoal: (n.data as Record<string, unknown>).taskGoal as string | undefined,
+            bgColor: (n.data as Record<string, unknown>).bgColor as string | undefined,
           },
         })),
         edges: flow.edges.map((e) => ({
@@ -503,7 +557,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
       {/* Toast Notification Container */}
-      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-14 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div 
             key={t.id} 
@@ -541,14 +595,14 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
           const result = redo();
           if (result) { setNodes(result.nodes); setEdges(result.edges); }
         }}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
 
       {/* Main Content */}
       <div className="flex-1 flex min-h-0">
         {/* Left Node Panel */}
         <NodePalette
-          taskGoal={taskGoal}
-          onTaskGoalChange={setTaskGoal}
           onDragStart={onDragStart}
         />
 
@@ -574,6 +628,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             colorMode={theme}
             deleteKeyCode={DELETE_KEY_CODE}
             onlyRenderVisibleElements
+            onNodeDragStop={onNodeDragStop}
           >
             <Background />
             <Controls />
