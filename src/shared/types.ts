@@ -208,7 +208,9 @@ export interface AgentApprovalResolution {
 
 // ===== Phase 4: Workflow System Types =====
 
-export type WorkflowNodeType = 'start' | 'agent' | 'end';
+export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'end';
+export type WorkflowAgentNodeKind = 'task' | 'loop' | 'review';
+export type WorkflowEdgeOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte';
 
 export interface WorkflowNode {
   id: string;
@@ -216,8 +218,15 @@ export interface WorkflowNode {
   position: { x: number; y: number };
   data: {
     label: string;
+    nodeKind?: WorkflowAgentNodeKind;
     agentId?: string;
     description?: string;
+    taskDescription?: string;
+    workspace?: string;
+    workArea?: string;
+    loopCount?: number;
+    reviewSpec?: string;
+    reviewRules?: string;
     retryCount?: number;
     failureStrategy?: 'retry' | 'skip' | 'stop';
   };
@@ -231,6 +240,9 @@ export interface WorkflowEdge {
   targetHandle?: string;
   metadata?: {
     condition?: string;
+    operator?: WorkflowEdgeOperator;
+    routeValue?: string;
+    compareValue?: string;
     maxIterations?: number;
     targets?: Record<string, string>;
   };
@@ -324,6 +336,7 @@ export interface ElectronAPI {
     getSkillVersions: (skillId: string) => Promise<SkillVersion[]>;
     getAgentRuns: (sessionId: string) => Promise<AgentRun[]>;
     getAgentToolCalls: (runId: string) => Promise<AgentToolCall[]>;
+    getLatestTodos: (sessionId: string) => Promise<any>;
     // Phase 3: MCP Servers
     getMcpServers: () => Promise<MCPServer[]>;
     saveMcpServer: (server: any) => Promise<MCPServer>;

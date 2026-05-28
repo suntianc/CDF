@@ -509,6 +509,15 @@ export function registerIpcHandlers() {
     return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId);
   });
 
+  ipcMain.handle('db:getLatestTodos', (_, sessionId: string) => {
+    return db.prepare(`
+      SELECT atc.* FROM agent_tool_calls atc
+      JOIN agent_runs ar ON atc.run_id = ar.id
+      WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
+      ORDER BY atc.started_at DESC LIMIT 1
+    `).get(sessionId);
+  });
+
   // ===== Phase 3: MCP Server IPC Handlers =====
 
   ipcMain.handle('db:getMcpServers', () => {

@@ -14,7 +14,7 @@ import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
 import { buildWorkflowGraph } from './graph-builder';
 import { createAgentNodeExecutor } from './node-executor';
-import type { WorkflowStreamEvent } from '../../shared/types';
+import type { WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
 
 // ---- Checkpoint Saver (独立 namespace，D-16a) ----
 
@@ -55,6 +55,25 @@ function getWorkflow(workflowId: string): WorkflowRow {
   return row;
 }
 
+function enrichWorkflowInput(input: Record<string, unknown>, graphData: WorkflowDefinition): Record<string, unknown> {
+  const startNode = graphData.nodes?.find((node) => node.type === 'start');
+  if (!startNode) return input;
+
+  const workspace = startNode.data.workspace?.trim();
+  const workArea = startNode.data.workArea?.trim();
+  if (!workspace && !workArea) return input;
+
+  return {
+    ...input,
+    workflowStart: {
+      nodeId: startNode.id,
+      label: startNode.data.label,
+      ...(workspace ? { workspace } : {}),
+      ...(workArea ? { workArea } : {}),
+    },
+  };
+}
+
 // ---- Active Executions Tracker ----
 
 const activeExecutions = new Map<string, { aborted: boolean }>();
@@ -86,13 +105,14 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
   // 1. 加载 workflow 定义
   const workflowRow = getWorkflow(workflowId);
-  const graphData = JSON.parse(workflowRow.graph_data);
+  const graphData = JSON.parse(workflowRow.graph_data) as WorkflowDefinition;
+  const executionInput = enrichWorkflowInput(input, graphData);
 
   // 2. 创建 execution 记录
   db.prepare(`
     INSERT INTO workflow_executions (id, workflow_id, project_id, trigger_source, status, input, started_at)
     VALUES (?, ?, ?, ?, 'running', ?, ?)
-  `).run(executionId, workflowId, projectId, triggerSource, JSON.stringify(input), now);
+  `).run(executionId, workflowId, projectId, triggerSource, JSON.stringify(executionInput), now);
 
   // 推送 workflow_start 事件
   const startEvent: WorkflowStreamEvent = {
@@ -106,11 +126,23 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
   // 标记为活跃执行
   activeExecutions.set(executionId, { aborted: false });
 
+  void (async () => {
   try {
     // 3. 构建图
-    const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) =>
-      createAgentNodeExecutor(node, upstreamNodeIds),
-    );
+    const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) => {
+      const executeNode = createAgentNodeExecutor(node, upstreamNodeIds);
+      return async (state) => {
+        const nodeStartEvent: WorkflowStreamEvent = {
+          type: 'node_start',
+          executionId,
+          nodeId: node.id,
+          nodeName: node.data.label || node.id,
+        };
+        pushWorkflowEvent(executionId, nodeStartEvent);
+        params.onEvent?.(nodeStartEvent);
+        return executeNode(state);
+      };
+    });
 
     // 4. 编译图（使用独立 checkpointer — D-16a）
     const checkpointer = getWorkflowCheckpointSaver();
@@ -119,7 +151,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     // 5. 流式执行
     const threadId = `workflow-${executionId}`;
     const stream = await graph.stream(
-      { inputs: input, messages: [] },
+      { inputs: executionInput, messages: [] },
       {
         configurable: { thread_id: threadId },
         streamMode: 'updates',
@@ -204,7 +236,6 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     pushWorkflowEvent(executionId, endEvent);
     params.onEvent?.(endEvent);
 
-    return executionId;
   } catch (err) {
     // 失败
     const endTime = Date.now();
@@ -223,10 +254,12 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     pushWorkflowEvent(executionId, failEvent);
     params.onEvent?.(failEvent);
 
-    return executionId;
   } finally {
     activeExecutions.delete(executionId);
   }
+  })();
+
+  return executionId;
 }
 
 /**
@@ -249,18 +282,12 @@ export function stopWorkflow(executionId: string): void {
  * 注册工作流相关的 IPC handlers
  */
 export function registerWorkflowIpcHandlers(): void {
-  ipcMain.handle('workflow:run', async (event, workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
+  ipcMain.handle('workflow:run', async (_, workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
     const executionId = await runWorkflow({
       workflowId,
       projectId,
       triggerSource: triggerSource as 'editor' | 'chat' | 'schedule',
       input,
-      onEvent: (data) => {
-        const windows = BrowserWindow.getAllWindows();
-        if (windows.length > 0) {
-          windows[0].webContents.send(`workflow:event-${executionId}`, data);
-        }
-      },
     });
     return executionId;
   });

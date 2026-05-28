@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getSkillVersions: (skillId: string) => ipcRenderer.invoke('db:getSkillVersions', skillId),
     getAgentRuns: (sessionId: string) => ipcRenderer.invoke('db:getAgentRuns', sessionId),
     getAgentToolCalls: (runId: string) => ipcRenderer.invoke('db:getAgentToolCalls', runId),
+    getLatestTodos: (sessionId: string) => ipcRenderer.invoke('db:getLatestTodos', sessionId),
     // Phase 3: MCP Servers
     getMcpServers: () => ipcRenderer.invoke('db:getMcpServers'),
     saveMcpServer: (server: any) => ipcRenderer.invoke('db:saveMcpServer', server),

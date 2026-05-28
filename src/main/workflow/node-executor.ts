@@ -7,10 +7,11 @@
 
 import { createDeepAgent } from 'deepagents';
 import db from '../database';
+import { decryptApiKey } from '../security';
 import { createLangChainModel } from '../deepagent/llm-adapter';
 import { loadMcpTools } from '../deepagent/mcp-connector';
 import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
-import type { MCPServer } from '../../shared/types';
+import type { MCPServer, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -65,7 +66,10 @@ function getProvider(providerId: string | null | undefined): ProviderRow {
   if (!id) throw new Error('Agent has no provider configured');
   const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(id) as ProviderRow | undefined;
   if (!provider) throw new Error(`LLM provider not found: ${id}`);
-  return provider;
+  return {
+    ...provider,
+    api_key: provider.api_key ? decryptApiKey(provider.api_key) : undefined,
+  };
 }
 
 interface MCPServerRow {
@@ -126,6 +130,63 @@ export function createNodeStateExtractor(
 // ---- Node Executor Factory ----
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_LOOP_NODE_ITERATIONS = 50;
+
+function extractJsonCandidate(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
+export function extractWorkflowRouting(output: string): Record<string, string> | undefined {
+  const parsed = extractJsonCandidate(output);
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const routing = (parsed as { routing?: unknown }).routing;
+  if (!routing || typeof routing !== 'object' || Array.isArray(routing)) return undefined;
+
+  const normalized = Object.entries(routing as Record<string, unknown>)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .reduce((acc, [key, value]) => {
+      acc[key] = String(value);
+      return acc;
+    }, {} as Record<string, string>);
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function clampLoopCount(loopCount: number | undefined): number {
+  if (!Number.isFinite(loopCount)) return 1;
+  return Math.max(1, Math.min(MAX_LOOP_NODE_ITERATIONS, Math.floor(loopCount ?? 1)));
+}
+
+function isLoopCompleteSignal(routing: Record<string, string> | undefined, nodeId: string): boolean {
+  const signal = routing?.[nodeId] ?? routing?.[`${nodeId}_status`] ?? routing?.status;
+  if (!signal) return false;
+  return ['done', 'complete', 'completed', 'stop', 'finished', '完成', '已完成', '结束'].includes(signal.trim().toLowerCase());
+}
+
+function getLastMessageText(result: any): string {
+  const lastMessage = result?.messages?.[result.messages.length - 1];
+  const output = lastMessage?.content ?? '';
+  return typeof output === 'string' ? output : JSON.stringify(output);
+}
 
 /**
  * 创建 Agent 节点执行器
@@ -134,7 +195,7 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
  * 内部创建 DeepAgent 实例（继承 Agent 的 LLM/MCP/Skills），执行后返回结果。
  */
 export function createAgentNodeExecutor(
-  node: { id: string; type: string; data: { agentId?: string; label?: string; retryCount?: number } },
+  node: WorkflowNode,
   upstreamNodeIds: string[] = [],
 ) {
   const agentId = node.data.agentId;
@@ -188,10 +249,39 @@ export function createAgentNodeExecutor(
       // 3. 构造 user message：只传递 inputs + 相关上游 nodeOutputs
       const { inputs, upstreamOutputs } = extractState(state);
 
+      const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
+      const taskDescription = node.data.taskDescription || node.data.description || '';
+      const nodeSpecificContext = [
+        nodeKind === 'task' ? `## 普通任务节点\n任务描述: ${taskDescription || '未填写'}` : '',
+        nodeKind === 'loop'
+          ? [
+              `## Loop 节点`,
+              `任务描述: ${taskDescription || '未填写'}`,
+              `循环次数: ${node.data.loopCount ?? 1}`,
+              `该节点会按循环次数多次调用 Agent。每一轮都会收到上一轮输出，请只完成当前轮次应做的工作。`,
+            ].join('\n')
+          : '',
+        nodeKind === 'review'
+          ? [
+              `## 审查节点`,
+              `规范: ${node.data.reviewSpec || taskDescription || '未填写'}`,
+              node.data.reviewRules ? `条件规则:\n${node.data.reviewRules}` : '',
+              `请根据上游输出和规范给出审查描述，并在最终回复中包含 JSON 路由片段。`,
+              `默认路由条件键使用当前节点 ID: ${node.id}`,
+              `示例: {"routing":{"${node.id}":"通过"}}`,
+            ].filter(Boolean).join('\n')
+          : '',
+      ].filter(Boolean).join('\n\n');
+
       const taskContext = [
         `## 工作流节点任务`,
         `节点名称: ${node.data.label || node.id}`,
+        `节点类型: ${nodeKind}`,
         agentRow.description ? `节点描述: ${agentRow.description}` : '',
+        nodeSpecificContext,
+        '',
+        `如果该节点需要决定条件分支，请在最终回复中包含 JSON 片段：`,
+        `{"routing":{"路由条件键":"匹配值"}}`,
         '',
         `## 输入参数`,
         JSON.stringify(inputs, null, 2),
@@ -201,37 +291,92 @@ export function createAgentNodeExecutor(
           : '',
       ].filter(Boolean).join('\n');
 
-      // 4. 执行 DeepAgent（单次调用，非流式）
-      let timeoutId: NodeJS.Timeout;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)),
-          DEFAULT_TIMEOUT_MS,
-        );
-      });
+      const invokeAgent = async (content: string): Promise<string> => {
+        let timeoutId: NodeJS.Timeout;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)),
+            DEFAULT_TIMEOUT_MS,
+          );
+        });
 
-      let result: any;
-      try {
-        result = await Promise.race([
-          agent.invoke({
-            messages: [{ role: 'user', content: taskContext }],
-          }),
-          timeoutPromise,
-        ]);
-      } finally {
-        clearTimeout(timeoutId!);
+        try {
+          const result = await Promise.race([
+            agent.invoke({
+              messages: [{ role: 'user', content }],
+            }),
+            timeoutPromise,
+          ]);
+          return getLastMessageText(result);
+        } finally {
+          clearTimeout(timeoutId!);
+        }
+      };
+
+      if (nodeKind === 'loop') {
+        const loopCount = clampLoopCount(node.data.loopCount);
+        const iterations: Array<{ iteration: number; result: string; routing?: Record<string, string>; duration_ms: number }> = [];
+        let previousIterationOutput: string | undefined;
+        let finalRouting: Record<string, string> | undefined;
+
+        for (let iteration = 1; iteration <= loopCount; iteration += 1) {
+          const iterationStart = Date.now();
+          const iterationContext = [
+            taskContext,
+            '',
+            `## Loop 执行轮次`,
+            `当前轮次: ${iteration}/${loopCount}`,
+            previousIterationOutput
+              ? `## 上一轮输出\n${previousIterationOutput}`
+              : `这是第 1 轮，请基于输入参数和上游节点输出开始执行。`,
+            '',
+            `如果已经满足任务目标，可以在最终回复中包含 JSON：{"routing":{"${node.id}":"done"}} 来提前结束 Loop。`,
+          ].filter(Boolean).join('\n');
+
+          const resultText = await invokeAgent(iterationContext);
+          const routing = extractWorkflowRouting(resultText);
+          finalRouting = routing ?? finalRouting;
+          iterations.push({
+            iteration,
+            result: resultText,
+            ...(routing ? { routing } : {}),
+            duration_ms: Date.now() - iterationStart,
+          });
+          previousIterationOutput = resultText;
+
+          if (isLoopCompleteSignal(routing, node.id)) {
+            break;
+          }
+        }
+
+        const duration = Date.now() - startTime;
+        const finalResult = iterations[iterations.length - 1]?.result ?? '';
+
+        return {
+          result: finalResult,
+          iterations,
+          iteration_count: iterations.length,
+          max_iterations: loopCount,
+          nodeId: node.id,
+          agentId,
+          duration_ms: duration,
+          ...(finalRouting ? { routing: finalRouting } : {}),
+        };
       }
+
+      // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
+      const resultText = await invokeAgent(taskContext);
 
       // 5. 收集结果
       const duration = Date.now() - startTime;
-      const lastMessage = result?.messages?.[result.messages.length - 1];
-      const output = lastMessage?.content ?? '';
+      const routing = extractWorkflowRouting(resultText);
 
       return {
-        result: typeof output === 'string' ? output : JSON.stringify(output),
+        result: resultText,
         nodeId: node.id,
         agentId,
         duration_ms: duration,
+        ...(routing ? { routing } : {}),
       };
     } catch (err) {
       const duration = Date.now() - startTime;
