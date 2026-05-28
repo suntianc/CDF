@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Workflow, WorkflowExecution, WorkflowNodeRun } from '../../../shared/types';
+import { Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent } from '../../../shared/types';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -12,7 +12,7 @@ interface WorkflowState {
 
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
-  saveWorkflow: (workflow: any) => Promise<Workflow>;
+  saveWorkflow: (workflow: Omit<Workflow, 'created_at' | 'updated_at'> & { id?: string }) => Promise<Workflow>;
   deleteWorkflow: (id: string, projectId?: string) => Promise<void>;
   setCurrentWorkflow: (workflow: Workflow | null) => void;
 
@@ -37,8 +37,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     try {
       const workflows = await window.electronAPI.db.getWorkflows(projectId);
       set({ workflows, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch workflows', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to fetch workflows', isLoading: false });
     }
   },
 
@@ -47,20 +47,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     try {
       const workflow = await window.electronAPI.db.getWorkflow(id);
       set({ currentWorkflow: workflow || null, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch workflow', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to fetch workflow', isLoading: false });
     }
   },
 
-  saveWorkflow: async (workflow: any) => {
+  saveWorkflow: async (workflow: Omit<Workflow, 'created_at' | 'updated_at'> & { id?: string }) => {
     set({ isLoading: true, error: null });
     try {
       const saved = await window.electronAPI.db.saveWorkflow(workflow);
       await get().fetchWorkflows(workflow.project_id);
       set({ isLoading: false });
       return saved;
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to save workflow', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to save workflow', isLoading: false });
       throw err;
     }
   },
@@ -77,8 +77,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         set({ currentWorkflow: null });
       }
       set({ isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to delete workflow', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to delete workflow', isLoading: false });
       throw err;
     }
   },
@@ -92,8 +92,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     try {
       const executions = await window.electronAPI.db.getWorkflowExecutions(workflowId);
       set({ executions, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch executions', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to fetch executions', isLoading: false });
     }
   },
 
@@ -102,8 +102,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     try {
       const nodeRuns = await window.electronAPI.db.getWorkflowNodeRuns(executionId);
       set({ nodeRuns, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch node runs', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to fetch node runs', isLoading: false });
     }
   },
 
@@ -123,8 +123,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         },
       });
       return executionId;
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to run workflow' });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to run workflow' });
       throw err;
     }
   },
@@ -133,14 +133,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ error: null });
     try {
       await window.electronAPI.workflow.stopWorkflow(executionId);
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to stop workflow' });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to stop workflow' });
       throw err;
     }
   },
 
   subscribeToExecution: (executionId: string) => {
-    const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: any, data: any) => {
+    const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: unknown, data: WorkflowStreamEvent) => {
       if (data.type === 'workflow_start') {
         const current = get().currentExecution;
         set({

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Bot, ListTodo, Repeat2, ShieldCheck } from 'lucide-react';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
@@ -23,15 +24,20 @@ const statusStyles: Record<string, { border: string; glow: string; dot: string }
   skipped: { border: 'var(--color-warning)', glow: 'none', dot: 'bg-[var(--color-warning)]' },
 };
 
-export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
+// Stable icon constants to avoid creating new JSX on each render (memo best practice)
+const LOOP_ICON = <Repeat2 className="w-3.5 h-3.5 text-[var(--color-info)]" />;
+const REVIEW_ICON = <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-warning)]" />;
+const TASK_ICON = <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" />;
+
+export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const status = data.status || 'pending';
   const style = statusStyles[status] || statusStyles.pending;
   const kind = data.nodeKind || 'task';
   const config = kind === 'loop'
-    ? { title: data.label || 'Loop 节点', badge: 'Loop', icon: <Repeat2 className="w-3.5 h-3.5 text-[var(--color-info)]" />, bg: 'var(--color-info-dim)' }
+    ? { title: data.label || 'Loop 节点', badge: 'Loop', icon: LOOP_ICON, bg: 'var(--color-info-dim)' }
     : kind === 'review'
-      ? { title: data.label || '审查节点', badge: 'Review', icon: <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-warning)]" />, bg: 'var(--color-warning-dim)' }
-      : { title: data.label || '普通任务节点', badge: 'Task', icon: <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" />, bg: 'var(--color-accent-dim)' };
+      ? { title: data.label || '审查节点', badge: 'Review', icon: REVIEW_ICON, bg: 'var(--color-warning-dim)' }
+      : { title: data.label || '普通任务节点', badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
   const summary = kind === 'review'
     ? data.reviewSpec
     : data.taskDescription || data.description;
@@ -71,4 +77,4 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
       <Handle type="source" position={Position.Bottom} className="w-3 h-3" />
     </div>
   );
-}
+});

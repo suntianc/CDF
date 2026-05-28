@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -28,8 +28,9 @@ import { NodeConfigDrawer } from './NodeConfigDrawer';
 import { EdgeConfigDrawer } from './EdgeConfigDrawer';
 import { ExecutionPanel } from './ExecutionPanel';
 import {
-  ArrowLeft, Save, Play, Square, Bot, Info, Trash2, Target, Repeat2, ShieldCheck, ListTodo
+  ArrowLeft, Save, Play, Square, Bot, Info, Trash2, Target, Repeat2, ShieldCheck, ListTodo, Loader2
 } from 'lucide-react';
+
 
 interface Toast {
   id: string;
@@ -55,6 +56,7 @@ const START_NODE_ID = 'start';
 const END_NODE_ID = 'end';
 
 const EXECUTABLE_NODE_TYPES = new Set(['agent', 'task', 'loop', 'review']);
+const DELETE_KEY_CODE: string[] = ['Delete', 'Backspace'];
 
 function isExecutableNodeType(type?: string | null): boolean {
   return EXECUTABLE_NODE_TYPES.has(type || '');
@@ -85,7 +87,7 @@ function normalizeWorkflowDefinition(def: WorkflowDefinition): WorkflowDefinitio
   let startSeen = false;
   let endSeen = false;
 
-  const nodes = (def.nodes?.length ? def.nodes : defaultNodes as any).map((node) => {
+  const nodes = (def.nodes?.length ? def.nodes : defaultNodes as WorkflowNode[]).map((node: WorkflowNode) => {
     if (node.type === 'start' && !startSeen) {
       startSeen = true;
       idMap.set(node.id, START_NODE_ID);
@@ -213,6 +215,13 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
+
+  // Refs for stale closure prevention (ReactFlow best practice)
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
+
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const [workflowName, setWorkflowName] = useState(workflow.name || '新建工作流');
   const [taskGoal, setTaskGoal] = useState('');
@@ -275,11 +284,17 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     }
   }, [workflow.id, workflow.name, workflow.graph_data, setNodes, setEdges]);
 
+  // Stable viewport reference to avoid unnecessary re-application
+  const viewportRef = useRef(workflow.graph_data?.viewport);
   useEffect(() => {
-    if (rfInstance && workflow.graph_data?.viewport) {
-      rfInstance.setViewport(workflow.graph_data.viewport);
+    viewportRef.current = workflow.graph_data?.viewport;
+  }, [workflow.graph_data?.viewport]);
+
+  useEffect(() => {
+    if (rfInstance && viewportRef.current) {
+      rfInstance.setViewport(viewportRef.current);
     }
-  }, [rfInstance, workflow.graph_data?.viewport]);
+  }, [rfInstance]);
 
   useEffect(() => {
     if (!executionId) return;
@@ -328,15 +343,16 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         animated: Boolean(metadata),
         style: metadata ? { stroke: 'var(--color-warning)' } : undefined,
         metadata,
-      }, eds));
+      } as Edge, eds));
     },
     [nodes, setEdges],
   );
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    const currentNodes = nodesRef.current;
     const guardedChanges = changes.filter((change) => {
       if (change.type !== 'remove') return true;
-      const nodeType = getNodeType(nodes, change.id);
+      const nodeType = getNodeType(currentNodes, change.id);
       if (nodeType === 'start' || nodeType === 'end') {
         showToast('开始/结束节点不能删除', 'error');
         return false;
@@ -358,7 +374,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         setDrawerOpen(false);
       }
     }
-  }, [nodes, onNodesChange, selectedNode, setEdges, showToast]);
+  }, [onNodesChange, selectedNode, setEdges, showToast]);
 
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
     onEdgesChange(changes);
@@ -422,19 +438,21 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     setSelectedEdgeIds(selectedEdges.map((edge) => edge.id));
   }, []);
 
-  const isValidConnection = useCallback((connection: Connection) => {
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return false;
-    const sourceType = getNodeType(nodes, connection.source);
-    const targetType = getNodeType(nodes, connection.target);
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    const sourceType = getNodeType(currentNodes, connection.source);
+    const targetType = getNodeType(currentNodes, connection.target);
     if (sourceType === 'end') return false;
     if (targetType === 'start') return false;
-    return !edges.some((edge) =>
+    return !currentEdges.some((edge) =>
       edge.source === connection.source &&
       edge.target === connection.target &&
       edge.sourceHandle === connection.sourceHandle &&
       edge.targetHandle === connection.targetHandle
     );
-  }, [nodes, edges]);
+  }, []);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type === 'start' || isExecutableNodeType(node.type)) {
@@ -478,7 +496,8 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       event.preventDefault();
       const type = event.dataTransfer.getData('application/reactflow');
       if (!type || !rfInstance || !reactFlowWrapper.current) return;
-      if ((type === 'start' && nodes.some((node) => node.type === 'start')) || (type === 'end' && nodes.some((node) => node.type === 'end'))) {
+      const currentNodes = nodesRef.current;
+      if ((type === 'start' && currentNodes.some((node) => node.type === 'start')) || (type === 'end' && currentNodes.some((node) => node.type === 'end'))) {
         showToast(`${type === 'start' ? '开始' : '结束'}节点只能有一个`, 'error');
         return;
       }
@@ -498,7 +517,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       };
       setNodes((nds) => [...nds, newNode]);
     },
-    [nodes, rfInstance, setNodes, showToast],
+    [rfInstance, setNodes, showToast],
   );
 
   const handleSave = useCallback(async (mode: 'save' | 'run' = 'save') => {
@@ -596,9 +615,13 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       });
       setExecutionId(execId);
       setIsRunning(true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to run workflow:', err);
-      showToast(err.message || '启动工作流失败', 'error');
+      // Reset node pending status on failure
+      setNodes((nds) => nds.map((node) => isExecutableNodeType(node.type)
+        ? { ...node, data: { ...node.data, status: undefined } }
+        : node));
+      showToast(err instanceof Error ? err.message : '启动工作流失败', 'error');
     }
   }, [currentProjectId, workflowId, handleSave, runWorkflow, showToast, taskGoal]);
 
@@ -657,12 +680,16 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         </div>
         <div className="topbar-actions">
           <button
-            className="btn btn-secondary btn-sm cursor-pointer"
+            className="btn btn-secondary btn-sm cursor-pointer animate-none"
             onClick={() => handleSave('save')}
             disabled={isSaving}
           >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? '保存中...' : '保存'}</span>
+            {isSaving ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            <span>保存</span>
           </button>
           {isRunning ? (
             <button className="btn btn-danger btn-sm cursor-pointer" onClick={handleStop}>
@@ -750,22 +777,22 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             onSelectionChange={onSelectionChange}
             onConnect={onConnect}
             isValidConnection={isValidConnection}
-            onInit={setRfInstance}
+            onInit={(instance) => {
+              setRfInstance(instance);
+              instance.fitView();
+            }}
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
             onDrop={onDrop}
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
-            fitView
             colorMode={theme}
-            deleteKeyCode={['Delete', 'Backspace']}
+            deleteKeyCode={DELETE_KEY_CODE}
+            onlyRenderVisibleElements
           >
             <Background />
             <Controls />
             <MiniMap />
-            <Panel position="top-right" className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-bg-surface)]/80 px-2 py-1 rounded">
-              拖拽左侧面板创建节点，连接 handle 创建边
-            </Panel>
           </ReactFlow>
         </div>
 
