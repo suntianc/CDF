@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -587,9 +587,9 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       });
       showToast('✓ 工作流保存成功', 'success');
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to save workflow:', err);
-      showToast(err.message || '保存工作流失败', 'error');
+      showToast(err instanceof Error ? err.message : '保存工作流失败', 'error');
       return false;
     } finally {
       setIsSaving(false);
