@@ -209,7 +209,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       const sourceNode = nodes.find((node) => node.id === connection.source);
       const sourceIsReview = sourceNode?.type === 'review' || (sourceNode?.data as Record<string, unknown> | undefined)?.nodeKind === 'review';
       const metadata: WorkflowEdge['metadata'] | undefined = sourceIsReview
-        ? { condition: connection.source || '', operator: 'eq', routeValue: '通过', compareValue: '通过', maxIterations: 10 }
+        ? { condition: connection.source || '', operator: 'eq', routeValue: '通过', compareValue: '通过' }
         : undefined;
       const newEdge = {
         ...connection,
@@ -454,7 +454,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     try {
       const flow = rfInstance.toObject();
       const graphData: WorkflowDefinition = {
-        nodes: flow.nodes.map((n) => ({
+        nodes: nodes.map((n) => ({
           id: n.id,
           type: (n.type || 'agent') as WorkflowNode['type'],
           position: n.position,
@@ -475,7 +475,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             bgColor: (n.data as Record<string, unknown>).bgColor as string | undefined,
           },
         })),
-        edges: flow.edges.map((e) => ({
+        edges: edges.map((e) => ({
           id: e.id,
           source: e.source,
           target: e.target,

@@ -3,7 +3,7 @@ import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { MCPServer } from '../../../../shared/types';
-import { 
+import {
   Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -87,10 +87,9 @@ export function PluginsPanel() {
 
 // ==================== SKILLS TAB ====================
 function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
-  const { skills, fetchSkills, saveSkill, deleteSkill } = useSkillStore();
+  const { skills, fetchSkills, deleteSkill } = useSkillStore();
   const { currentProjectId } = useProjectStore();
 
-  // Search state
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -98,22 +97,15 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     fetchSkills(currentProjectId);
   }, [currentProjectId]);
 
-  const handleImportSkill = async () => {
+  const handleImportSkillDirectory = async () => {
     try {
-      const res = await window.electronAPI.db.selectFile();
-      if (res) {
-        await saveSkill(currentProjectId || 'default-project', {
-          id: `project:${res.name}`,
-          name: res.name,
-          description: `导入的 ${res.script_type} 脚本`,
-          script_type: res.script_type,
-          script_content: res.content,
-          scope: 'project',
-        });
-        showToast(`✓ 脚本「${res.name}」已导入为 Skill`, 'success');
-      }
-    } catch (e) {
-      showToast('导入脚本失败', 'error');
+      const dirPath = await window.electronAPI.db.selectDirectory();
+      if (!dirPath) return;
+      await window.electronAPI.db.importSkillDirectory(dirPath);
+      if (currentProjectId) await fetchSkills(currentProjectId);
+      showToast('Skill 目录导入成功', 'success');
+    } catch (e: any) {
+      showToast(e.message || '导入 Skill 目录失败', 'error');
     }
   };
 
@@ -128,19 +120,23 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     }
   };
 
+  const filteredSkills = skills.filter(s =>
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
         <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
-          技能库脚本列表 ({skills.length})
+          Skills 技能列表 ({skills.length})
         </div>
         <div className="flex items-center gap-2">
-          {/* Search Input */}
           <div className="flex items-center gap-2 bg-[var(--color-bg-sidebar)]/80 border border-[var(--color-border)]/50 px-2.5 py-1.5 rounded-lg w-[200px] no-drag">
             <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
-            <input 
-              type="text" 
-              placeholder="搜索 Skill 名称..." 
+            <input
+              type="text"
+              placeholder="搜索 Skill 名称..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full"
@@ -151,41 +147,28 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
               </button>
             )}
           </div>
-          {/* Import Button */}
-          <button className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer" onClick={handleImportSkill}>
+          <button className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer" onClick={handleImportSkillDirectory}>
             <FolderInput className="w-3.5 h-3.5" />
-            <span>导入脚本</span>
+            <span>导入 Skill 目录</span>
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {skills.filter(s => 
-          s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-          (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
-        ).map((skill) => (
+        {filteredSkills.map((skill) => (
           <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all flex flex-col justify-between group">
             <div>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <Code className="w-4 h-4 text-[var(--color-success)] shrink-0 group-hover:scale-110 transition-transform" />
                 <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate flex-1" title={skill.name}>{skill.name}</div>
-                <span className="px-1.5 py-0.5 rounded text-[9px] bg-[var(--color-success-dim)] text-[var(--color-success)] uppercase font-semibold border border-[var(--color-success)]/10 scale-95 shrink-0">
-                  {skill.script_type}
-                </span>
-                <span className="px-1.5 py-0.5 rounded text-[9px] bg-[var(--color-accent-dim)] text-[var(--color-accent)] font-semibold border border-[var(--color-accent)]/10 scale-95 shrink-0">
-                  {skill.scope}
-                </span>
               </div>
-              <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-3 line-clamp-2 h-8" title={skill.description}>
-                {skill.description || '暂无说明描述'}
+              <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 line-clamp-2" title={skill.description}>
+                {skill.description || '暂无说明'}
               </p>
-              <div className="text-[10px] text-[var(--color-text-muted)] bg-[var(--color-bg-sidebar)]/40 px-2 py-1 rounded font-mono select-all truncate border border-[var(--color-border)]/20 mb-1">
-                {skill.entryScript || '无入口脚本'}
-              </div>
             </div>
 
             <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
-              <button 
+              <button
                 className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
                 onClick={() => handleDeleteSkill(skill.id, skill.name)}
               >
@@ -196,12 +179,9 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
           </div>
         ))}
 
-        {skills.filter(s => 
-          s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-          (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
-        ).length === 0 && (
+        {filteredSkills.length === 0 && (
           <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-            {searchQuery ? '没有找到符合搜索条件的 Skill' : '暂无已配置的 Skills，点击上方「导入脚本」增加智能体执行脚本能力！'}
+            {searchQuery ? '没有找到符合搜索条件的 Skill' : '暂无 Skills，请点击「导入 Skill 目录」或手动将 Skill 目录放置到 .cdf/skills/ 目录下'}
           </div>
         )}
       </div>

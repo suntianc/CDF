@@ -2,7 +2,7 @@
  * Graph Builder — ReactFlow 图定义 → LangGraph.js StateGraph 转换
  *
  * 包含：
- * - 条件路由 + 循环保护（D-09/D-10）
+ * - 条件路由（D-09）
  * - ReactFlow → StateGraph 转换（D-13/D-14/D-15）
  */
 
@@ -10,16 +10,6 @@ import { StateGraph, START, END } from '@langchain/langgraph';
 import { WorkflowState } from './state-schema';
 import type { WorkflowDefinition, WorkflowNode, WorkflowEdge, WorkflowEdgeOperator } from '../../shared/types';
 
-/** 全局循环迭代硬限制（D-10: 循环保护） */
-export const MAX_LOOP_ITERATIONS = 10;
-
-/**
- * 创建条件路由函数
- *
- * 从 state.routing 中读取路由决策，支持循环保护计数器。
- * D-09: 条件分支由 Agent 输出决定或 Master Agent 介入。
- * D-10: 循环条件由 Agent 输出或 Master Agent 判断，带最大迭代次数保护。
- */
 interface RouteMatcher {
   routeKey: string;
   operator: WorkflowEdgeOperator;
@@ -55,24 +45,13 @@ export function matchesCondition(
 
 export function createConditionalRouter(
   condition: string,
-  maxIterations?: number,
   routeMatchers?: RouteMatcher[],
 ): (state: Record<string, unknown>) => string {
-  const effectiveMax = maxIterations ?? MAX_LOOP_ITERATIONS;
   return (state: Record<string, unknown>): string => {
     const routing = (state.routing as Record<string, unknown>) ?? {};
 
-    // 循环保护：检查迭代计数器（由计数器递增节点维护）
-    const loopKey = `__loop_${condition}`;
-    const count = (routing[loopKey] as number) ?? 0;
-    if (count >= effectiveMax) {
-      return '__max_iterations_exceeded__';
-    }
-
-    // 读取路由决策
     const decision = routing[condition];
     if (decision === undefined || decision === null || decision === '') {
-      // 没有路由决策时返回默认值，避免抛异常中断整个图
       console.warn(`[graph-builder] No routing decision found for condition "${condition}", returning default`);
       return '__default__';
     }
@@ -88,14 +67,6 @@ export function createConditionalRouter(
 
 /**
  * 将 ReactFlow 图定义转换为 LangGraph StateGraph builder
- *
- * D-13: 执行引擎采用 LangGraph.js 驱动
- * D-14: 节点间数据传递采用共享 State 模式
- * D-15: 并行执行采用 LangGraph fan-out/fan-in 模式
- *
- * @param workflowDef - ReactFlow 图定义（nodes + edges）
- * @param nodeExecutor - 节点执行器工厂，接受 WorkflowNode 返回 state 更新函数
- * @returns StateGraph builder（未 compile）
  */
 export function buildWorkflowGraph(
   workflowDef: WorkflowDefinition,
@@ -111,11 +82,10 @@ export function buildWorkflowGraph(
     return nodeId;
   };
 
-  // 1. 添加 Agent 节点（跳过 start/end — 它们是边的哨兵，不是可执行节点）
+  // 1. 添加 Agent 节点（跳过 start/end）
   for (const node of workflowDef.nodes) {
     if (node.type === 'start' || node.type === 'end') continue;
 
-    // 分析上游节点（用于 state 切片提取）
     const upstreamNodeIds = workflowDef.edges
       .filter((e) => e.target === node.id && !startNodeIds.has(e.source))
       .map((e) => e.source);
@@ -125,7 +95,6 @@ export function buildWorkflowGraph(
     builder.addNode(node.id, async (state: Record<string, unknown>) => {
       try {
         const result = await executor(state);
-        // 每个节点只写入自己的 nodeOutputs[nodeId]（D-14）
         const routing = (result.routing && typeof result.routing === 'object') ? result.routing as Record<string, string> : undefined;
         const artifacts = Array.isArray(result.artifacts) ? result.artifacts : undefined;
         return {
@@ -134,7 +103,6 @@ export function buildWorkflowGraph(
           ...(artifacts ? { artifacts } : {}),
         };
       } catch (err) {
-        // 节点失败策略：记录错误，由 router 决定（D-11）
         const errorMessage = err instanceof Error ? err.message : String(err);
         const errorType = err instanceof Error ? err.name : 'UnknownError';
         return {
@@ -159,8 +127,7 @@ export function buildWorkflowGraph(
     });
   }
 
-  // 2. 添加边（从 ReactFlow 连接转换）
-  // NOTE: addEdge/addConditionalEdges 泛型 N 仅包含 "__start__"，动态节点 ID 需要 cast
+  // 2. 添加边
   const conditionalGroups = new Map<string, WorkflowEdge[]>();
   const normalEdges: WorkflowEdge[] = [];
 
@@ -179,23 +146,10 @@ export function buildWorkflowGraph(
     builder.addEdge(toGraphNode(edge.source, 'source') as any, toGraphNode(edge.target, 'target') as any);
   }
 
-  for (const [groupKey, groupEdges] of conditionalGroups) {
+  for (const [, groupEdges] of conditionalGroups) {
     const firstEdge = groupEdges[0];
     const condition = firstEdge.metadata!.condition!.trim();
     const sourceNode = toGraphNode(firstEdge.source, 'source');
-    const counterNodeName = `__counter_${groupKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    const maxIterations = Math.max(
-      ...groupEdges.map((edge) => edge.metadata?.maxIterations ?? MAX_LOOP_ITERATIONS),
-    );
-
-    builder.addNode(counterNodeName, ((state: Record<string, unknown>) => {
-        const routing = (state.routing as Record<string, unknown>) ?? {};
-        const loopKey = `__loop_${condition}`;
-        const count = (routing[loopKey] as number) ?? 0;
-        return { routing: { [loopKey]: count + 1 } };
-    }) as any);
-
-    builder.addEdge(sourceNode as any, counterNodeName as any);
 
     const routeMap: Record<string, string> = {};
     const routeMatchers: RouteMatcher[] = [];
@@ -216,11 +170,10 @@ export function buildWorkflowGraph(
       }
     }
     routeMap.__default__ = END;
-    routeMap.__max_iterations_exceeded__ = END;
 
     builder.addConditionalEdges(
-      counterNodeName as any,
-      createConditionalRouter(condition, maxIterations, routeMatchers.length > 0 ? routeMatchers : undefined),
+      sourceNode as any,
+      createConditionalRouter(condition, routeMatchers.length > 0 ? routeMatchers : undefined),
       routeMap as any,
     );
   }

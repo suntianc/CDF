@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getSkills: (projectId: string) => ipcRenderer.invoke('db:getSkills', projectId),
     saveSkill: (projectId: string, skill: any) => ipcRenderer.invoke('db:saveSkill', projectId, skill),
     deleteSkill: (projectId: string, id: string) => ipcRenderer.invoke('db:deleteSkill', projectId, id),
+    importSkillDirectory: (sourceDir: string) => ipcRenderer.invoke('db:importSkillDirectory', sourceDir),
     getSkillVersions: (skillId: string) => ipcRenderer.invoke('db:getSkillVersions', skillId),
     getAgentRuns: (sessionId: string) => ipcRenderer.invoke('db:getAgentRuns', sessionId),
     getAgentToolCalls: (runId: string) => ipcRenderer.invoke('db:getAgentToolCalls', runId),

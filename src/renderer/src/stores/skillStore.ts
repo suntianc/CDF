@@ -1,20 +1,17 @@
 import { create } from 'zustand';
-import { Skill, SkillVersion } from '../../../shared/types';
+import { Skill } from '../../../shared/types';
 
 interface SkillState {
   skills: Skill[];
-  activeSkillVersions: SkillVersion[];
   isLoading: boolean;
   error: string | null;
   fetchSkills: (projectId: string) => Promise<void>;
   saveSkill: (projectId: string, skill: Partial<Skill>) => Promise<void>;
   deleteSkill: (projectId: string, id: string) => Promise<void>;
-  fetchSkillVersions: (skillId: string) => Promise<void>;
 }
 
 export const useSkillStore = create<SkillState>((set, get) => ({
   skills: [],
-  activeSkillVersions: [],
   isLoading: false,
   error: null,
 
@@ -47,16 +44,6 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     } catch (err: any) {
       set({ error: err.message || 'Failed to delete skill', isLoading: false });
       throw err;
-    }
-  },
-
-  fetchSkillVersions: async (skillId) => {
-    set({ isLoading: true, error: null });
-    try {
-      const versions = await window.electronAPI.db.getSkillVersions(skillId);
-      set({ activeSkillVersions: versions, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch skill versions', isLoading: false });
     }
   },
 }));

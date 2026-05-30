@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Drawer } from 'vaul';
-import { GitBranch, X, Trash2 } from 'lucide-react';
+import { GitBranch, Trash2 } from 'lucide-react';
 import type { Edge } from '@xyflow/react';
 import type { WorkflowEdge } from '../../../../shared/types';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -22,7 +22,6 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
   const [condition, setCondition] = useState('');
   const [operator, setOperator] = useState<'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte'>('eq');
   const [routeValue, setRouteValue] = useState('');
-  const [maxIterations, setMaxIterations] = useState(10);
 
   useEffect(() => {
     const metadata = getMetadata(edge);
@@ -30,7 +29,6 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
     setCondition(metadata.condition ?? '');
     setOperator(metadata.operator ?? 'eq');
     setRouteValue(metadata.compareValue ?? metadata.routeValue ?? '');
-    setMaxIterations(metadata.maxIterations ?? 10);
   }, [edge]);
 
   const handleSave = () => {
@@ -41,7 +39,6 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
       nextMetadata.operator = operator;
       nextMetadata.routeValue = routeValue.trim() || edge.target;
       nextMetadata.compareValue = routeValue.trim() || edge.target;
-      nextMetadata.maxIterations = Math.max(1, Math.min(50, maxIterations));
     }
 
     const operatorLabel: Record<typeof operator, string> = { eq: '=', ne: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=' };
@@ -70,20 +67,10 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
               <GitBranch className="w-5 h-5 text-[var(--color-accent)]" />
               边配置
             </Drawer.Title>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-            {!isConditional && edge && (
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3 text-[11px] text-[var(--color-text-secondary)]">
-                {edge.source} {"->"} {edge.target}
-              </div>
-            )}
 
             <div className="rounded-lg border border-[var(--color-info)]/20 bg-[var(--color-info-dim)]/40 p-3 text-[11px] leading-relaxed text-[var(--color-text-secondary)]">
               <div className="font-semibold text-[var(--color-text-primary)] mb-1">普通边</div>
@@ -91,34 +78,19 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
               <div className="font-semibold text-[var(--color-text-primary)] mt-3 mb-1">条件边</div>
               根据上游审查节点的输出结果进行条件匹配，满足匹配值后执行此边连接的下游节点。
             </div>
-
-            <div className="form-group">
-              <label className="form-label">边标签</label>
-              <input
-                className="form-input"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="例如：通过 / 失败 / 需要人工判断"
-              />
-            </div>
-
-            {!isConditional && (
-              <div className="form-group">
-                <label className="form-label">路由条件键</label>
-                <input
-                  className="form-input"
-                  value={condition}
-                  onChange={(e) => setCondition(e.target.value)}
-                  placeholder="例如：review_result"
-                />
-                <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
-                  留空表示普通顺序边；填写后表示从上游 Agent 输出的 routing 对象里读取这个键。
-                </p>
-              </div>
-            )}
-
-            {condition.trim() && (
+            {isConditional && (
               <>
+
+                <div className="form-group">
+                  <label className="form-label">边标签</label>
+                  <input
+                    className="form-input"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    placeholder="例如：通过 / 失败 / 需要人工判断"
+                  />
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">运算符</label>
                   <CustomSelect
@@ -147,18 +119,6 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
                     条件边会用所选运算符比较 routing 中该键的值与这里的值，匹配后执行此边连接的下游节点。
                   </p>
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label">最大循环次数</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={maxIterations}
-                    onChange={(e) => setMaxIterations(Math.max(1, parseInt(e.target.value) || 1))}
-                    min={1}
-                    max={50}
-                  />
-                </div>
               </>
             )}
           </div>
@@ -174,11 +134,13 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
             </button>
             <div className="flex justify-end gap-2">
               <button className="btn btn-secondary cursor-pointer" onClick={onClose}>
-                取消
+                {isConditional ? '取消' : '关闭'}
               </button>
-              <button className="btn btn-primary cursor-pointer" onClick={handleSave}>
-                保存
-              </button>
+              {isConditional && (
+                <button className="btn btn-primary cursor-pointer" onClick={handleSave}>
+                  保存
+                </button>
+              )}
             </div>
           </div>
         </Drawer.Content>

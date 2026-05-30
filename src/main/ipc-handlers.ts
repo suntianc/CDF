@@ -16,6 +16,7 @@ import {
   listPhysicalSkills,
   savePhysicalSkill,
   deletePhysicalSkill,
+  importPhysicalSkillDirectory,
 } from './deepagent/skill-manager';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
@@ -494,6 +495,10 @@ export function registerIpcHandlers() {
     const scopePrefix: 'project' | 'global' = id.includes(':') ? (id.split(':', 2)[0] as 'project' | 'global') : 'project';
     const skillName = id.includes(':') ? id.split(':', 2)[1] : id;
     deletePhysicalSkill(project.path, scopePrefix, skillName);
+  });
+
+  ipcMain.handle('db:importSkillDirectory', (_, sourceDir: string) => {
+    return importPhysicalSkillDirectory(sourceDir);
   });
 
   ipcMain.handle('db:getSkillVersions', () => {

@@ -76,21 +76,9 @@ export interface Skill {
   name: string;
   description?: string;
   scope: 'project' | 'global';
-  module?: string;
-  entryScript?: string | null;
   resourceFiles: string[];
-  script_content: string;
-  script_type: 'bash' | 'python' | 'javascript';
   created_at: number;
   updated_at: number;
-}
-
-export interface SkillVersion {
-  id: string;
-  skill_id: string;
-  version_number: number;
-  script_content: string;
-  created_at: number;
 }
 
 export interface MCPServer {
@@ -271,7 +259,6 @@ export interface WorkflowEdge {
     operator?: WorkflowEdgeOperator;
     routeValue?: string;
     compareValue?: string;
-    maxIterations?: number;
     targets?: Record<string, string>;
   };
 }
@@ -361,7 +348,8 @@ export interface ElectronAPI {
     getSkills: (projectId: string) => Promise<Skill[]>;
     saveSkill: (projectId: string, skill: any) => Promise<Skill>;
     deleteSkill: (projectId: string, id: string) => Promise<void>;
-    getSkillVersions: (skillId: string) => Promise<SkillVersion[]>;
+    importSkillDirectory: (sourceDir: string) => Promise<Skill>;
+    getSkillVersions: (skillId: string) => Promise<[]>;  // deprecated, retained for API compat
     getAgentRuns: (sessionId: string) => Promise<AgentRun[]>;
     getAgentToolCalls: (runId: string) => Promise<AgentToolCall[]>;
     getLatestTodos: (sessionId: string) => Promise<any>;
