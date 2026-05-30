@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { Workflow } from '../../../../shared/types';
-import { Plus, Trash2, GitBranch, Clock, Play, Info } from 'lucide-react';
+import { Plus, Trash2, GitBranch, Clock, Play, Info, Edit } from 'lucide-react';
 
 interface Toast {
   id: string;
@@ -16,7 +16,7 @@ interface WorkflowListProps {
 }
 
 export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowListProps) {
-  const { workflows, isLoading, error, fetchWorkflows, deleteWorkflow } = useWorkflowStore();
+  const { workflows, isLoading, error, fetchWorkflows, deleteWorkflow, saveWorkflow, runWorkflow } = useWorkflowStore();
   const { currentProjectId } = useProjectStore();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -42,6 +42,40 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       setDeleteConfirmId(null);
     } catch (err: any) {
       showToast(err.message || '删除工作流失败', 'error');
+    }
+  };
+
+  const handleToggleStatus = async (workflow: Workflow, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const nextStatus = workflow.status === 'active' ? 'draft' : 'active';
+      await saveWorkflow({
+        ...workflow,
+        status: nextStatus,
+      });
+      showToast(`工作流已${nextStatus === 'active' ? '启用' : '禁用'}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || '修改状态失败', 'error');
+    }
+  };
+
+  const handleRunWorkflow = async (workflow: Workflow, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const startNode = workflow.graph_data?.nodes?.find((n) => n.type === 'start');
+    const taskGoal = (startNode?.data?.taskGoal as string || '').trim();
+    if (!taskGoal) {
+      showToast('无法直接执行：请先编辑该工作流，在“开始”节点中填写任务目标。', 'error');
+      return;
+    }
+
+    try {
+      showToast('正在启动工作流...', 'info');
+      await runWorkflow(workflow.id, currentProjectId, 'editor', {
+        taskGoal,
+      });
+      showToast('工作流已启动并在后台执行中', 'success');
+    } catch (err: any) {
+      showToast(err.message || '启动工作流失败', 'error');
     }
   };
 
@@ -110,17 +144,40 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
               onClick={() => onSelectWorkflow(workflow)}
             >
               <div>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0 group-hover:scale-105 transition-transform">
-                    <GitBranch className="w-6 h-6 text-[var(--color-accent)]" />
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3 truncate">
+                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0 group-hover:scale-105 transition-transform">
+                      <GitBranch className="w-6 h-6 text-[var(--color-accent)]" />
+                    </div>
+                    <div className="truncate">
+                      <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">
+                        {workflow.name}
+                      </div>
+                      <div className="text-[10px] font-medium mt-0.5">
+                        {workflow.status === 'active' ? (
+                          <span className="text-[var(--color-success)] bg-[var(--color-success-dim)]/20 px-1.5 py-0.5 rounded">已启用</span>
+                        ) : (
+                          <span className="text-[var(--color-text-muted)] bg-[var(--color-bg-active)] px-1.5 py-0.5 rounded">未启用</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="truncate">
-                    <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">
-                      {workflow.name}
-                    </div>
-                    <div className="text-xs text-[var(--color-text-secondary)] truncate">
-                      {workflow.status === 'active' ? '已激活' : '草稿'}
-                    </div>
+
+                  {/* Status Toggle Switch */}
+                  <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        workflow.status === 'active' ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border)]/80'
+                      }`}
+                      onClick={(e) => handleToggleStatus(workflow, e)}
+                      title={workflow.status === 'active' ? '禁用工作流' : '启用工作流'}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          workflow.status === 'active' ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
                 </div>
 
@@ -141,14 +198,22 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
 
               <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
                 <button
+                  className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all text-[var(--color-success)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 hover:bg-[var(--color-success-dim)]/20"
+                  onClick={(e) => handleRunWorkflow(workflow, e)}
+                  title="直接执行此工作流"
+                >
+                  <Play className="w-3.5 h-3.5 fill-[var(--color-success)]" />
+                  <span>执行</span>
+                </button>
+                <button
                   className="btn btn-primary btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectWorkflow(workflow);
                   }}
                 >
-                  <Play className="w-3.5 h-3.5" />
-                  <span>打开</span>
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>编辑</span>
                 </button>
                 <button
                   className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"

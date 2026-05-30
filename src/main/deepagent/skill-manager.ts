@@ -20,16 +20,6 @@ interface PhysicalSkillView {
   updated_at: number;
 }
 
-function toPosix(inputPath: string): string {
-  return inputPath.split(path.sep).join(path.posix.sep);
-}
-
-function toVirtualPath(projectPath: string, targetPath: string): string {
-  const relative = toPosix(path.relative(projectPath, targetPath));
-  const clean = relative.startsWith('/') ? relative : `/${relative}`;
-  return `/workspace${clean}`;
-}
-
 function ensureDir(targetDir: string): void {
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
@@ -149,45 +139,34 @@ export function deletePhysicalSkill(projectPath: string, scope: SkillScope, name
   }
 }
 
-function mirrorGlobalSkillsIntoProject(projectPath: string): string | null {
-  const globalSkillsDir = getScopePath(projectPath, 'global');
-  if (!fs.existsSync(globalSkillsDir)) return null;
-
-  const runtimeDir = path.join(projectPath, '.cdf', '.runtime', 'global-skills');
-  fs.rmSync(runtimeDir, { recursive: true, force: true });
-  ensureDir(path.dirname(runtimeDir));
-  fs.cpSync(globalSkillsDir, runtimeDir, { recursive: true });
-  return runtimeDir;
-}
-
 export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: string[]): { skillsSources: string[]; permissions: FilesystemPermission[] } {
+  const globalSkillsDir = getScopePath(projectPath, 'global');
   const projectSkillsDir = getScopePath(projectPath, 'project');
-  const mirroredGlobalDir = mirrorGlobalSkillsIntoProject(projectPath);
   const sources: string[] = [];
   const enabled = Array.isArray(enabledSkillIds) && enabledSkillIds.length > 0 ? new Set(enabledSkillIds) : null;
 
   if (enabled) {
     for (const skillId of enabled) {
       const [scope, skillName] = skillId.includes(':') ? skillId.split(':', 2) : ['project', skillId];
-      const baseDir = scope === 'global' ? mirroredGlobalDir : projectSkillsDir;
-      if (baseDir && skillName && fs.existsSync(path.join(baseDir, skillName))) {
-        sources.push(toVirtualPath(projectPath, path.join(baseDir, skillName)));
+      const baseDir = scope === 'global' ? globalSkillsDir : projectSkillsDir;
+      const physicalPath = path.join(baseDir, skillName);
+      if (fs.existsSync(physicalPath)) {
+        sources.push(physicalPath);
       }
     }
-  } else if (mirroredGlobalDir && fs.existsSync(mirroredGlobalDir)) {
-    sources.push(toVirtualPath(projectPath, mirroredGlobalDir));
-  }
-
-  if (!enabled && fs.existsSync(projectSkillsDir)) {
-    sources.push(toVirtualPath(projectPath, projectSkillsDir));
+  } else {
+    if (fs.existsSync(globalSkillsDir)) {
+      sources.push(globalSkillsDir);
+    }
+    if (fs.existsSync(projectSkillsDir)) {
+      sources.push(projectSkillsDir);
+    }
   }
 
   return {
     skillsSources: sources,
     permissions: [
-      { operations: ['read', 'write'] as const, paths: ['/workspace/.env', '/workspace/.env*', '/workspace/.git/*', '/workspace/.git/**/*', '/workspace/node_modules/*', '/workspace/node_modules/**/*', '/workspace/out/*', '/workspace/out/**/*', '/workspace/dist/*', '/workspace/dist/**/*', '/Users/*', '/Users/**/*', '/home/*', '/home/**/*', '/private/*', '/private/**/*', '/tmp/*', '/tmp/**/*', '/var/*', '/var/**/*'], mode: 'deny' },
-      { operations: ['read', 'write'] as const, paths: ['/workspace/*', '/workspace/**/*'] },
-      { operations: ['read', 'write'] as const, paths: ['/workspace/.cdf/.runtime/*', '/workspace/.cdf/.runtime/**/*'] },
+      { operations: ['read', 'write'] as const, paths: [path.join(projectPath, '*'), path.join(projectPath, '**', '*')] },
     ],
   };
 }

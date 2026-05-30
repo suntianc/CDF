@@ -9,7 +9,7 @@ import type { WorkflowNode, WorkflowDefinition, WorkflowEdge } from '../../../..
 export const START_NODE_ID = 'start';
 export const END_NODE_ID = 'end';
 
-export const EXECUTABLE_NODE_TYPES = new Set(['agent', 'task', 'loop', 'review']);
+export const EXECUTABLE_NODE_TYPES = new Set(['agent', 'task', 'loop', 'review', 'foreach']);
 export const DELETE_KEY_CODE: string[] = ['Delete', 'Backspace'];
 
 export function isExecutableNodeType(type?: string | null): boolean {
@@ -21,6 +21,7 @@ export function getDefaultNodeData(type: string): Record<string, unknown> {
   if (type === 'end') return { label: '结束' };
   if (type === 'loop') return { label: 'Loop 节点', nodeKind: 'loop', taskDescription: '', loopCount: 3, failureStrategy: 'stop', retryCount: 3 };
   if (type === 'review') return { label: '审查节点', nodeKind: 'review', reviewSpec: '', reviewRules: '', failureStrategy: 'stop', retryCount: 3 };
+  if (type === 'foreach') return { label: 'For-Each 节点', nodeKind: 'foreach', taskDescription: '', dataSource: '', itemPrompt: '', failureStrategy: 'stop', retryCount: 3 };
   return { label: '普通任务节点', nodeKind: 'task', taskDescription: '', failureStrategy: 'stop', retryCount: 3 };
 }
 

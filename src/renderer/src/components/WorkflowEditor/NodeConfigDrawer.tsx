@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Drawer } from 'vaul';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2 } from 'lucide-react';
+import { Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2, List } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
@@ -24,6 +24,9 @@ interface NodeConfigDrawerProps {
       failureStrategy?: 'retry' | 'skip' | 'stop';
       retryCount?: number;
       bgColor?: string;
+      taskGoal?: string;
+      dataSource?: string;
+      itemPrompt?: string;
     };
   } | null;
   onUpdateNode: (nodeId: string, data: Record<string, unknown>) => void;
@@ -64,6 +67,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [retryCount, setRetryCount] = useState(3);
   const [taskGoal, setTaskGoal] = useState('');
   const [bgColor, setBgColor] = useState('');
+  const [dataSource, setDataSource] = useState('');
+  const [itemPrompt, setItemPrompt] = useState('');
 
   const handleSelectWorkspace = async () => {
     try {
@@ -97,6 +102,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setRetryCount(node.data.retryCount ?? 3);
       setTaskGoal(node.data.taskGoal || '');
       setBgColor(node.data.bgColor || '');
+      setDataSource(node.data.dataSource || '');
+      setItemPrompt(node.data.itemPrompt || '');
     }
   }, [node]);
 
@@ -104,13 +111,15 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const nodeType = node?.type || 'task';
   const isStartNode = nodeType === 'start';
   const isLoopNode = nodeType === 'loop';
+  const isForeachNode = nodeType === 'foreach';
   const isReviewNode = nodeType === 'review';
   const isTaskNode = nodeType === 'task' || nodeType === 'agent';
-  const needsAgent = isTaskNode || isLoopNode || isReviewNode;
+  const needsAgent = isTaskNode || isLoopNode || isReviewNode || isForeachNode;
   const titleIcon = isStartNode ? <PlayCircle className="w-5 h-5 text-[var(--color-success)]" />
     : isLoopNode ? <Repeat2 className="w-5 h-5 text-[var(--color-info)]" />
-      : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
-        : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
+      : isForeachNode ? <List className="w-5 h-5 text-[var(--color-success)]" />
+        : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
+          : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
 
   const handleSave = () => {
     if (!node) return;
@@ -128,6 +137,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       retryCount,
       taskGoal,
       bgColor,
+      dataSource,
+      itemPrompt,
     });
     onClose();
   };
@@ -221,7 +232,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </>
             )}
 
-            {(isTaskNode || isLoopNode) && (
+            {(isTaskNode || isLoopNode || isForeachNode) && (
               <div className="form-group">
                 <label className="form-label">任务描述</label>
                 <textarea
@@ -231,6 +242,35 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                   placeholder="描述该节点要完成的具体任务"
                 />
               </div>
+            )}
+
+            {isForeachNode && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">数据源文件 (JSON)</label>
+                  <input
+                    className="form-input"
+                    value={dataSource}
+                    onChange={(e) => setDataSource(e.target.value)}
+                    placeholder="例如: data/tasks/train.json"
+                  />
+                  <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                    相对于工作目录的 JSON 文件路径，文件内容须为 JSON 数组。For-Each 节点会对数组中的每个元素执行一次 Agent。
+                  </p>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">提示词模板 (可选)</label>
+                  <textarea
+                    className="form-input min-h-[80px] resize-none py-2"
+                    value={itemPrompt}
+                    onChange={(e) => setItemPrompt(e.target.value)}
+                    placeholder="留空则自动 JSON.stringify 当前项。支持 {item} 占位符。"
+                  />
+                  <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                    使用 {'{item}'} 作为当前数据项的占位符。例如: "请完成以下任务：{'{item}'}"
+                  </p>
+                </div>
+              </>
             )}
 
             {isLoopNode && (

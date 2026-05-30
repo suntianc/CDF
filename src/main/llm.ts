@@ -46,6 +46,14 @@ export interface ChatPayload {
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
 
+function isInterruptError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as { name?: string; message?: string };
+  const name = err.name?.toLowerCase() ?? '';
+  const message = err.message?.toLowerCase() ?? '';
+  return name.includes('interrupt') || message.includes('interrupt') || message.includes('nodeinterrupt') || message.includes('graphinterrupt');
+}
+
 function safeStringify(value: unknown): string | null {
   if (value === undefined) return null;
   try {
@@ -323,7 +331,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     while (!controller.signal.aborted) {
       accumulator.hasSentText = false;
       accumulator.hasSentReasoning = false;
-      await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
       const run = await runtime.agent.streamEvents(
         nextInput,
         {
@@ -569,40 +576,37 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 errorCode,
               });
             }
-            await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
           } catch (error: any) {
-            updateToolCall(toolCallId, 'error', undefined, error?.message || String(error));
-            sender.send(channel, {
-              type: 'tool_error',
-              id: toolCallId,
-              name: call.name,
-              error: error?.message || String(error),
-            });
-
-            if (call.name === 'task') {
-              // D-11: Classify error type and wrap
-              let errorCode = 'UNKNOWN';
-              const msg = error?.message || '';
-              if (msg.toLowerCase().includes('timeout')) {
-                errorCode = 'TIMEOUT';
-              } else if (msg.toLowerCase().includes('interrupt') || msg.toLowerCase().includes('cancel')) {
-                errorCode = 'INTERRUPTED';
-              }
-
+            if (!isInterruptError(error)) {
+              updateToolCall(toolCallId, 'error', undefined, error?.message || String(error));
               sender.send(channel, {
-                type: 'delegated_task_end',
-                taskId: toolCallId,
-                status: 'failure',
-                result: {
-                  status: 'failure',
-                  artifacts: [],
-                  summary: '',
-                  error: { code: errorCode, message: msg },
-                },
-                errorCode,
+                type: 'tool_error',
+                id: toolCallId,
+                name: call.name,
+                error: error?.message || String(error),
               });
+
+              if (call.name === 'task') {
+                let errorCode = 'UNKNOWN';
+                const msg = error?.message || '';
+                if (msg.toLowerCase().includes('timeout')) {
+                  errorCode = 'TIMEOUT';
+                }
+
+                sender.send(channel, {
+                  type: 'delegated_task_end',
+                  taskId: toolCallId,
+                  status: 'failure',
+                  result: {
+                    status: 'failure',
+                    artifacts: [],
+                    summary: '',
+                    error: { code: errorCode, message: msg },
+                  },
+                  errorCode,
+                });
+              }
             }
-            await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
           }
         }
       })();
@@ -636,7 +640,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       })();
 
       await Promise.all([messageStreamPromise, toolStreamPromise, valuesStreamPromise]);
-      await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
 
       let interruptValue = getStreamInterruptValue(run);
       let output: any;
@@ -718,8 +721,10 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       }
 
       const approval = toApprovalRequest(runId, interruptValue);
+      db.exec('BEGIN');
       updateRun(runId, 'waiting_approval');
       markApprovalStatus(runId, 'pending');
+      db.exec('COMMIT');
       sender.send(channel, { type: 'run_updated', runId, status: 'waiting_approval' });
       sender.send(channel, { type: 'approval_required', approval });
 
@@ -737,6 +742,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         : resolution.decisions.every((decision) => decision.type === 'approve')
           ? 'approved'
           : 'rejected';
+      db.exec('BEGIN');
       markApprovalStatus(runId, approvalStatus);
       sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
 
@@ -758,6 +764,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       }
 
       updateRun(runId, 'running');
+      db.exec('COMMIT');
       sender.send(channel, { type: 'run_updated', runId, status: 'running' });
       nextInput = new Command({ resume: { decisions: resolution.decisions } });
     }

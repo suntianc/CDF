@@ -54,7 +54,7 @@ describe('skill-manager', () => {
     fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills'), { recursive: true });
 
     const config = resolveAgentSkillsConfig(tempProjectPath);
-    expect(config.skillsSources).toContain('/workspace/.cdf/skills');
+    expect(config.skillsSources).toContain(path.join(tempProjectPath, '.cdf', 'skills'));
   });
 
   it('should resolve only enabled project skill source paths', () => {
@@ -62,7 +62,7 @@ describe('skill-manager', () => {
     fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills', 'disabled-skill'), { recursive: true });
 
     const config = resolveAgentSkillsConfig(tempProjectPath, ['project:enabled-skill']);
-    expect(config.skillsSources).toEqual(['/workspace/.cdf/skills/enabled-skill']);
+    expect(config.skillsSources).toEqual([path.join(tempProjectPath, '.cdf', 'skills', 'enabled-skill')]);
   });
 
   it('should not grant host filesystem-wide permissions', () => {
@@ -70,10 +70,7 @@ describe('skill-manager', () => {
     const paths = config.permissions.flatMap((permission) => permission.paths);
 
     expect(paths).not.toContain('/**');
-    expect(paths).toContain('/workspace/*');
-    expect(paths).toContain('/workspace/**/*');
-    expect(paths).toContain('/workspace/.cdf/.runtime/**/*');
-    expect(paths).toContain('/Users/**/*');
-    expect(paths).toContain('/home/**/*');
+    expect(paths).toContain(path.join(tempProjectPath, '*'));
+    expect(paths).toContain(path.join(tempProjectPath, '**', '*'));
   });
 });

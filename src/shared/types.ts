@@ -196,8 +196,8 @@ export interface AgentApprovalResolution {
 
 // ===== Phase 4: Workflow System Types =====
 
-export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'end';
-export type WorkflowAgentNodeKind = 'task' | 'loop' | 'review';
+export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'foreach' | 'end';
+export type WorkflowAgentNodeKind = 'task' | 'loop' | 'review' | 'foreach';
 export type WorkflowEdgeOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte';
 
 /** Node port — 统一输入/输出端口定义（参考 Flowise INode） */
@@ -245,6 +245,8 @@ export interface WorkflowNode {
     failureStrategy?: 'retry' | 'skip' | 'stop';
     taskGoal?: string;
     bgColor?: string;
+    dataSource?: string;
+    itemPrompt?: string;
   };
 }
 

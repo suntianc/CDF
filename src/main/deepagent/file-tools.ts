@@ -11,72 +11,64 @@ const DELETE_FILE_SCHEMA = {
   properties: {
     file_path: {
       type: 'string',
-      description: 'Virtual absolute path to the project file to delete, for example /src/example.ts',
+      description: 'Absolute path to the file to delete, for example /Users/xxx/project/src/example.ts',
     },
   },
   required: ['file_path'],
   additionalProperties: false,
 } as const;
 
-function normalizeVirtualPath(filePath: string): string {
-  if (typeof filePath !== 'string' || !filePath.trim()) {
-    throw new Error('file_path must be a non-empty string');
-  }
-
-  const virtualPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
-  const segments = virtualPath.split('/').filter(Boolean);
-  if (segments.includes('..') || segments.some((segment) => segment.includes('~'))) {
-    throw new Error(`Path traversal is not allowed: ${filePath}`);
-  }
-
-  return `/${segments.join('/')}`;
-}
-
-function isProtectedPath(virtualPath: string): boolean {
-  if (virtualPath.startsWith('/.env')) return true;
-  return ['/.git', '/node_modules', '/out', '/dist'].some((prefix) =>
-    virtualPath === prefix || virtualPath.startsWith(`${prefix}/`)
+function isProtectedPath(filePath: string): boolean {
+  if (filePath.endsWith('/.env') || filePath.endsWith('/.env.local')) return true;
+  return ['/.git/', '/node_modules/', '/out/', '/dist/'].some((prefix) =>
+    filePath.includes(prefix)
   );
 }
 
-function resolveProjectFile(projectPath: string, virtualPath: string): string {
-  // Strip /workspace/ prefix to match CompositeBackend's path resolution.
-  // CompositeBackend routes /workspace/* to FilesystemBackend(rootDir=projectPath),
-  // which strips the prefix internally. This custom tool must do the same.
-  const stripped = virtualPath.startsWith('/workspace/')
-    ? virtualPath.slice('/workspace/'.length)
-    : virtualPath.slice(1);
-  const target = path.resolve(projectPath, stripped);
-  const relative = path.relative(projectPath, target);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Path is outside project: ${virtualPath}`);
+function resolveProjectFile(projectPath: string, filePath: string): string {
+  if (!path.isAbsolute(filePath)) {
+    throw new Error(`file_path must be an absolute path: ${filePath}`);
   }
-  return target;
+
+  const segments = filePath.split(path.sep).filter(Boolean);
+  if (segments.includes('..') || filePath.includes('~')) {
+    throw new Error(`Path traversal is not allowed: ${filePath}`);
+  }
+
+  const relative = path.relative(projectPath, filePath);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Path is outside project: ${filePath}`);
+  }
+  return filePath;
 }
 
 export function createDeleteFileTool(projectPath: string) {
   return tool(
     async (input: DeleteFileInput) => {
-      const virtualPath = normalizeVirtualPath(input.file_path);
-      if (isProtectedPath(virtualPath)) {
-        throw new Error(`Deleting protected path is not allowed: ${virtualPath}`);
+      const filePath = input.file_path.trim();
+      if (!filePath) {
+        throw new Error('file_path must be a non-empty string');
       }
 
-      const target = resolveProjectFile(projectPath, virtualPath);
+      if (isProtectedPath(filePath)) {
+        throw new Error(`Deleting protected path is not allowed: ${filePath}`);
+      }
+
+      const target = resolveProjectFile(projectPath, filePath);
       const stat = fs.lstatSync(target);
       if (stat.isSymbolicLink()) {
-        throw new Error(`Deleting symlinks is not allowed: ${virtualPath}`);
+        throw new Error(`Deleting symlinks is not allowed: ${filePath}`);
       }
       if (!stat.isFile()) {
-        throw new Error(`delete_file only supports files: ${virtualPath}`);
+        throw new Error(`delete_file only supports files: ${filePath}`);
       }
 
       fs.unlinkSync(target);
-      return `Deleted ${virtualPath}`;
+      return `Deleted ${filePath}`;
     },
     {
       name: 'delete_file',
-      description: 'Delete a file inside the current project. This tool cannot delete directories, symlinks, or protected paths.',
+      description: 'Delete a file inside the current project. Use absolute paths. Cannot delete directories, symlinks, or protected paths (.env, .git, node_modules, out, dist).',
       schema: DELETE_FILE_SCHEMA,
     }
   );

@@ -5,6 +5,8 @@
  * D-16a: 独立 workflow runtime，不复用 chat runtime 的 session/checkpoint 逻辑。
  */
 
+import fs from 'fs';
+import path from 'path';
 import { createDeepAgent } from 'deepagents';
 import db from '../database';
 import { decryptApiKey } from '../security';
@@ -271,6 +273,14 @@ export function createAgentNodeExecutor(
               `示例: {"routing":{"${node.id}":"通过"}}`,
             ].filter(Boolean).join('\n')
           : '',
+        nodeKind === 'foreach'
+          ? [
+              `## For-Each 节点`,
+              `任务描述: ${taskDescription || '未填写'}`,
+              `数据源: ${node.data.dataSource || '未配置'}`,
+              `该节点会对 JSON 数组中的每个元素执行一次 Agent。请完成当前项的任务。`,
+            ].join('\n')
+          : '',
       ].filter(Boolean).join('\n\n');
 
       const taskContext = [
@@ -357,6 +367,89 @@ export function createAgentNodeExecutor(
           iterations,
           iteration_count: iterations.length,
           max_iterations: loopCount,
+          nodeId: node.id,
+          agentId,
+          duration_ms: duration,
+          ...(finalRouting ? { routing: finalRouting } : {}),
+        };
+      }
+
+      // For-Each 节点：读取 JSON 数组，逐项执行 Agent
+      if (nodeKind === 'foreach') {
+        const dataSource = node.data.dataSource;
+        if (!dataSource) {
+          throw new Error('For-Each 节点未配置数据源文件');
+        }
+
+        // 读取项目工作目录
+        const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(agentRow.project_id) as { path: string } | undefined;
+        const projectPath = project?.path || '';
+        const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(projectPath, dataSource);
+
+        if (!fs.existsSync(filePath)) {
+          throw new Error(`数据源文件不存在: ${filePath}`);
+        }
+
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        let items: unknown[];
+        try {
+          items = JSON.parse(raw);
+        } catch {
+          throw new Error(`数据源文件不是合法的 JSON: ${filePath}`);
+        }
+        if (!Array.isArray(items)) {
+          throw new Error(`数据源文件内容不是 JSON 数组: ${filePath}`);
+        }
+
+        const results: Array<{ index: number; item: unknown; output?: string; error?: string; success: boolean; duration_ms: number }> = [];
+        let finalRouting: Record<string, string> | undefined;
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const itemStart = Date.now();
+          const itemContext = [
+            taskContext,
+            '',
+            `## 当前项 (${i + 1}/${items.length})`,
+            node.data.itemPrompt
+              ? node.data.itemPrompt.replace('{item}', JSON.stringify(item, null, 2))
+              : JSON.stringify(item, null, 2),
+          ].filter(Boolean).join('\n');
+
+          try {
+            const resultText = await invokeAgent(itemContext);
+            const routing = extractWorkflowRouting(resultText);
+            finalRouting = routing ?? finalRouting;
+            results.push({
+              index: i,
+              item,
+              output: resultText,
+              success: true,
+              duration_ms: Date.now() - itemStart,
+            });
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            results.push({
+              index: i,
+              item,
+              error: errorMessage,
+              success: false,
+              duration_ms: Date.now() - itemStart,
+            });
+            if (node.data.failureStrategy === 'stop') break;
+          }
+        }
+
+        const duration = Date.now() - startTime;
+        const successCount = results.filter((r) => r.success).length;
+        const failCount = results.filter((r) => !r.success).length;
+
+        return {
+          result: `处理完成: ${successCount}/${items.length} 项成功`,
+          results,
+          totalItems: items.length,
+          successCount,
+          failCount,
           nodeId: node.id,
           agentId,
           duration_ms: duration,

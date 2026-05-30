@@ -294,7 +294,7 @@ function getAgentMcpServers(agentId: string): MCPServer[] {
 }
 
 function buildProjectContext(project: RuntimeProjectRow): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n文件工具中的项目根目录已经挂载为虚拟路径 \`/workspace/\`。\n使用 ls、read_file、write_file、edit_file、glob、grep、delete_file 时，路径必须基于这个虚拟根目录，例如 \`/workspace/src/main.ts\` 或 \`/workspace/README.md\`。\n不要在文件工具参数中包含宿主机真实路径、用户主目录路径或项目目录前缀。\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。如果路径不对，先用 \`ls\` 读取 \`/workspace/\` 或用 \`glob\` 搜索候选文件来自行恢复。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
 }
 
 function generateSlug(name: string): string {
@@ -437,7 +437,7 @@ export async function createDeepAgentRuntime(
     model: modelName,
   });
   const backend = new CompositeBackend(new StateBackend(), {
-    "/workspace/": new FilesystemBackend({ rootDir: project.path, virtualMode: true }),
+    "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
   const checkpointer = getCheckpointSaver();
   const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
@@ -446,12 +446,12 @@ export async function createDeepAgentRuntime(
   const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers);
   const memory = ['AGENTS.md', 'Claude.md']
     .filter((fileName) => fs.existsSync(path.join(project.path, fileName)))
-    .map((fileName) => `/workspace/${fileName}`)
+    .map((fileName) => path.join(project.path, fileName))
     .slice(0, 1);
 
   const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
 
-  const builtInTools: any[] = [createDeleteFileTool(project.path), createBashTool(), createFetchTool()];
+  const builtInTools: any[] = [createDeleteFileTool(project.path), createBashTool({ workingDir: project.path }), createFetchTool()];
 
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [

@@ -53,6 +53,7 @@ const nodeTypes = {
   agent: AgentNode,
   task: AgentNode,
   loop: AgentNode,
+  foreach: AgentNode,
   review: AgentNode,
   end: EndNode,
 } satisfies NodeTypes;
@@ -552,7 +553,66 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  const handleUndo = useCallback(() => {
+    const { undo } = useFlowStore.getState();
+    const result = undo();
+    if (result) {
+      setNodes(result.nodes);
+      setEdges(result.edges);
+      showToast('已撤销', 'info');
+    }
+  }, [setNodes, setEdges, showToast]);
 
+  const handleRedo = useCallback(() => {
+    const { redo } = useFlowStore.getState();
+    const result = redo();
+    if (result) {
+      setNodes(result.nodes);
+      setEdges(result.edges);
+      showToast('已重做', 'info');
+    }
+  }, [setNodes, setEdges, showToast]);
+
+  // Bind Keyboard Shortcuts: Save (Ctrl/Cmd + S), Undo (Ctrl/Cmd + Z), Redo (Ctrl/Cmd + Y)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifier = isMac ? event.metaKey : event.ctrlKey;
+
+      if (modifier) {
+        const key = event.key.toLowerCase();
+        if (key === 's') {
+          event.preventDefault();
+          handleSave('save').catch(() => {});
+        } else if (key === 'z') {
+          event.preventDefault();
+          if (event.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+        } else if (key === 'y') {
+          event.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleSave, handleUndo, handleRedo]);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
@@ -585,16 +645,8 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         onStop={handleStop}
         isSaving={isSaving}
         isRunning={isRunning}
-        onUndo={() => {
-          const { undo } = useFlowStore.getState();
-          const result = undo();
-          if (result) { setNodes(result.nodes); setEdges(result.edges); }
-        }}
-        onRedo={() => {
-          const { redo } = useFlowStore.getState();
-          const result = redo();
-          if (result) { setNodes(result.nodes); setEdges(result.edges); }
-        }}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         canUndo={canUndo}
         canRedo={canRedo}
       />

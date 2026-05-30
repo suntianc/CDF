@@ -30,6 +30,7 @@ vi.mock('./deepagent/llm-adapter', () => ({
 vi.mock('./database', () => ({
   default: {
     prepare: dbPrepareMock,
+    exec: vi.fn(),
   },
 }));
 
@@ -727,26 +728,20 @@ describe('runLLMChat', () => {
       toolCalls: (async function* () {
         yield { callId: 'tool-1', name: 'write_file', input: { path: '/a.txt' }, output: Promise.resolve('ok') };
       })(),
-      output: Promise.resolve({ state: 'done' }),
-    });
-
-    const getState = vi
-      .fn()
-      .mockResolvedValueOnce({ values: {} })
-      .mockResolvedValueOnce({ values: {} })
-      .mockResolvedValueOnce({
-        values: {
+      values: (async function* () {
+        yield {
           todos: [
             { content: 'Write file', status: 'completed' },
             { content: 'Summarize result', status: 'in_progress' },
           ],
-        },
-      });
+        };
+      })(),
+      output: Promise.resolve({ state: 'done' }),
+    });
 
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
         streamEvents,
-        getState,
       },
       inputMessages: [{ role: 'user', content: 'run plan' }],
       agentId: 'agent-1',
