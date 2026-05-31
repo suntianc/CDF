@@ -398,6 +398,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     </div>
                     <div className="overflow-y-auto max-h-[160px] space-y-0.5 pr-0.5">
                       {skills
+                        .filter(sk => sk.scope === 'global')
                         .filter(sk => sk.name.toLowerCase().includes(skillSearchQuery.toLowerCase()))
                         .map(sk => {
                           const isBound = formSkillIds.includes(sk.id);

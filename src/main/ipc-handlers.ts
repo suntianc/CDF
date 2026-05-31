@@ -440,8 +440,11 @@ export function registerIpcHandlers() {
       db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
       if (Array.isArray(skillNames)) {
         const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
-        for (const skillName of skillNames) {
-          insertSkill.run(id, skillName);
+        for (const skillId of skillNames) {
+          const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
+          if (scope === 'global') {
+            insertSkill.run(id, skillId);
+          }
         }
       }
     });

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { ToolMessageCard, ToolGroupCard } from './ToolMessageCard';
 
-import { MessageItem } from './MessageItem';
+import { MessageItem, formatHMSTime } from './MessageItem';
 import { useChatScroll } from './useChatScroll';
 import { TodoList } from './TodoList';
 
@@ -21,6 +21,48 @@ interface ChatAreaProps {
   taskPanelOpen?: boolean;
   onToggleTaskPanel?: () => void;
 }
+
+const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }) => {
+  const [expanded, setExpanded] = useState(false);
+  const headerText = `已处理（用时 ${formatHMSTime(duration)}）`;
+
+  return (
+    <div className="mb-2.5 flex flex-col transition-all duration-200 w-full animate-slide-down">
+      {/* Header */}
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
+      >
+        <span className="text-[10px]">{expanded ? '▼' : '▶'}</span>
+        <span>{headerText}</span>
+      </div>
+      
+      {/* Body */}
+      {expanded && (
+        <div className="mt-2 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 flex flex-col gap-3">
+          {items.map((item) => {
+            if (item.type === 'tool_group') {
+              return (
+                <ToolGroupCard
+                  key={item.id}
+                  tools={item.tools}
+                />
+              );
+            }
+            return (
+              <MessageItem
+                key={item.id}
+                message={item.message}
+                isLast={false}
+                isStreaming={false}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export function ChatArea({ 
   onOpenSettings, 
@@ -199,6 +241,249 @@ export function ChatArea({
 
     return items;
   }, [messages]);
+
+  const processedItems = useMemo(() => {
+    const items = renderItems;
+
+    const cleanMessageContent = (content: string): string => {
+      if (!content) return '';
+      let cleanContent = content;
+      const thinkCount = (cleanContent.match(/<think>/g) || []).length;
+      const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
+      if (thinkEndCount > thinkCount) {
+        if (thinkCount === 0) {
+          cleanContent = cleanContent.replace(/<\/think>/g, '');
+        } else {
+          const lastIdx = cleanContent.lastIndexOf('</think>');
+          if (lastIdx !== -1) {
+            cleanContent = cleanContent.substring(0, lastIdx) + cleanContent.substring(lastIdx + 8);
+          }
+        }
+      }
+      return cleanContent;
+    };
+    
+    // Divide into turns based on user messages
+    const turns: Array<{
+      userItem: any | null;
+      responseItems: any[];
+    }> = [];
+
+    let currentTurn: { userItem: any | null; responseItems: any[] } = { userItem: null, responseItems: [] };
+
+    items.forEach((item: any) => {
+      if (item.type === 'message' && item.message.role === 'user') {
+        if (currentTurn.userItem || currentTurn.responseItems.length > 0) {
+          turns.push(currentTurn);
+        }
+        currentTurn = { userItem: item, responseItems: [] };
+      } else {
+        currentTurn.responseItems.push(item);
+      }
+    });
+    if (currentTurn.userItem || currentTurn.responseItems.length > 0) {
+      turns.push(currentTurn);
+    }
+
+    const finalItems: any[] = [];
+
+    turns.forEach((turn, turnIdx) => {
+      if (turn.userItem) {
+        finalItems.push(turn.userItem);
+      }
+
+      const isLastTurn = turnIdx === turns.length - 1;
+      const isStreamingActive = isLastTurn && isStreaming;
+
+      if (isStreamingActive) {
+        // AI is outputting: do not fold/merge items in this turn
+        finalItems.push(...turn.responseItems);
+      } else {
+        // AI has finished outputting: fold thinking and tool items
+        const responseItems = turn.responseItems;
+        
+        let firstThinkIdx = -1;
+        let lastThinkIdx = -1;
+
+        responseItems.forEach((item, index) => {
+          if (item.type === 'message' && item.message.role === 'assistant') {
+            const content = cleanMessageContent(item.message.content || '');
+            if (firstThinkIdx === -1 && content.includes('<think>')) {
+              firstThinkIdx = index;
+            }
+            if (content.includes('</think>') || content.includes('<think>')) {
+              lastThinkIdx = index;
+            }
+          }
+        });
+
+        if (firstThinkIdx !== -1 && lastThinkIdx !== -1 && lastThinkIdx >= firstThinkIdx) {
+          const preFoldItems: any[] = [];
+          const foldedItems: any[] = [];
+          const postFoldItems: any[] = [];
+
+          if (lastThinkIdx === firstThinkIdx) {
+            const firstItem = responseItems[firstThinkIdx];
+            const firstMsgContent = cleanMessageContent(firstItem.message.content);
+            const firstThinkTagIdx = firstMsgContent.indexOf('<think>');
+            const lastThinkEndTagIdx = firstMsgContent.lastIndexOf('</think>');
+            
+            let prePart = '';
+            let postPart = '';
+            let thinkPart = firstMsgContent;
+
+            if (firstThinkTagIdx !== -1) {
+              prePart = firstMsgContent.substring(0, firstThinkTagIdx).trim();
+              if (lastThinkEndTagIdx !== -1 && lastThinkEndTagIdx > firstThinkTagIdx) {
+                thinkPart = firstMsgContent.substring(firstThinkTagIdx, lastThinkEndTagIdx + 8);
+                postPart = firstMsgContent.substring(lastThinkEndTagIdx + 8).trim();
+              } else {
+                thinkPart = firstMsgContent.substring(firstThinkTagIdx);
+              }
+            }
+
+            // 1. Items before firstThinkIdx
+            for (let i = 0; i < firstThinkIdx; i++) {
+              preFoldItems.push(responseItems[i]);
+            }
+
+            // 2. Pre-part
+            if (prePart) {
+              preFoldItems.push({
+                type: 'message',
+                id: `${firstItem.id}-pre`,
+                message: { ...firstItem.message, id: `${firstItem.message.id}-pre`, content: prePart }
+              });
+            }
+
+            // 3. Folded item (strip tags to prevent inner fold component rendering)
+            foldedItems.push({
+              type: 'message',
+              id: `${firstItem.id}-think`,
+              message: { 
+                ...firstItem.message, 
+                id: `${firstItem.message.id}-think`, 
+                content: thinkPart.replace(/<\/?think>/g, '').trim() 
+              }
+            });
+
+            // 4. Post-part
+            if (postPart) {
+              postFoldItems.push({
+                type: 'message',
+                id: `${firstItem.id}-post`,
+                message: { ...firstItem.message, id: `${firstItem.message.id}-post`, content: postPart }
+              });
+            }
+          } else {
+            // firstThinkIdx < lastThinkIdx
+            // 1. Items before firstThinkIdx
+            for (let i = 0; i < firstThinkIdx; i++) {
+              preFoldItems.push(responseItems[i]);
+            }
+
+            // 2. Process firstThinkIdx item
+            const firstItem = responseItems[firstThinkIdx];
+            const firstMsgContent = cleanMessageContent(firstItem.message.content);
+            const firstThinkTagIdx = firstMsgContent.indexOf('<think>');
+            let prePart = '';
+            let firstThinkPart = firstMsgContent;
+            if (firstThinkTagIdx !== -1) {
+              prePart = firstMsgContent.substring(0, firstThinkTagIdx).trim();
+              firstThinkPart = firstMsgContent.substring(firstThinkTagIdx);
+            }
+
+            if (prePart) {
+              preFoldItems.push({
+                type: 'message',
+                id: `${firstItem.id}-pre`,
+                message: { ...firstItem.message, id: `${firstItem.message.id}-pre`, content: prePart }
+              });
+            }
+            
+            foldedItems.push({
+              type: 'message',
+              id: `${firstItem.id}-think`,
+              message: { 
+                ...firstItem.message, 
+                id: `${firstItem.message.id}-think`, 
+                content: firstThinkPart.replace(/<\/?think>/g, '').trim() 
+              }
+            });
+
+            // Add intermediate items
+            for (let i = firstThinkIdx + 1; i < lastThinkIdx; i++) {
+              const item = responseItems[i];
+              if (item.type === 'message') {
+                foldedItems.push({
+                  ...item,
+                  message: {
+                    ...item.message,
+                    content: cleanMessageContent(item.message.content).replace(/<\/?think>/g, '').trim()
+                  }
+                });
+              } else {
+                foldedItems.push(item);
+              }
+            }
+
+            // Process last item
+            const lastItem = responseItems[lastThinkIdx];
+            const lastMsgContent = cleanMessageContent(lastItem.message.content);
+            const lastThinkEndTagIdx = lastMsgContent.lastIndexOf('</think>');
+            let postPart = '';
+            let lastThinkPart = lastMsgContent;
+            if (lastThinkEndTagIdx !== -1) {
+              postPart = lastMsgContent.substring(lastThinkEndTagIdx + 8).trim();
+              lastThinkPart = lastMsgContent.substring(0, lastThinkEndTagIdx + 8);
+            }
+
+            foldedItems.push({
+              type: 'message',
+              id: `${lastItem.id}-think`,
+              message: { 
+                ...lastItem.message, 
+                id: `${lastItem.message.id}-think`, 
+                content: lastThinkPart.replace(/<\/?think>/g, '').trim() 
+              }
+            });
+
+            if (postPart) {
+              postFoldItems.push({
+                type: 'message',
+                id: `${lastItem.id}-post`,
+                message: { ...lastItem.message, id: `${lastItem.message.id}-post`, content: postPart }
+              });
+            }
+          }
+
+          // Remaining items after lastThinkIdx
+          for (let i = lastThinkIdx + 1; i < responseItems.length; i++) {
+            postFoldItems.push(responseItems[i]);
+          }
+
+          // Calculate duration
+          const startTimestamp = responseItems[firstThinkIdx].message.created_at;
+          const endTimestamp = responseItems[responseItems.length - 1].message.created_at;
+          const totalSeconds = Math.max(1, Math.round((endTimestamp - startTimestamp) / 1000));
+
+          finalItems.push(...preFoldItems);
+          finalItems.push({
+            type: 'folded_block',
+            id: `folded-${turnIdx}`,
+            duration: totalSeconds,
+            foldedItems
+          });
+          finalItems.push(...postFoldItems);
+        } else {
+          // No thinking block in this turn, render all normally
+          finalItems.push(...turn.responseItems);
+        }
+      }
+    });
+
+    return finalItems;
+  }, [renderItems, isStreaming]);
 
 
   const defaultAgent = useMemo(() => {
@@ -569,8 +854,17 @@ export function ChatArea({
             className="messages absolute inset-0 overflow-y-auto" 
             style={{ paddingBottom: '180px' }}
           >
-            {/* Messages List */}
-            {renderItems.map((item, idx) => {
+             {/* Messages List */}
+            {processedItems.map((item, idx) => {
+              if (item.type === 'folded_block') {
+                return (
+                  <FoldedBlockCard
+                    key={item.id}
+                    duration={item.duration}
+                    items={item.foldedItems}
+                  />
+                );
+              }
               if (item.type === 'tool_group') {
                 return (
                   <ToolGroupCard
@@ -583,7 +877,7 @@ export function ChatArea({
                 <MessageItem
                   key={item.id}
                   message={item.message}
-                  isLast={idx === renderItems.length - 1}
+                  isLast={idx === processedItems.length - 1}
                   isStreaming={isStreaming}
                 />
               );

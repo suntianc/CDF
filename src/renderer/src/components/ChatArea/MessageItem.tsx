@@ -16,6 +16,20 @@ const formatDuration = (seconds: number): string => {
   return remainingMinutes > 0 ? `${hours} 小时 ${remainingMinutes} 分` : `${hours} 小时`;
 };
 
+export const formatHMSTime = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  
+  if (h > 0) {
+    return `${h}h ${m}m ${s}s`;
+  }
+  if (m > 0) {
+    return `${m}m ${s}s`;
+  }
+  return `${s}s`;
+};
+
 const checkThinkingFinished = (content: string): boolean => {
   if (!content) return true;
   const lastThink = content.lastIndexOf('<think>');
@@ -148,93 +162,6 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
   const renderMessageContent = (content: string) => {
     if (!content) return null;
 
-    // 清洗多余的 </think> 标签（例如由于主进程补发与大模型输出重叠产生的冗余闭合标签）
-    let cleanContent = content;
-    const thinkCount = (cleanContent.match(/<think>/g) || []).length;
-    const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
-    if (thinkEndCount > thinkCount) {
-      if (thinkCount === 0) {
-        cleanContent = cleanContent.replace(/<\/think>/g, '');
-      } else {
-        const lastIdx = cleanContent.lastIndexOf('</think>');
-        if (lastIdx !== -1) {
-          cleanContent = cleanContent.substring(0, lastIdx) + cleanContent.substring(lastIdx + 8);
-        }
-      }
-    }
-
-    let thinkParts: string[] = [];
-    let mainContent = '';
-    let remaining = cleanContent;
-    let isThinkingFinished = true;
-
-    while (true) {
-      const startIdx = remaining.indexOf('<think>');
-      if (startIdx === -1) {
-        mainContent += remaining;
-        break;
-      }
-      mainContent += remaining.substring(0, startIdx);
-      
-      const endIdx = remaining.indexOf('</think>', startIdx);
-      if (endIdx !== -1) {
-        thinkParts.push(remaining.substring(startIdx + 7, endIdx));
-        remaining = remaining.substring(endIdx + 8);
-      } else {
-        thinkParts.push(remaining.substring(startIdx + 7));
-        isThinkingFinished = false;
-        remaining = '';
-        break;
-      }
-    }
-
-    const thinkContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
-    mainContent = mainContent.trim();
-
-    const renderThink = () => {
-      if (!thinkContent) return null;
-      const finished = isThinkingFinished;
-
-      const getThinkingTime = () => {
-        if (!finished) {
-          return elapsedSeconds;
-        }
-        if (finalDuration !== null) {
-          return finalDuration;
-        }
-        // 历史消息估算（每个字符大概 18-20 毫秒生成速度）
-        return Math.max(1, Math.round(thinkContent.length / 18));
-      };
-
-      const currentSeconds = getThinkingTime();
-      const headerText = finished 
-        ? `已思考 (用时 ${formatDuration(currentSeconds)})` 
-        : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
-
-      return (
-        <div className="mb-2.5 flex flex-col transition-all duration-200">
-          {/* Thinking Header (Flat Text style) */}
-          <div 
-            onClick={() => setThinkExpanded(!thinkExpanded)}
-            className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
-          >
-            <span>{thinkExpanded ? '▼' : '▶'}</span>
-            <span>{headerText}</span>
-          </div>
-          
-          {/* Thinking Body (Flat sidebar line style) */}
-          {thinkExpanded && (
-            <div className="mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal animate-slide-down">
-              {thinkContent}
-              {!finished && (
-                <span className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-text-muted)]/70 animate-pulse vertical-middle" />
-              )}
-            </div>
-          )}
-        </div>
-      );
-    };
-
     const renderMain = (text: string) => {
       if (!text) return null;
       const parts = text.split(/(```[\s\S]*?```)/g);
@@ -254,12 +181,171 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       });
     };
 
-    return (
-      <div className="flex flex-col gap-3">
-        {renderThink()}
-        {renderMain(mainContent)}
-      </div>
-    );
+    // 清洗多余的 </think> 标签（例如由于主进程补发与大模型输出重叠产生的冗余闭合标签）
+    let cleanContent = content;
+    const thinkCount = (cleanContent.match(/<think>/g) || []).length;
+    const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
+    if (thinkEndCount > thinkCount) {
+      if (thinkCount === 0) {
+        cleanContent = cleanContent.replace(/<\/think>/g, '');
+      } else {
+        const lastIdx = cleanContent.lastIndexOf('</think>');
+        if (lastIdx !== -1) {
+          cleanContent = cleanContent.substring(0, lastIdx) + cleanContent.substring(lastIdx + 8);
+        }
+      }
+    }
+
+    const isOutputting = isStreaming && isLast;
+
+    if (isOutputting) {
+      let thinkParts: string[] = [];
+      let mainContent = '';
+      let remaining = cleanContent;
+      let isThinkingFinished = true;
+
+      while (true) {
+        const startIdx = remaining.indexOf('<think>');
+        if (startIdx === -1) {
+          mainContent += remaining;
+          break;
+        }
+        mainContent += remaining.substring(0, startIdx);
+        
+        const endIdx = remaining.indexOf('</think>', startIdx);
+        if (endIdx !== -1) {
+          thinkParts.push(remaining.substring(startIdx + 7, endIdx));
+          remaining = remaining.substring(endIdx + 8);
+        } else {
+          thinkParts.push(remaining.substring(startIdx + 7));
+          isThinkingFinished = false;
+          remaining = '';
+          break;
+        }
+      }
+
+      const thinkContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
+      mainContent = mainContent.trim();
+
+      const renderThink = () => {
+        if (!thinkContent) return null;
+        const finished = isThinkingFinished;
+
+        const getThinkingTime = () => {
+          if (!finished) {
+            return elapsedSeconds;
+          }
+          if (finalDuration !== null) {
+            return finalDuration;
+          }
+          // 历史消息估算（每个字符大概 18-20 毫秒生成速度）
+          return Math.max(1, Math.round(thinkContent.length / 18));
+        };
+
+        const currentSeconds = getThinkingTime();
+        const headerText = finished 
+          ? `已思考 (用时 ${formatDuration(currentSeconds)})` 
+          : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
+
+        return (
+          <div className="mb-2.5 flex flex-col transition-all duration-200">
+            {/* Thinking Header (Flat Text style) */}
+            <div 
+              onClick={() => setThinkExpanded(!thinkExpanded)}
+              className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
+            >
+              <span>{thinkExpanded ? '▼' : '▶'}</span>
+              <span>{headerText}</span>
+            </div>
+            
+            {/* Thinking Body (Flat sidebar line style) */}
+            {thinkExpanded && (
+              <div className="mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal animate-slide-down">
+                {thinkContent}
+                {!finished && (
+                  <span className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-text-muted)]/70 animate-pulse vertical-middle" />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="flex flex-col gap-3">
+          {renderThink()}
+          {renderMain(mainContent)}
+        </div>
+      );
+    } else {
+      const firstThink = cleanContent.indexOf('<think>');
+      if (firstThink === -1) {
+        return (
+          <div className="flex flex-col gap-3">
+            {renderMain(cleanContent)}
+          </div>
+        );
+      }
+
+      const lastThinkEnd = cleanContent.lastIndexOf('</think>');
+      let foldedRaw = '';
+      let preContent = '';
+      let postContent = '';
+
+      preContent = cleanContent.substring(0, firstThink);
+      if (lastThinkEnd !== -1 && lastThinkEnd > firstThink) {
+        foldedRaw = cleanContent.substring(firstThink + 7, lastThinkEnd);
+        postContent = cleanContent.substring(lastThinkEnd + 8);
+      } else {
+        foldedRaw = cleanContent.substring(firstThink + 7);
+        postContent = '';
+      }
+
+      const foldedContent = foldedRaw.replace(/<\/?think>/g, '').trim();
+      const preContentTrimmed = preContent.trim();
+      const postContentTrimmed = postContent.trim();
+
+      const getThinkingTime = () => {
+        if (finalDuration !== null) {
+          return finalDuration;
+        }
+        return Math.max(1, Math.round(foldedContent.length / 18));
+      };
+
+      const currentSeconds = getThinkingTime();
+      const headerText = `已处理（用时 ${formatHMSTime(currentSeconds)}）`;
+
+      const renderFoldedBlock = () => {
+        if (!foldedContent) return null;
+        return (
+          <div className="mb-2.5 flex flex-col transition-all duration-200">
+            {/* Thinking Header (Flat Text style) */}
+            <div 
+              onClick={() => setThinkExpanded(!thinkExpanded)}
+              className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
+            >
+              <span>{thinkExpanded ? '▼' : '▶'}</span>
+              <span>{headerText}</span>
+            </div>
+            
+            {/* Thinking Body (Flat sidebar line style) */}
+            {thinkExpanded && (
+              <div className="mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal animate-slide-down">
+                {foldedContent}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="flex flex-col gap-3">
+          {preContentTrimmed && renderMain(preContentTrimmed)}
+          {renderFoldedBlock()}
+          {postContentTrimmed && renderMain(postContentTrimmed)}
+        </div>
+      );
+    }
   };
 
   if (toolInfo) {

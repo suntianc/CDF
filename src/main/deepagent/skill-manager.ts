@@ -143,24 +143,26 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
   const globalSkillsDir = getScopePath(projectPath, 'global');
   const projectSkillsDir = getScopePath(projectPath, 'project');
   const sources: string[] = [];
-  const enabled = Array.isArray(enabledSkillIds) && enabledSkillIds.length > 0 ? new Set(enabledSkillIds) : null;
 
+  // 项目级 skills: 始终全量加载，不经过白名单
+  if (fs.existsSync(projectSkillsDir)) {
+    sources.push(projectSkillsDir);
+  }
+
+  // 全局 skills: 按绑定白名单过滤
+  const enabled = Array.isArray(enabledSkillIds) && enabledSkillIds.length > 0 ? enabledSkillIds : null;
   if (enabled) {
     for (const skillId of enabled) {
-      const [scope, skillName] = skillId.includes(':') ? skillId.split(':', 2) : ['project', skillId];
-      const baseDir = scope === 'global' ? globalSkillsDir : projectSkillsDir;
-      const physicalPath = path.join(baseDir, skillName);
-      if (fs.existsSync(physicalPath)) {
-        sources.push(physicalPath);
+      const [scope, skillName] = skillId.includes(':') ? skillId.split(':', 2) : ['global', skillId];
+      if (scope === 'global') {
+        const physicalPath = path.join(globalSkillsDir, skillName);
+        if (fs.existsSync(physicalPath)) {
+          sources.push(physicalPath);
+        }
       }
     }
-  } else {
-    if (fs.existsSync(globalSkillsDir)) {
-      sources.push(globalSkillsDir);
-    }
-    if (fs.existsSync(projectSkillsDir)) {
-      sources.push(projectSkillsDir);
-    }
+  } else if (fs.existsSync(globalSkillsDir)) {
+    sources.push(globalSkillsDir);
   }
 
   return {

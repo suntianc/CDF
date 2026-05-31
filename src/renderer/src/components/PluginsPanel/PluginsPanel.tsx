@@ -120,10 +120,12 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     }
   };
 
-  const filteredSkills = skills.filter(s =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredSkills = skills
+    .filter(s => s.scope === 'global')
+    .filter(s =>
+      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
   return (
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">

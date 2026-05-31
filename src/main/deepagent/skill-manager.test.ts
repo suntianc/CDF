@@ -57,12 +57,13 @@ describe('skill-manager', () => {
     expect(config.skillsSources).toContain(path.join(tempProjectPath, '.cdf', 'skills'));
   });
 
-  it('should resolve only enabled project skill source paths', () => {
+  it('should always load all project skills regardless of enabled list', () => {
     fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills', 'enabled-skill'), { recursive: true });
     fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills', 'disabled-skill'), { recursive: true });
 
     const config = resolveAgentSkillsConfig(tempProjectPath, ['project:enabled-skill']);
-    expect(config.skillsSources).toEqual([path.join(tempProjectPath, '.cdf', 'skills', 'enabled-skill')]);
+    // 项目级 skills 始终全量加载，白名单只对全局 skills 生效
+    expect(config.skillsSources).toContain(path.join(tempProjectPath, '.cdf', 'skills'));
   });
 
   it('should not grant host filesystem-wide permissions', () => {
