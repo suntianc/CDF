@@ -45,7 +45,15 @@ vi.mock('../deepagent/skill-manager', () => ({
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
 }));
 
+vi.mock('fs', () => ({
+  default: {
+    existsSync: vi.fn(() => true),
+    readFileSync: vi.fn(() => '[{"name":"item-1"},{"name":"item-2"}]'),
+  },
+}));
+
 import { createAgentNodeExecutor, extractWorkflowRouting } from './node-executor';
+import fs from 'fs';
 
 const VALID_TASK_JSON = '{"summary":"done","status":"success"}';
 
@@ -384,6 +392,173 @@ describe('createAgentNodeExecutor', () => {
     callbackHandler.handleToolStart({ name: 'bash' }, 'ls', 'run-2', null, [], {}, 'bash');
     callbackHandler.handleToolError(new Error('command failed'), 'run-2');
     expect(onLogSpy).toHaveBeenCalledWith('[工具失败] 工具 bash 执行失败，错误: command failed');
+  });
+
+  // ---- ForEach 节点测试 (TG-01) ----
+
+  it('should execute ForEach node with JSON data source', async () => {
+    (fs.existsSync as any).mockReturnValue(true);
+    (fs.readFileSync as any).mockReturnValue('[{"name":"item-1"},{"name":"item-2"},{"name":"item-3"}]');
+
+    const invokeMock = vi.fn()
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '{"summary":"processed item-1","status":"success"}' }] })
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '{"summary":"processed item-2","status":"success"}' }] })
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '{"summary":"processed item-3","status":"success"}' }] });
+    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
+
+    const executor = createAgentNodeExecutor({
+      id: 'foreach-node',
+      type: 'foreach',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'ForEach',
+        nodeKind: 'foreach',
+        taskDescription: 'process each item',
+        dataSource: 'items.json',
+      },
+    });
+
+    const result = await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(invokeMock).toHaveBeenCalledTimes(3);
+    expect(result.results).toHaveLength(3);
+    expect((result.results as any[])[0]).toMatchObject({ index: 0, success: true });
+    expect((result.results as any[])[1]).toMatchObject({ index: 1, success: true });
+    expect((result.results as any[])[2]).toMatchObject({ index: 2, success: true });
+    expect(result.totalItems).toBe(3);
+    expect(result.successCount).toBe(3);
+    expect(result.failCount).toBe(0);
+  });
+
+  it('should use itemPrompt template in ForEach context', async () => {
+    const invokeMock = vi.fn()
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '{"summary":"done","status":"success"}' }] });
+    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
+
+    const executor = createAgentNodeExecutor({
+      id: 'foreach-node',
+      type: 'foreach',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'ForEach',
+        nodeKind: 'foreach',
+        taskDescription: 'greet each person',
+        dataSource: 'people.json',
+        itemPrompt: '请处理: {item}',
+      },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    // 使用默认 mock 数据 [{"name":"item-1"},{"name":"item-2"}]，验证 itemPrompt 中的 {item} 被替换
+    const context = invokeMock.mock.calls[0][0].messages[0].content;
+    expect(context).toContain('请处理:');
+    expect(context).toContain('"name"');
+    expect(context).toContain('item-1');
+  });
+
+  it('should stop ForEach on failure when failureStrategy is stop', async () => {
+    (fs.existsSync as any).mockReturnValue(true);
+    (fs.readFileSync as any).mockReturnValue('[{"id":1},{"id":2},{"id":3},{"id":4}]');
+
+    const invokeMock = vi.fn()
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '{"summary":"ok-1","status":"success"}' }] })
+      .mockRejectedValueOnce(new Error('file not found'))
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: 'should not reach' }] });
+    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
+
+    const executor = createAgentNodeExecutor({
+      id: 'foreach-node',
+      type: 'foreach',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'ForEach',
+        nodeKind: 'foreach',
+        taskDescription: 'process',
+        dataSource: 'items.json',
+        failureStrategy: 'stop',
+      },
+    });
+
+    const result = await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(result.results).toHaveLength(2);
+    expect((result.results as any[])[0]).toMatchObject({ index: 0, success: true });
+    expect((result.results as any[])[1]).toMatchObject({ index: 1, success: false, error: 'file not found' });
+    expect(result.totalItems).toBe(4);
+    expect(result.successCount).toBe(1);
+    expect(result.failCount).toBe(1);
+  });
+
+  it('should throw when ForEach data source file does not exist', async () => {
+    (fs.existsSync as any).mockReturnValue(false);
+
+    const executor = createAgentNodeExecutor({
+      id: 'foreach-node',
+      type: 'foreach',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'ForEach',
+        nodeKind: 'foreach',
+        taskDescription: 'process',
+        dataSource: 'nonexistent.json',
+      },
+    });
+
+    await expect(executor({ inputs: {}, nodeOutputs: {} })).rejects.toThrow('数据源文件不存在');
+  });
+
+  it('should throw when ForEach data source is not valid JSON', async () => {
+    (fs.existsSync as any).mockReturnValue(true);
+    (fs.readFileSync as any).mockReturnValue('not-json');
+
+    const executor = createAgentNodeExecutor({
+      id: 'foreach-node',
+      type: 'foreach',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'ForEach',
+        nodeKind: 'foreach',
+        taskDescription: 'process',
+        dataSource: 'bad.json',
+      },
+    });
+
+    await expect(executor({ inputs: {}, nodeOutputs: {} })).rejects.toThrow('数据源文件不是合法的 JSON');
+  });
+
+  // ---- 错误处理测试 (TG-02) ----
+
+  it('should throw when agentId is missing from node config', () => {
+    expect(() => createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: '', label: 'Bad' },
+    })).toThrow('Node node-1 has no agentId configured');
+  });
+
+  it('should propagate execution errors from agent.invoke (not retried by validator)', async () => {
+    const invokeMock = vi.fn().mockRejectedValue(new Error('LLM connection timeout'));
+    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
+
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Task', nodeKind: 'task' },
+    });
+
+    // 执行异常直接向上传播，不经过校验重试循环
+    await expect(executor({ inputs: {}, nodeOutputs: {} }))
+      .rejects.toThrow('Agent node node-1 execution failed: LLM connection timeout');
+    expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 });
 

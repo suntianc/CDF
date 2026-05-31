@@ -87,6 +87,21 @@ export function validateWorkflowGraph(nodes: Node[], edges: Edge[], mode: 'save'
   if (startNodes.length !== 1) errors.push('工作流必须且只能有一个开始节点');
   if (endNodes.length !== 1) errors.push('工作流必须且只能有一个结束节点');
 
+  // 检查重复节点标签
+  const labelCounts = new Map<string, string[]>();
+  for (const node of nodes) {
+    const label = (node.data as Record<string, unknown>).label as string || '';
+    if (!label) continue;
+    const ids = labelCounts.get(label) || [];
+    ids.push(node.id);
+    labelCounts.set(label, ids);
+  }
+  for (const [label, ids] of labelCounts) {
+    if (ids.length > 1) {
+      errors.push(`节点标签「${label}」重复（${ids.length} 个节点），可能引起混淆`);
+    }
+  }
+
   const nodeIds = new Set(nodes.map((node) => node.id));
   for (const edge of edges) {
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
