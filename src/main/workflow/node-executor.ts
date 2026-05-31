@@ -350,7 +350,9 @@ export function createAgentNodeExecutor(
                       onLog?.('Agent 正在思考决策...');
                     },
                     handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
-                      const toolName = name || tool?.name || tool?.id || 'unknown';
+                      const rawId = tool?.id;
+                      const toolId = Array.isArray(rawId) ? rawId[rawId.length - 1] : rawId;
+                      const toolName = name || tool?.name || toolId || 'unknown';
                       toolRunNames.set(runId, toolName);
                       const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
                       const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;

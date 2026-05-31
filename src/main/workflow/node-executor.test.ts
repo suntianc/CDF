@@ -48,7 +48,6 @@ vi.mock('../deepagent/skill-manager', () => ({
 import { createAgentNodeExecutor, extractWorkflowRouting } from './node-executor';
 
 const VALID_TASK_JSON = '{"summary":"done","status":"success"}';
-const VALID_REVIEW_JSON = '{"summary":"reviewed","status":"success","verdict":"pass"}';
 
 describe('createAgentNodeExecutor', () => {
   beforeEach(() => {
@@ -242,12 +241,12 @@ describe('createAgentNodeExecutor', () => {
 
     const result = await executor({ inputs: {}, nodeOutputs: {} });
 
-    // 5 retries (MAX_RETRIES): first attempt + 4 retries = 5 total calls
     expect(invokeMock).toHaveBeenCalledTimes(5);
     expect(result._degraded).toBe(true);
-    expect(result._validationErrors).toBeDefined();
-    expect(Array.isArray(result._validationErrors)).toBe(true);
-    expect(result._validationErrors.length).toBeGreaterThan(0);
+    const validationErrors = result._validationErrors as any[];
+    expect(validationErrors).toBeDefined();
+    expect(Array.isArray(validationErrors)).toBe(true);
+    expect(validationErrors.length).toBeGreaterThan(0);
     expect(result.structuredOutput).toBeUndefined();
   });
 
@@ -297,13 +296,12 @@ describe('createAgentNodeExecutor', () => {
     const result = await executor({ inputs: {}, nodeOutputs: {} });
 
     expect(result.iterations).toHaveLength(2);
-    expect(result.iterations[0].structuredOutput).toMatchObject({ summary: 'iter-1', status: 'success' });
-    expect(result.iterations[1].structuredOutput).toMatchObject({ summary: 'iter-2', status: 'success' });
+    expect((result.iterations as any[])[0].structuredOutput).toMatchObject({ summary: 'iter-1', status: 'success' });
+    expect((result.iterations as any[])[1].structuredOutput).toMatchObject({ summary: 'iter-2', status: 'success' });
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 
   it('should preserve routing extraction from raw output text regardless of validation', async () => {
-    // 输出包含 routing 但不符合 task schema（缺少 summary），校验会失败
     const outputWithRouting = '{"routing":{"next":"step-2"},"status":"success","summary":"ok"}';
     const invokeMock = vi.fn()
       .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: outputWithRouting }] });
@@ -318,17 +316,13 @@ describe('createAgentNodeExecutor', () => {
 
     const result = await executor({ inputs: {}, nodeOutputs: {} });
 
-    // routing 始终从原始文本提取，校验通过时也应正常提取
     expect(result.routing).toBeDefined();
     expect(result.routing).toMatchObject({ next: 'step-2' });
-    // 校验通过（summary + status 都存在）
     expect(result.structuredOutput).toBeDefined();
   });
 
   it('should still extract routing from raw text even when validation degrades', async () => {
-    // 输出包含 routing 但解析后不符合 schema → 校验降级
     const outputWithRouting = '{"routing":{"branch":"alt"}}';
-    // 缺少 summary 和 status → 校验失败 → 重试 5 次全失败 → 降级
     const invokeMock = vi.fn()
       .mockResolvedValue({ messages: [{ role: 'assistant', content: outputWithRouting }] });
     createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
@@ -348,4 +342,48 @@ describe('createAgentNodeExecutor', () => {
     // 校验降级
     expect(result._degraded).toBe(true);
   });
+
+  it('should trigger logging callbacks with correct tool name on LLM and tool events', async () => {
+    const onLogSpy = vi.fn();
+    let capturedCallbacks: any[] = [];
+
+    createDeepAgentMock.mockReturnValue({
+      invoke: vi.fn(async (_input: any, config: any) => {
+        capturedCallbacks = config.callbacks;
+        return {
+          messages: [{ role: 'assistant', content: '{"summary":"done","status":"success"}' }],
+        };
+      }),
+    });
+
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Node 1' },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} }, onLogSpy);
+
+    expect(capturedCallbacks.length).toBeGreaterThan(0);
+    const callbackHandler = capturedCallbacks[0];
+
+    // Test LLM Start log
+    callbackHandler.handleLLMStart();
+    expect(onLogSpy).toHaveBeenCalledWith('Agent 正在思考决策...');
+
+    // Test Tool Start log
+    callbackHandler.handleToolStart({ name: 'write_file' }, 'content', 'run-1', null, [], {}, 'write_file');
+    expect(onLogSpy).toHaveBeenCalledWith('[工具调用] 开始执行工具: write_file，参数: content');
+
+    // Test Tool End log
+    callbackHandler.handleToolEnd('success', 'run-1');
+    expect(onLogSpy).toHaveBeenCalledWith('[工具返回] 工具 write_file 执行成功，结果: success');
+
+    // Test Tool Error log
+    callbackHandler.handleToolStart({ name: 'bash' }, 'ls', 'run-2', null, [], {}, 'bash');
+    callbackHandler.handleToolError(new Error('command failed'), 'run-2');
+    expect(onLogSpy).toHaveBeenCalledWith('[工具失败] 工具 bash 执行失败，错误: command failed');
+  });
 });
+

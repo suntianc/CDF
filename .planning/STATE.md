@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: milestone_complete
-last_updated: 2026-05-29T00:00:00.000Z
+last_updated: 2026-05-31T00:00:00.000Z
 progress:
   total_phases: 6
   completed_phases: 6
@@ -43,6 +43,7 @@ Plan: 21/21 done
 | 2026-05-27 | 260527-k3x | 工具注册表模式重构 + ArXiv 可见性修复 | complete |
 | 2026-05-27 | 260527-b97 | provider_type 统一为 lobehub 枚举值 | complete |
 | 2026-05-27 | 260527-vt1 | 修复工作流保存、重名、删除及外键级联问题 | complete |
+| 2026-05-31 | 260531-umu | 工作流节点输出 JSON Schema 校验机制（内置schema+5轮重试降级） | complete |
 
 ## Accumulated Context
 
@@ -58,3 +59,4 @@ Plan: 21/21 done
 | 2026-05-27T03:57:50Z | Plan 03.2-01 completed | Module 1 review: CompositeBackend wrapping, createDeepAgent 参数对齐 |
 | 2026-05-27T14:45:00Z | Phase 4 context gathered | 4 areas discussed: editor layout, node types, execution engine, state & persistence. Key decision: all executable nodes are Agent nodes. |
 | 2026-05-27T20:16:00Z | Phase 4 UI-SPEC approved | Visual and interaction contract for Phase 4 approved by UI checker. |
+| 2026-05-31T14:03:00Z | Quick task 260531-umu completed | 工作流节点输出 JSON Schema 校验机制 implemented — src/shared/node-output-schemas.ts, src/main/workflow/output-validator.ts, node-executor integration |
