@@ -312,6 +312,7 @@ export interface WorkflowNodeRun {
   retry_count: number;
   started_at: number;
   ended_at?: number;
+  logs?: string[];
 }
 
 export type WorkflowStreamEvent =
@@ -375,6 +376,8 @@ export interface ElectronAPI {
     getWorkflowExecutions: (workflowId: string) => Promise<WorkflowExecution[]>;
     getWorkflowExecution: (id: string) => Promise<WorkflowExecution | undefined>;
     getWorkflowNodeRuns: (executionId: string) => Promise<WorkflowNodeRun[]>;
+    openFile: (filePath: string, projectId?: string) => Promise<{ success: boolean; error?: string }>;
+    revealFile: (filePath: string, projectId?: string) => Promise<{ success: boolean; error?: string; warning?: string }>;
   };
   llm: {
     chat: (requestId: string, payload: { projectId: string; sessionId: string; agentId?: string | null; message: { id: string; content: string }; overrides?: ChatRuntimeOverrides }) => Promise<void>;
@@ -394,6 +397,7 @@ export interface ElectronAPI {
   workflow: {
     runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
     stopWorkflow: (executionId: string) => Promise<void>;
+    getWorkflowEvents?: (executionId: string) => Promise<WorkflowStreamEvent[]>;
     onWorkflowEvent: (executionId: string, callback: (event: any, data: WorkflowStreamEvent) => void) => () => void;
   };
   platform: string;

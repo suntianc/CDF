@@ -8,6 +8,8 @@ interface WorkflowState {
   currentExecution: WorkflowExecution | null;
   nodeRuns: WorkflowNodeRun[];
   nodeLogs: Record<string, string[]>;
+  isLoading: boolean;
+  error: string | null;
 
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
@@ -185,6 +187,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             node_name: data.nodeName || data.nodeId,
             status: 'running',
             started_at: Date.now(),
+            retry_count: 0,
           };
           set({ nodeRuns: [...currentRuns, newRun] });
         }

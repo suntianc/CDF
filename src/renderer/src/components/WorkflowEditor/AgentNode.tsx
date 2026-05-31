@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, ListTodo, Repeat2, ShieldCheck, Layers } from 'lucide-react';
+import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Loader2 } from 'lucide-react';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
 interface AgentNodeData extends Record<string, unknown> {
@@ -55,7 +55,9 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
 
   return (
     <div
-      className="rounded-lg border-2 w-[210px] shadow-md transition-[border-color,box-shadow,background-color] duration-150 relative"
+      className={`rounded-lg border-2 w-[210px] shadow-md transition-[border-color,box-shadow,background-color] duration-150 relative ${
+        status === 'running' ? 'animate-node-running' : ''
+      }`}
       style={{
         borderColor: selected ? 'var(--color-info)' : style.border,
         boxShadow: selected ? '0 0 0 2px var(--color-info-dim)' : style.glow,
@@ -87,7 +89,11 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
         <div className="text-sm font-semibold text-[var(--color-text-primary)] truncate flex-1">
           {config.title}
         </div>
-        <div className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+        {status === 'running' ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-info)] shrink-0" />
+        ) : (
+          <div className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+        )}
       </div>
 
       <div className="px-3 py-1.5 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">

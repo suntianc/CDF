@@ -720,7 +720,57 @@ export function registerIpcHandlers() {
       ...r,
       input: r.input ? JSON.parse(r.input) : undefined,
       output: r.output ? JSON.parse(r.output) : undefined,
+      logs: r.logs ? JSON.parse(r.logs) : undefined,
     }));
+  });
+
+  ipcMain.handle('db:openFile', async (_, filePath: string, projectId?: string) => {
+    const { shell } = require('electron');
+    const fs = require('fs');
+    const path = require('path');
+    
+    let absolutePath = filePath;
+    if (!path.isAbsolute(filePath) && projectId) {
+      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      if (project) {
+        absolutePath = path.join(project.path, filePath);
+      }
+    }
+    
+    if (fs.existsSync(absolutePath)) {
+      await shell.openPath(absolutePath);
+      return { success: true };
+    } else {
+      return { success: false, error: `File not found: ${absolutePath}` };
+    }
+  });
+
+  ipcMain.handle('db:revealFile', async (_, filePath: string, projectId?: string) => {
+    const { shell } = require('electron');
+    const fs = require('fs');
+    const path = require('path');
+    
+    let absolutePath = filePath;
+    if (!path.isAbsolute(filePath) && projectId) {
+      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      if (project) {
+        absolutePath = path.join(project.path, filePath);
+      }
+    }
+    
+    if (fs.existsSync(absolutePath)) {
+      shell.showItemInFolder(absolutePath);
+      return { success: true };
+    } else {
+      if (projectId) {
+        const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+        if (project && fs.existsSync(project.path)) {
+          shell.openPath(project.path);
+          return { success: true, warning: 'Opened project folder as file does not exist yet' };
+        }
+      }
+      return { success: false, error: `File not found: ${absolutePath}` };
+    }
   });
 
   // ===== Phase 4: Workflow Runtime IPC Handlers =====

@@ -115,7 +115,7 @@ function getAgentSkillNames(agentId: string): string[] {
  * 只传递相关数据，防止上下文窗口溢出。
  */
 export function createNodeStateExtractor(
-  nodeId: string,
+  _nodeId: string,
   upstreamNodeIds: string[],
 ): (state: Record<string, unknown>) => { inputs: Record<string, unknown>; upstreamOutputs: Record<string, unknown> } {
   return (state) => {
@@ -351,7 +351,7 @@ export function createAgentNodeExecutor(
                     },
                     handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
                       const rawId = tool?.id;
-                      const toolId = Array.isArray(rawId) ? rawId[rawId.length - 1] : rawId;
+                      const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
                       const toolName = name || tool?.name || toolId || 'unknown';
                       toolRunNames.set(runId, toolName);
                       const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
@@ -564,7 +564,6 @@ export function createAgentNodeExecutor(
         ...(routing ? { routing } : {}),
       };
     } catch (err) {
-      const duration = Date.now() - startTime;
 
       if (err instanceof AgentTimeoutError || err instanceof AgentNotFoundError) {
         throw err;

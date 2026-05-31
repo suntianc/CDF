@@ -438,6 +438,7 @@ db.exec(`
     retry_count INTEGER NOT NULL DEFAULT 0,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
+    logs TEXT,
     FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE
   );
 
@@ -445,5 +446,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_executions_workflow ON workflow_executions(workflow_id);
   CREATE INDEX IF NOT EXISTS idx_node_runs_execution ON workflow_node_runs(execution_id);
 `);
+
+try {
+  db.prepare('ALTER TABLE workflow_node_runs ADD COLUMN logs TEXT').run();
+} catch (err) {
+  // Column already exists
+}
 
 export default db;

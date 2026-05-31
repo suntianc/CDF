@@ -1030,3 +1030,19 @@ html[data-theme="light"] .toast {
   }
 }
 
+/* Running node animation */
+@keyframes node-running-pulse {
+  0%, 100% {
+    border-color: var(--info);
+    box-shadow: 0 0 6px var(--info-dim);
+  }
+  50% {
+    border-color: var(--accent);
+    box-shadow: 0 0 14px var(--accent-dim);
+  }
+}
+.animate-node-running {
+  animation: node-running-pulse 2s infinite ease-in-out;
+}
+
+

@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getWorkflowExecutions: (workflowId: string) => ipcRenderer.invoke('db:getWorkflowExecutions', workflowId),
     getWorkflowExecution: (id: string) => ipcRenderer.invoke('db:getWorkflowExecution', id),
     getWorkflowNodeRuns: (executionId: string) => ipcRenderer.invoke('db:getWorkflowNodeRuns', executionId),
+    openFile: (filePath: string, projectId?: string) => ipcRenderer.invoke('db:openFile', filePath, projectId),
+    revealFile: (filePath: string, projectId?: string) => ipcRenderer.invoke('db:revealFile', filePath, projectId),
   },
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),

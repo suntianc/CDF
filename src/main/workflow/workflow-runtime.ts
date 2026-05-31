@@ -137,10 +137,21 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
   void (async () => {
   try {
+    const nodeNames = new Map<string, string>();
+    if (graphData && Array.isArray(graphData.nodes)) {
+      for (const n of graphData.nodes) {
+        nodeNames.set(n.id, n.data?.label || n.id);
+      }
+    }
+    const nodeStartTimes = new Map<string, number>();
+    const nodeLogsMap = new Map<string, string[]>();
+
     // 3. 构建图
     const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) => {
       const executeNode = createAgentNodeExecutor(node, upstreamNodeIds);
       return async (state) => {
+        nodeStartTimes.set(node.id, Date.now());
+        nodeLogsMap.set(node.id, []);
         const nodeStartEvent: WorkflowStreamEvent = {
           type: 'node_start',
           executionId,
@@ -150,6 +161,10 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
         return executeNode(state, (logText) => {
+          const logs = nodeLogsMap.get(node.id) || [];
+          logs.push(logText);
+          nodeLogsMap.set(node.id, logs);
+
           const logEvent: WorkflowStreamEvent = {
             type: 'node_log',
             executionId,
@@ -190,7 +205,6 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         const update = stateUpdate as Record<string, unknown>;
         const nodeOutputs = update.nodeOutputs as Record<string, unknown> | undefined;
         const errors = update.errors as Array<{ nodeId: string; error: string; timestamp: number }> | undefined;
-        const nodeStartTime = Date.now();
 
         // CR-03: 错误路径和成功路径互斥，各自生成独立 ID
         if (errors && errors.length > 0) {
@@ -198,10 +212,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           allErrors.push(...errors);
           for (const err of errors) {
             const errorRunId = crypto.randomUUID();
+            const nodeName = nodeNames.get(err.nodeId) || err.nodeId;
+            const nodeStartTime = nodeStartTimes.get(err.nodeId) || err.timestamp || Date.now();
+            const accumulatedLogs = nodeLogsMap.get(err.nodeId) || [];
             db.prepare(`
-              INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at)
-              VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?)
-            `).run(errorRunId, executionId, err.nodeId, err.nodeId, err.error, err.timestamp, Date.now());
+              INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs)
+              VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?, ?)
+            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
 
             const nodeErrorEvent: WorkflowStreamEvent = {
               type: 'node_error',
@@ -218,11 +235,14 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           // 成功路径：只记录成功
           allNodeOutputs[nodeId] = nodeOutputs[nodeId];
           const successRunId = crypto.randomUUID();
+          const nodeName = nodeNames.get(nodeId) || nodeId;
+          const nodeStartTime = nodeStartTimes.get(nodeId) || Date.now();
+          const accumulatedLogs = nodeLogsMap.get(nodeId) || [];
 
           db.prepare(`
-            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at)
-            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?)
-          `).run(successRunId, executionId, nodeId, nodeId, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now());
+            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs)
+            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?)
+          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
 
           const nodeEndEvent: WorkflowStreamEvent = {
             type: 'node_end',

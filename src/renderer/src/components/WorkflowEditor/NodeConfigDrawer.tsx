@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Drawer } from 'vaul';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2, List } from 'lucide-react';
+import { Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2, List, Maximize2, X } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
@@ -69,6 +70,18 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [bgColor, setBgColor] = useState('');
   const [dataSource, setDataSource] = useState('');
   const [itemPrompt, setItemPrompt] = useState('');
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalValue, setModalValue] = useState('');
+  const [modalOnSave, setModalOnSave] = useState<((val: string) => void) | null>(null);
+
+  const openEditModal = (title: string, currentValue: string, onSave: (val: string) => void) => {
+    setModalTitle(title);
+    setModalValue(currentValue);
+    setModalOnSave(() => onSave);
+    setModalOpen(true);
+  };
 
   const handleSelectWorkspace = async () => {
     try {
@@ -149,12 +162,30 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   };
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={(open) => !open && handleClose()} direction="right">
+    <Drawer.Root
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          if (modalOpen) return;
+          handleClose();
+        }
+      }}
+      direction="right"
+    >
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Drawer.Content
           className="fixed right-0 top-0 bottom-0 w-[400px] bg-[var(--color-bg-surface)] border-l border-[var(--color-border)] z-50 flex flex-col"
           aria-label="节点配置"
+          onPointerDownOutside={(e) => {
+            if (modalOpen) e.preventDefault();
+          }}
+          onFocusOutside={(e) => {
+            if (modalOpen) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            if (modalOpen) e.preventDefault();
+          }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
@@ -227,12 +258,22 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                 </div>
                 <div className="form-group">
                   <label className="form-label">任务目标</label>
-                  <textarea
-                    className="form-input min-h-[120px] resize-none py-2"
-                    value={taskGoal}
-                    onChange={(e) => setTaskGoal(e.target.value)}
-                    placeholder="请描述任务目标"
-                  />
+                  <div className="relative group">
+                    <textarea
+                      className="form-input min-h-[120px] resize-none py-2 pr-10"
+                      value={taskGoal}
+                      onChange={(e) => setTaskGoal(e.target.value)}
+                      placeholder="请描述任务目标"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openEditModal('编辑任务目标', taskGoal, setTaskGoal)}
+                      className="absolute bottom-2 right-2 p-1.5 rounded bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-40 group-hover:opacity-100 hover:scale-105"
+                      title="大窗口编辑"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -240,12 +281,22 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
             {(isTaskNode || isLoopNode || isForeachNode) && (
               <div className="form-group">
                 <label className="form-label">任务描述</label>
-                <textarea
-                  className="form-input min-h-[100px] resize-none py-2"
-                  value={taskDescription}
-                  onChange={(e) => setTaskDescription(e.target.value)}
-                  placeholder="描述该节点要完成的具体任务"
-                />
+                <div className="relative group">
+                  <textarea
+                    className="form-input min-h-[100px] resize-none py-2 pr-10"
+                    value={taskDescription}
+                    onChange={(e) => setTaskDescription(e.target.value)}
+                    placeholder="描述该节点要完成的具体任务"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => openEditModal('编辑任务描述', taskDescription, setTaskDescription)}
+                    className="absolute bottom-2 right-2 p-1.5 rounded bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-40 group-hover:opacity-100 hover:scale-105"
+                    title="大窗口编辑"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -265,12 +316,22 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                 </div>
                 <div className="form-group">
                   <label className="form-label">提示词模板 (可选)</label>
-                  <textarea
-                    className="form-input min-h-[80px] resize-none py-2"
-                    value={itemPrompt}
-                    onChange={(e) => setItemPrompt(e.target.value)}
-                    placeholder="留空则自动 JSON.stringify 当前项。支持 {item} 占位符。"
-                  />
+                  <div className="relative group">
+                    <textarea
+                      className="form-input min-h-[80px] resize-none py-2 pr-10"
+                      value={itemPrompt}
+                      onChange={(e) => setItemPrompt(e.target.value)}
+                      placeholder="留空则自动 JSON.stringify 当前项。支持 {item} 占位符。"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openEditModal('编辑提示词模板', itemPrompt, setItemPrompt)}
+                      className="absolute bottom-2 right-2 p-1.5 rounded bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-40 group-hover:opacity-100 hover:scale-105"
+                      title="大窗口编辑"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
                     使用 {'{item}'} 作为当前数据项的占位符。例如: "请完成以下任务：{'{item}'}"
                   </p>
@@ -296,21 +357,41 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               <>
                 <div className="form-group">
                   <label className="form-label">规范</label>
-                  <textarea
-                    className="form-input min-h-[100px] resize-none py-2"
-                    value={reviewSpec}
-                    onChange={(e) => setReviewSpec(e.target.value)}
-                    placeholder="填写审查标准、验收规范或判断依据"
-                  />
+                  <div className="relative group">
+                    <textarea
+                      className="form-input min-h-[100px] resize-none py-2 pr-10"
+                      value={reviewSpec}
+                      onChange={(e) => setReviewSpec(e.target.value)}
+                      placeholder="填写审查标准、验收规范或判断依据"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openEditModal('编辑审查规范', reviewSpec, setReviewSpec)}
+                      className="absolute bottom-2 right-2 p-1.5 rounded bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-40 group-hover:opacity-100 hover:scale-105"
+                      title="大窗口编辑"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">条件规则</label>
-                  <textarea
-                    className="form-input min-h-[110px] resize-none py-2"
-                    value={reviewRules}
-                    onChange={(e) => setReviewRules(e.target.value)}
-                    placeholder="例如：通过=质量分 >= 80；返工=质量分 < 80"
-                  />
+                  <div className="relative group">
+                    <textarea
+                      className="form-input min-h-[110px] resize-none py-2 pr-10"
+                      value={reviewRules}
+                      onChange={(e) => setReviewRules(e.target.value)}
+                      placeholder="例如：通过=质量分 >= 80；返工=质量分 < 80"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openEditModal('编辑条件规则', reviewRules, setReviewRules)}
+                      className="absolute bottom-2 right-2 p-1.5 rounded bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-40 group-hover:opacity-100 hover:scale-105"
+                      title="大窗口编辑"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -377,6 +458,55 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
             </div>
           </div>
         </Drawer.Content>
+
+        {/* Large Text Edit Modal */}
+        <Dialog.Root open={modalOpen} onOpenChange={setModalOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-6" />
+            <Dialog.Content className="fixed left-[50%] top-[50%] z-[10000] translate-x-[-50%] translate-y-[-50%] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-xl w-[640px] max-w-full h-[480px] flex flex-col shadow-2xl overflow-hidden focus:outline-none">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]/50">
+                <span className="text-sm font-semibold text-[var(--color-text-primary)]">{modalTitle}</span>
+                <Dialog.Close asChild>
+                  <button
+                    className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </Dialog.Close>
+              </div>
+              {/* Modal Body */}
+              <div className="flex-1 p-5">
+                <textarea
+                  autoFocus
+                  className="w-full h-full bg-black/15 border border-[var(--color-border)]/50 rounded-lg p-3 text-xs leading-relaxed text-[var(--color-text-primary)] font-mono resize-none focus:outline-none focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/30"
+                  value={modalValue}
+                  onChange={(e) => setModalValue(e.target.value)}
+                  placeholder="在此输入内容..."
+                />
+              </div>
+              {/* Modal Footer */}
+              <div className="flex justify-end gap-2 px-5 py-3.5 border-t border-[var(--color-border)]/50 bg-black/5">
+                <Dialog.Close asChild>
+                  <button
+                    className="btn btn-secondary text-xs py-1.5 px-3 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                </Dialog.Close>
+                <button
+                  onClick={() => {
+                    modalOnSave?.(modalValue);
+                    setModalOpen(false);
+                  }}
+                  className="btn btn-primary text-xs py-1.5 px-4 cursor-pointer"
+                >
+                  保存
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       </Drawer.Portal>
     </Drawer.Root>
   );
