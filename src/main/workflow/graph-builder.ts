@@ -154,10 +154,13 @@ export function buildWorkflowGraph(
     const routeMap: Record<string, string> = {};
     const routeMatchers: RouteMatcher[] = [];
     for (const edge of groupEdges) {
+      // targets → 统一转为 routeMatcher（eq 精确匹配）
       const configuredTargets = edge.metadata?.targets ?? {};
       for (const [value, targetId] of Object.entries(configuredTargets)) {
         routeMap[value] = toGraphNode(targetId, 'target') as string;
+        routeMatchers.push({ routeKey: value, operator: 'eq', expected: value });
       }
+      // routeValue → 支持自定义操作符
       if (edge.metadata?.routeValue?.trim()) {
         const routeKey = edge.id;
         const expected = (edge.metadata.compareValue ?? edge.metadata.routeValue).trim();
@@ -173,7 +176,7 @@ export function buildWorkflowGraph(
 
     builder.addConditionalEdges(
       sourceNode as any,
-      createConditionalRouter(condition, routeMatchers.length > 0 ? routeMatchers : undefined),
+      createConditionalRouter(condition, routeMatchers),
       routeMap as any,
     );
   }
