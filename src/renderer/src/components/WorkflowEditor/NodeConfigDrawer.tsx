@@ -3,7 +3,7 @@ import { Drawer } from 'vaul';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Bot, Layers, Code, ShieldCheck, Trash2, PlayCircle, Repeat2, List, Maximize2, X } from 'lucide-react';
+import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Maximize2, X } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
@@ -43,13 +43,7 @@ const colorPresets = [
   { name: '黄色', value: 'rgba(245, 158, 11, 0.12)', class: 'bg-[#f59e0b]' },
 ];
 
-function getFolderName(path?: string): string {
-  if (!path) return '';
-  const trimmed = path.replace(/[/\\]+$/, '');
-  const lastIdx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
-  if (lastIdx === -1) return trimmed;
-  return trimmed.slice(lastIdx + 1);
-}
+import { getFolderName } from './utils';
 
 export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDeleteNode }: NodeConfigDrawerProps) {
   const { agents, fetchAgents } = useAgentStore();
@@ -59,7 +53,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [description, setDescription] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [workspace, setWorkspace] = useState('');
-  const [workArea, setWorkArea] = useState('');
   const [loopCount, setLoopCount] = useState(3);
   const [reviewSpec, setReviewSpec] = useState('');
   const [reviewRules, setReviewRules] = useState('');
@@ -106,7 +99,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setDescription(node.data.description || '');
       setTaskDescription(node.data.taskDescription || node.data.description || '');
       setWorkspace(node.data.workspace || '');
-      setWorkArea(node.data.workArea || '');
       setLoopCount(node.data.loopCount ?? 3);
       setReviewSpec(node.data.reviewSpec || '');
       setReviewRules(node.data.reviewRules || '');
@@ -120,7 +112,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
     }
   }, [node]);
 
-  const selectedAgent = agents.find((a) => a.id === agentId);
   const nodeType = node?.type || 'task';
   const isStartNode = nodeType === 'start';
   const isLoopNode = nodeType === 'loop';
@@ -141,7 +132,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       description,
       taskDescription,
       workspace,
-      workArea: '',
       loopCount,
       reviewSpec,
       reviewRules,

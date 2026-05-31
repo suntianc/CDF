@@ -6,15 +6,14 @@ import type { WorkflowNode, WorkflowDefinition, WorkflowEdge } from '../../../..
  * Extracted from WorkflowEditor.tsx to reduce file size.
  */
 
+import { isExecutableNodeType } from './nodeTypeRegistry';
+
+export { isExecutableNodeType };
+
 export const START_NODE_ID = 'start';
 export const END_NODE_ID = 'end';
 
-export const EXECUTABLE_NODE_TYPES = new Set(['agent', 'task', 'loop', 'review', 'foreach']);
 export const DELETE_KEY_CODE: string[] = ['Delete', 'Backspace'];
-
-export function isExecutableNodeType(type?: string | null): boolean {
-  return EXECUTABLE_NODE_TYPES.has(type || '');
-}
 
 export function getDefaultNodeData(type: string): Record<string, unknown> {
   if (type === 'start') return { label: '开始', workspace: '', workArea: '' };

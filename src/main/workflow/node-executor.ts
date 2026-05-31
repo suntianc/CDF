@@ -148,11 +148,11 @@ export function extractJsonCandidate(text: string): unknown {
   try {
     return JSON.parse(candidate);
   } catch {
-    const start = candidate.indexOf('{');
-    const end = candidate.lastIndexOf('}');
-    if (start >= 0 && end > start) {
+    // 尝试匹配第一个完整的 JSON 对象或数组，而非简单的 indexOf/lastIndexOf
+    const jsonMatch = candidate.match(/\{(?:[^{}]|(?:\{[^{}]*\}))*\}|\[(?:[^\[\]]|(?:\[[^\[\]]*\]))*\]/);
+    if (jsonMatch) {
       try {
-        return JSON.parse(candidate.slice(start, end + 1));
+        return JSON.parse(jsonMatch[0]);
       } catch {
         return undefined;
       }
@@ -189,7 +189,9 @@ function isLoopCompleteSignal(routing: Record<string, string> | undefined, nodeI
 }
 
 function getLastMessageText(result: any): string {
-  const lastMessage = result?.messages?.[result.messages.length - 1];
+  const messages = result?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return '';
+  const lastMessage = messages[messages.length - 1];
   const output = lastMessage?.content ?? '';
   return typeof output === 'string' ? output : JSON.stringify(output);
 }
@@ -328,7 +330,7 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       const invokeAgent = async (content: string): Promise<string> => {
-        let timeoutId: NodeJS.Timeout;
+        let timeoutId: NodeJS.Timeout | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)),
@@ -379,7 +381,7 @@ export function createAgentNodeExecutor(
           ]);
           return getLastMessageText(result);
         } finally {
-          clearTimeout(timeoutId!);
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
       };
 
@@ -485,7 +487,7 @@ export function createAgentNodeExecutor(
             '',
             `## 当前项 (${i + 1}/${items.length})`,
             node.data.itemPrompt
-              ? node.data.itemPrompt.replace('{item}', JSON.stringify(item, null, 2))
+              ? node.data.itemPrompt.replace(/\{item\}/g, JSON.stringify(item, null, 2))
               : JSON.stringify(item, null, 2),
           ].filter(Boolean).join('\n');
 

@@ -2,13 +2,7 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 
 type StartFlowNode = Node<{ label: string; workspace?: string; workArea?: string; bgColor?: string }, 'start'>;
 
-function getFolderName(path?: string): string {
-  if (!path) return '';
-  const trimmed = path.replace(/[/\\]+$/, '');
-  const lastIdx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
-  if (lastIdx === -1) return trimmed;
-  return trimmed.slice(lastIdx + 1);
-}
+import { getFolderName } from './utils';
 
 export function StartNode({ data, selected }: NodeProps<StartFlowNode>) {
   const folderName = getFolderName(data.workspace);
