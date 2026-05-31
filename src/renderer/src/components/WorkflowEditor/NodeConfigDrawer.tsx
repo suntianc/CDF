@@ -117,7 +117,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const needsAgent = isTaskNode || isLoopNode || isReviewNode || isForeachNode;
   const titleIcon = isStartNode ? <PlayCircle className="w-5 h-5 text-[var(--color-success)]" />
     : isLoopNode ? <Repeat2 className="w-5 h-5 text-[var(--color-info)]" />
-      : isForeachNode ? <List className="w-5 h-5 text-[var(--color-success)]" />
+      : isForeachNode ? <Layers className="w-5 h-5 text-[var(--color-success)]" />
         : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
           : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
 
@@ -143,8 +143,13 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
     onClose();
   };
 
+  const handleClose = () => {
+    handleSave();
+    onClose();
+  };
+
   return (
-    <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()} direction="right">
+    <Drawer.Root open={isOpen} onOpenChange={(open) => !open && handleClose()} direction="right">
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Drawer.Content
@@ -366,11 +371,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               删除节点
             </button>
             <div className="flex justify-end gap-2">
-              <button className="btn btn-secondary cursor-pointer" onClick={onClose}>
-                取消
-              </button>
-              <button className="btn btn-primary cursor-pointer" onClick={handleSave}>
-                保存
+              <button className="btn btn-primary cursor-pointer" onClick={handleClose}>
+                关闭
               </button>
             </div>
           </div>

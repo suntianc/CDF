@@ -8,7 +8,7 @@ import {
   Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
   ChevronUp, Brain, Loader2
 } from 'lucide-react';
-import { ToolMessageCard, ToolGroupCard } from './ToolMessageCard';
+import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessageCard';
 
 import { MessageItem, formatHMSTime } from './MessageItem';
 import { useChatScroll } from './useChatScroll';
@@ -64,6 +64,60 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
   );
 };
 
+const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; onToggleTaskPanel?: () => void }) => {
+  const [expanded, setExpanded] = useState(false);
+  const actions = approval.actions || [];
+
+  return (
+    <div className="w-full py-1 select-none animate-slide-down">
+      <div className="flex flex-col">
+        {/* Header */}
+        <div 
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
+        >
+          <span className="flex items-center justify-center shrink-0">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-warning)]" />
+          </span>
+
+          <span className="font-semibold tracking-wide">
+            正在等待审批：{actions.map((act: any) => translateToolAction(act.name, act.args)).join(', ')}
+          </span>
+
+          <span className="text-[9px] opacity-60 font-mono ml-0.5">
+            {expanded ? '▼' : '▶'}
+          </span>
+        </div>
+
+        {/* Collapsed details */}
+        {expanded && (
+          <div className="mt-1.5 pl-4 pb-2 flex flex-col gap-3 border-l border-[var(--color-warning)]/20 ml-1.5 animate-slide-down">
+            {actions.map((action: any, idx: number) => (
+              <div key={idx} className="flex flex-col gap-1">
+                <span className="text-[9px] font-bold text-[var(--color-warning)] uppercase tracking-wider">
+                  等待执行 {action.name}
+                </span>
+                {action.args && (
+                  <pre className="p-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-warning)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+                    <code>{typeof action.args === 'string' ? action.args : JSON.stringify(action.args, null, 2)}</code>
+                  </pre>
+                )}
+              </div>
+            ))}
+            <button
+              onClick={onToggleTaskPanel}
+              className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-white rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <span>立即去审批</span>
+              <span>➔</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export function ChatArea({ 
   onOpenSettings, 
   sidebarCollapsed, 
@@ -74,6 +128,7 @@ export function ChatArea({
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
     sessions, activeSessionId, messages, isStreaming, streamingMessageId, activeRunId, error, todos,
+    pendingApproval,
     sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage
   } = useSessionStore();
   const { providers, fetchProviders } = useLLMStore();
@@ -482,8 +537,16 @@ export function ChatArea({
       }
     });
 
+    if (isStreaming && pendingApproval) {
+      finalItems.push({
+        type: 'pending_approval_block',
+        id: `pending-approval-${pendingApproval.id}`,
+        approval: pendingApproval
+      });
+    }
+
     return finalItems;
-  }, [renderItems, isStreaming]);
+  }, [renderItems, isStreaming, pendingApproval]);
 
 
   const defaultAgent = useMemo(() => {
@@ -856,6 +919,15 @@ export function ChatArea({
           >
              {/* Messages List */}
             {processedItems.map((item, idx) => {
+              if (item.type === 'pending_approval_block') {
+                return (
+                  <PendingApprovalCard
+                    key={item.id}
+                    approval={item.approval}
+                    onToggleTaskPanel={onToggleTaskPanel}
+                  />
+                );
+              }
               if (item.type === 'folded_block') {
                 return (
                   <FoldedBlockCard

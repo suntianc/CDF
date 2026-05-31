@@ -474,6 +474,8 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             retryCount: (n.data as Record<string, unknown>).retryCount as number | undefined,
             taskGoal: (n.data as Record<string, unknown>).taskGoal as string | undefined,
             bgColor: (n.data as Record<string, unknown>).bgColor as string | undefined,
+            dataSource: (n.data as Record<string, unknown>).dataSource as string | undefined,
+            itemPrompt: (n.data as Record<string, unknown>).itemPrompt as string | undefined,
           },
         })),
         edges: edges.map((e) => ({

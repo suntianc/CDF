@@ -81,19 +81,22 @@ function updateRun(runId: string, status: AgentRunStatus, error?: string, aborte
   `).run(status, error || null, endedAt, aborted ? 1 : 0, runId);
 }
 
+export const lastRunApprovals = new Map<string, string>();
+
 function upsertToolCall(runId: string, toolCallId: string, name: string, input: unknown): void {
   const existing = db.prepare('SELECT id FROM agent_tool_calls WHERE id = ?').get(toolCallId);
+  const approvalStatus = lastRunApprovals.get(runId) || null;
   if (existing) {
     db.prepare(`
       UPDATE agent_tool_calls
-      SET tool_name = ?, input = ?, status = 'running'
+      SET tool_name = ?, input = ?, status = 'running', approval_status = COALESCE(approval_status, ?)
       WHERE id = ?
-    `).run(name, safeStringify(input), toolCallId);
+    `).run(name, safeStringify(input), approvalStatus, toolCallId);
   } else {
     db.prepare(`
-      INSERT INTO agent_tool_calls (id, run_id, tool_name, input, status, started_at)
-      VALUES (?, ?, ?, ?, 'running', ?)
-    `).run(toolCallId, runId, name, safeStringify(input), Date.now());
+      INSERT INTO agent_tool_calls (id, run_id, tool_name, input, status, approval_status, started_at)
+      VALUES (?, ?, ?, ?, 'running', ?, ?)
+    `).run(toolCallId, runId, name, safeStringify(input), approvalStatus, Date.now());
   }
 }
 
@@ -106,6 +109,7 @@ function updateToolCall(id: string, status: AgentToolCallStatus, output?: unknow
 }
 
 function markApprovalStatus(runId: string, status: string): void {
+  lastRunApprovals.set(runId, status);
   db.prepare(`
     UPDATE agent_tool_calls
     SET approval_status = ?
@@ -802,6 +806,10 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     }
   } finally {
     activeRequests.delete(requestId);
+    const runId = getLatestRunId(requestId);
+    if (runId) {
+      lastRunApprovals.delete(runId);
+    }
     await cleanup();
   }
   });

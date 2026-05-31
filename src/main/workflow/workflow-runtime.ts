@@ -31,7 +31,13 @@ function getWorkflowCheckpointSaver(): SqliteSaver {
 
 // ---- IPC Event Push (D-17) ----
 
+const eventBuffers = new Map<string, WorkflowStreamEvent[]>();
+
 function pushWorkflowEvent(executionId: string, event: WorkflowStreamEvent) {
+  const buffer = eventBuffers.get(executionId);
+  if (buffer) {
+    buffer.push(event);
+  }
   const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
     if (!win.isDestroyed() && win.webContents) {
@@ -103,6 +109,9 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
   const executionId = crypto.randomUUID();
   const now = Date.now();
 
+  // 初始化事件缓冲区
+  eventBuffers.set(executionId, []);
+
   // 1. 加载 workflow 定义
   const workflowRow = getWorkflow(workflowId);
   const graphData = JSON.parse(workflowRow.graph_data) as WorkflowDefinition;
@@ -140,7 +149,16 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
-        return executeNode(state);
+        return executeNode(state, (logText) => {
+          const logEvent: WorkflowStreamEvent = {
+            type: 'node_log',
+            executionId,
+            nodeId: node.id,
+            log: logText,
+          };
+          pushWorkflowEvent(executionId, logEvent);
+          params.onEvent?.(logEvent);
+        });
       };
     });
 
@@ -256,6 +274,10 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
   } finally {
     activeExecutions.delete(executionId);
+    // 延迟 30 秒清除缓冲区，留足时间给前端查询/重连获取历史事件
+    setTimeout(() => {
+      eventBuffers.delete(executionId);
+    }, 30000);
   }
   })();
 
@@ -294,6 +316,10 @@ export function registerWorkflowIpcHandlers(): void {
 
   ipcMain.handle('workflow:stop', async (_, executionId: string) => {
     stopWorkflow(executionId);
+  });
+
+  ipcMain.handle('workflow:getEvents', (_, executionId: string) => {
+    return eventBuffers.get(executionId) || [];
   });
 }
 

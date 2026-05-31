@@ -18,6 +18,9 @@ const {
 
 vi.mock('deepagents', () => ({
   createDeepAgent: createDeepAgentMock,
+  CompositeBackend: class {},
+  FilesystemBackend: class {},
+  StateBackend: class {},
 }));
 
 vi.mock('../database', () => ({

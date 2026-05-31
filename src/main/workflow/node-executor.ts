@@ -7,12 +7,15 @@
 
 import fs from 'fs';
 import path from 'path';
-import { createDeepAgent } from 'deepagents';
+import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import db from '../database';
 import { decryptApiKey } from '../security';
 import { createLangChainModel } from '../deepagent/llm-adapter';
 import { loadMcpTools } from '../deepagent/mcp-connector';
 import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
+import { createDeleteFileTool } from '../deepagent/file-tools';
+import { createBashTool } from '../deepagent/bash-tool';
+import { createFetchTool } from '../deepagent/fetch-tool';
 import type { MCPServer, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
@@ -215,7 +218,10 @@ export function createAgentNodeExecutor(
   // upstreamNodeIds 由 buildWorkflowGraph 通过 edges 分析传入
   const extractState = createNodeStateExtractor(node.id, upstreamNodeIds);
 
-  return async (state: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  return async (
+    state: Record<string, unknown>,
+    onLog?: (log: string) => void
+  ): Promise<Record<string, unknown>> => {
     const startTime = Date.now();
 
     try {
@@ -237,19 +243,38 @@ export function createAgentNodeExecutor(
       // 加载 MCP 工具
       const mcpRuntime = await loadMcpTools(agentId, mcpServers);
 
-      // 加载 Skills 配置
-      const { skillsSources } = resolveAgentSkillsConfig(project.path, skillNames);
-
-      // 2. 创建 DeepAgent（无 checkpointer — D-16a 独立 runtime）
-      const agent = createDeepAgent({
-        model,
-        systemPrompt: agentRow.system_prompt || undefined,
-        tools: [...mcpRuntime.tools],
-        skills: skillsSources.length > 0 ? skillsSources : undefined,
-      });
-
       // 3. 构造 user message：只传递 inputs + 相关上游 nodeOutputs
       const { inputs, upstreamOutputs } = extractState(state);
+
+      // 找到工作区路径（优先使用 Start 节点的 workspace，其次使用项目路径）
+      const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
+      const workspacePath = (workflowStart?.workspace as string)?.trim();
+      const workingDir = workspacePath || project.path;
+
+      // 加载 Skills 配置与权限
+      const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, skillNames);
+
+      // 配置 Filesystem Backend，根目录指向当前工作区目录
+      const backend = new CompositeBackend(new StateBackend(), {
+        "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
+      });
+
+      // 加载内建工具（delete_file, bash, fetch）并绑定到当前工作区目录
+      const builtInTools: any[] = [
+        createDeleteFileTool(workingDir),
+        createBashTool({ workingDir }),
+        createFetchTool()
+      ];
+
+      // 2. 创建 DeepAgent（整合 backend, permissions, builtInTools）
+      const agent = createDeepAgent({
+        model,
+        backend,
+        systemPrompt: agentRow.system_prompt || undefined,
+        skills: skillsSources.length > 0 ? skillsSources : undefined,
+        permissions,
+        tools: [...mcpRuntime.tools, ...builtInTools],
+      });
 
       const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
       const taskDescription = node.data.taskDescription || node.data.description || '';
@@ -310,11 +335,43 @@ export function createAgentNodeExecutor(
           );
         });
 
+        // 临时存储每个工具运行的 runId 对应的工具名称
+        const toolRunNames = new Map<string, string>();
+
         try {
           const result = await Promise.race([
-            agent.invoke({
-              messages: [{ role: 'user', content }],
-            }),
+            agent.invoke(
+              { messages: [{ role: 'user', content }] },
+              {
+                callbacks: [
+                  {
+                    handleLLMStart() {
+                      onLog?.('Agent 正在思考决策...');
+                    },
+                    handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
+                      const toolName = name || tool?.name || tool?.id || 'unknown';
+                      toolRunNames.set(runId, toolName);
+                      const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
+                      const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;
+                      onLog?.(`[工具调用] 开始执行工具: ${toolName}，参数: ${truncatedInput}`);
+                    },
+                    handleToolEnd(output, runId) {
+                      const toolName = toolRunNames.get(runId) || 'unknown';
+                      toolRunNames.delete(runId);
+                      const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
+                      const truncatedOutput = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr;
+                      onLog?.(`[工具返回] 工具 ${toolName} 执行成功，结果: ${truncatedOutput}`);
+                    },
+                    handleToolError(err, runId) {
+                      const toolName = toolRunNames.get(runId) || 'unknown';
+                      toolRunNames.delete(runId);
+                      const errMsg = err instanceof Error ? err.message : String(err);
+                      onLog?.(`[工具失败] 工具 ${toolName} 执行失败，错误: ${errMsg}`);
+                    }
+                  }
+                ]
+              }
+            ),
             timeoutPromise,
           ]);
           return getLastMessageText(result);
@@ -343,6 +400,7 @@ export function createAgentNodeExecutor(
             `如果已经满足任务目标，可以在最终回复中包含 JSON：{"routing":{"${node.id}":"done"}} 来提前结束 Loop。`,
           ].filter(Boolean).join('\n');
 
+          onLog?.(`[Loop] 正在执行第 ${iteration}/${loopCount} 轮循环...`);
           const resultText = await invokeAgent(iterationContext);
           const routing = extractWorkflowRouting(resultText);
           finalRouting = routing ?? finalRouting;
@@ -381,10 +439,15 @@ export function createAgentNodeExecutor(
           throw new Error('For-Each 节点未配置数据源文件');
         }
 
-        // 读取项目工作目录
+        // 读取工作区路径（Start 节点中配置的）或项目工作目录
+        const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
+        const workspacePath = (workflowStart?.workspace as string)?.trim();
+
         const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(agentRow.project_id) as { path: string } | undefined;
         const projectPath = project?.path || '';
-        const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(projectPath, dataSource);
+
+        const baseDir = workspacePath || projectPath;
+        const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
 
         if (!fs.existsSync(filePath)) {
           throw new Error(`数据源文件不存在: ${filePath}`);
@@ -416,8 +479,10 @@ export function createAgentNodeExecutor(
               : JSON.stringify(item, null, 2),
           ].filter(Boolean).join('\n');
 
+          onLog?.(`[For-Each] 正在执行第 ${i + 1}/${items.length} 项子任务...`);
           try {
             const resultText = await invokeAgent(itemContext);
+            onLog?.(`[For-Each] 第 ${i + 1}/${items.length} 项子任务执行成功`);
             const routing = extractWorkflowRouting(resultText);
             finalRouting = routing ?? finalRouting;
             results.push({
@@ -429,6 +494,7 @@ export function createAgentNodeExecutor(
             });
           } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
+            onLog?.(`[For-Each] 第 ${i + 1}/${items.length} 项子任务执行失败: ${errorMessage}`);
             results.push({
               index: i,
               item,
@@ -458,7 +524,9 @@ export function createAgentNodeExecutor(
       }
 
       // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
+      onLog?.(`[Task] 开始执行节点任务...`);
       const resultText = await invokeAgent(taskContext);
+      onLog?.(`[Task] 节点任务执行完毕`);
 
       // 5. 收集结果
       const duration = Date.now() - startTime;

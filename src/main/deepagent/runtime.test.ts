@@ -162,12 +162,12 @@ describe('createDeepAgentRuntime', () => {
     expect(createDeepAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         checkpointer: expect.objectContaining({ getTuple: checkpointGetTupleMock }),
-        memory: ['/workspace/AGENTS.md'],
+        memory: [path.join(tempProjectPath, 'AGENTS.md')],
         permissions: [{ operations: ['read', 'write'], paths: ['/*', '/**/*'] }],
       })
     );
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    expect(params.backend.options.secondary['/workspace/'].options).toEqual({ rootDir: tempProjectPath, virtualMode: true });
+    expect(params.backend.options.secondary['/'].options).toEqual({ rootDir: '/', virtualMode: false });
     expect(checkpointGetTupleMock).toHaveBeenCalledWith({
       configurable: {
         thread_id: 'session-1',
@@ -178,11 +178,10 @@ describe('createDeepAgentRuntime', () => {
       generalPurposeSubagent: { enabled: false },
       excludedTools: [],  // D-15: task tool enabled
     }));
-    expect(params.systemPrompt).toContain('虚拟路径 `/workspace/`');
-    expect(params.systemPrompt).toContain('/workspace/src/main.ts');
+    expect(params.systemPrompt).toContain('所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径');
+    expect(params.systemPrompt).toContain(tempProjectPath + '/src/main.ts');
     expect(params.systemPrompt).toContain('必须在当前轮次继续调用合适的文件工具');
-    expect(params.systemPrompt).toContain('ls` 读取 `/workspace/`');
-    expect(params.systemPrompt).not.toContain(tempProjectPath);
+    expect(params.systemPrompt).toContain(tempProjectPath);
     expect(params.systemPrompt).not.toContain('[可委派 Agent]');
     expect(params.subagents).toBeUndefined();
     expect(params.tools.map((tool: { name: string }) => tool.name)).toContain('delete_file');

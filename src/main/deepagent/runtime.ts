@@ -352,7 +352,41 @@ function createRecoverableToolErrorMiddleware() {
     name: 'RecoverableToolErrorMiddleware',
     wrapToolCall: async (request, handler) => {
       try {
-        return await handler(request);
+        const result: any = await handler(request);
+        const toolCallId = request.toolCall?.id;
+        if (toolCallId) {
+          try {
+            const row = db.prepare('SELECT approval_status FROM agent_tool_calls WHERE id = ?').get(toolCallId) as { approval_status?: string } | undefined;
+            const approvalStatus = row?.approval_status;
+            if (approvalStatus === 'approved' || approvalStatus === 'edited') {
+              const appendApprovalNote = (msg: any) => {
+                if (msg && typeof msg === 'object') {
+                  const note = approvalStatus === 'edited'
+                    ? '\n\n(此操作由用户修改并审批通过后执行)'
+                    : '\n\n(此操作已由用户手动审批通过)';
+                  if (typeof msg.content === 'string') {
+                    msg.content += note;
+                  } else if (Array.isArray(msg.content)) {
+                    msg.content.push({ type: 'text', text: note });
+                  }
+                }
+              };
+
+              if (result && typeof result === 'object') {
+                if ('lg_name' in result && result.lg_name === 'Command' && result.update?.messages) {
+                  for (const msg of result.update.messages) {
+                    appendApprovalNote(msg);
+                  }
+                } else {
+                  appendApprovalNote(result);
+                }
+              }
+            }
+          } catch (dbErr) {
+            console.warn('[RUNTIME] Failed to append approval status to tool result:', dbErr);
+          }
+        }
+        return result;
       } catch (error) {
         if (isAbortError(error) || request.runtime?.signal?.aborted) {
           throw error;
@@ -363,11 +397,11 @@ function createRecoverableToolErrorMiddleware() {
         const code = getRecoverableToolErrorCode(error);
         const content = toolName === 'task'
           ? JSON.stringify({
-            status: 'failure',
-            artifacts: [],
-            summary: '子代理执行失败，主 Agent 需要根据错误继续决策。',
-            error: { code, message },
-          })
+              status: 'failure',
+              artifacts: [],
+              summary: '子代理执行失败，主 Agent 需要根据错误继续决策。',
+              error: { code, message },
+            })
           : `Tool error (${toolName}): ${message}\n\nThe tool call failed. Treat this as an observation and decide the next step.`;
 
         return new ToolMessage({

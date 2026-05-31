@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, ListTodo, Repeat2, ShieldCheck } from 'lucide-react';
+import { Bot, ListTodo, Repeat2, ShieldCheck, Layers } from 'lucide-react';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
 interface AgentNodeData extends Record<string, unknown> {
@@ -29,6 +29,7 @@ const statusStyles: Record<string, { border: string; glow: string; dot: string }
 const LOOP_ICON = <Repeat2 className="w-3.5 h-3.5 text-[var(--color-info)]" />;
 const REVIEW_ICON = <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-warning)]" />;
 const TASK_ICON = <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" />;
+const FOREACH_ICON = <Layers className="w-3.5 h-3.5 text-[var(--color-success)]" />;
 
 export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const status = data.status || 'pending';
@@ -38,10 +39,19 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
     ? { title: data.label || 'Loop 节点', badge: 'Loop', icon: LOOP_ICON, bg: 'var(--color-info-dim)' }
     : kind === 'review'
       ? { title: data.label || '审查节点', badge: 'Review', icon: REVIEW_ICON, bg: 'var(--color-warning-dim)' }
-      : { title: data.label || '普通任务节点', badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
-  const summary = kind === 'review'
+      : kind === 'foreach'
+        ? { title: data.label || 'For-Each 节点', badge: 'For-Each', icon: FOREACH_ICON, bg: 'var(--color-success-dim)' }
+        : { title: data.label || '普通任务节点', badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
+  const rawSummary = kind === 'review'
     ? data.reviewSpec
     : data.taskDescription || data.description;
+  const cleanSummary = rawSummary
+    ? rawSummary.replace(/\s+/g, ' ').trim()
+    : '';
+  const maxLength = 35;
+  const summary = cleanSummary.length > maxLength
+    ? cleanSummary.slice(0, maxLength) + '...'
+    : cleanSummary;
 
   return (
     <div
@@ -64,7 +74,7 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
           border: `2px solid ${selected ? 'var(--color-info)' : style.border}`,
           borderRadius: '50%',
           left: -5,
-          top: '50%',
+          top: '20px',
           transform: 'translateY(-50%)',
         }}
         className="cursor-crosshair"
@@ -102,7 +112,7 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
           border: `2px solid ${selected ? 'var(--color-info)' : style.border}`,
           borderRadius: '50%',
           right: -5,
-          top: '50%',
+          top: '20px',
           transform: 'translateY(-50%)',
         }}
         className="cursor-crosshair"

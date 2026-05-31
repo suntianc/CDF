@@ -36,7 +36,7 @@ function extractNodeArtifact(output: unknown): string {
 }
 
 export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPanelProps) {
-  const { subscribeToExecution, nodeRuns, fetchNodeRuns, stopWorkflow, currentExecution } = useWorkflowStore();
+  const { subscribeToExecution, nodeRuns, fetchNodeRuns, stopWorkflow, currentExecution, nodeLogs } = useWorkflowStore();
   const [executionStatus, setExecutionStatus] = useState<WorkflowExecutionStatus>('running');
   const [execution, setExecution] = useState<WorkflowExecution | null>(null);
 
@@ -136,6 +136,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
             {nodeRuns.map((run) => {
               const config = statusConfig[run.status] || statusConfig.pending;
               const RunIcon = config.icon;
+              const logs = nodeLogs[run.node_id];
               return (
                 <div
                   key={run.id}
@@ -159,6 +160,23 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                       {run.error}
                     </div>
                   )}
+
+                  {/* Logs Console */}
+                  {logs && logs.length > 0 && (
+                    <div className="mt-2 border-t border-[var(--color-border)]/20 pt-2">
+                      <div className="text-[9px] font-semibold text-[var(--color-text-muted)] mb-1">
+                        运行日志
+                      </div>
+                      <div className="max-h-[120px] overflow-y-auto whitespace-pre-wrap rounded bg-black/15 p-2 font-mono text-[9px] leading-relaxed text-[var(--color-text-secondary)] space-y-0.5">
+                        {logs.map((logLine, idx) => (
+                          <div key={idx} className="border-b border-black/5 pb-0.5 last:border-b-0 last:pb-0">
+                            {logLine}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {run.output && (
                     <details className="mt-2 group">
                       <summary className="cursor-pointer text-[11px] font-medium text-[var(--color-accent)]">

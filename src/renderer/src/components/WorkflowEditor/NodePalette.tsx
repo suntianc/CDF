@@ -1,4 +1,4 @@
-import { ListTodo, Repeat2, ShieldCheck, List } from 'lucide-react';
+import { ListTodo, Repeat2, ShieldCheck, Layers } from 'lucide-react';
 
 interface NodePaletteProps {
   onDragStart: (event: React.DragEvent, nodeType: string) => void;
@@ -33,7 +33,7 @@ export function NodePalette({ onDragStart }: NodePaletteProps) {
       {[
         { type: 'task', label: '任务节点', icon: ListTodo, color: 'var(--color-accent)' },
         { type: 'loop', label: 'Loop 节点', icon: Repeat2, color: 'var(--color-info)' },
-        { type: 'foreach', label: 'For-Each 节点', icon: List, color: 'var(--color-success)' },
+        { type: 'foreach', label: 'For-Each 节点', icon: Layers, color: 'var(--color-success)' },
         { type: 'review', label: '审查节点', icon: ShieldCheck, color: 'var(--color-warning)' },
       ].map((n) => (
         <div key={n.type} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] cursor-grab hover:border-[var(--color-accent)]/50 transition-colors text-xs text-[var(--color-text-secondary)]"

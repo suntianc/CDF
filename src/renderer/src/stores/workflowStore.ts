@@ -7,8 +7,7 @@ interface WorkflowState {
   executions: WorkflowExecution[];
   currentExecution: WorkflowExecution | null;
   nodeRuns: WorkflowNodeRun[];
-  isLoading: boolean;
-  error: string | null;
+  nodeLogs: Record<string, string[]>;
 
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
@@ -29,6 +28,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   executions: [],
   currentExecution: null,
   nodeRuns: [],
+  nodeLogs: {},
   isLoading: false,
   error: null,
 
@@ -100,15 +100,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   fetchNodeRuns: async (executionId: string) => {
     set({ isLoading: true, error: null });
     try {
-      const nodeRuns = await window.electronAPI.db.getWorkflowNodeRuns(executionId);
-      set({ nodeRuns, isLoading: false });
+      const dbRuns = await window.electronAPI.db.getWorkflowNodeRuns(executionId);
+      // 保留状态中正在运行、且尚未写入数据库的临时节点执行记录
+      const currentRunning = get().nodeRuns.filter(
+        (r) => r.status === 'running' && !dbRuns.some((d) => d.node_id === r.node_id)
+      );
+      set({ nodeRuns: [...dbRuns, ...currentRunning], isLoading: false });
     } catch (err: unknown) {
       set({ error: err instanceof Error ? err.message : 'Failed to fetch node runs', isLoading: false });
     }
   },
 
   runWorkflow: async (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
-    set({ error: null });
+    set({ error: null, nodeLogs: {} });
     try {
       const executionId = await window.electronAPI.workflow.runWorkflow(workflowId, projectId, triggerSource, input);
       set({
@@ -140,7 +144,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   subscribeToExecution: (executionId: string) => {
-    const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: unknown, data: WorkflowStreamEvent) => {
+    const processEvent = (data: WorkflowStreamEvent) => {
       if (data.type === 'workflow_start') {
         const current = get().currentExecution;
         set({
@@ -170,11 +174,49 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             ended_at: Date.now(),
           } as WorkflowExecution,
         });
-      } else if (data.type === 'node_start' || data.type === 'node_end' || data.type === 'node_error') {
-        // Refresh node runs when node events arrive
+      } else if (data.type === 'node_start') {
+        const currentRuns = get().nodeRuns;
+        const exists = currentRuns.some((r) => r.node_id === data.nodeId && r.status === 'running');
+        if (!exists) {
+          const newRun: WorkflowNodeRun = {
+            id: `temp-${data.nodeId}-${Date.now()}`,
+            execution_id: executionId,
+            node_id: data.nodeId,
+            node_name: data.nodeName || data.nodeId,
+            status: 'running',
+            started_at: Date.now(),
+          };
+          set({ nodeRuns: [...currentRuns, newRun] });
+        }
+      } else if (data.type === 'node_end' || data.type === 'node_error') {
         get().fetchNodeRuns(executionId).catch(() => {});
+      } else if (data.type === 'node_log') {
+        const logs = get().nodeLogs[data.nodeId] || [];
+        set({
+          nodeLogs: {
+            ...get().nodeLogs,
+            [data.nodeId]: [...logs, data.log],
+          },
+        });
       }
+    };
+
+    // 1. 获取主进程中可能已积压的历史事件（防止网络/订阅时机竞争导致丢失 start 等关键事件）
+    if (window.electronAPI.workflow.getWorkflowEvents) {
+      window.electronAPI.workflow.getWorkflowEvents(executionId)
+        .then((events) => {
+          events.forEach(processEvent);
+        })
+        .catch((err) => {
+          console.warn('[workflowStore] Failed to fetch historical workflow events:', err);
+        });
+    }
+
+    // 2. 订阅实时事件
+    const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: unknown, data: WorkflowStreamEvent) => {
+      processEvent(data);
     });
+
     return unsubscribe;
   },
 }));

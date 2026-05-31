@@ -81,6 +81,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('workflow:run', workflowId, projectId, triggerSource, input),
     stopWorkflow: (executionId: string) =>
       ipcRenderer.invoke('workflow:stop', executionId),
+    getWorkflowEvents: (executionId: string) =>
+      ipcRenderer.invoke('workflow:getEvents', executionId),
     onWorkflowEvent: (executionId: string, callback: (event: any, data: any) => void) => {
       const channel = `workflow:event-${executionId}`;
       const listener = (event: any, data: any) => callback(event, data);

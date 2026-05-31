@@ -320,7 +320,8 @@ export type WorkflowStreamEvent =
   | { type: 'node_end'; executionId: string; nodeId: string; duration_ms: number; outputKeys: string[] }
   | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
   | { type: 'workflow_end'; executionId: string; status: WorkflowExecutionStatus; duration_ms: number }
-  | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number };
+  | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
+  | { type: 'node_log'; executionId: string; nodeId: string; log: string };
 
 export interface ElectronAPI {
   store: {
