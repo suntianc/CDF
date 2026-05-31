@@ -137,7 +137,7 @@ export function createNodeStateExtractor(
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_LOOP_NODE_ITERATIONS = 50;
 
-function extractJsonCandidate(text: string): unknown {
+export function extractJsonCandidate(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
 
