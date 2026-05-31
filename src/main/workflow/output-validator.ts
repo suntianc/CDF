@@ -107,14 +107,13 @@ export async function executeWithValidation(
   baseContext: string,
   onLog?: (log: string) => void,
 ): Promise<{ output: string; validated?: unknown; degraded?: DegradedOutput }> {
-  const originalContext = baseContext;
   let lastOutput = '';
   let allErrors: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
     const context = attempt === 1
-      ? originalContext
-      : originalContext + buildRetryContext(allErrors, getSchemaForNodeKind(nodeKind));
+      ? baseContext
+      : baseContext + buildRetryContext(allErrors, getSchemaForNodeKind(nodeKind));
 
     const resultText = await invokeAgent(context);
     lastOutput = resultText;

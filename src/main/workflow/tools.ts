@@ -55,7 +55,7 @@ export function createWorkflowTools(projectId: string) {
     tool(
       async ({ executionId }: { executionId: string }) => {
         const execution = db.prepare(
-          'SELECT id, workflow_id, status, input, output, error, started_at, ended_at FROM workflow_executions WHERE id = ?',
+          'SELECT id, workflow_id, status, error, started_at, ended_at FROM workflow_executions WHERE id = ?',
         ).get(executionId);
         if (!execution) {
           return JSON.stringify({ error: 'Execution not found' });

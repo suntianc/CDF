@@ -320,7 +320,7 @@ export type WorkflowStreamEvent =
   | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string }
   | { type: 'node_end'; executionId: string; nodeId: string; duration_ms: number; outputKeys: string[] }
   | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
-  | { type: 'workflow_end'; executionId: string; status: WorkflowExecutionStatus; duration_ms: number }
+  | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }
   | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
   | { type: 'node_log'; executionId: string; nodeId: string; log: string };
 
@@ -397,7 +397,7 @@ export interface ElectronAPI {
   workflow: {
     runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
     stopWorkflow: (executionId: string) => Promise<void>;
-    getWorkflowEvents?: (executionId: string) => Promise<WorkflowStreamEvent[]>;
+    getWorkflowEvents: (executionId: string) => Promise<WorkflowStreamEvent[]>;
     onWorkflowEvent: (executionId: string, callback: (event: any, data: WorkflowStreamEvent) => void) => () => void;
   };
   platform: string;

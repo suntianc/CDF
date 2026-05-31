@@ -454,11 +454,7 @@ export function createAgentNodeExecutor(
         // 读取工作区路径（Start 节点中配置的）或项目工作目录
         const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
         const workspacePath = (workflowStart?.workspace as string)?.trim();
-
-        const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(agentRow.project_id) as { path: string } | undefined;
-        const projectPath = project?.path || '';
-
-        const baseDir = workspacePath || projectPath;
+        const baseDir = workspacePath || project.path;
         const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
 
         if (!fs.existsSync(filePath)) {
