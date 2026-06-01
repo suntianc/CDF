@@ -90,6 +90,102 @@ function enrichWorkflowInput(input: Record<string, unknown>, graphData: Workflow
 
 const activeExecutions = new Map<string, { aborted: boolean }>();
 
+// ---- Config Snapshot (导出用) ----
+
+const SECRET_KEY_REGEX = /api_?key|token|secret|password|bearer/i;
+
+/**
+ * 拼装工作流执行时的配置快照（agents / mcp / skills）。
+ * 在 runWorkflow 启动时固化一次，避免后续 agent/mcp 变更影响历史导出一致性。
+ * 严格脱敏：agents 数组不包含 provider_id / config；mcp env 中匹配密钥正则的字段被替换为 "***"。
+ */
+function buildConfigSnapshot(graphData: WorkflowDefinition, _projectId: string): Record<string, unknown> {
+  // 1. 收集被引用的 agent_id（去重 + 过滤空值）
+  const agentIds = Array.from(new Set(
+    (graphData.nodes || [])
+      .map((n) => n.data?.agentId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  ));
+
+  // 2. 一次性查 agents
+  const agents: Array<Record<string, unknown>> = agentIds.length > 0
+    ? (db.prepare(`SELECT id, name, description, provider_id, system_prompt, config FROM agents WHERE id IN (${agentIds.map(() => '?').join(',')})`).all(...agentIds) as any[])
+    : [];
+
+  // 3. 一次性查 agent_mcp_servers 多对多
+  const mcpIdsByAgent: Record<string, string[]> = {};
+  const allMcpIds = new Set<string>();
+  if (agentIds.length > 0) {
+    const rows = db.prepare(`SELECT agent_id, mcp_server_id FROM agent_mcp_servers WHERE agent_id IN (${agentIds.map(() => '?').join(',')})`).all(...agentIds) as Array<{ agent_id: string; mcp_server_id: string }>;
+    for (const r of rows) {
+      (mcpIdsByAgent[r.agent_id] = mcpIdsByAgent[r.agent_id] || []).push(r.mcp_server_id);
+      allMcpIds.add(r.mcp_server_id);
+    }
+  }
+
+  // 4. 一次性查 mcp_servers
+  const mcpServerList = allMcpIds.size > 0
+    ? (db.prepare(`SELECT id, name, config FROM mcp_servers WHERE id IN (${Array.from(allMcpIds).map(() => '?').join(',')})`).all(...Array.from(allMcpIds)) as any[])
+    : [];
+
+  // 5. 一次性查 agent_skills 多对多
+  const skillNamesByAgent: Record<string, string[]> = {};
+  const allSkillNames = new Set<string>();
+  if (agentIds.length > 0) {
+    const rows = db.prepare(`SELECT agent_id, skill_name FROM agent_skills WHERE agent_id IN (${agentIds.map(() => '?').join(',')})`).all(...agentIds) as Array<{ agent_id: string; skill_name: string }>;
+    for (const r of rows) {
+      (skillNamesByAgent[r.agent_id] = skillNamesByAgent[r.agent_id] || []).push(r.skill_name);
+      allSkillNames.add(r.skill_name);
+    }
+  }
+
+  // 6. skills 当前以文件系统存储（无独立 skills 表），所以仅按 name 列出
+  const skills = Array.from(allSkillNames).map((name) => ({ name, description: '' }));
+
+  // 7. 拼装 mcp_servers 并脱敏 env
+  const mcpServers = mcpServerList.map((s) => {
+    let cfg: Record<string, unknown> = {};
+    if (s.config) {
+      try { cfg = JSON.parse(s.config); } catch { cfg = {}; }
+    }
+    const sanitizedEnv: Record<string, string> = {};
+    const env = cfg.env;
+    if (env && typeof env === 'object') {
+      for (const [k, v] of Object.entries(env as Record<string, unknown>)) {
+        if (SECRET_KEY_REGEX.test(k)) {
+          sanitizedEnv[k] = '***';
+        } else {
+          sanitizedEnv[k] = String(v);
+        }
+      }
+    }
+    return {
+      id: s.id,
+      name: s.name,
+      command: (cfg as any).command,
+      args: (cfg as any).args,
+      env: sanitizedEnv,
+    };
+  });
+
+  // 8. 拼装 agents（剔除 provider_id / config）
+  const safeAgents = agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    system_prompt: a.system_prompt,
+    description: a.description,
+    mcp_server_ids: mcpIdsByAgent[a.id as string] || [],
+    skill_names: skillNamesByAgent[a.id as string] || [],
+  }));
+
+  return {
+    graph_data: graphData,
+    agents: safeAgents,
+    mcp_servers: mcpServers,
+    skills,
+  };
+}
+
 // ---- runWorkflow ----
 
 export interface RunWorkflowParams {
@@ -123,11 +219,14 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
   const graphData = JSON.parse(workflowRow.graph_data) as WorkflowDefinition;
   const executionInput = enrichWorkflowInput(input, graphData);
 
-  // 2. 创建 execution 记录
+  // 2. 拼装配置快照（导出用，固化执行时引用的 agents / mcp / skills）
+  const configSnapshot = buildConfigSnapshot(graphData, projectId);
+
+  // 3. 创建 execution 记录
   db.prepare(`
-    INSERT INTO workflow_executions (id, workflow_id, project_id, trigger_source, status, input, started_at)
-    VALUES (?, ?, ?, ?, 'running', ?, ?)
-  `).run(executionId, workflowId, projectId, triggerSource, JSON.stringify(executionInput), now);
+    INSERT INTO workflow_executions (id, workflow_id, project_id, trigger_source, status, input, started_at, config_snapshot)
+    VALUES (?, ?, ?, ?, 'running', ?, ?, ?)
+  `).run(executionId, workflowId, projectId, triggerSource, JSON.stringify(executionInput), now, JSON.stringify(configSnapshot));
 
   // 推送 workflow_start 事件
   const startEvent: WorkflowStreamEvent = {
@@ -271,6 +370,10 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
       UPDATE workflow_executions SET status = ?, output = ?, ended_at = ? WHERE id = ?
     `).run(finalStatus, JSON.stringify(allNodeOutputs), endTime, executionId);
 
+    const eventsForSnapshot = eventBuffers.get(executionId) || [];
+    db.prepare('UPDATE workflow_executions SET events_snapshot = ? WHERE id = ?')
+      .run(JSON.stringify(eventsForSnapshot), executionId);
+
     const endEvent: WorkflowStreamEvent = {
       type: 'workflow_end',
       executionId,
@@ -288,6 +391,10 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     db.prepare(`
       UPDATE workflow_executions SET status = 'failed', error = ?, ended_at = ? WHERE id = ?
     `).run(errorMessage, endTime, executionId);
+
+    const eventsForSnapshot = eventBuffers.get(executionId) || [];
+    db.prepare('UPDATE workflow_executions SET events_snapshot = ? WHERE id = ?')
+      .run(JSON.stringify(eventsForSnapshot), executionId);
 
     const failEvent: WorkflowStreamEvent = {
       type: 'workflow_end',
