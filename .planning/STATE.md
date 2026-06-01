@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: milestone_complete
-last_updated: 2026-05-31T00:00:00.000Z
+last_updated: 2026-06-01T16:30:00.000Z
 progress:
   total_phases: 6
   completed_phases: 6
@@ -45,6 +45,7 @@ Plan: 21/21 done
 | 2026-05-27 | 260527-vt1 | 修复工作流保存、重名、删除及外键级联问题 | complete |
 | 2026-05-31 | 260531-umu | 工作流节点输出 JSON Schema 校验机制（内置schema+5轮重试降级） | complete |
 | 2026-06-01 | 260601-nzn | 使用 patch-package 方案为 MiniMax M3 解锁视频透传能力 | complete |
+| 2026-06-01 | 260602-0ed | 工作流执行历史记录 + JSON 导出（含工作流配置+详细执行过程，脱敏 provider 与 MCP 密钥）+ 单条删除 | complete |
 
 ## Accumulated Context
 
@@ -61,3 +62,4 @@ Plan: 21/21 done
 | 2026-05-27T14:45:00Z | Phase 4 context gathered | 4 areas discussed: editor layout, node types, execution engine, state & persistence. Key decision: all executable nodes are Agent nodes. |
 | 2026-05-27T20:16:00Z | Phase 4 UI-SPEC approved | Visual and interaction contract for Phase 4 approved by UI checker. |
 | 2026-05-31T14:03:00Z | Quick task 260531-umu completed | 工作流节点输出 JSON Schema 校验机制 implemented — src/shared/node-output-schemas.ts, src/main/workflow/output-validator.ts, node-executor integration |
+| 2026-06-01T16:30:00Z | Quick task 260602-0ed completed | 工作流执行历史 + JSON 导出 + 单条删除 — src/main/workflow/log-exporter.ts(新), src/renderer/src/components/WorkflowEditor/ExecutionHistoryDrawer.tsx(新), 3 IPC + 2 新列(config_snapshot/events_snapshot) |
