@@ -44,6 +44,7 @@ Plan: 21/21 done
 | 2026-05-27 | 260527-b97 | provider_type 统一为 lobehub 枚举值 | complete |
 | 2026-05-27 | 260527-vt1 | 修复工作流保存、重名、删除及外键级联问题 | complete |
 | 2026-05-31 | 260531-umu | 工作流节点输出 JSON Schema 校验机制（内置schema+5轮重试降级） | complete |
+| 2026-06-01 | 260601-nzn | 使用 patch-package 方案为 MiniMax M3 解锁视频透传能力 | complete |
 
 ## Accumulated Context
 
