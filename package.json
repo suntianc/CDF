@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps && patch-package",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -62,6 +62,7 @@
     "electron-builder": "^26.0.0",
     "electron-vite": "^5.0.0",
     "jsdom": "^26.1.0",
+    "patch-package": "^8.0.1",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
     "vite": "^7.0.0",

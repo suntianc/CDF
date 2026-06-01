@@ -1,0 +1,26 @@
+diff --git a/node_modules/@langchain/anthropic/dist/utils/message_inputs.js b/node_modules/@langchain/anthropic/dist/utils/message_inputs.js
+index 22a83f7..be649fc 100644
+--- a/node_modules/@langchain/anthropic/dist/utils/message_inputs.js
++++ b/node_modules/@langchain/anthropic/dist/utils/message_inputs.js
+@@ -176,7 +176,7 @@ function* _formatContentBlocks(content, toolCalls) {
+ 				...contentPartCopy,
+ 				...cacheControl ? { cache_control: cacheControl } : {}
+ 			};
+-		} else if (contentPart.type === "container_upload") yield {
++		} else if (contentPart.type === "video" || contentPart.type === "container_upload") yield {
+ 			...contentPart,
+ 			...cacheControl ? { cache_control: cacheControl } : {}
+ 		};
+diff --git a/node_modules/@langchain/anthropic/dist/utils/standard.js b/node_modules/@langchain/anthropic/dist/utils/standard.js
+index c3fd54d..2b10a8c 100644
+--- a/node_modules/@langchain/anthropic/dist/utils/standard.js
++++ b/node_modules/@langchain/anthropic/dist/utils/standard.js
+@@ -264,7 +264,7 @@ function _formatStandardContent(message) {
+ 			continue;
+ 		}
+ 		throw new Error("Image content block must include a fileId, url, or data property.");
+-	} else if (block.type === "video") {} else if (block.type === "text-plain") {
++	} else if (block.type === "video") { result.push(block); continue; } else if (block.type === "text-plain") {
+ 		if (block.data) result.push(_applyDocumentMetadata({
+ 			type: "document",
+ 			source: {
