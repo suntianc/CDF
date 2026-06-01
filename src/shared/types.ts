@@ -297,7 +297,7 @@ export interface WorkflowExecution {
   ended_at?: number;
 }
 
-export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
 export interface WorkflowNodeRun {
   id: string;
