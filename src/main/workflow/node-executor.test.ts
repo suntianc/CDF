@@ -419,7 +419,8 @@ describe('createAgentNodeExecutor', () => {
       },
     });
 
-    const result = await executor({ inputs: {}, nodeOutputs: {} });
+    const onLogMock = vi.fn();
+    const result = await executor({ inputs: {}, nodeOutputs: {} }, onLogMock);
 
     expect(invokeMock).toHaveBeenCalledTimes(3);
     expect(result.results).toHaveLength(3);
@@ -429,6 +430,8 @@ describe('createAgentNodeExecutor', () => {
     expect(result.totalItems).toBe(3);
     expect(result.successCount).toBe(3);
     expect(result.failCount).toBe(0);
+    expect(onLogMock).toHaveBeenCalled();
+    expect(onLogMock.mock.calls.some(call => call[0].includes('正在执行第 1/3 项子任务'))).toBe(true);
   });
 
   it('should use itemPrompt template in ForEach context', async () => {

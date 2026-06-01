@@ -330,6 +330,49 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       const invokeAgent = async (content: string): Promise<string> => {
+        // 临时存储每个工具运行 of runId 对应的工具名称
+        const toolRunNames = new Map<string, string>();
+
+        const agentPromise = agent.invoke(
+          { messages: [{ role: 'user', content }] },
+          {
+            callbacks: [
+              {
+                handleLLMStart() {
+                  onLog?.('Agent 正在思考决策...');
+                },
+                handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
+                  const rawId = tool?.id;
+                  const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
+                  const toolName = name || tool?.name || toolId || 'unknown';
+                  toolRunNames.set(runId, toolName);
+                  const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
+                  const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;
+                  onLog?.(`[工具调用] 开始执行工具: ${toolName}，参数: ${truncatedInput}`);
+                },
+                handleToolEnd(output, runId) {
+                  const toolName = toolRunNames.get(runId) || 'unknown';
+                  toolRunNames.delete(runId);
+                  const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
+                  const truncatedOutput = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr;
+                  onLog?.(`[工具返回] 工具 ${toolName} 执行成功，结果: ${truncatedOutput}`);
+                },
+                handleToolError(err, runId) {
+                  const toolName = toolRunNames.get(runId) || 'unknown';
+                  toolRunNames.delete(runId);
+                  const errMsg = err instanceof Error ? err.message : String(err);
+                  onLog?.(`[工具失败] 工具 ${toolName} 执行失败，错误: ${errMsg}`);
+                }
+              }
+            ]
+          }
+        );
+
+        if (nodeKind === 'foreach') {
+          const result = await agentPromise;
+          return getLastMessageText(result);
+        }
+
         let timeoutId: NodeJS.Timeout | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(
@@ -338,45 +381,9 @@ export function createAgentNodeExecutor(
           );
         });
 
-        // 临时存储每个工具运行的 runId 对应的工具名称
-        const toolRunNames = new Map<string, string>();
-
         try {
           const result = await Promise.race([
-            agent.invoke(
-              { messages: [{ role: 'user', content }] },
-              {
-                callbacks: [
-                  {
-                    handleLLMStart() {
-                      onLog?.('Agent 正在思考决策...');
-                    },
-                    handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
-                      const rawId = tool?.id;
-                      const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
-                      const toolName = name || tool?.name || toolId || 'unknown';
-                      toolRunNames.set(runId, toolName);
-                      const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
-                      const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;
-                      onLog?.(`[工具调用] 开始执行工具: ${toolName}，参数: ${truncatedInput}`);
-                    },
-                    handleToolEnd(output, runId) {
-                      const toolName = toolRunNames.get(runId) || 'unknown';
-                      toolRunNames.delete(runId);
-                      const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
-                      const truncatedOutput = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr;
-                      onLog?.(`[工具返回] 工具 ${toolName} 执行成功，结果: ${truncatedOutput}`);
-                    },
-                    handleToolError(err, runId) {
-                      const toolName = toolRunNames.get(runId) || 'unknown';
-                      toolRunNames.delete(runId);
-                      const errMsg = err instanceof Error ? err.message : String(err);
-                      onLog?.(`[工具失败] 工具 ${toolName} 执行失败，错误: ${errMsg}`);
-                    }
-                  }
-                ]
-              }
-            ),
+            agentPromise,
             timeoutPromise,
           ]);
           return getLastMessageText(result);
@@ -491,7 +498,7 @@ export function createAgentNodeExecutor(
           try {
             const { output: resultText, validated, degraded } = await executeWithValidation(
               invokeAgent,
-              nodeKind,
+              'task', // Validate For-Each individual items using 'task' (TaskOutputSchema) instead of 'foreach'
               itemContext,
               onLog,
             );

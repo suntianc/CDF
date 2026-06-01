@@ -32,8 +32,14 @@ function getWorkflowCheckpointSaver(): SqliteSaver {
 // ---- IPC Event Push (D-17) ----
 
 const eventBuffers = new Map<string, WorkflowStreamEvent[]>();
+const executionSeqs = new Map<string, number>();
 
 function pushWorkflowEvent(executionId: string, event: WorkflowStreamEvent) {
+  let seq = executionSeqs.get(executionId) || 0;
+  seq++;
+  executionSeqs.set(executionId, seq);
+  event.seq = seq;
+
   const buffer = eventBuffers.get(executionId);
   if (buffer) {
     buffer.push(event);
@@ -297,6 +303,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     // 延迟 30 秒清除缓冲区，留足时间给前端查询/重连获取历史事件
     setTimeout(() => {
       eventBuffers.delete(executionId);
+      executionSeqs.delete(executionId);
     }, 30000);
   }
   })();

@@ -55,7 +55,7 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
   const isConditional = Boolean(condition.trim());
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()} direction="right">
+    <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()} direction="right" dismissible={false}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Drawer.Content

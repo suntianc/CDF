@@ -10,6 +10,8 @@ interface WorkflowState {
   nodeLogs: Record<string, string[]>;
   isLoading: boolean;
   error: string | null;
+  activeExecutionId: string | null;
+  processedSeqs: Set<number>;
 
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
@@ -33,6 +35,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodeLogs: {},
   isLoading: false,
   error: null,
+  activeExecutionId: null,
+  processedSeqs: new Set<number>(),
 
   fetchWorkflows: async (projectId: string) => {
     set({ isLoading: true, error: null });
@@ -105,7 +109,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const dbRuns = await window.electronAPI.db.getWorkflowNodeRuns(executionId);
       // 保留状态中正在运行、且尚未写入数据库的临时节点执行记录
       const currentRunning = get().nodeRuns.filter(
-        (r) => r.status === 'running' && !dbRuns.some((d) => d.node_id === r.node_id)
+        (r) => r.execution_id === executionId && r.status === 'running' && !dbRuns.some((d) => d.node_id === r.node_id)
       );
       set({ nodeRuns: [...dbRuns, ...currentRunning], isLoading: false });
     } catch (err: unknown) {
@@ -114,7 +118,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   runWorkflow: async (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
-    set({ error: null, nodeLogs: {} });
+    set({ error: null, nodeLogs: {}, activeExecutionId: null, processedSeqs: new Set<number>() });
     try {
       const executionId = await window.electronAPI.workflow.runWorkflow(workflowId, projectId, triggerSource, input);
       set({
@@ -139,6 +143,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ error: null });
     try {
       await window.electronAPI.workflow.stopWorkflow(executionId);
+      const current = get().currentExecution;
+      if (current && current.id === executionId) {
+        set({
+          currentExecution: {
+            ...current,
+            status: 'stopped',
+            ended_at: Date.now(),
+          } as WorkflowExecution,
+          nodeRuns: get().nodeRuns.map((r) =>
+            r.status === 'running'
+              ? { ...r, status: 'stopped', ended_at: Date.now() }
+              : r
+          ),
+        });
+      }
     } catch (err: unknown) {
       set({ error: err instanceof Error ? err.message : 'Failed to stop workflow' });
       throw err;
@@ -146,7 +165,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   subscribeToExecution: (executionId: string) => {
+    if (get().activeExecutionId !== executionId) {
+      set({
+        activeExecutionId: executionId,
+        nodeLogs: {},
+        processedSeqs: new Set<number>(),
+      });
+    }
+
     const processEvent = (data: WorkflowStreamEvent) => {
+      if (data.seq !== undefined) {
+        const seqs = get().processedSeqs;
+        if (seqs.has(data.seq)) return;
+        seqs.add(data.seq);
+      }
+
       if (data.type === 'workflow_start') {
         const current = get().currentExecution;
         set({

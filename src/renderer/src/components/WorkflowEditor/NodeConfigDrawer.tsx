@@ -161,6 +161,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
         }
       }}
       direction="right"
+      dismissible={false}
     >
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />

@@ -93,12 +93,13 @@ function parseLogLine(line: string) {
   };
 }
 
-function RenderLogLine({ line }: { line: string }) {
+function RenderLogLine({ line, isLatest, isNodeRunning }: { line: string; isLatest: boolean; isNodeRunning: boolean }) {
   const parsed = parseLogLine(line);
   if (parsed.type === 'thinking') {
+    const showSpinner = isLatest && isNodeRunning;
     return (
       <div className="flex items-center gap-2 py-1 px-1.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10 mb-1">
-        <Loader2 className="w-3 h-3 animate-spin" />
+        {showSpinner && <Loader2 className="w-3 h-3 animate-spin" />}
         <span className="text-[10px] font-medium">{parsed.title}</span>
       </div>
     );
@@ -310,10 +311,6 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
     }));
   };
 
-  const handleStop = async () => {
-    await stopWorkflow(executionId);
-  };
-
   const formatDuration = (startedAt: number, endedAt?: number) => {
     const end = endedAt || Date.now();
     const ms = end - startedAt;
@@ -347,15 +344,6 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
         <span className={`text-xs font-medium ${statusColor}`}>
           {statusLabel}
         </span>
-        {isRunning && (
-          <button
-            className="btn btn-danger btn-sm cursor-pointer text-[11px] py-1 px-2"
-            onClick={handleStop}
-          >
-            <Square className="w-3 h-3" />
-            停止
-          </button>
-        )}
       </div>
 
       {/* Node Runs List */}
@@ -432,7 +420,12 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                           </div>
                           <div className="max-h-[140px] overflow-y-auto rounded bg-black/15 p-2 leading-relaxed space-y-1">
                             {logs.map((logLine, idx) => (
-                              <RenderLogLine key={idx} line={logLine} />
+                              <RenderLogLine
+                                key={idx}
+                                line={logLine}
+                                isLatest={idx === logs.length - 1}
+                                isNodeRunning={run.status === 'running'}
+                              />
                             ))}
                           </div>
                         </div>

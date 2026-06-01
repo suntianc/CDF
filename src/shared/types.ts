@@ -315,14 +315,15 @@ export interface WorkflowNodeRun {
   logs?: string[];
 }
 
-export type WorkflowStreamEvent =
+export type WorkflowStreamEvent = (
   | { type: 'workflow_start'; executionId: string; workflowId: string }
   | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string }
   | { type: 'node_end'; executionId: string; nodeId: string; duration_ms: number; outputKeys: string[] }
   | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
   | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }
   | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
-  | { type: 'node_log'; executionId: string; nodeId: string; log: string };
+  | { type: 'node_log'; executionId: string; nodeId: string; log: string }
+) & { seq?: number };
 
 export interface ElectronAPI {
   store: {
