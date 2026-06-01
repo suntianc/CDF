@@ -453,4 +453,9 @@ try {
   // Column already exists
 }
 
+// 工作流配置快照（执行时固化 agents/mcp/skills 引用配置，导出用）
+try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN config_snapshot TEXT`); } catch {}
+// 完整事件流时间线（导出用）
+try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN events_snapshot TEXT`); } catch {}
+
 export default db;

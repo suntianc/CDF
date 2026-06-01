@@ -297,7 +297,7 @@ export interface WorkflowExecution {
   ended_at?: number;
 }
 
-export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
 export interface WorkflowNodeRun {
   id: string;
@@ -400,6 +400,10 @@ export interface ElectronAPI {
     stopWorkflow: (executionId: string) => Promise<void>;
     getWorkflowEvents: (executionId: string) => Promise<WorkflowStreamEvent[]>;
     onWorkflowEvent: (executionId: string, callback: (event: any, data: WorkflowStreamEvent) => void) => () => void;
+    // 历史执行记录
+    listExecutions: (workflowId: string) => Promise<WorkflowExecution[]>;
+    deleteExecution: (executionId: string) => Promise<void>;
+    exportExecution: (executionId: string) => Promise<{ saved: boolean; path?: string; canceled?: boolean; error?: string }>;
   };
   platform: string;
 }

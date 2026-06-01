@@ -1,4 +1,4 @@
-import { ArrowLeft, Save, Play, Square, Loader2, Undo2, Redo2 } from 'lucide-react';
+import { ArrowLeft, Save, Play, Square, Loader2, Undo2, Redo2, History } from 'lucide-react';
 import { useFlowStore } from '../../stores/flowStore';
 import type { Node, Edge } from '@xyflow/react';
 
@@ -9,6 +9,7 @@ interface WorkflowToolbarProps {
   onSave: () => void;
   onRun: () => void;
   onStop: () => void;
+  onHistoryToggle: () => void;
   isSaving: boolean;
   isRunning: boolean;
   onUndo: () => void;
@@ -22,7 +23,7 @@ interface WorkflowToolbarProps {
  * Extracted from WorkflowEditor.tsx to reduce file size.
  */
 export function WorkflowToolbar({
-  workflowName, onWorkflowNameChange, onBack, onSave, onRun, onStop,
+  workflowName, onWorkflowNameChange, onBack, onSave, onRun, onStop, onHistoryToggle,
   isSaving, isRunning, onUndo, onRedo, canUndo, canRedo,
 }: WorkflowToolbarProps) {
   return (
@@ -54,6 +55,14 @@ export function WorkflowToolbar({
           title="重做 (Ctrl+Y)"
         >
           <Redo2 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          className="topbar-btn cursor-pointer"
+          onClick={onHistoryToggle}
+          title="历史执行记录"
+        >
+          <History className="w-3.5 h-3.5" />
+          <span>历史</span>
         </button>
         <button
           className="btn btn-secondary btn-sm cursor-pointer animate-none"

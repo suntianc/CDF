@@ -26,6 +26,7 @@ import { AgentNode } from './AgentNode';
 import { NodeConfigDrawer } from './NodeConfigDrawer';
 import { EdgeConfigDrawer } from './EdgeConfigDrawer';
 import { ExecutionPanel } from './ExecutionPanel';
+import { ExecutionHistoryDrawer } from './ExecutionHistoryDrawer';
 import { NodePalette } from './NodePalette';
 import { WorkflowToolbar } from './WorkflowToolbar';
 import { useFlowStore } from '../../stores/flowStore';
@@ -84,6 +85,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
 
   const historyIndex = useFlowStore((state) => state.historyIndex);
   const historyLength = useFlowStore((state) => state.history.length);
@@ -645,6 +647,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         onSave={() => handleSave('save')}
         onRun={handleRun}
         onStop={handleStop}
+        onHistoryToggle={() => setHistoryDrawerOpen((v) => !v)}
         isSaving={isSaving}
         isRunning={isRunning}
         onUndo={handleUndo}
@@ -696,6 +699,14 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             executionId={executionId}
             taskGoal={nodes.find((n) => n.type === 'start')?.data?.taskGoal as string || ''}
             onClose={handleCloseExecution}
+          />
+        )}
+
+        {/* Execution History Drawer (right side, toggled via toolbar) */}
+        {historyDrawerOpen && (
+          <ExecutionHistoryDrawer
+            workflowId={workflowId}
+            onClose={() => setHistoryDrawerOpen(false)}
           />
         )}
       </div>

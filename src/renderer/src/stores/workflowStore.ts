@@ -24,6 +24,12 @@ interface WorkflowState {
   runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
   stopWorkflow: (executionId: string) => Promise<void>;
   subscribeToExecution: (executionId: string) => () => void;
+
+  // 历史执行记录
+  historyExecutions: WorkflowExecution[];
+  fetchHistoryExecutions: (workflowId: string) => Promise<void>;
+  deleteHistoryExecution: (executionId: string, workflowId: string) => Promise<void>;
+  exportHistoryExecution: (executionId: string) => Promise<{ saved: boolean; path?: string; canceled?: boolean; error?: string }>;
 }
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
@@ -37,6 +43,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   error: null,
   activeExecutionId: null,
   processedSeqs: new Set<number>(),
+  historyExecutions: [],
 
   fetchWorkflows: async (projectId: string) => {
     set({ isLoading: true, error: null });
@@ -254,5 +261,32 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
 
     return unsubscribe;
+  },
+
+  // 历史执行记录 — 抽屉面板使用
+  fetchHistoryExecutions: async (workflowId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const list = await window.electronAPI.workflow.listExecutions(workflowId);
+      set({ historyExecutions: list, isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to fetch history', isLoading: false });
+    }
+  },
+
+  deleteHistoryExecution: async (executionId: string, _workflowId: string) => {
+    try {
+      await window.electronAPI.workflow.deleteExecution(executionId);
+      set((state) => ({
+        historyExecutions: state.historyExecutions.filter((e) => e.id !== executionId),
+      }));
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to delete execution' });
+      throw err;
+    }
+  },
+
+  exportHistoryExecution: async (executionId: string) => {
+    return window.electronAPI.workflow.exportExecution(executionId);
   },
 }));
