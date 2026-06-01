@@ -324,21 +324,21 @@ try {
         id: 'default-minimax',
         name: 'Minimax CN',
         provider_type: 'minimax',
-        api_url: 'https://api.minimaxi.com/v1',
-        default_model: 'abab6.5g-chat',
-        context_limit: 64000,
+        api_url: 'https://api.minimaxi.com/anthropic/v1',
+        default_model: 'MiniMax-M3',
+        context_limit: 1000000,
         is_active: 0,
-        models: JSON.stringify(['abab6.5g-chat', 'abab6.5s-chat'])
+        models: JSON.stringify(['MiniMax-M3', 'MiniMax-M2.7-highspeed', 'abab6.5g-chat'])
       },
       {
         id: 'default-minimax-overseas',
         name: 'Minimax EN',
         provider_type: 'minimax-overseas',
-        api_url: 'https://api.minimax.io/v1',
-        default_model: 'abab6.5g-chat',
-        context_limit: 64000,
+        api_url: 'https://api.minimax.io/anthropic/v1',
+        default_model: 'MiniMax-M3',
+        context_limit: 1000000,
         is_active: 0,
-        models: JSON.stringify(['abab6.5g-chat'])
+        models: JSON.stringify(['MiniMax-M3', 'MiniMax-M2.5'])
       },
       {
         id: 'default-kimi',

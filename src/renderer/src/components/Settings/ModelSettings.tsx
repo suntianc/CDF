@@ -15,7 +15,7 @@ const getDefaultModelForType = (type: string) => {
     case 'zhipu':
     case 'glm-overseas': return 'glm-4-flash';
     case 'minimax':
-    case 'minimax-overseas': return 'abab6.5g-chat';
+    case 'minimax-overseas': return 'MiniMax-M3';
     case 'moonshot': return 'moonshot-v1-8k';
     case 'qwen': return 'qwen-plus';
     case 'xiaomimimo': return 'mimo-chat';
@@ -581,10 +581,10 @@ export function ModelSettings() {
                         setFormLimit(128000);
                       } else if (type === 'minimax') {
                         setFormUrl('https://api.minimaxi.com/anthropic/v1');
-                        setFormLimit(64000);
+                        setFormLimit(1000000);
                       } else if (type === 'minimax-overseas') {
                         setFormUrl('https://api.minimax.io/anthropic/v1');
-                        setFormLimit(64000);
+                        setFormLimit(1000000);
                       } else if (type === 'moonshot') {
                         setFormUrl('https://api.moonshot.ai/v1');
                         setFormLimit(128000);

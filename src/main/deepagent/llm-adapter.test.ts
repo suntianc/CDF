@@ -27,6 +27,20 @@ describe('createLangChainModel', () => {
     expect(model.model).toBe('MiniMax-M2.7-highspeed');
   });
 
+  it('should use ChatAnthropic for MiniMax M3 (1M context)', () => {
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.minimaxi.com/anthropic/v1',
+      defaultModel: 'MiniMax-M3',
+      providerType: 'minimax',
+    }) as any;
+
+    expect(model).toBeInstanceOf(ChatAnthropic);
+    expect(model.model).toBe('MiniMax-M3');
+    expect(model.apiUrl).toBe('https://api.minimaxi.com/anthropic');
+    expect(model.maxTokens).toBe(4096);
+  });
+
   it('should use ChatAnthropic for MiniMax-overseas', () => {
     const model = createLangChainModel({
       apiKey: 'test-key',
@@ -37,6 +51,19 @@ describe('createLangChainModel', () => {
 
     expect(model).toBeInstanceOf(ChatAnthropic);
     expect(model.model).toBe('MiniMax-M2.5');
+  });
+
+  it('should use ChatAnthropic for MiniMax M3 overseas', () => {
+    const model = createLangChainModel({
+      apiKey: 'sk-cp-overseas-token',
+      apiUrl: 'https://api.minimax.io/anthropic',
+      defaultModel: 'MiniMax-M3',
+      providerType: 'minimax-overseas',
+    }) as any;
+
+    expect(model).toBeInstanceOf(ChatAnthropic);
+    expect(model.model).toBe('MiniMax-M3');
+    expect(model.apiUrl).toBe('https://api.minimax.io/anthropic');
   });
 
   it('should use ChatAnthropic for DeepSeek', () => {
