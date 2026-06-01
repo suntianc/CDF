@@ -93,6 +93,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.removeListener(channel, listener);
       };
     },
+    // 历史执行记录
+    listExecutions: (workflowId: string) =>
+      ipcRenderer.invoke('workflow:listExecutions', workflowId),
+    deleteExecution: (executionId: string) =>
+      ipcRenderer.invoke('workflow:deleteExecution', executionId),
+    exportExecution: (executionId: string) =>
+      ipcRenderer.invoke('workflow:exportExecution', executionId),
   },
   platform: process.platform,
 });

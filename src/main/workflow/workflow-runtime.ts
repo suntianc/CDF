@@ -455,7 +455,19 @@ export function registerWorkflowIpcHandlers(): void {
   ipcMain.handle('workflow:getEvents', (_, executionId: string) => {
     return eventBuffers.get(executionId) || [];
   });
+
+  // 历史执行记录：列表 / 删除 / 导出
+  ipcMain.handle('workflow:listExecutions', (_, workflowId: string) => {
+    return listExecutionsByWorkflow(workflowId);
+  });
+  ipcMain.handle('workflow:deleteExecution', (_, executionId: string) => {
+    deleteExecution(executionId);
+  });
+  ipcMain.handle('workflow:exportExecution', async (_, executionId: string) => {
+    return exportExecutionToFile(executionId);
+  });
 }
 
 // 需要导入 ipcMain
 import { ipcMain } from 'electron';
+import { listExecutionsByWorkflow, deleteExecution, exportExecutionToFile } from './log-exporter';
