@@ -49,6 +49,7 @@ Plan: 21/21 done
 | 2026-06-02 | 260602-dz3 | 移除节点输出 JSON Schema 校验机制（首轮无 schema 提示导致 5 次重试无效；与 routing 提取矛盾；validated 字段无下游消费者）| complete |
 | 2026-06-02 | 260602-fs4 | 应用 Claude Code Workflow 哲学加固稳定性（节点级 temperature/maxTokens + tool_calls 结构化落库 + error_type 分类）| complete |
 | 2026-06-02 | fast | 移除节点级 maxTokens 配置（保留 temperature；用户决定不限制 token 上限）| complete |
+| 2026-06-02 | fast | 导出 JSON 去重（events 剔除 node_log，logs 剔除工具相关文本；实测体积可减 50%+）| complete |
 
 ## Accumulated Context
 
