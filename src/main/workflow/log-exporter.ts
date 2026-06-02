@@ -11,7 +11,7 @@ import db from '../database';
 
 const SECRET_KEY_REGEX = /api_?key|token|secret|password|bearer/i;
 const SECRET_VALUE_PLACEHOLDER = '***';
-const SCHEMA_VERSION = '1.0';
+const SCHEMA_VERSION = '1.1';
 const LIST_LIMIT = 50;
 
 export interface ExportExecutionResult {
@@ -104,7 +104,13 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
         retry_count: r.retry_count,
         started_at: r.started_at,
         ended_at: r.ended_at,
-        logs: r.logs ? JSON.parse(r.logs) : [],
+        execution_trace: r.execution_trace ? JSON.parse(r.execution_trace) : [],
+        // 老数据(无 execution_trace 列值时)回退输出 logs;新数据(有 execution_trace)只输出 execution_trace
+        ...(r.execution_trace
+          ? {}
+          : {
+              logs: r.logs ? JSON.parse(r.logs) : [],
+            }),
       })),
       events,
     },
