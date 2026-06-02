@@ -16,7 +16,7 @@ import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
 import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
-import type { MCPServer, ToolCallRecord, WorkflowNode } from '../../shared/types';
+import type { MCPServer, NodeErrorType, ToolCallRecord, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -31,6 +31,17 @@ export class AgentTimeoutError extends Error {
   constructor(agentId: string, timeoutMs: number) {
     super(`Agent execution timed out after ${timeoutMs}ms: ${agentId}`);
     this.name = 'AgentTimeoutError';
+  }
+}
+
+/**
+ * 携带分类后错误类型的 Error 子类。catch 块将分类结果挂载到 errorType 字段,
+ * workflow-runtime 读 err.errorType 决定 INSERT 行的 error_type 列值。
+ */
+export class ClassifiedNodeError extends Error {
+  constructor(public readonly errorType: NodeErrorType, message: string) {
+    super(message);
+    this.name = 'ClassifiedNodeError';
   }
 }
 
@@ -174,6 +185,21 @@ export function extractWorkflowRouting(output: string): Record<string, string> |
     }, {} as Record<string, string>);
 
   return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+/**
+ * 根据错误信息 + toolCalls 历史,对节点执行失败原因做粗粒度分类。
+ * 分类结果是 best-effort:仅供 UI 错误标签展示与导出 JSON,不会影响重试/路由等下游逻辑。
+ */
+function classifyError(err: unknown, toolCalls: ToolCallRecord[]): NodeErrorType {
+  if (err instanceof AgentTimeoutError) return 'timeout';
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  if (toolCalls.some((t) => t.success === false)) return 'tool_error';
+  if (/(network|fetch failed|econn|timeout|auth|401|403|429|rate[-_ ]?limit|api key)/i.test(lower)) {
+    return 'llm_error';
+  }
+  return 'unknown';
 }
 
 function clampLoopCount(loopCount: number | undefined): number {
@@ -590,9 +616,10 @@ export function createAgentNodeExecutor(
         throw err;
       }
 
-      // 包装未知错误
+      // 分类后包装未知错误
+      const errType = classifyError(err, toolCalls);
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Agent node ${node.id} execution failed: ${message}`);
+      throw new ClassifiedNodeError(errType, `Agent node ${node.id} execution failed: ${message}`);
     }
   };
 }

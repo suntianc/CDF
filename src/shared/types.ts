@@ -303,6 +303,14 @@ export interface WorkflowExecution {
 
 export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
+export type NodeErrorType =
+  | 'timeout'
+  | 'tool_error'
+  | 'llm_error'
+  | 'no_routing'
+  | 'aborted'
+  | 'unknown';
+
 export interface ToolCallRecord {
   tool: string;
   args?: unknown;
@@ -322,7 +330,7 @@ export interface WorkflowNodeRun {
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   error?: string;
-  error_type?: string;
+  error_type?: NodeErrorType;
   retry_count: number;
   started_at: number;
   ended_at?: number;
