@@ -191,8 +191,16 @@ function getLastMessageText(result: any): string {
   const messages = result?.messages;
   if (!Array.isArray(messages) || messages.length === 0) return '';
   const lastMessage = messages[messages.length - 1];
-  const output = lastMessage?.content ?? '';
-  return typeof output === 'string' ? output : JSON.stringify(output);
+  const content = lastMessage?.content ?? '';
+  if (typeof content === 'string') return content;
+  // LangChain 多模态 message.content 为数组形式:拼接所有 type==='text' 的 text 字段
+  if (Array.isArray(content)) {
+    const textParts = content
+      .filter((part: any) => part?.type === 'text' && typeof part?.text === 'string')
+      .map((part: any) => part.text);
+    if (textParts.length > 0) return textParts.join('');
+  }
+  return JSON.stringify(content);
 }
 
 /**

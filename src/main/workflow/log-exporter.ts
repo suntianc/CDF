@@ -38,6 +38,19 @@ function sanitizeMcpEnv(env: unknown): Record<string, string> {
 }
 
 /**
+ * 节点 output 对象内剔除元字段:
+ * - nodeId:外层 node_runs[i].node_id 已有
+ * - agentId:graph_data.nodes[i].data.agentId 已有
+ * - duration_ms:外层 (ended_at - started_at) 可算
+ * 保留业务字段(result / results / totalItems / status / 各种自定义产物字段等)。
+ */
+function stripNodeOutputMeta(output: unknown): unknown {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return output;
+  const { nodeId, agentId, duration_ms, ...rest } = output as Record<string, unknown>;
+  return rest;
+}
+
+/**
  * 节点字段白名单 — 与前端 NodeConfigDrawer 实际渲染的字段一一对齐。
  *
  * 设计原则:
@@ -179,14 +192,14 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
       ended_at: row.ended_at,
       duration_ms: row.ended_at && row.started_at ? row.ended_at - row.started_at : null,
       input: row.input ? JSON.parse(row.input) : {},
-      output: row.output ? JSON.parse(row.output) : undefined,
+      // execution.output 已剔除 — 其内容是 {nodeId: node_runs[i].output} 字典,纯冗余
       error: row.error || undefined,
       node_runs: nodeRunRows.map((r) => ({
         node_id: r.node_id,
         node_name: r.node_name,
         status: r.status,
         input: r.input ? JSON.parse(r.input) : undefined,
-        output: r.output ? JSON.parse(r.output) : undefined,
+        output: r.output ? stripNodeOutputMeta(JSON.parse(r.output)) : undefined,
         error: r.error || undefined,
         // retry_count 仅在 > 0 时输出(默认 0 无意义)
         ...(r.retry_count && r.retry_count > 0 ? { retry_count: r.retry_count } : {}),
