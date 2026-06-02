@@ -53,6 +53,7 @@ Plan: 21/21 done
 | 2026-06-02 | 260602-un5 | 重构工作流节点执行轨迹为时序流（ExecutionStep[] 统一思考/工具调用/工具返回，handleLLMEnd 抓真实 LLM 思考文本，实时 UI 按 step.type 渲染）| complete |
 | 2026-06-02 | fast | execution_trace 可读性三坑修复（thinking 剔除 tool_calls JSON 尾巴 / tool_result 剥 LangChain ToolMessage 外壳 / tool_call.args 反序列化）| complete |
 | 2026-06-02 | fast | 导出 JSON 精简（pruneEmpty 递归剔除空值 + events 去 executionId/workflowId 冗余 + retry_count=0 省略）| complete |
+| 2026-06-02 | fast | 导出 JSON 精简三（events 剔除 node_log 类型 + 节点剔除 position 字段；体积再减 22%）| complete |
 
 ## Accumulated Context
 
