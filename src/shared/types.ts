@@ -247,6 +247,10 @@ export interface WorkflowNode {
     bgColor?: string;
     dataSource?: string;
     itemPrompt?: string;
+    /** 节点级 LLM temperature (0~2),留空则使用 provider 默认 */
+    temperature?: number;
+    /** 节点级 LLM maxTokens (正整数),留空则使用 provider 默认 */
+    maxTokens?: number;
   };
 }
 
@@ -299,6 +303,24 @@ export interface WorkflowExecution {
 
 export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
+export type NodeErrorType =
+  | 'timeout'
+  | 'tool_error'
+  | 'llm_error'
+  | 'no_routing'
+  | 'aborted'
+  | 'unknown';
+
+export interface ToolCallRecord {
+  tool: string;
+  args?: unknown;
+  success: boolean;
+  error?: string;
+  duration_ms: number;
+  started_at: number;
+  ended_at: number;
+}
+
 export interface WorkflowNodeRun {
   id: string;
   execution_id: string;
@@ -308,11 +330,12 @@ export interface WorkflowNodeRun {
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   error?: string;
-  error_type?: string;
+  error_type?: NodeErrorType;
   retry_count: number;
   started_at: number;
   ended_at?: number;
   logs?: string[];
+  tool_calls?: ToolCallRecord[];
 }
 
 export type WorkflowStreamEvent = (

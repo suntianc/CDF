@@ -13,8 +13,8 @@ import { app, BrowserWindow } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
 import { buildWorkflowGraph } from './graph-builder';
-import { createAgentNodeExecutor } from './node-executor';
-import type { WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
+import { createAgentNodeExecutor, AgentTimeoutError, ClassifiedNodeError } from './node-executor';
+import type { NodeErrorType, WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
 
 // ---- Checkpoint Saver (独立 namespace，D-16a) ----
 
@@ -186,6 +186,26 @@ function buildConfigSnapshot(graphData: WorkflowDefinition, _projectId: string):
   };
 }
 
+// ---- Error Classifier ----
+
+/**
+ * 将 node-executor 抛出的异常归类为 NodeErrorType 枚举值。
+ * ClassifiedNodeError 已经携带分类结果,AgentTimeoutError 归为 timeout,
+ * 其它未知错误归为 unknown(无 AgentNotFoundError 枚举值,统一 unknown)。
+ *
+ * 也接受 graph-builder 序列化后的 errorType 字符串(class name),
+ * 用于错误流经 chunk 后只剩字符串的场景,保留对常见 class name 的判别能力。
+ */
+function classifyRuntimeError(err: unknown): NodeErrorType {
+  if (err instanceof ClassifiedNodeError) return err.errorType;
+  if (err instanceof AgentTimeoutError) return 'timeout';
+  if (typeof err === 'string') {
+    if (err === 'AgentTimeoutError') return 'timeout';
+    if (err === 'ClassifiedNodeError' || err === 'AgentNotFoundError') return 'unknown';
+  }
+  return 'unknown';
+}
+
 // ---- runWorkflow ----
 
 export interface RunWorkflowParams {
@@ -298,6 +318,8 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
     const allNodeOutputs: Record<string, unknown> = {};
     const allErrors: Array<{ nodeId: string; error: string; timestamp: number }> = [];
+    // 跟踪已完成(success 或 error)的 nodeId,用于 abort 时识别"已开始但未完成"的 node
+    const completedNodeIds = new Set<string>();
 
     for await (const chunk of stream) {
       // 检查是否被中止
@@ -316,20 +338,24 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           // 错误路径：只记录失败
           allErrors.push(...errors);
           for (const err of errors) {
+            completedNodeIds.add(err.nodeId);
             const errorRunId = crypto.randomUUID();
             const nodeName = nodeNames.get(err.nodeId) || err.nodeId;
             const nodeStartTime = nodeStartTimes.get(err.nodeId) || err.timestamp || Date.now();
             const accumulatedLogs = nodeLogsMap.get(err.nodeId) || [];
+            // graph-builder 已把 err.name 存入 nodeOutputs[err.nodeId].errorType,优先用 class name 分类
+            const chunkNodeOutput = (update.nodeOutputs as Record<string, unknown> | undefined)?.[err.nodeId] as Record<string, unknown> | undefined;
+            const classifiedType = classifyRuntimeError(chunkNodeOutput?.errorType ?? err.error);
             db.prepare(`
               INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs)
-              VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?, ?)
-            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
+              VALUES (?, ?, ?, ?, 'failed', ?, ?, ?, ?, ?)
+            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, classifiedType, nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
 
             const nodeErrorEvent: WorkflowStreamEvent = {
               type: 'node_error',
               executionId,
               nodeId: err.nodeId,
-              errorType: 'node_error',
+              errorType: classifiedType,
               errorMessage: err.error,
               retryCount: 0,
             };
@@ -338,16 +364,19 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           }
         } else if (nodeOutputs?.[nodeId]) {
           // 成功路径：只记录成功
+          completedNodeIds.add(nodeId);
           allNodeOutputs[nodeId] = nodeOutputs[nodeId];
           const successRunId = crypto.randomUUID();
           const nodeName = nodeNames.get(nodeId) || nodeId;
           const nodeStartTime = nodeStartTimes.get(nodeId) || Date.now();
           const accumulatedLogs = nodeLogsMap.get(nodeId) || [];
+          const nodeOutput = nodeOutputs[nodeId] as Record<string, unknown>;
+          const toolCallsArr = Array.isArray(nodeOutput.tool_calls) ? nodeOutput.tool_calls : [];
 
           db.prepare(`
-            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs)
-            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?)
-          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
+            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs, tool_calls)
+            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs), JSON.stringify(toolCallsArr));
 
           const nodeEndEvent: WorkflowStreamEvent = {
             type: 'node_end',
@@ -364,6 +393,23 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
     // 6. 完成
     const finalStatus = activeExecutions.get(executionId)?.aborted ? 'stopped' : 'completed';
+
+    // Abort 路径:补写"已开始但未完成"的 node_run (status='stopped', error_type='aborted')
+    if (finalStatus === 'stopped') {
+      const abortedNow = Date.now();
+      for (const [startedNodeId, startedAt] of nodeStartTimes.entries()) {
+        if (completedNodeIds.has(startedNodeId)) continue;
+        const abortedRunId = crypto.randomUUID();
+        const nodeName = nodeNames.get(startedNodeId) || startedNodeId;
+        const accumulatedLogs = nodeLogsMap.get(startedNodeId) || [];
+        db.prepare(`
+          INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs)
+          VALUES (?, ?, ?, ?, 'stopped', ?, 'aborted', ?, ?, ?)
+        `).run(abortedRunId, executionId, startedNodeId, nodeName, '用户中止', 'aborted', startedAt, abortedNow, JSON.stringify(accumulatedLogs));
+        completedNodeIds.add(startedNodeId);
+      }
+    }
+
     const endTime = Date.now();
 
     db.prepare(`

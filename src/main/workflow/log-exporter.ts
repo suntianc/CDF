@@ -105,6 +105,7 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
         started_at: r.started_at,
         ended_at: r.ended_at,
         logs: r.logs ? JSON.parse(r.logs) : [],
+        tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : [],
       })),
       events,
     },

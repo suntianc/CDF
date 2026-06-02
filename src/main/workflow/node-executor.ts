@@ -16,7 +16,7 @@ import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
 import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
-import type { MCPServer, WorkflowNode } from '../../shared/types';
+import type { MCPServer, NodeErrorType, ToolCallRecord, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -31,6 +31,17 @@ export class AgentTimeoutError extends Error {
   constructor(agentId: string, timeoutMs: number) {
     super(`Agent execution timed out after ${timeoutMs}ms: ${agentId}`);
     this.name = 'AgentTimeoutError';
+  }
+}
+
+/**
+ * 携带分类后错误类型的 Error 子类。catch 块将分类结果挂载到 errorType 字段,
+ * workflow-runtime 读 err.errorType 决定 INSERT 行的 error_type 列值。
+ */
+export class ClassifiedNodeError extends Error {
+  constructor(public readonly errorType: NodeErrorType, message: string) {
+    super(message);
+    this.name = 'ClassifiedNodeError';
   }
 }
 
@@ -176,6 +187,21 @@ export function extractWorkflowRouting(output: string): Record<string, string> |
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+/**
+ * 根据错误信息 + toolCalls 历史,对节点执行失败原因做粗粒度分类。
+ * 分类结果是 best-effort:仅供 UI 错误标签展示与导出 JSON,不会影响重试/路由等下游逻辑。
+ */
+function classifyError(err: unknown, toolCalls: ToolCallRecord[]): NodeErrorType {
+  if (err instanceof AgentTimeoutError) return 'timeout';
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  if (toolCalls.some((t) => t.success === false)) return 'tool_error';
+  if (/(network|fetch failed|econn|timeout|auth|401|403|429|rate[-_ ]?limit|api key)/i.test(lower)) {
+    return 'llm_error';
+  }
+  return 'unknown';
+}
+
 function clampLoopCount(loopCount: number | undefined): number {
   if (!Number.isFinite(loopCount)) return 1;
   return Math.max(1, Math.min(MAX_LOOP_NODE_ITERATIONS, Math.floor(loopCount ?? 1)));
@@ -225,6 +251,8 @@ export function createAgentNodeExecutor(
     onLog?: (log: string) => void
   ): Promise<Record<string, unknown>> => {
     const startTime = Date.now();
+    // 跨多次 invokeAgent 累积(loop/foreach 节点共用同一闭包)
+    const toolCalls: ToolCallRecord[] = [];
 
     try {
       // 1. 创建 DeepAgent 实例（每次执行独立创建，不共享 chat runtime）
@@ -233,6 +261,8 @@ export function createAgentNodeExecutor(
         apiUrl: provider.api_url ?? undefined,
         defaultModel: provider.default_model,
         providerType: provider.provider_type as any,
+        temperature: node.data.temperature,
+        maxTokens: node.data.maxTokens,
       });
 
       const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?')
@@ -329,8 +359,10 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       const invokeAgent = async (content: string): Promise<string> => {
-        // 临时存储每个工具运行 of runId 对应的工具名称
+        // 临时存储每个工具运行 of runId 对应的工具名称与起始时间
         const toolRunNames = new Map<string, string>();
+        const toolStartTimes = new Map<string, number>();
+        const toolArgsMap = new Map<string, unknown>();
 
         const agentPromise = agent.invoke(
           { messages: [{ role: 'user', content }] },
@@ -345,21 +377,50 @@ export function createAgentNodeExecutor(
                   const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
                   const toolName = name || tool?.name || toolId || 'unknown';
                   toolRunNames.set(runId, toolName);
+                  toolStartTimes.set(runId, Date.now());
+                  toolArgsMap.set(runId, toolInput);
                   const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
                   const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;
                   onLog?.(`[工具调用] 开始执行工具: ${toolName}，参数: ${truncatedInput}`);
                 },
                 handleToolEnd(output, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
+                  const startedAt = toolStartTimes.get(runId) || Date.now();
+                  const args = toolArgsMap.get(runId);
+                  const endedAt = Date.now();
+                  toolCalls.push({
+                    tool: toolName,
+                    args,
+                    success: true,
+                    duration_ms: endedAt - startedAt,
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                  });
                   toolRunNames.delete(runId);
+                  toolStartTimes.delete(runId);
+                  toolArgsMap.delete(runId);
                   const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
                   const truncatedOutput = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr;
                   onLog?.(`[工具返回] 工具 ${toolName} 执行成功，结果: ${truncatedOutput}`);
                 },
                 handleToolError(err, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
-                  toolRunNames.delete(runId);
+                  const startedAt = toolStartTimes.get(runId) || Date.now();
+                  const args = toolArgsMap.get(runId);
+                  const endedAt = Date.now();
                   const errMsg = err instanceof Error ? err.message : String(err);
+                  toolCalls.push({
+                    tool: toolName,
+                    args,
+                    success: false,
+                    error: errMsg,
+                    duration_ms: endedAt - startedAt,
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                  });
+                  toolRunNames.delete(runId);
+                  toolStartTimes.delete(runId);
+                  toolArgsMap.delete(runId);
                   onLog?.(`[工具失败] 工具 ${toolName} 执行失败，错误: ${errMsg}`);
                 }
               }
@@ -439,6 +500,7 @@ export function createAgentNodeExecutor(
           nodeId: node.id,
           agentId,
           duration_ms: duration,
+          tool_calls: toolCalls,
           ...(finalRouting ? { routing: finalRouting } : {}),
         };
       }
@@ -526,6 +588,7 @@ export function createAgentNodeExecutor(
           nodeId: node.id,
           agentId,
           duration_ms: duration,
+          tool_calls: toolCalls,
           ...(finalRouting ? { routing: finalRouting } : {}),
         };
       }
@@ -544,6 +607,7 @@ export function createAgentNodeExecutor(
         nodeId: node.id,
         agentId,
         duration_ms: duration,
+        tool_calls: toolCalls,
         ...(routing ? { routing } : {}),
       };
     } catch (err) {
@@ -552,9 +616,10 @@ export function createAgentNodeExecutor(
         throw err;
       }
 
-      // 包装未知错误
+      // 分类后包装未知错误
+      const errType = classifyError(err, toolCalls);
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Agent node ${node.id} execution failed: ${message}`);
+      throw new ClassifiedNodeError(errType, `Agent node ${node.id} execution failed: ${message}`);
     }
   };
 }

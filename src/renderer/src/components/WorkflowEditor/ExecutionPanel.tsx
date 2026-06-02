@@ -35,6 +35,15 @@ const statusConfig: Record<string, { icon: typeof Loader2; color: string; label:
   skipped: { icon: AlertTriangle, color: 'text-[var(--color-warning)]', label: '已跳过' },
 };
 
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  timeout: '执行超时',
+  tool_error: '工具调用失败',
+  llm_error: '模型 API 错误',
+  no_routing: '未输出路由信号',
+  aborted: '用户中止',
+  unknown: '其它错误',
+};
+
 function formatJson(value: unknown): string {
   if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
@@ -409,6 +418,11 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                       {run.error && (
                         <div className="text-[11px] text-[var(--color-danger)] bg-[var(--color-danger-dim)] rounded px-2 py-1">
                           {run.error}
+                        </div>
+                      )}
+                      {run.error_type && (
+                        <div className="text-[10px] text-[var(--color-text-muted)]">
+                          失败类型: {ERROR_TYPE_LABELS[run.error_type] || run.error_type}
                         </div>
                       )}
 
