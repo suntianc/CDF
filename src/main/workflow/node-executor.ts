@@ -17,7 +17,6 @@ import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
 import type { MCPServer, WorkflowNode } from '../../shared/types';
-import { executeWithValidation } from './output-validator';
 
 // ---- Error Types ----
 
@@ -413,19 +412,12 @@ export function createAgentNodeExecutor(
           ].filter(Boolean).join('\n');
 
           onLog?.(`[Loop] 正在执行第 ${iteration}/${loopCount} 轮循环...`);
-          const { output: resultText, validated, degraded } = await executeWithValidation(
-            invokeAgent,
-            nodeKind,
-            iterationContext,
-            onLog,
-          );
+          const resultText = await invokeAgent(iterationContext);
           const routing = extractWorkflowRouting(resultText);
           finalRouting = routing ?? finalRouting;
           iterations.push({
             iteration,
             result: resultText,
-            ...(validated ? { structuredOutput: validated } : {}),
-            ...(degraded ? { _degraded: true, _validationErrors: degraded._validationErrors } : {}),
             ...(routing ? { routing } : {}),
             duration_ms: Date.now() - iterationStart,
           });
@@ -496,12 +488,7 @@ export function createAgentNodeExecutor(
 
           onLog?.(`[For-Each] 正在执行第 ${i + 1}/${items.length} 项子任务...`);
           try {
-            const { output: resultText, validated, degraded } = await executeWithValidation(
-              invokeAgent,
-              'task', // Validate For-Each individual items using 'task' (TaskOutputSchema) instead of 'foreach'
-              itemContext,
-              onLog,
-            );
+            const resultText = await invokeAgent(itemContext);
             onLog?.(`[For-Each] 第 ${i + 1}/${items.length} 项子任务执行成功`);
             const routing = extractWorkflowRouting(resultText);
             finalRouting = routing ?? finalRouting;
@@ -509,8 +496,6 @@ export function createAgentNodeExecutor(
               index: i,
               item,
               output: resultText,
-              ...(validated ? { structuredOutput: validated } : {}),
-              ...(degraded ? { _degraded: true, _validationErrors: degraded._validationErrors } : {}),
               success: true,
               duration_ms: Date.now() - itemStart,
             });
@@ -545,24 +530,17 @@ export function createAgentNodeExecutor(
         };
       }
 
-      // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用，带输出校验）
+      // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
       onLog?.(`[Task] 开始执行节点任务...`);
-      const { output: resultText, validated, degraded } = await executeWithValidation(
-        invokeAgent,
-        nodeKind,
-        taskContext,
-        onLog,
-      );
+      const resultText = await invokeAgent(taskContext);
       onLog?.(`[Task] 节点任务执行完毕`);
 
-      // 5. 收集结果（routing 仍从原始文本提取，不受校验影响）
+      // 5. 收集结果（routing 从原始文本提取）
       const duration = Date.now() - startTime;
       const routing = extractWorkflowRouting(resultText);
 
       return {
         result: resultText,
-        ...(validated ? { structuredOutput: validated } : {}),
-        ...(degraded ? { _degraded: true, _validationErrors: degraded._validationErrors } : {}),
         nodeId: node.id,
         agentId,
         duration_ms: duration,
