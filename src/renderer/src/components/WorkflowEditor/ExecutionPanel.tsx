@@ -353,9 +353,15 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
             {nodeRuns.map((run) => {
               const config = statusConfig[run.status] || statusConfig.pending;
               const RunIcon = config.icon;
-              const steps = (nodeTrace[run.node_id] && nodeTrace[run.node_id].length > 0)
-                ? nodeTrace[run.node_id]
-                : (run.execution_trace ?? []);
+              // 纵深防御:即使 IPC handler 漏 parse,这里也守住数组类型,避免 .map 在字符串上崩溃
+              const liveTrace = nodeTrace[run.node_id];
+              const fallbackTrace: any = run.execution_trace;
+              const steps: ExecutionStep[] =
+                Array.isArray(liveTrace) && liveTrace.length > 0
+                  ? liveTrace
+                  : Array.isArray(fallbackTrace)
+                    ? fallbackTrace
+                    : [];
               const isExpanded = !!expandedNodes[run.id];
               const files = detectFilesFromOutput(run.output);
 
