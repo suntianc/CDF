@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { WorkflowExecution, WorkflowExecutionStatus } from '../../../../shared/types';
+import { ExecutionStep, WorkflowExecution, WorkflowExecutionStatus } from '../../../../shared/types';
 import {
   X,
   Square,
@@ -52,108 +52,83 @@ function extractNodeArtifact(output: unknown): string {
   return formatJson(output);
 }
 
-function parseLogLine(line: string) {
-  if (line.includes('Agent 正在思考决策...')) {
-    return {
-      type: 'thinking',
-      title: 'Agent 正在思考决策...',
-    };
-  }
-
-  let match = line.match(/^\[工具调用\] 开始执行工具:\s*(.+?)，参数:\s*([\s\S]*)$/);
-  if (match) {
-    return {
-      type: 'tool_call',
-      tool: match[1],
-      param: match[2],
-    };
-  }
-
-  match = line.match(/^\[工具返回\] 工具\s*(.+?)\s*执行成功，结果:\s*([\s\S]*)$/);
-  if (match) {
-    return {
-      type: 'tool_success',
-      tool: match[1],
-      result: match[2],
-    };
-  }
-
-  match = line.match(/^\[工具失败\] 工具\s*(.+?)\s*执行失败，错误:\s*([\s\S]*)$/);
-  if (match) {
-    return {
-      type: 'tool_fail',
-      tool: match[1],
-      error: match[2],
-    };
-  }
-
-  return {
-    type: 'info',
-    content: line,
-  };
+function formatTs(ts: number): string {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${hh}:${mm}:${ss}.${ms}`;
 }
 
-function RenderLogLine({ line, isLatest, isNodeRunning }: { line: string; isLatest: boolean; isNodeRunning: boolean }) {
-  const parsed = parseLogLine(line);
-  if (parsed.type === 'thinking') {
-    const showSpinner = isLatest && isNodeRunning;
-    return (
-      <div className="flex items-center gap-2 py-1 px-1.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10 mb-1">
-        {showSpinner && <Loader2 className="w-3 h-3 animate-spin" />}
-        <span className="text-[10px] font-medium">{parsed.title}</span>
-      </div>
-    );
-  }
-  if (parsed.type === 'tool_call') {
-    return (
-      <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-info-dim)]/30 border border-[var(--color-info)]/10 mb-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)]">调用</span>
-          <span className="text-[9px] font-semibold text-[var(--color-text-primary)] font-mono">{parsed.tool}</span>
-        </div>
-        {parsed.param && (
-          <pre className="text-[9px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
-            {parsed.param}
+function RenderStep({ step, isLatest, isNodeRunning }: { step: ExecutionStep; isLatest: boolean; isNodeRunning: boolean }) {
+  switch (step.type) {
+    case 'thinking': {
+      const showSpinner = isLatest && isNodeRunning;
+      return (
+        <div className="flex items-start gap-2 py-1 px-1.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10 mb-1">
+          {showSpinner && <Loader2 className="w-3 h-3 animate-spin mt-0.5 shrink-0" />}
+          <pre className="text-[10px] whitespace-pre-wrap break-words flex-1 m-0 font-mono leading-relaxed">
+            {step.content}
           </pre>
-        )}
-      </div>
-    );
-  }
-  if (parsed.type === 'tool_success') {
-    return (
-      <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-success-dim)]/30 border border-[var(--color-success)]/10 mb-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-success)]/20 text-[var(--color-success)]">返回</span>
-          <span className="text-[9px] font-semibold text-[var(--color-text-primary)] font-mono">{parsed.tool}</span>
         </div>
-        {parsed.result && (
-          <pre className="text-[9px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
-            {parsed.result}
-          </pre>
-        )}
-      </div>
-    );
-  }
-  if (parsed.type === 'tool_fail') {
-    return (
-      <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-danger-dim)]/30 border border-[var(--color-danger)]/10 mb-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-danger)]/20 text-[var(--color-danger)]">失败</span>
-          <span className="text-[9px] font-semibold text-[var(--color-text-primary)] font-mono">{parsed.tool}</span>
+      );
+    }
+    case 'tool_call':
+      return (
+        <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-info-dim)]/30 border border-[var(--color-info)]/10 mb-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)]">调用</span>
+            <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
+            <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{formatTs(step.ts)}</span>
+          </div>
+          {step.args !== undefined && (
+            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
+              {formatJson(step.args)}
+            </pre>
+          )}
         </div>
-        {parsed.error && (
-          <pre className="text-[9px] font-mono text-[var(--color-danger)] whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
-            {parsed.error}
-          </pre>
-        )}
-      </div>
-    );
+      );
+    case 'tool_result': {
+      const isSuccess = !!step.success;
+      const color = isSuccess ? 'success' : 'danger';
+      return (
+        <div className={`flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-${color}-dim)]/30 border border-[var(--color-${color})]/10 mb-1`}>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-${color})]/20 text-[var(--color-${color})]`}>
+              {isSuccess ? '返回' : '失败'}
+            </span>
+            <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
+            {step.duration_ms !== undefined && (
+              <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{step.duration_ms}ms</span>
+            )}
+          </div>
+          {isSuccess && step.output !== undefined && (
+            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
+              {formatJson(step.output)}
+            </pre>
+          )}
+          {!isSuccess && step.error && (
+            <pre className="text-[9px] font-mono text-[var(--color-danger)] whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
+              {step.error}
+            </pre>
+          )}
+        </div>
+      );
+    }
+    case 'task_start':
+    case 'task_end':
+    case 'system':
+    case 'validation':
+    default: {
+      const label = step.label || step.content || step.type;
+      return (
+        <div className="text-[9px] py-0.5 text-[var(--color-text-muted)] pl-1 border-l border-[var(--color-border)]/50 font-mono mb-1">
+          {label}
+        </div>
+      );
+    }
   }
-  return (
-    <div className="text-[9px] py-0.5 text-[var(--color-text-secondary)] pl-1 border-l border-[var(--color-border)]/50 font-mono mb-1">
-      {parsed.content}
-    </div>
-  );
 }
 
 function detectFilesFromOutput(output: unknown): string[] {
@@ -243,7 +218,7 @@ function FileCard({ filePath, projectId }: { filePath: string; projectId?: strin
 }
 
 export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPanelProps) {
-  const { subscribeToExecution, nodeRuns, fetchNodeRuns, stopWorkflow, currentExecution, nodeLogs } = useWorkflowStore();
+  const { subscribeToExecution, nodeRuns, fetchNodeRuns, stopWorkflow, currentExecution, nodeTrace } = useWorkflowStore();
   const [executionStatus, setExecutionStatus] = useState<WorkflowExecutionStatus>('running');
   const [execution, setExecution] = useState<WorkflowExecution | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
@@ -369,9 +344,9 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
             {nodeRuns.map((run) => {
               const config = statusConfig[run.status] || statusConfig.pending;
               const RunIcon = config.icon;
-              const logs = (nodeLogs[run.node_id] && nodeLogs[run.node_id].length > 0)
-                ? nodeLogs[run.node_id]
-                : run.logs;
+              const steps = (nodeTrace[run.node_id] && nodeTrace[run.node_id].length > 0)
+                ? nodeTrace[run.node_id]
+                : (run.execution_trace ?? []);
               const isExpanded = !!expandedNodes[run.id];
               const files = detectFilesFromOutput(run.output);
 
@@ -412,18 +387,18 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                         </div>
                       )}
 
-                      {/* Observable Logs Console */}
-                      {logs && logs.length > 0 && (
+                      {/* Observable Trace Console */}
+                      {steps && steps.length > 0 && (
                         <div>
                           <div className="text-[9px] font-semibold text-[var(--color-text-muted)] mb-1">
-                            运行日志
+                            运行轨迹
                           </div>
-                          <div className="max-h-[140px] overflow-y-auto rounded bg-black/15 p-2 leading-relaxed space-y-1">
-                            {logs.map((logLine, idx) => (
-                              <RenderLogLine
+                          <div className="max-h-[240px] overflow-y-auto rounded bg-black/15 p-2 leading-relaxed space-y-1">
+                            {steps.map((s, idx) => (
+                              <RenderStep
                                 key={idx}
-                                line={logLine}
-                                isLatest={idx === logs.length - 1}
+                                step={s}
+                                isLatest={idx === steps.length - 1}
                                 isNodeRunning={run.status === 'running'}
                               />
                             ))}
