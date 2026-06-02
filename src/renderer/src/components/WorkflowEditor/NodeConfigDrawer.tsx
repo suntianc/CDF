@@ -29,7 +29,6 @@ interface NodeConfigDrawerProps {
       dataSource?: string;
       itemPrompt?: string;
       temperature?: number;
-      maxTokens?: number;
     };
   } | null;
   onUpdateNode: (nodeId: string, data: Record<string, unknown>) => void;
@@ -66,7 +65,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [dataSource, setDataSource] = useState('');
   const [itemPrompt, setItemPrompt] = useState('');
   const [temperature, setTemperature] = useState('');
-  const [maxTokens, setMaxTokens] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -115,7 +113,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setDataSource(node.data.dataSource || '');
       setItemPrompt(node.data.itemPrompt || '');
       setTemperature(node.data.temperature === undefined ? '' : String(node.data.temperature));
-      setMaxTokens(node.data.maxTokens === undefined ? '' : String(node.data.maxTokens));
     }
   }, [node]);
 
@@ -135,7 +132,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const handleSave = () => {
     if (!node) return;
     const temperatureNum = temperature === '' ? undefined : Number(temperature);
-    const maxTokensNum = maxTokens === '' ? undefined : parseInt(maxTokens, 10);
     onUpdateNode(node.id, {
       label,
       description,
@@ -152,7 +148,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       dataSource,
       itemPrompt,
       ...(temperatureNum !== undefined && !Number.isNaN(temperatureNum) ? { temperature: temperatureNum } : {}),
-      ...(maxTokensNum !== undefined && !Number.isNaN(maxTokensNum) ? { maxTokens: maxTokensNum } : {}),
     });
     onClose();
   };
@@ -468,18 +463,6 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                         min="0"
                         max="2"
                         placeholder="使用默认（0）"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Max Tokens</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={maxTokens}
-                        onChange={(e) => setMaxTokens(e.target.value)}
-                        min="1"
-                        step="1"
-                        placeholder="使用默认（4096）"
                       />
                     </div>
                   </div>

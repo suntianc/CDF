@@ -249,8 +249,6 @@ export interface WorkflowNode {
     itemPrompt?: string;
     /** 节点级 LLM temperature (0~2),留空则使用 provider 默认 */
     temperature?: number;
-    /** 节点级 LLM maxTokens (正整数),留空则使用 provider 默认 */
-    maxTokens?: number;
   };
 }
 

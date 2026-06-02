@@ -56,8 +56,6 @@ export interface RuntimeProviderModelConfig {
   model?: string;
   /** 节点级 LLM temperature 覆盖,undefined 时维持 provider 默认 */
   temperature?: number;
-  /** 节点级 LLM maxTokens 覆盖,undefined 时维持 provider 默认 */
-  maxTokens?: number;
 }
 
 function cleanOllamaUrl(url: string): string {
@@ -514,7 +512,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         streaming: true,
       };
       if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
-      if (config.maxTokens !== undefined) modelConfig.maxTokens = config.maxTokens;
       if (config.apiKey) modelConfig.apiKey = config.apiKey;
       if (normalizedApiUrl) {
         modelConfig.configuration = {
@@ -537,7 +534,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         maxTokens: 4096,
       };
       if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
-      if (config.maxTokens !== undefined) modelConfig.maxTokens = config.maxTokens;
       const useAuthToken = shouldUseAnthropicAuthToken(normalizedApiUrl, config.apiKey);
       if (config.apiKey && !useAuthToken) modelConfig.apiKey = config.apiKey;
       if (normalizedApiUrl) {
@@ -565,7 +561,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         maxTokens: 4096,
       };
       if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
-      if (config.maxTokens !== undefined) modelConfig.maxTokens = config.maxTokens;
       const useAuthToken = shouldUseAnthropicAuthToken(normalizedApiUrl, config.apiKey);
       if (config.apiKey && !useAuthToken) modelConfig.apiKey = config.apiKey;
       if (normalizedApiUrl) {
@@ -588,7 +583,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         baseUrl: cleanOllamaUrl(normalizedApiUrl || 'http://localhost:11434'),
         temperature: 0,
         ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
-        ...(config.maxTokens !== undefined ? { numPredict: config.maxTokens } : {}),
       });
       patchOpenAIReasoning(model);
       break;

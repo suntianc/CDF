@@ -262,7 +262,6 @@ export function createAgentNodeExecutor(
         defaultModel: provider.default_model,
         providerType: provider.provider_type as any,
         temperature: node.data.temperature,
-        maxTokens: node.data.maxTokens,
       });
 
       const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?')
