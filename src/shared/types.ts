@@ -299,6 +299,27 @@ export interface WorkflowExecution {
 
 export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
+// ===== 时序执行轨迹 =====
+
+export type ExecutionStepType =
+  | 'task_start' | 'task_end'
+  | 'thinking'
+  | 'tool_call' | 'tool_result'
+  | 'system' | 'validation';
+
+export interface ExecutionStep {
+  type: ExecutionStepType;
+  ts: number;
+  label?: string;       // task_start / task_end / system
+  content?: string;     // thinking / system
+  tool?: string;        // tool_call / tool_result
+  args?: unknown;       // tool_call
+  success?: boolean;    // tool_result
+  output?: unknown;     // tool_result(成功)
+  error?: string;       // tool_result(失败)
+  duration_ms?: number; // tool_result
+}
+
 export interface WorkflowNodeRun {
   id: string;
   execution_id: string;
@@ -312,7 +333,8 @@ export interface WorkflowNodeRun {
   retry_count: number;
   started_at: number;
   ended_at?: number;
-  logs?: string[];
+  logs?: string[];                  // 保留(向后兼容)
+  execution_trace?: ExecutionStep[]; // 新增:时序执行轨迹
 }
 
 export type WorkflowStreamEvent = (
@@ -322,7 +344,7 @@ export type WorkflowStreamEvent = (
   | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
   | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }
   | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
-  | { type: 'node_log'; executionId: string; nodeId: string; log: string }
+  | { type: 'node_log'; executionId: string; nodeId: string; step: ExecutionStep }
 ) & { seq?: number };
 
 export interface ElectronAPI {
