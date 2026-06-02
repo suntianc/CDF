@@ -38,6 +38,20 @@ function sanitizeMcpEnv(env: unknown): Record<string, string> {
 }
 
 /**
+ * 过滤 logs 中以 [工具调用]/[工具返回]/[工具失败] 开头的工具相关日志。
+ * 工具调用真相已结构化存在于 node_runs[].tool_calls,文本日志只是 truncate 后的字符串,信息更少。
+ */
+function filterToolLogs(logs: unknown): string[] {
+  if (!Array.isArray(logs)) return [];
+  return logs.filter((line): line is string =>
+    typeof line === 'string' &&
+    !line.startsWith('[工具调用]') &&
+    !line.startsWith('[工具返回]') &&
+    !line.startsWith('[工具失败]'),
+  );
+}
+
+/**
  * 读取单次执行的完整数据,过滤 provider 信息并脱敏 MCP env,组装导出 JSON。
  */
 export function buildExportPayload(executionId: string): Record<string, unknown> {
@@ -72,7 +86,11 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
   }));
 
   // 7. 解析 events
-  const events = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
+  // 解析 events 并过滤:剔除 node_log 类型(内容已完整存在于 node_runs[].logs,避免冗余)
+  const allEvents = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
+  const events = Array.isArray(allEvents)
+    ? allEvents.filter((e: any) => e?.type !== 'node_log')
+    : [];
 
   return {
     schema_version: SCHEMA_VERSION,
@@ -104,7 +122,7 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
         retry_count: r.retry_count,
         started_at: r.started_at,
         ended_at: r.ended_at,
-        logs: r.logs ? JSON.parse(r.logs) : [],
+        logs: filterToolLogs(r.logs ? JSON.parse(r.logs) : []),
         tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : [],
       })),
       events,
