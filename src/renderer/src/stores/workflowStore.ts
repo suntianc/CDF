@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent } from '../../../shared/types';
+import { ExecutionStep, Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent } from '../../../shared/types';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -7,7 +7,7 @@ interface WorkflowState {
   executions: WorkflowExecution[];
   currentExecution: WorkflowExecution | null;
   nodeRuns: WorkflowNodeRun[];
-  nodeLogs: Record<string, string[]>;
+  nodeTrace: Record<string, ExecutionStep[]>;
   isLoading: boolean;
   error: string | null;
   activeExecutionId: string | null;
@@ -38,7 +38,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   executions: [],
   currentExecution: null,
   nodeRuns: [],
-  nodeLogs: {},
+  nodeTrace: {},
   isLoading: false,
   error: null,
   activeExecutionId: null,
@@ -125,7 +125,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   runWorkflow: async (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
-    set({ error: null, nodeLogs: {}, activeExecutionId: null, processedSeqs: new Set<number>() });
+    set({ error: null, nodeTrace: {}, activeExecutionId: null, processedSeqs: new Set<number>() });
     try {
       const executionId = await window.electronAPI.workflow.runWorkflow(workflowId, projectId, triggerSource, input);
       set({
@@ -175,7 +175,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     if (get().activeExecutionId !== executionId) {
       set({
         activeExecutionId: executionId,
-        nodeLogs: {},
+        nodeTrace: {},
         processedSeqs: new Set<number>(),
       });
     }
@@ -234,11 +234,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       } else if (data.type === 'node_end' || data.type === 'node_error') {
         get().fetchNodeRuns(executionId).catch(() => {});
       } else if (data.type === 'node_log') {
-        const logs = get().nodeLogs[data.nodeId] || [];
+        const arr = get().nodeTrace[data.nodeId] || [];
         set({
-          nodeLogs: {
-            ...get().nodeLogs,
-            [data.nodeId]: [...logs, data.log],
+          nodeTrace: {
+            ...get().nodeTrace,
+            [data.nodeId]: [...arr, data.step],
           },
         });
       }
