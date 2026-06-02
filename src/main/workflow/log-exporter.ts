@@ -38,6 +38,35 @@ function sanitizeMcpEnv(env: unknown): Record<string, string> {
 }
 
 /**
+ * 递归剔除空值:null / undefined / 空字符串 / 空数组 / 空对象。
+ * 保留:false / 0 / 非空值(布尔 false 和数字 0 是有意义的语义值)。
+ * 数组:对每个元素递归 prune,但保留所有元素位置(不剔除变空的对象项),
+ *      避免改变 events / nodes 等列表的长度语义。
+ */
+function pruneEmpty(obj: unknown): unknown {
+  if (Array.isArray(obj)) {
+    return obj.map(pruneEmpty);
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      const pv = pruneEmpty(v);
+      if (pv === null || pv === undefined) continue;
+      if (typeof pv === 'string' && pv === '') continue;
+      if (Array.isArray(pv) && pv.length === 0) continue;
+      if (
+        typeof pv === 'object' &&
+        !Array.isArray(pv) &&
+        Object.keys(pv as object).length === 0
+      ) continue;
+      out[k] = pv;
+    }
+    return out;
+  }
+  return obj;
+}
+
+/**
  * 读取单次执行的完整数据,过滤 provider 信息并脱敏 MCP env,组装导出 JSON。
  */
 export function buildExportPayload(executionId: string): Record<string, unknown> {
@@ -71,20 +100,23 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
     env: sanitizeMcpEnv(s.env),
   }));
 
-  // 7. 解析 events
-  const events = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
+  // 7. 解析 events 并剔除冗余引用字段(executionId/workflowId 已在 outer 字段)
+  const rawEvents = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
+  const events = Array.isArray(rawEvents)
+    ? rawEvents.map(({ executionId, workflowId, ...rest }: any) => rest)
+    : [];
 
   return {
     schema_version: SCHEMA_VERSION,
     exported_at: Date.now(),
-    workflow: {
+    workflow: pruneEmpty({
       id: workflowRow.id,
       name: workflowRow.name,
       graph_data: configSnapshot?.graph_data || graphData,
       agents: safeAgents,
       mcp_servers: safeMcpServers,
       skills: configSnapshot?.skills || [],
-    },
+    }),
     execution: {
       id: row.id,
       status: row.status,
@@ -101,7 +133,8 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
         input: r.input ? JSON.parse(r.input) : undefined,
         output: r.output ? JSON.parse(r.output) : undefined,
         error: r.error || undefined,
-        retry_count: r.retry_count,
+        // retry_count 仅在 > 0 时输出(默认 0 无意义)
+        ...(r.retry_count && r.retry_count > 0 ? { retry_count: r.retry_count } : {}),
         started_at: r.started_at,
         ended_at: r.ended_at,
         execution_trace: r.execution_trace ? JSON.parse(r.execution_trace) : [],
