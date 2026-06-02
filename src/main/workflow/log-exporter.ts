@@ -38,6 +38,39 @@ function sanitizeMcpEnv(env: unknown): Record<string, string> {
 }
 
 /**
+ * 节点字段白名单 — 与前端 NodeConfigDrawer 实际渲染的字段一一对齐。
+ *
+ * 设计原则:
+ * - 在白名单内的字段:即使当前值是空串/0/默认值,也保留 — 显式表达"该字段属于该节点类型"
+ * - 不在白名单的字段:即使有值也不导出 — 避免遗留垃圾或历史 schema 字段
+ * - 未知节点类型:保守保留全部 data(不裁剪)
+ */
+const NODE_FIELD_WHITELIST: Record<string, string[]> = {
+  start:   ['label', 'workspace', 'taskGoal'],
+  end:     ['label'],
+  task:    ['label', 'nodeKind', 'taskDescription', 'agentId', 'failureStrategy', 'retryCount', 'temperature'],
+  agent:   ['label', 'nodeKind', 'taskDescription', 'agentId', 'failureStrategy', 'retryCount', 'temperature'],
+  loop:    ['label', 'nodeKind', 'taskDescription', 'loopCount', 'agentId', 'failureStrategy', 'retryCount', 'temperature'],
+  foreach: ['label', 'nodeKind', 'taskDescription', 'dataSource', 'itemPrompt', 'agentId', 'failureStrategy', 'retryCount', 'temperature'],
+  review:  ['label', 'nodeKind', 'reviewSpec', 'reviewRules', 'agentId', 'failureStrategy', 'retryCount', 'temperature'],
+};
+
+/**
+ * 按节点类型白名单裁剪 data 字段。
+ */
+function projectNodeData(nodeType: string, data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return {};
+  const whitelist = NODE_FIELD_WHITELIST[nodeType];
+  if (!whitelist) return data as Record<string, unknown>;
+  const src = data as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of whitelist) {
+    if (k in src) out[k] = src[k];
+  }
+  return out;
+}
+
+/**
  * 递归剔除空值:null / undefined / 空字符串 / 空数组 / 空对象。
  * 保留:false / 0 / 非空值(布尔 false 和数字 0 是有意义的语义值)。
  * 数组:对每个元素递归 prune,但保留所有元素位置(不剔除变空的对象项),
@@ -109,26 +142,36 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
         .filter((e: any) => e?.type !== 'node_log')
     : [];
 
-  // 8. graph_data 剔除节点 position(复盘不需要画布坐标)
+  // 8. graph_data 节点裁剪:按前端 NodeConfigDrawer 字段白名单 + 剔除 position(画布坐标对复盘无价值)
   const rawGraphData = configSnapshot?.graph_data || graphData;
   const slimGraphData = rawGraphData && Array.isArray(rawGraphData.nodes)
     ? {
         ...rawGraphData,
-        nodes: rawGraphData.nodes.map(({ position, ...rest }: any) => rest),
+        nodes: rawGraphData.nodes.map((n: any) => ({
+          id: n.id,
+          type: n.type,
+          data: projectNodeData(n.type, n.data),
+        })),
       }
     : rawGraphData;
+
+  // workflow 顶层其它字段走 pruneEmpty 清理空 agents/mcp_servers/skills;
+  // graph_data 不经过 pruneEmpty(白名单已确定字段,即使是空字符串也要保留,显式表达"属于该节点类型")
+  const restWorkflow = pruneEmpty({
+    id: workflowRow.id,
+    name: workflowRow.name,
+    agents: safeAgents,
+    mcp_servers: safeMcpServers,
+    skills: configSnapshot?.skills || [],
+  }) as Record<string, unknown>;
 
   return {
     schema_version: SCHEMA_VERSION,
     exported_at: Date.now(),
-    workflow: pruneEmpty({
-      id: workflowRow.id,
-      name: workflowRow.name,
+    workflow: {
+      ...restWorkflow,
       graph_data: slimGraphData,
-      agents: safeAgents,
-      mcp_servers: safeMcpServers,
-      skills: configSnapshot?.skills || [],
-    }),
+    },
     execution: {
       id: row.id,
       status: row.status,
