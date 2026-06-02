@@ -721,6 +721,8 @@ export function registerIpcHandlers() {
       input: r.input ? JSON.parse(r.input) : undefined,
       output: r.output ? JSON.parse(r.output) : undefined,
       logs: r.logs ? JSON.parse(r.logs) : undefined,
+      execution_trace: r.execution_trace ? JSON.parse(r.execution_trace) : undefined,
+      tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : undefined,
     }));
   });
 
