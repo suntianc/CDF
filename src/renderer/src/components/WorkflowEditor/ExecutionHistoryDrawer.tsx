@@ -35,11 +35,19 @@ interface Props {
 
 export function ExecutionHistoryDrawer({ workflowId, onClose }: Props) {
   const { historyExecutions, fetchHistoryExecutions, deleteHistoryExecution, exportHistoryExecution } = useWorkflowStore();
+  const currentExecutionStatus = useWorkflowStore((s) => s.currentExecution?.status);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHistoryExecutions(workflowId);
   }, [workflowId, fetchHistoryExecutions]);
+
+  // 工作流跑完时(currentExecution 进入终态)自动刷新列表
+  useEffect(() => {
+    if (currentExecutionStatus && ['completed', 'failed', 'stopped'].includes(currentExecutionStatus)) {
+      fetchHistoryExecutions(workflowId);
+    }
+  }, [currentExecutionStatus, workflowId, fetchHistoryExecutions]);
 
   const handleDelete = async (executionId: string) => {
     if (confirmingId !== executionId) {

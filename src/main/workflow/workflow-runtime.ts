@@ -265,7 +265,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
-        return executeNode(state, (logText) => {
+        return executeNode(state, (logText: string) => {
           const logs = nodeLogsMap.get(node.id) || [];
           logs.push(logText);
           nodeLogsMap.set(node.id, logs);
