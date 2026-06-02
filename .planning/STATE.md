@@ -56,6 +56,7 @@ Plan: 21/21 done
 | 2026-06-02 | fast | 导出 JSON 精简三（events 剔除 node_log 类型 + 节点剔除 position 字段；体积再减 22%）| complete |
 | 2026-06-02 | fast | 节点字段改用白名单（对齐前端 NodeConfigDrawer，每个节点类型只导出该类型实际渲染的字段，剔除遗留垃圾）| complete |
 | 2026-06-02 | fast | hotfix: foreach 报错时应用黑屏（根因 IPC getWorkflowNodeRuns 漏 parse execution_trace/tool_calls，附 ErrorBoundary 护栏）| complete |
+| 2026-06-02 | fast | 导出 JSON 精简四（剔除 execution.output 字典冗余 + node output 元字段 + foreach results LangChain 残留）| complete |
 
 ## Accumulated Context
 
