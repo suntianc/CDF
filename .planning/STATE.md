@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: milestone_complete
-last_updated: 2026-06-02T02:15:00.000Z
+last_updated: 2026-06-02T03:35:00.000Z
 progress:
   total_phases: 6
   completed_phases: 6
@@ -47,6 +47,7 @@ Plan: 21/21 done
 | 2026-06-01 | 260601-nzn | 使用 patch-package 方案为 MiniMax M3 解锁视频透传能力 | complete |
 | 2026-06-01 | 260602-0ed | 工作流执行历史记录 + JSON 导出（含工作流配置+详细执行过程，脱敏 provider 与 MCP 密钥）+ 单条删除 | complete |
 | 2026-06-02 | 260602-dz3 | 移除节点输出 JSON Schema 校验机制（首轮无 schema 提示导致 5 次重试无效；与 routing 提取矛盾；validated 字段无下游消费者）| complete |
+| 2026-06-02 | 260602-fs4 | 应用 Claude Code Workflow 哲学加固稳定性（节点级 temperature/maxTokens + tool_calls 结构化落库 + error_type 分类）| complete |
 
 ## Accumulated Context
 
@@ -65,3 +66,4 @@ Plan: 21/21 done
 | 2026-05-31T14:03:00Z | Quick task 260531-umu completed | 工作流节点输出 JSON Schema 校验机制 implemented — src/shared/node-output-schemas.ts, src/main/workflow/output-validator.ts, node-executor integration |
 | 2026-06-01T16:30:00Z | Quick task 260602-0ed completed | 工作流执行历史 + JSON 导出 + 单条删除 — src/main/workflow/log-exporter.ts(新), src/renderer/src/components/WorkflowEditor/ExecutionHistoryDrawer.tsx(新), 3 IPC + 2 新列(config_snapshot/events_snapshot) |
 | 2026-06-02T02:15:00Z | Quick task 260602-dz3 completed | 移除节点输出 JSON Schema 校验机制(撤销 260531-umu) — 删除 output-validator.ts/node-output-schemas.ts,node-executor.ts 三处调用直接 invokeAgent,净减 433 行 |
+| 2026-06-02T03:35:00Z | Quick task 260602-fs4 completed | Claude Code Workflow 稳定性加固 — 节点级 temperature/maxTokens、tool_calls 结构化落库(新列)、error_type 枚举(timeout/tool_error/llm_error/no_routing/aborted/unknown) |
