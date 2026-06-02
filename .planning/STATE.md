@@ -54,6 +54,7 @@ Plan: 21/21 done
 | 2026-06-02 | fast | execution_trace 可读性三坑修复（thinking 剔除 tool_calls JSON 尾巴 / tool_result 剥 LangChain ToolMessage 外壳 / tool_call.args 反序列化）| complete |
 | 2026-06-02 | fast | 导出 JSON 精简（pruneEmpty 递归剔除空值 + events 去 executionId/workflowId 冗余 + retry_count=0 省略）| complete |
 | 2026-06-02 | fast | 导出 JSON 精简三（events 剔除 node_log 类型 + 节点剔除 position 字段；体积再减 22%）| complete |
+| 2026-06-02 | fast | 节点字段改用白名单（对齐前端 NodeConfigDrawer，每个节点类型只导出该类型实际渲染的字段，剔除遗留垃圾）| complete |
 
 ## Accumulated Context
 
