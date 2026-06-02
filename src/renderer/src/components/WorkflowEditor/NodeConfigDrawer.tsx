@@ -3,7 +3,7 @@ import { Drawer } from 'vaul';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Maximize2, X } from 'lucide-react';
+import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Maximize2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
@@ -28,6 +28,8 @@ interface NodeConfigDrawerProps {
       taskGoal?: string;
       dataSource?: string;
       itemPrompt?: string;
+      temperature?: number;
+      maxTokens?: number;
     };
   } | null;
   onUpdateNode: (nodeId: string, data: Record<string, unknown>) => void;
@@ -63,6 +65,9 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [bgColor, setBgColor] = useState('');
   const [dataSource, setDataSource] = useState('');
   const [itemPrompt, setItemPrompt] = useState('');
+  const [temperature, setTemperature] = useState('');
+  const [maxTokens, setMaxTokens] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
@@ -109,6 +114,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setBgColor(node.data.bgColor || '');
       setDataSource(node.data.dataSource || '');
       setItemPrompt(node.data.itemPrompt || '');
+      setTemperature(node.data.temperature === undefined ? '' : String(node.data.temperature));
+      setMaxTokens(node.data.maxTokens === undefined ? '' : String(node.data.maxTokens));
     }
   }, [node]);
 
@@ -127,6 +134,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
 
   const handleSave = () => {
     if (!node) return;
+    const temperatureNum = temperature === '' ? undefined : Number(temperature);
+    const maxTokensNum = maxTokens === '' ? undefined : parseInt(maxTokens, 10);
     onUpdateNode(node.id, {
       label,
       description,
@@ -142,6 +151,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       bgColor,
       dataSource,
       itemPrompt,
+      ...(temperatureNum !== undefined && !Number.isNaN(temperatureNum) ? { temperature: temperatureNum } : {}),
+      ...(maxTokensNum !== undefined && !Number.isNaN(maxTokensNum) ? { maxTokens: maxTokensNum } : {}),
     });
     onClose();
   };
@@ -428,6 +439,51 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                   min={1}
                   max={10}
                 />
+              </div>
+            )}
+
+            {needsAgent && (
+              <div className="form-group">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors cursor-pointer"
+                  onClick={() => setAdvancedOpen((v) => !v)}
+                >
+                  {advancedOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  高级（LLM 参数）
+                </button>
+                {advancedOpen && (
+                  <div className="mt-2 space-y-3 pl-1 border-l-2 border-[var(--color-border)]/30 pl-3">
+                    <p className="text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                      留空则使用 Agent/Provider 默认
+                    </p>
+                    <div className="form-group">
+                      <label className="form-label">Temperature</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        value={temperature}
+                        onChange={(e) => setTemperature(e.target.value)}
+                        step="0.1"
+                        min="0"
+                        max="2"
+                        placeholder="使用默认（0）"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Max Tokens</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        value={maxTokens}
+                        onChange={(e) => setMaxTokens(e.target.value)}
+                        min="1"
+                        step="1"
+                        placeholder="使用默认（4096）"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
