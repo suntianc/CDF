@@ -16,7 +16,7 @@ import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
 import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
-import type { MCPServer, WorkflowNode } from '../../shared/types';
+import type { MCPServer, ToolCallRecord, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -225,6 +225,8 @@ export function createAgentNodeExecutor(
     onLog?: (log: string) => void
   ): Promise<Record<string, unknown>> => {
     const startTime = Date.now();
+    // 跨多次 invokeAgent 累积(loop/foreach 节点共用同一闭包)
+    const toolCalls: ToolCallRecord[] = [];
 
     try {
       // 1. 创建 DeepAgent 实例（每次执行独立创建，不共享 chat runtime）
@@ -331,8 +333,10 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       const invokeAgent = async (content: string): Promise<string> => {
-        // 临时存储每个工具运行 of runId 对应的工具名称
+        // 临时存储每个工具运行 of runId 对应的工具名称与起始时间
         const toolRunNames = new Map<string, string>();
+        const toolStartTimes = new Map<string, number>();
+        const toolArgsMap = new Map<string, unknown>();
 
         const agentPromise = agent.invoke(
           { messages: [{ role: 'user', content }] },
@@ -347,21 +351,50 @@ export function createAgentNodeExecutor(
                   const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
                   const toolName = name || tool?.name || toolId || 'unknown';
                   toolRunNames.set(runId, toolName);
+                  toolStartTimes.set(runId, Date.now());
+                  toolArgsMap.set(runId, toolInput);
                   const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
                   const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;
                   onLog?.(`[工具调用] 开始执行工具: ${toolName}，参数: ${truncatedInput}`);
                 },
                 handleToolEnd(output, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
+                  const startedAt = toolStartTimes.get(runId) || Date.now();
+                  const args = toolArgsMap.get(runId);
+                  const endedAt = Date.now();
+                  toolCalls.push({
+                    tool: toolName,
+                    args,
+                    success: true,
+                    duration_ms: endedAt - startedAt,
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                  });
                   toolRunNames.delete(runId);
+                  toolStartTimes.delete(runId);
+                  toolArgsMap.delete(runId);
                   const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
                   const truncatedOutput = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr;
                   onLog?.(`[工具返回] 工具 ${toolName} 执行成功，结果: ${truncatedOutput}`);
                 },
                 handleToolError(err, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
-                  toolRunNames.delete(runId);
+                  const startedAt = toolStartTimes.get(runId) || Date.now();
+                  const args = toolArgsMap.get(runId);
+                  const endedAt = Date.now();
                   const errMsg = err instanceof Error ? err.message : String(err);
+                  toolCalls.push({
+                    tool: toolName,
+                    args,
+                    success: false,
+                    error: errMsg,
+                    duration_ms: endedAt - startedAt,
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                  });
+                  toolRunNames.delete(runId);
+                  toolStartTimes.delete(runId);
+                  toolArgsMap.delete(runId);
                   onLog?.(`[工具失败] 工具 ${toolName} 执行失败，错误: ${errMsg}`);
                 }
               }
@@ -441,6 +474,7 @@ export function createAgentNodeExecutor(
           nodeId: node.id,
           agentId,
           duration_ms: duration,
+          tool_calls: toolCalls,
           ...(finalRouting ? { routing: finalRouting } : {}),
         };
       }
@@ -528,6 +562,7 @@ export function createAgentNodeExecutor(
           nodeId: node.id,
           agentId,
           duration_ms: duration,
+          tool_calls: toolCalls,
           ...(finalRouting ? { routing: finalRouting } : {}),
         };
       }
@@ -546,6 +581,7 @@ export function createAgentNodeExecutor(
         nodeId: node.id,
         agentId,
         duration_ms: duration,
+        tool_calls: toolCalls,
         ...(routing ? { routing } : {}),
       };
     } catch (err) {

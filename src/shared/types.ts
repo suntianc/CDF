@@ -303,6 +303,16 @@ export interface WorkflowExecution {
 
 export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
+export interface ToolCallRecord {
+  tool: string;
+  args?: unknown;
+  success: boolean;
+  error?: string;
+  duration_ms: number;
+  started_at: number;
+  ended_at: number;
+}
+
 export interface WorkflowNodeRun {
   id: string;
   execution_id: string;
@@ -317,6 +327,7 @@ export interface WorkflowNodeRun {
   started_at: number;
   ended_at?: number;
   logs?: string[];
+  tool_calls?: ToolCallRecord[];
 }
 
 export type WorkflowStreamEvent = (

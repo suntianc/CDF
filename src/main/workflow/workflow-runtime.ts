@@ -343,11 +343,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           const nodeName = nodeNames.get(nodeId) || nodeId;
           const nodeStartTime = nodeStartTimes.get(nodeId) || Date.now();
           const accumulatedLogs = nodeLogsMap.get(nodeId) || [];
+          const nodeOutput = nodeOutputs[nodeId] as Record<string, unknown>;
+          const toolCallsArr = Array.isArray(nodeOutput.tool_calls) ? nodeOutput.tool_calls : [];
 
           db.prepare(`
-            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs)
-            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?)
-          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
+            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs, tool_calls)
+            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs), JSON.stringify(toolCallsArr));
 
           const nodeEndEvent: WorkflowStreamEvent = {
             type: 'node_end',
