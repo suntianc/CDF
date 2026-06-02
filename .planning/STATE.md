@@ -51,6 +51,7 @@ Plan: 21/21 done
 | 2026-06-02 | fast | 移除节点级 maxTokens 配置（保留 temperature；用户决定不限制 token 上限）| complete |
 | 2026-06-02 | fast | 导出 JSON 去重（events 剔除 node_log，logs 剔除工具相关文本；实测体积可减 50%+）| complete |
 | 2026-06-02 | 260602-un5 | 重构工作流节点执行轨迹为时序流（ExecutionStep[] 统一思考/工具调用/工具返回，handleLLMEnd 抓真实 LLM 思考文本，实时 UI 按 step.type 渲染）| complete |
+| 2026-06-02 | fast | execution_trace 可读性三坑修复（thinking 剔除 tool_calls JSON 尾巴 / tool_result 剥 LangChain ToolMessage 外壳 / tool_call.args 反序列化）| complete |
 
 ## Accumulated Context
 
