@@ -196,6 +196,86 @@ function getLastMessageText(result: any): string {
 }
 
 /**
+ * 从 LangChain LLMResult 中提取 Agent 的"自然语言思考",剔除 tool_calls JSON。
+ *
+ * 优先取 message.content(BaseMessage 的自然语言字段,不含 tool_calls);
+ * 数组形式(多模态)则拼接所有 text 段;最终 fallback 到 .text。
+ */
+function extractThinkingText(output: any): string {
+  try {
+    if (typeof output === 'string') return output;
+    const gen = output?.generations?.[0]?.[0];
+    const content = gen?.message?.content ?? output?.message?.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter((part: any) => part?.type === 'text' && typeof part?.text === 'string')
+        .map((part: any) => part.text)
+        .join('');
+    }
+    if (typeof gen?.text === 'string') return gen.text;
+    if (typeof output?.lc_kwargs?.content === 'string') return output.lc_kwargs.content;
+  } catch { /* ignore */ }
+  return '';
+}
+
+/**
+ * 剥离 LangChain ToolMessage 外壳,提取真正的工具结果。
+ *
+ * ToolMessage 序列化形如 { lc:1, type:"constructor", id:[...,"ToolMessage"], kwargs:{ content, ... } }。
+ * 取 kwargs.content;若 content 是 JSON 字符串则 try parse;若是多模态数组取 text 段;
+ * 兜底直接返回原 output(保守不丢数据)。
+ */
+function unwrapToolOutput(output: unknown): unknown {
+  if (output === null || output === undefined) return output;
+  const obj = output as any;
+  // 识别 LangChain serialized ToolMessage
+  const isLcToolMessage = obj?.lc === 1
+    && obj?.type === 'constructor'
+    && Array.isArray(obj?.id)
+    && obj.id[obj.id.length - 1] === 'ToolMessage'
+    && obj.kwargs !== undefined;
+  const content = isLcToolMessage ? obj.kwargs.content : obj.content !== undefined ? obj.content : undefined;
+  if (content === undefined) return output;
+
+  // 多模态数组:取 text 段
+  if (Array.isArray(content)) {
+    const textParts = content
+      .filter((part: any) => part?.type === 'text' && typeof part?.text === 'string')
+      .map((part: any) => part.text);
+    if (textParts.length === 1) {
+      const single = textParts[0];
+      return tryParseJson(single);
+    }
+    if (textParts.length > 1) return textParts.join('\n');
+    return content;
+  }
+
+  // 字符串:try JSON.parse
+  if (typeof content === 'string') return tryParseJson(content);
+
+  return content;
+}
+
+/**
+ * 工具调用 args 反序列化:string 尝试 JSON.parse,失败保留原 string;对象直接返回。
+ */
+function normalizeToolArgs(input: unknown): unknown {
+  if (typeof input === 'string') return tryParseJson(input);
+  return input;
+}
+
+/**
+ * 尝试 JSON.parse,失败保留原字符串。
+ */
+function tryParseJson(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return value;
+  try { return JSON.parse(trimmed); } catch { return value; }
+}
+
+/**
  * 创建 Agent 节点执行器
  *
  * 返回一个函数，接受 WorkflowStateType，返回该节点的输出。
@@ -348,14 +428,8 @@ export function createAgentNodeExecutor(
                   // 不再产生 thinking 占位 step;真正的思考由 handleLLMEnd 产出
                 },
                 handleLLMEnd(output: any) {
-                  // 提取 LLM 真实输出文本,产出 thinking step
-                  let text = '';
-                  try {
-                    if (typeof output === 'string') text = output;
-                    else if (output?.generations?.[0]?.[0]?.text) text = output.generations[0][0].text;
-                    else if (output?.message?.content) text = typeof output.message.content === 'string' ? output.message.content : JSON.stringify(output.message.content);
-                    else if (output?.lc_kwargs?.content) text = String(output.lc_kwargs.content);
-                  } catch { /* ignore */ }
+                  // 提取 LLM 自然语言思考,剔除 tool_calls JSON 尾巴
+                  const text = extractThinkingText(output);
                   if (text && text.trim()) {
                     push({ type: 'thinking', content: text });
                   }
@@ -366,7 +440,7 @@ export function createAgentNodeExecutor(
                   const toolName = name || tool?.name || toolId || 'unknown';
                   toolRunNames.set(runId, toolName);
                   toolRunStartedAt.set(runId, Date.now());
-                  push({ type: 'tool_call', tool: toolName, args: toolInput });
+                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
                 },
                 handleToolEnd(output, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
@@ -374,7 +448,7 @@ export function createAgentNodeExecutor(
                   const startedAt = toolRunStartedAt.get(runId) || Date.now();
                   toolRunStartedAt.delete(runId);
                   const durationMs = Date.now() - startedAt;
-                  push({ type: 'tool_result', tool: toolName, success: true, output, duration_ms: durationMs });
+                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs });
                 },
                 handleToolError(err, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
