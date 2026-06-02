@@ -101,10 +101,22 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
   }));
 
   // 7. 解析 events 并剔除冗余引用字段(executionId/workflowId 已在 outer 字段)
+  //    并剔除 node_log 类型(其 step 内容与 node_runs[].execution_trace 100% 同义)
   const rawEvents = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
   const events = Array.isArray(rawEvents)
-    ? rawEvents.map(({ executionId, workflowId, ...rest }: any) => rest)
+    ? rawEvents
+        .map(({ executionId, workflowId, ...rest }: any) => rest)
+        .filter((e: any) => e?.type !== 'node_log')
     : [];
+
+  // 8. graph_data 剔除节点 position(复盘不需要画布坐标)
+  const rawGraphData = configSnapshot?.graph_data || graphData;
+  const slimGraphData = rawGraphData && Array.isArray(rawGraphData.nodes)
+    ? {
+        ...rawGraphData,
+        nodes: rawGraphData.nodes.map(({ position, ...rest }: any) => rest),
+      }
+    : rawGraphData;
 
   return {
     schema_version: SCHEMA_VERSION,
@@ -112,7 +124,7 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
     workflow: pruneEmpty({
       id: workflowRow.id,
       name: workflowRow.name,
-      graph_data: configSnapshot?.graph_data || graphData,
+      graph_data: slimGraphData,
       agents: safeAgents,
       mcp_servers: safeMcpServers,
       skills: configSnapshot?.skills || [],
