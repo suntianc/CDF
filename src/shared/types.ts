@@ -247,8 +247,6 @@ export interface WorkflowNode {
     bgColor?: string;
     dataSource?: string;
     itemPrompt?: string;
-    /** 节点级 LLM temperature (0~2),留空则使用 provider 默认 */
-    temperature?: number;
   };
 }
 
@@ -301,22 +299,25 @@ export interface WorkflowExecution {
 
 export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
 
-export type NodeErrorType =
-  | 'timeout'
-  | 'tool_error'
-  | 'llm_error'
-  | 'no_routing'
-  | 'aborted'
-  | 'unknown';
+// ===== 时序执行轨迹 =====
 
-export interface ToolCallRecord {
-  tool: string;
-  args?: unknown;
-  success: boolean;
-  error?: string;
-  duration_ms: number;
-  started_at: number;
-  ended_at: number;
+export type ExecutionStepType =
+  | 'task_start' | 'task_end'
+  | 'thinking'
+  | 'tool_call' | 'tool_result'
+  | 'system' | 'validation';
+
+export interface ExecutionStep {
+  type: ExecutionStepType;
+  ts: number;
+  label?: string;       // task_start / task_end / system
+  content?: string;     // thinking / system
+  tool?: string;        // tool_call / tool_result
+  args?: unknown;       // tool_call
+  success?: boolean;    // tool_result
+  output?: unknown;     // tool_result(成功)
+  error?: string;       // tool_result(失败)
+  duration_ms?: number; // tool_result
 }
 
 export interface WorkflowNodeRun {
@@ -328,12 +329,12 @@ export interface WorkflowNodeRun {
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   error?: string;
-  error_type?: NodeErrorType;
+  error_type?: string;
   retry_count: number;
   started_at: number;
   ended_at?: number;
-  logs?: string[];
-  tool_calls?: ToolCallRecord[];
+  logs?: string[];                  // 保留(向后兼容)
+  execution_trace?: ExecutionStep[]; // 新增:时序执行轨迹
 }
 
 export type WorkflowStreamEvent = (
@@ -343,7 +344,7 @@ export type WorkflowStreamEvent = (
   | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
   | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }
   | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
-  | { type: 'node_log'; executionId: string; nodeId: string; log: string }
+  | { type: 'node_log'; executionId: string; nodeId: string; step: ExecutionStep }
 ) & { seq?: number };
 
 export interface ElectronAPI {

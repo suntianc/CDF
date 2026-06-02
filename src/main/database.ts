@@ -461,4 +461,7 @@ try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN config_snapshot TEXT`)
 // 完整事件流时间线（导出用）
 try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN events_snapshot TEXT`); } catch {}
 
+// 时序执行轨迹(替代 logs[] 的并列结构,带 type + ts)
+try { db.exec(`ALTER TABLE workflow_node_runs ADD COLUMN execution_trace TEXT`); } catch {}
+
 export default db;

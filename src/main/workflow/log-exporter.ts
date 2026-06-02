@@ -11,7 +11,7 @@ import db from '../database';
 
 const SECRET_KEY_REGEX = /api_?key|token|secret|password|bearer/i;
 const SECRET_VALUE_PLACEHOLDER = '***';
-const SCHEMA_VERSION = '1.0';
+const SCHEMA_VERSION = '1.1';
 const LIST_LIMIT = 50;
 
 export interface ExportExecutionResult {
@@ -35,20 +35,6 @@ function sanitizeMcpEnv(env: unknown): Record<string, string> {
     }
   }
   return out;
-}
-
-/**
- * 过滤 logs 中以 [工具调用]/[工具返回]/[工具失败] 开头的工具相关日志。
- * 工具调用真相已结构化存在于 node_runs[].tool_calls,文本日志只是 truncate 后的字符串,信息更少。
- */
-function filterToolLogs(logs: unknown): string[] {
-  if (!Array.isArray(logs)) return [];
-  return logs.filter((line): line is string =>
-    typeof line === 'string' &&
-    !line.startsWith('[工具调用]') &&
-    !line.startsWith('[工具返回]') &&
-    !line.startsWith('[工具失败]'),
-  );
 }
 
 /**
@@ -86,11 +72,7 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
   }));
 
   // 7. 解析 events
-  // 解析 events 并过滤:剔除 node_log 类型(内容已完整存在于 node_runs[].logs,避免冗余)
-  const allEvents = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
-  const events = Array.isArray(allEvents)
-    ? allEvents.filter((e: any) => e?.type !== 'node_log')
-    : [];
+  const events = row.events_snapshot ? JSON.parse(row.events_snapshot) : [];
 
   return {
     schema_version: SCHEMA_VERSION,
@@ -122,8 +104,13 @@ export function buildExportPayload(executionId: string): Record<string, unknown>
         retry_count: r.retry_count,
         started_at: r.started_at,
         ended_at: r.ended_at,
-        logs: filterToolLogs(r.logs ? JSON.parse(r.logs) : []),
-        tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : [],
+        execution_trace: r.execution_trace ? JSON.parse(r.execution_trace) : [],
+        // 老数据(无 execution_trace 列值时)回退输出 logs;新数据(有 execution_trace)只输出 execution_trace
+        ...(r.execution_trace
+          ? {}
+          : {
+              logs: r.logs ? JSON.parse(r.logs) : [],
+            }),
       })),
       events,
     },

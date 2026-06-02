@@ -13,8 +13,8 @@ import { app, BrowserWindow } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
 import { buildWorkflowGraph } from './graph-builder';
-import { createAgentNodeExecutor, AgentTimeoutError, ClassifiedNodeError } from './node-executor';
-import type { NodeErrorType, WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
+import { createAgentNodeExecutor } from './node-executor';
+import type { ExecutionStep, WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
 
 // ---- Checkpoint Saver (独立 namespace，D-16a) ----
 
@@ -65,6 +65,32 @@ function getWorkflow(workflowId: string): WorkflowRow {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as WorkflowRow | undefined;
   if (!row) throw new Error(`Workflow not found: ${workflowId}`);
   return row;
+}
+
+/**
+ * 把一条 ExecutionStep 还原成旧 logs 列的人类可读文本(供历史兼容)。
+ * 仅供 logs 列回填使用;真正的 UI 渲染走 step.type 分支。
+ */
+function stepToFallbackLogLine(step: ExecutionStep): string {
+  switch (step.type) {
+    case 'task_start':  return step.label || '[Task] 开始';
+    case 'task_end':    return step.label || '[Task] 结束';
+    case 'system':      return step.content || '';
+    case 'thinking':    return 'Agent 正在思考决策...'; // 还原老占位,新 UI 不再依赖这行
+    case 'tool_call': {
+      const argStr = typeof step.args === 'string' ? step.args : JSON.stringify(step.args ?? {});
+      const truncated = argStr.length > 150 ? argStr.slice(0, 150) + '...' : argStr;
+      return `[工具调用] 开始执行工具: ${step.tool}，参数: ${truncated}`;
+    }
+    case 'tool_result':
+      if (step.success) {
+        const out = typeof step.output === 'string' ? step.output : JSON.stringify(step.output ?? '');
+        const t = out.length > 200 ? out.slice(0, 200) + '...' : out;
+        return `[工具返回] 工具 ${step.tool} 执行成功，结果: ${t}`;
+      }
+      return `[工具失败] 工具 ${step.tool} 执行失败，错误: ${step.error}`;
+    default: return '';
+  }
 }
 
 function enrichWorkflowInput(input: Record<string, unknown>, graphData: WorkflowDefinition): Record<string, unknown> {
@@ -186,26 +212,6 @@ function buildConfigSnapshot(graphData: WorkflowDefinition, _projectId: string):
   };
 }
 
-// ---- Error Classifier ----
-
-/**
- * 将 node-executor 抛出的异常归类为 NodeErrorType 枚举值。
- * ClassifiedNodeError 已经携带分类结果,AgentTimeoutError 归为 timeout,
- * 其它未知错误归为 unknown(无 AgentNotFoundError 枚举值,统一 unknown)。
- *
- * 也接受 graph-builder 序列化后的 errorType 字符串(class name),
- * 用于错误流经 chunk 后只剩字符串的场景,保留对常见 class name 的判别能力。
- */
-function classifyRuntimeError(err: unknown): NodeErrorType {
-  if (err instanceof ClassifiedNodeError) return err.errorType;
-  if (err instanceof AgentTimeoutError) return 'timeout';
-  if (typeof err === 'string') {
-    if (err === 'AgentTimeoutError') return 'timeout';
-    if (err === 'ClassifiedNodeError' || err === 'AgentNotFoundError') return 'unknown';
-  }
-  return 'unknown';
-}
-
 // ---- runWorkflow ----
 
 export interface RunWorkflowParams {
@@ -269,14 +275,14 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
       }
     }
     const nodeStartTimes = new Map<string, number>();
-    const nodeLogsMap = new Map<string, string[]>();
+    const nodeTraceMap = new Map<string, ExecutionStep[]>();
 
     // 3. 构建图
     const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) => {
       const executeNode = createAgentNodeExecutor(node, upstreamNodeIds);
       return async (state) => {
         nodeStartTimes.set(node.id, Date.now());
-        nodeLogsMap.set(node.id, []);
+        nodeTraceMap.set(node.id, []);
         const nodeStartEvent: WorkflowStreamEvent = {
           type: 'node_start',
           executionId,
@@ -285,16 +291,16 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
-        return executeNode(state, (logText: string) => {
-          const logs = nodeLogsMap.get(node.id) || [];
-          logs.push(logText);
-          nodeLogsMap.set(node.id, logs);
+        return executeNode(state, (step: ExecutionStep) => {
+          const arr = nodeTraceMap.get(node.id) || [];
+          arr.push(step);
+          nodeTraceMap.set(node.id, arr);
 
           const logEvent: WorkflowStreamEvent = {
             type: 'node_log',
             executionId,
             nodeId: node.id,
-            log: logText,
+            step,
           };
           pushWorkflowEvent(executionId, logEvent);
           params.onEvent?.(logEvent);
@@ -318,8 +324,6 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
     const allNodeOutputs: Record<string, unknown> = {};
     const allErrors: Array<{ nodeId: string; error: string; timestamp: number }> = [];
-    // 跟踪已完成(success 或 error)的 nodeId,用于 abort 时识别"已开始但未完成"的 node
-    const completedNodeIds = new Set<string>();
 
     for await (const chunk of stream) {
       // 检查是否被中止
@@ -338,24 +342,21 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           // 错误路径：只记录失败
           allErrors.push(...errors);
           for (const err of errors) {
-            completedNodeIds.add(err.nodeId);
             const errorRunId = crypto.randomUUID();
             const nodeName = nodeNames.get(err.nodeId) || err.nodeId;
             const nodeStartTime = nodeStartTimes.get(err.nodeId) || err.timestamp || Date.now();
-            const accumulatedLogs = nodeLogsMap.get(err.nodeId) || [];
-            // graph-builder 已把 err.name 存入 nodeOutputs[err.nodeId].errorType,优先用 class name 分类
-            const chunkNodeOutput = (update.nodeOutputs as Record<string, unknown> | undefined)?.[err.nodeId] as Record<string, unknown> | undefined;
-            const classifiedType = classifyRuntimeError(chunkNodeOutput?.errorType ?? err.error);
+            const accumulatedTrace = nodeTraceMap.get(err.nodeId) || [];
+            const fallbackLogs = accumulatedTrace.map(stepToFallbackLogLine);
             db.prepare(`
-              INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs)
-              VALUES (?, ?, ?, ?, 'failed', ?, ?, ?, ?, ?)
-            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, classifiedType, nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
+              INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs, execution_trace)
+              VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?, ?, ?)
+            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, nodeStartTime, Date.now(), JSON.stringify(fallbackLogs), JSON.stringify(accumulatedTrace));
 
             const nodeErrorEvent: WorkflowStreamEvent = {
               type: 'node_error',
               executionId,
               nodeId: err.nodeId,
-              errorType: classifiedType,
+              errorType: 'node_error',
               errorMessage: err.error,
               retryCount: 0,
             };
@@ -364,19 +365,17 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           }
         } else if (nodeOutputs?.[nodeId]) {
           // 成功路径：只记录成功
-          completedNodeIds.add(nodeId);
           allNodeOutputs[nodeId] = nodeOutputs[nodeId];
           const successRunId = crypto.randomUUID();
           const nodeName = nodeNames.get(nodeId) || nodeId;
           const nodeStartTime = nodeStartTimes.get(nodeId) || Date.now();
-          const accumulatedLogs = nodeLogsMap.get(nodeId) || [];
-          const nodeOutput = nodeOutputs[nodeId] as Record<string, unknown>;
-          const toolCallsArr = Array.isArray(nodeOutput.tool_calls) ? nodeOutput.tool_calls : [];
+          const accumulatedTrace = nodeTraceMap.get(nodeId) || [];
+          const fallbackLogs = accumulatedTrace.map(stepToFallbackLogLine);
 
           db.prepare(`
-            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs, tool_calls)
+            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs, execution_trace)
             VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
-          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs), JSON.stringify(toolCallsArr));
+          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(fallbackLogs), JSON.stringify(accumulatedTrace));
 
           const nodeEndEvent: WorkflowStreamEvent = {
             type: 'node_end',
@@ -393,23 +392,6 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
     // 6. 完成
     const finalStatus = activeExecutions.get(executionId)?.aborted ? 'stopped' : 'completed';
-
-    // Abort 路径:补写"已开始但未完成"的 node_run (status='stopped', error_type='aborted')
-    if (finalStatus === 'stopped') {
-      const abortedNow = Date.now();
-      for (const [startedNodeId, startedAt] of nodeStartTimes.entries()) {
-        if (completedNodeIds.has(startedNodeId)) continue;
-        const abortedRunId = crypto.randomUUID();
-        const nodeName = nodeNames.get(startedNodeId) || startedNodeId;
-        const accumulatedLogs = nodeLogsMap.get(startedNodeId) || [];
-        db.prepare(`
-          INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs)
-          VALUES (?, ?, ?, ?, 'stopped', ?, 'aborted', ?, ?, ?)
-        `).run(abortedRunId, executionId, startedNodeId, nodeName, '用户中止', 'aborted', startedAt, abortedNow, JSON.stringify(accumulatedLogs));
-        completedNodeIds.add(startedNodeId);
-      }
-    }
-
     const endTime = Date.now();
 
     db.prepare(`
