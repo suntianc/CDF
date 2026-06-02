@@ -16,7 +16,7 @@ import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
 import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
-import type { MCPServer, WorkflowNode } from '../../shared/types';
+import type { ExecutionStep, MCPServer, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -222,7 +222,7 @@ export function createAgentNodeExecutor(
 
   return async (
     state: Record<string, unknown>,
-    onLog?: (log: string) => void
+    onStep?: (step: ExecutionStep) => void
   ): Promise<Record<string, unknown>> => {
     const startTime = Date.now();
 
@@ -331,6 +331,13 @@ export function createAgentNodeExecutor(
       const invokeAgent = async (content: string): Promise<string> => {
         // 临时存储每个工具运行 of runId 对应的工具名称
         const toolRunNames = new Map<string, string>();
+        // 临时存储每个工具开始时间(用于计算 duration_ms)
+        const toolRunStartedAt = new Map<string, number>();
+
+        // 统一推送 step(自动打 ts)
+        const push = (step: Omit<ExecutionStep, 'ts'> & { ts?: number }) => {
+          onStep?.({ ts: Date.now(), ...step });
+        };
 
         const agentPromise = agent.invoke(
           { messages: [{ role: 'user', content }] },
@@ -338,29 +345,45 @@ export function createAgentNodeExecutor(
             callbacks: [
               {
                 handleLLMStart() {
-                  onLog?.('Agent 正在思考决策...');
+                  // 不再产生 thinking 占位 step;真正的思考由 handleLLMEnd 产出
+                },
+                handleLLMEnd(output: any) {
+                  // 提取 LLM 真实输出文本,产出 thinking step
+                  let text = '';
+                  try {
+                    if (typeof output === 'string') text = output;
+                    else if (output?.generations?.[0]?.[0]?.text) text = output.generations[0][0].text;
+                    else if (output?.message?.content) text = typeof output.message.content === 'string' ? output.message.content : JSON.stringify(output.message.content);
+                    else if (output?.lc_kwargs?.content) text = String(output.lc_kwargs.content);
+                  } catch { /* ignore */ }
+                  if (text && text.trim()) {
+                    push({ type: 'thinking', content: text });
+                  }
                 },
                 handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
                   const rawId = tool?.id;
                   const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
                   const toolName = name || tool?.name || toolId || 'unknown';
                   toolRunNames.set(runId, toolName);
-                  const inputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
-                  const truncatedInput = inputStr.length > 150 ? inputStr.slice(0, 150) + '...' : inputStr;
-                  onLog?.(`[工具调用] 开始执行工具: ${toolName}，参数: ${truncatedInput}`);
+                  toolRunStartedAt.set(runId, Date.now());
+                  push({ type: 'tool_call', tool: toolName, args: toolInput });
                 },
                 handleToolEnd(output, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
                   toolRunNames.delete(runId);
-                  const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
-                  const truncatedOutput = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr;
-                  onLog?.(`[工具返回] 工具 ${toolName} 执行成功，结果: ${truncatedOutput}`);
+                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
+                  toolRunStartedAt.delete(runId);
+                  const durationMs = Date.now() - startedAt;
+                  push({ type: 'tool_result', tool: toolName, success: true, output, duration_ms: durationMs });
                 },
                 handleToolError(err, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
                   toolRunNames.delete(runId);
+                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
+                  toolRunStartedAt.delete(runId);
+                  const durationMs = Date.now() - startedAt;
                   const errMsg = err instanceof Error ? err.message : String(err);
-                  onLog?.(`[工具失败] 工具 ${toolName} 执行失败，错误: ${errMsg}`);
+                  push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs });
                 }
               }
             ]
@@ -411,7 +434,7 @@ export function createAgentNodeExecutor(
             `如果已经满足任务目标，可以在最终回复中包含 JSON：{"routing":{"${node.id}":"done"}} 来提前结束 Loop。`,
           ].filter(Boolean).join('\n');
 
-          onLog?.(`[Loop] 正在执行第 ${iteration}/${loopCount} 轮循环...`);
+          onStep?.({ ts: Date.now(), type: 'system', content: `[Loop] 正在执行第 ${iteration}/${loopCount} 轮循环...` });
           const resultText = await invokeAgent(iterationContext);
           const routing = extractWorkflowRouting(resultText);
           finalRouting = routing ?? finalRouting;
@@ -486,10 +509,10 @@ export function createAgentNodeExecutor(
               : JSON.stringify(item, null, 2),
           ].filter(Boolean).join('\n');
 
-          onLog?.(`[For-Each] 正在执行第 ${i + 1}/${items.length} 项子任务...`);
+          onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 正在执行第 ${i + 1}/${items.length} 项子任务...` });
           try {
             const resultText = await invokeAgent(itemContext);
-            onLog?.(`[For-Each] 第 ${i + 1}/${items.length} 项子任务执行成功`);
+            onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 第 ${i + 1}/${items.length} 项子任务执行成功` });
             const routing = extractWorkflowRouting(resultText);
             finalRouting = routing ?? finalRouting;
             results.push({
@@ -501,7 +524,7 @@ export function createAgentNodeExecutor(
             });
           } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
-            onLog?.(`[For-Each] 第 ${i + 1}/${items.length} 项子任务执行失败: ${errorMessage}`);
+            onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 第 ${i + 1}/${items.length} 项子任务执行失败: ${errorMessage}` });
             results.push({
               index: i,
               item,
@@ -531,9 +554,9 @@ export function createAgentNodeExecutor(
       }
 
       // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
-      onLog?.(`[Task] 开始执行节点任务...`);
+      onStep?.({ ts: Date.now(), type: 'task_start', label: '[Task] 开始执行节点任务' });
       const resultText = await invokeAgent(taskContext);
-      onLog?.(`[Task] 节点任务执行完毕`);
+      onStep?.({ ts: Date.now(), type: 'task_end', label: '[Task] 节点任务执行完毕' });
 
       // 5. 收集结果（routing 从原始文本提取）
       const duration = Date.now() - startTime;

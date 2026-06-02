@@ -192,7 +192,7 @@ describe('createAgentNodeExecutor', () => {
   // ---- Tool 日志回调测试 (TG-02) ----
 
   it('should trigger logging callbacks with correct tool name on LLM and tool events', async () => {
-    const onLogSpy = vi.fn();
+    const onStepSpy = vi.fn();
     let capturedCallbacks: any[] = [];
 
     createDeepAgentMock.mockReturnValue({
@@ -211,27 +211,30 @@ describe('createAgentNodeExecutor', () => {
       data: { agentId: 'agent-1', label: 'Node 1' },
     });
 
-    await executor({ inputs: {}, nodeOutputs: {} }, onLogSpy);
+    await executor({ inputs: {}, nodeOutputs: {} }, onStepSpy);
 
     expect(capturedCallbacks.length).toBeGreaterThan(0);
     const callbackHandler = capturedCallbacks[0];
 
-    // Test LLM Start log
-    callbackHandler.handleLLMStart();
-    expect(onLogSpy).toHaveBeenCalledWith('Agent 正在思考决策...');
+    // Test LLM End log: handleLLMEnd 应产出 thinking step
+    callbackHandler.handleLLMEnd('我决定先调用工具');
+    expect(onStepSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'thinking', content: '我决定先调用工具' }));
 
     // Test Tool Start log
     callbackHandler.handleToolStart({ name: 'write_file' }, 'content', 'run-1', null, [], {}, 'write_file');
-    expect(onLogSpy).toHaveBeenCalledWith('[工具调用] 开始执行工具: write_file，参数: content');
+    expect(onStepSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'tool_call', tool: 'write_file', args: 'content' }));
 
     // Test Tool End log
     callbackHandler.handleToolEnd('success', 'run-1');
-    expect(onLogSpy).toHaveBeenCalledWith('[工具返回] 工具 write_file 执行成功，结果: success');
+    const lastStep = onStepSpy.mock.calls[onStepSpy.mock.calls.length - 1][0];
+    expect(lastStep).toMatchObject({ type: 'tool_result', tool: 'write_file', success: true, output: 'success' });
+    expect(typeof lastStep.duration_ms).toBe('number');
 
     // Test Tool Error log
     callbackHandler.handleToolStart({ name: 'bash' }, 'ls', 'run-2', null, [], {}, 'bash');
     callbackHandler.handleToolError(new Error('command failed'), 'run-2');
-    expect(onLogSpy).toHaveBeenCalledWith('[工具失败] 工具 bash 执行失败，错误: command failed');
+    const lastErrStep = onStepSpy.mock.calls[onStepSpy.mock.calls.length - 1][0];
+    expect(lastErrStep).toMatchObject({ type: 'tool_result', tool: 'bash', success: false, error: 'command failed' });
   });
 
   // ---- ForEach 节点测试 (TG-01) ----
@@ -259,8 +262,8 @@ describe('createAgentNodeExecutor', () => {
       },
     });
 
-    const onLogMock = vi.fn();
-    const result = await executor({ inputs: {}, nodeOutputs: {} }, onLogMock);
+    const onStepMock = vi.fn();
+    const result = await executor({ inputs: {}, nodeOutputs: {} }, onStepMock);
 
     expect(invokeMock).toHaveBeenCalledTimes(3);
     expect(result.results).toHaveLength(3);
@@ -270,8 +273,8 @@ describe('createAgentNodeExecutor', () => {
     expect(result.totalItems).toBe(3);
     expect(result.successCount).toBe(3);
     expect(result.failCount).toBe(0);
-    expect(onLogMock).toHaveBeenCalled();
-    expect(onLogMock.mock.calls.some(call => call[0].includes('正在执行第 1/3 项子任务'))).toBe(true);
+    expect(onStepMock).toHaveBeenCalled();
+    expect(onStepMock.mock.calls.some(call => call[0].type === 'system' && String(call[0].content).includes('正在执行第 1/3 项子任务'))).toBe(true);
   });
 
   it('should use itemPrompt template in ForEach context', async () => {

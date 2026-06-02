@@ -14,7 +14,7 @@ import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
 import { buildWorkflowGraph } from './graph-builder';
 import { createAgentNodeExecutor } from './node-executor';
-import type { WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
+import type { ExecutionStep, WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
 
 // ---- Checkpoint Saver (独立 namespace，D-16a) ----
 
@@ -65,6 +65,32 @@ function getWorkflow(workflowId: string): WorkflowRow {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as WorkflowRow | undefined;
   if (!row) throw new Error(`Workflow not found: ${workflowId}`);
   return row;
+}
+
+/**
+ * 把一条 ExecutionStep 还原成旧 logs 列的人类可读文本(供历史兼容)。
+ * 仅供 logs 列回填使用;真正的 UI 渲染走 step.type 分支。
+ */
+function stepToFallbackLogLine(step: ExecutionStep): string {
+  switch (step.type) {
+    case 'task_start':  return step.label || '[Task] 开始';
+    case 'task_end':    return step.label || '[Task] 结束';
+    case 'system':      return step.content || '';
+    case 'thinking':    return 'Agent 正在思考决策...'; // 还原老占位,新 UI 不再依赖这行
+    case 'tool_call': {
+      const argStr = typeof step.args === 'string' ? step.args : JSON.stringify(step.args ?? {});
+      const truncated = argStr.length > 150 ? argStr.slice(0, 150) + '...' : argStr;
+      return `[工具调用] 开始执行工具: ${step.tool}，参数: ${truncated}`;
+    }
+    case 'tool_result':
+      if (step.success) {
+        const out = typeof step.output === 'string' ? step.output : JSON.stringify(step.output ?? '');
+        const t = out.length > 200 ? out.slice(0, 200) + '...' : out;
+        return `[工具返回] 工具 ${step.tool} 执行成功，结果: ${t}`;
+      }
+      return `[工具失败] 工具 ${step.tool} 执行失败，错误: ${step.error}`;
+    default: return '';
+  }
 }
 
 function enrichWorkflowInput(input: Record<string, unknown>, graphData: WorkflowDefinition): Record<string, unknown> {
@@ -249,14 +275,14 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
       }
     }
     const nodeStartTimes = new Map<string, number>();
-    const nodeLogsMap = new Map<string, string[]>();
+    const nodeTraceMap = new Map<string, ExecutionStep[]>();
 
     // 3. 构建图
     const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) => {
       const executeNode = createAgentNodeExecutor(node, upstreamNodeIds);
       return async (state) => {
         nodeStartTimes.set(node.id, Date.now());
-        nodeLogsMap.set(node.id, []);
+        nodeTraceMap.set(node.id, []);
         const nodeStartEvent: WorkflowStreamEvent = {
           type: 'node_start',
           executionId,
@@ -265,16 +291,16 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
-        return executeNode(state, (logText: string) => {
-          const logs = nodeLogsMap.get(node.id) || [];
-          logs.push(logText);
-          nodeLogsMap.set(node.id, logs);
+        return executeNode(state, (step: ExecutionStep) => {
+          const arr = nodeTraceMap.get(node.id) || [];
+          arr.push(step);
+          nodeTraceMap.set(node.id, arr);
 
           const logEvent: WorkflowStreamEvent = {
             type: 'node_log',
             executionId,
             nodeId: node.id,
-            log: logText,
+            step,
           };
           pushWorkflowEvent(executionId, logEvent);
           params.onEvent?.(logEvent);
@@ -319,11 +345,12 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
             const errorRunId = crypto.randomUUID();
             const nodeName = nodeNames.get(err.nodeId) || err.nodeId;
             const nodeStartTime = nodeStartTimes.get(err.nodeId) || err.timestamp || Date.now();
-            const accumulatedLogs = nodeLogsMap.get(err.nodeId) || [];
+            const accumulatedTrace = nodeTraceMap.get(err.nodeId) || [];
+            const fallbackLogs = accumulatedTrace.map(stepToFallbackLogLine);
             db.prepare(`
-              INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs)
-              VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?, ?)
-            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
+              INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, error, error_type, started_at, ended_at, logs, execution_trace)
+              VALUES (?, ?, ?, ?, 'failed', ?, 'node_error', ?, ?, ?, ?)
+            `).run(errorRunId, executionId, err.nodeId, nodeName, err.error, nodeStartTime, Date.now(), JSON.stringify(fallbackLogs), JSON.stringify(accumulatedTrace));
 
             const nodeErrorEvent: WorkflowStreamEvent = {
               type: 'node_error',
@@ -342,12 +369,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           const successRunId = crypto.randomUUID();
           const nodeName = nodeNames.get(nodeId) || nodeId;
           const nodeStartTime = nodeStartTimes.get(nodeId) || Date.now();
-          const accumulatedLogs = nodeLogsMap.get(nodeId) || [];
+          const accumulatedTrace = nodeTraceMap.get(nodeId) || [];
+          const fallbackLogs = accumulatedTrace.map(stepToFallbackLogLine);
 
           db.prepare(`
-            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs)
-            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?)
-          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(accumulatedLogs));
+            INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs, execution_trace)
+            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(fallbackLogs), JSON.stringify(accumulatedTrace));
 
           const nodeEndEvent: WorkflowStreamEvent = {
             type: 'node_end',
