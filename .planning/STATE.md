@@ -59,6 +59,7 @@ Plan: 21/21 done
 | 2026-06-02 | fast | 导出 JSON 精简四（剔除 execution.output 字典冗余 + node output 元字段 + foreach results LangChain 残留）| complete |
 | 2026-06-03 | 260603-s29 | M3 thinking 开关（minimax/minimax-overseas 注入 `thinking: { type: "adaptive" }`，让 M3 上游发 thinking 事件；单测 PASS 10/0；详见 `.planning/debug/minimax-m3-thinking-missing.md`）| complete |
 | 2026-06-03 | 260603-se4 | hotfix — M3 thinking + temperature 互斥（Anthropic extended thinking 协议要求 thinking 启用时 temperature/top_p/top_k 必须 unset；本次在 minimax/minimax-overseas 同一 if-guard 内 `delete modelConfig.temperature`；新增 7 行测试断言；测试 PASS 10/0）| complete |
+| 2026-06-03 | 260603-soe | b — M3 多轮 signature 回带（调研发现 LangChain 1.4.0 的 convertAnthropicStream + ChatModelStream._assembleMessage + LangGraph JsonPlusSerializer 已自动 roundtrip thinking+signature 块；本次仅新增 `src/main/deepagent/anthropic-roundtrip.test.ts` 锁定行为，3 it 块 PASS；chat 侧无业务代码改动）| complete |
 
 ## Accumulated Context
 
