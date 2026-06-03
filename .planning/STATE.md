@@ -63,6 +63,7 @@ Plan: 21/21 done
 | 2026-06-03 | 260603-tiy | real-fix — M3 多轮 roundtrip patch（用户实测 M3 第二轮无思考区；根因 v1 路径 OK 但 fallthrough 走 _formatContentBlocks 时 _isAnthropicThinkingBlock 只识别 type=thinking 不识别 type=reasoning，reasoning 块被 silently dropped；在 _formatContentBlocks 追加 `type === "reasoning" && "signature" in contentPart` 分支 + 同步补丁 `.cjs`；1 个新 it 块覆盖 fallthrough；测试 4/0 PASS；详见 `.planning/quick/260603-tiy-real-fix-m3-roundtrip-patch-formatconten/`）| complete |
 | 2026-06-03 | 260603-u6w | real-fix-2 — v1 路径 isAnthropicMessage 守卫（260603-tiy 仍漏修 v1 路径；_formatStandardContent 中 reasoning 分支因 `response_metadata.model_provider === "anthropic"` 守卫在 deepagents checkpoint 走一圈后被 silently dropped；移除该守卫 + 同步 .cjs + 1.5 回归测试；测试 5/0 PASS；patch 5 hunks；详见 `.planning/quick/260603-u6w-real-fix-2-v1-isanthropicmessage-formats/`）| complete |
 | 2026-06-03 | 260603-vht | video patch .cjs parity（回填 260601-nzn 漏修的 standard.cjs:267 video 块 passthrough；补 .cjs 端 hunk；新建 `anthropic-video-passthrough.test.ts` 1 个 it 块 TDD-RED→GREEN；TDD 测试不应用 patch 必失败（blocks=[]），应用后通过；patch 6 hunks；3 测试文件 16/0 PASS；详见 `.planning/quick/260603-vht-video-patch-cjs-parity-standard-cjs-267-/`）| complete |
+| 2026-06-03 | 260603-w0y | gitignore daemon.pid — 在 root .gitignore 加 `.codegraph/` 规则 + `git rm --cached` 已跟踪的 `.codegraph/daemon.pid` 和 `.codegraph/.gitignore`；避免 codegraph daemon 进程 PID 变化污染 git status；本地 daemon.pid 保留（worktree cleanup 因 deletions 触发 guard, 改用 cherry-pick 应用 lost commit + 手动重写 daemon.pid with current PID 8191）| complete |
 
 ## Accumulated Context
 
