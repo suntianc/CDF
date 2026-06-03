@@ -58,6 +58,7 @@ Plan: 21/21 done
 | 2026-06-02 | fast | hotfix: foreach 报错时应用黑屏（根因 IPC getWorkflowNodeRuns 漏 parse execution_trace/tool_calls，附 ErrorBoundary 护栏）| complete |
 | 2026-06-02 | fast | 导出 JSON 精简四（剔除 execution.output 字典冗余 + node output 元字段 + foreach results LangChain 残留）| complete |
 | 2026-06-03 | 260603-s29 | M3 thinking 开关（minimax/minimax-overseas 注入 `thinking: { type: "adaptive" }`，让 M3 上游发 thinking 事件；单测 PASS 10/0；详见 `.planning/debug/minimax-m3-thinking-missing.md`）| complete |
+| 2026-06-03 | 260603-se4 | hotfix — M3 thinking + temperature 互斥（Anthropic extended thinking 协议要求 thinking 启用时 temperature/top_p/top_k 必须 unset；本次在 minimax/minimax-overseas 同一 if-guard 内 `delete modelConfig.temperature`；新增 7 行测试断言；测试 PASS 10/0）| complete |
 
 ## Accumulated Context
 
