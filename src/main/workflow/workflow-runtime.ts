@@ -59,6 +59,7 @@ interface WorkflowRow {
   project_id: string;
   name: string;
   graph_data: string;
+  status: string;
 }
 
 function getWorkflow(workflowId: string): WorkflowRow {
@@ -242,6 +243,10 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
   // 1. 加载 workflow 定义
   const workflowRow = getWorkflow(workflowId);
+  // 防御性校验：对 Agent 隐藏的 draft 工作流，禁止执行。
+  if (workflowRow.status !== 'active') {
+    throw new Error(`Workflow ${workflowId} is not active and cannot be executed`);
+  }
   const graphData = JSON.parse(workflowRow.graph_data) as WorkflowDefinition;
   const executionInput = enrichWorkflowInput(input, graphData);
 

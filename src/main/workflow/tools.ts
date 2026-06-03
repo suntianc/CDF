@@ -20,14 +20,15 @@ export function createWorkflowTools(projectId: string) {
   return [
     tool(
       async () => {
+        // 仅对 Agent 暴露已启用 (active) 的工作流；草稿/未启用 (draft) 工作流视为不存在。
         const workflows = db.prepare(
-          'SELECT id, name, description, status FROM workflows WHERE project_id = ? ORDER BY updated_at DESC',
+          "SELECT id, name, description, status FROM workflows WHERE project_id = ? AND status = 'active' ORDER BY updated_at DESC",
         ).all(projectId);
         return JSON.stringify(workflows);
       },
       {
         name: 'list_workflows',
-        description: '列出当前项目中所有可用的工作流。返回工作流 ID、名称、描述和状态。',
+        description: '列出当前项目中已启用的工作流。返回工作流 ID、名称、描述和状态。仅包含 status 为 active 的工作流。',
         schema: z.object({}),
       },
     ),
