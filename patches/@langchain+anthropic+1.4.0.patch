@@ -38,7 +38,7 @@ index 22a83f7..39d0f7c 100644
  }
  function _formatContent(message, toolCalls) {
 diff --git a/node_modules/@langchain/anthropic/dist/utils/standard.cjs b/node_modules/@langchain/anthropic/dist/utils/standard.cjs
-index 2945dbf..f45eca5 100644
+index 2945dbf..16e23f2 100644
 --- a/node_modules/@langchain/anthropic/dist/utils/standard.cjs
 +++ b/node_modules/@langchain/anthropic/dist/utils/standard.cjs
 @@ -126,7 +126,7 @@ function _formatStandardContent(message) {
@@ -50,6 +50,15 @@ index 2945dbf..f45eca5 100644
  		type: "thinking",
  		thinking: block.reasoning,
  		signature: String(block.signature)
+@@ -264,7 +264,7 @@ function _formatStandardContent(message) {
+ 			continue;
+ 		}
+ 		throw new Error("Image content block must include a fileId, url, or data property.");
+-	} else if (block.type === "video") {} else if (block.type === "text-plain") {
++	} else if (block.type === "video") { result.push(block); continue; } else if (block.type === "text-plain") {
+ 		if (block.data) result.push(_applyDocumentMetadata({
+ 			type: "document",
+ 			source: {
 diff --git a/node_modules/@langchain/anthropic/dist/utils/standard.js b/node_modules/@langchain/anthropic/dist/utils/standard.js
 index c3fd54d..e1701cc 100644
 --- a/node_modules/@langchain/anthropic/dist/utils/standard.js
