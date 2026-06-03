@@ -64,6 +64,7 @@ Plan: 21/21 done
 | 2026-06-03 | 260603-u6w | real-fix-2 — v1 路径 isAnthropicMessage 守卫（260603-tiy 仍漏修 v1 路径；_formatStandardContent 中 reasoning 分支因 `response_metadata.model_provider === "anthropic"` 守卫在 deepagents checkpoint 走一圈后被 silently dropped；移除该守卫 + 同步 .cjs + 1.5 回归测试；测试 5/0 PASS；patch 5 hunks；详见 `.planning/quick/260603-u6w-real-fix-2-v1-isanthropicmessage-formats/`）| complete |
 | 2026-06-03 | 260603-vht | video patch .cjs parity（回填 260601-nzn 漏修的 standard.cjs:267 video 块 passthrough；补 .cjs 端 hunk；新建 `anthropic-video-passthrough.test.ts` 1 个 it 块 TDD-RED→GREEN；TDD 测试不应用 patch 必失败（blocks=[]），应用后通过；patch 6 hunks；3 测试文件 16/0 PASS；详见 `.planning/quick/260603-vht-video-patch-cjs-parity-standard-cjs-267-/`）| complete |
 | 2026-06-03 | 260603-w0y | gitignore daemon.pid — 在 root .gitignore 加 `.codegraph/` 规则 + `git rm --cached` 已跟踪的 `.codegraph/daemon.pid` 和 `.codegraph/.gitignore`；避免 codegraph daemon 进程 PID 变化污染 git status；本地 daemon.pid 保留（worktree cleanup 因 deletions 触发 guard, 改用 cherry-pick 应用 lost commit + 手动重写 daemon.pid with current PID 8191）| complete |
+| 2026-06-03 | 260603-wd4 | GSD cleanup 助手脚本 + PreToolUse hook（包装 `gsd-sdk query worktree.cleanup-wave` 解决 3 corner case：rescue untracked *-SUMMARY.md / 清 .git/worktrees/<name>/locked / 移除 node_modules symlink；失败时扫描 stderr 输出 `branch_contains_deletions` / `merge_failed` / `base_mismatch` 的人工合并/cherry-pick HINT；.claude/settings.json 加 PreToolUse hook 拦截裸 gsd-sdk 调用引导到包装脚本）| complete |
 
 ## Accumulated Context
 
