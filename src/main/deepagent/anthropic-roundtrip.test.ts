@@ -19,11 +19,45 @@
  *   `reasoning` block back to `{ type: "thinking", thinking, signature }`
  *   in the next request body — preserving the signature for the next turn.
  *
+ * Fallthrough path (no v1 marker) — bug + patch (added 2026-06-03, real-fix 260603-tiy):
+ * - The 260603-soe-b conclusion above ("automatic roundtrip") is correct
+ *   ONLY for AIMessages whose `response_metadata.output_version === "v1"`
+ *   (the path test 1.2 covers — `_convertMessagesToAnthropicPayload` at
+ *   line 208 routes those through `_formatStandardContent`, which has a
+ *   `block.type === "reasoning" && isAnthropicMessage` branch — see
+ *   `node_modules/@langchain/anthropic/dist/utils/standard.js:129`).
+ * - However, when the AIMessage round-trips through deepagents'
+ *   `langgraph-checkpoint-sqlite` serializer, the `output_version: "v1"`
+ *   marker may be lost; the message then falls through to
+ *   `_formatContentBlocks` (in `message_inputs.js` / `.cjs`). Before this
+ *   patch the generator had NO `else if` branch for `type: "reasoning"`,
+ *   so the block was silently dropped and the second-turn request body
+ *   carried no thinking block, so the M3 upstream did not stream thinking
+ *   events, so the chat UI showed no thinking region.
+ * - Fix lives in `patches/@langchain+anthropic+1.4.0.patch` (new hunks in
+ *   BOTH `message_inputs.js` AND `message_inputs.cjs` — production loads
+ *   `.cjs` because the bundled Electron main is CommonJS, but tests load
+ *   `.cjs` directly via `createRequire`; the parallel build outputs must
+ *   stay in sync). The new branch is guarded by
+ *   `contentPart.type === "reasoning" && "signature" in contentPart`
+ *   (double-guard avoids producing signature-less thinking blocks that
+ *   would trigger upstream 400).
+ * - Test 1.4 below pins the fallthrough path: AIMessage with empty
+ *   `response_metadata` + a reasoning+signature block must convert to a
+ *   thinking block in the next request body.
+ * - When upgrading `@langchain/anthropic` past 1.4.0: re-test this
+ *   fallthrough path. If upstream now handles `type: "reasoning"` inside
+ *   `_formatContentBlocks`, drop the new hunks from the patch and delete
+ *   test 1.4 (the upstream library covers it).
+ *
  * References:
  * - node_modules/@langchain/core/dist/language_models/stream.cjs:403-491
  *   (ChatModelStream class + _assembleMessage)
  * - node_modules/@langchain/anthropic/dist/utils/standard.js:117-121
  *   (reasoning -> thinking block conversion in _formatStandardContent)
+ * - node_modules/@langchain/anthropic/dist/utils/message_inputs.cjs:130-135
+ *   (the v1-only `_isAnthropicThinkingBlock` branch — does NOT match `type: "reasoning"`)
+ * - patches/@langchain+anthropic+1.4.0.patch (new reasoning branches in .js + .cjs)
  * - .planning/debug/minimax-m3-thinking-missing.md (root cause)
  */
 import { describe, expect, it } from 'vitest';
@@ -196,5 +230,57 @@ describe('Anthropic thinking+signature roundtrip (M3 multi-turn)', () => {
     // Belt-and-suspenders: serialize and search for the forbidden type
     const serialized = JSON.stringify(payload.messages[1].content);
     expect(serialized).not.toContain('"type":"thinking"');
+  });
+
+  it('1.4 fallthrough path (no v1 marker) — reasoning+signature block converts to thinking block', () => {
+    // **Why this test exists:** 260603-soe-b claimed M3 thinking+signature
+    // roundtrips automatically. That claim is correct ONLY for the v1 path
+    // (test 1.2 covers it). When deepagents' checkpoint serializer loses
+    // the `response_metadata.output_version: "v1"` marker (which it does
+    // empirically after one checkpoint roundtrip), the AIMessage falls
+    // through to `_formatContentBlocks` instead of `_formatStandardContent`.
+    //
+    // Before the patch in `patches/@langchain+anthropic+1.4.0.patch` (new
+    // hunks in message_inputs.js + .cjs, added 2026-06-03), the fallthrough
+    // generator had no `else if` branch for `type: "reasoning"` blocks, so
+    // they were silently dropped — second-turn request body had no thinking
+    // block — M3 upstream did not emit thinking events — chat UI showed no
+    // thinking region (the bug the user reported).
+    //
+    // **Assumption about test verification:** this test runs against the
+    // post-patch `node_modules` state (patch-package's postinstall has
+    // already applied the patch). The test does NOT itself disable+re-enable
+    // the patch — that would require shelling out to `patch-package`. The
+    // regression value is: if the patch is later removed (or if an upgrade
+    // overrides it) the test fails immediately at `expect(blocks[0].type)
+    // .toBe('thinking')`, surfacing the regression.
+    const assistant = new AIMessage({
+      content: [
+        { type: 'reasoning', reasoning: 'Let me think...', signature: 'sig-fallthrough-xyz' },
+      ],
+      // Empty response_metadata — deliberately NO `output_version: "v1"`
+      // and NO `model_provider: "anthropic"`, so the message takes the
+      // fallthrough path through `_formatContentBlocks`, not the v1 path
+      // through `_formatStandardContent` (which test 1.2 covers).
+      response_metadata: {},
+    });
+    const user = new HumanMessage('What is 2+2?');
+
+    const payload = _convertMessagesToAnthropicPayload([user, assistant]);
+
+    expect(payload.messages).toHaveLength(2);
+    const assistantPayload = payload.messages[1];
+    expect(assistantPayload.role).toBe('assistant');
+
+    // Content must be the block-array form (not string)
+    expect(Array.isArray(assistantPayload.content)).toBe(true);
+    const blocks = assistantPayload.content as Array<Record<string, unknown>>;
+
+    // The critical assertion: reasoning block was converted to thinking
+    // block (not silently dropped) and signature was preserved.
+    expect(blocks.length).toBeGreaterThanOrEqual(1);
+    expect(blocks[0].type).toBe('thinking');
+    expect(blocks[0].thinking).toBe('Let me think...');
+    expect(blocks[0].signature).toBe('sig-fallthrough-xyz');
   });
 });
