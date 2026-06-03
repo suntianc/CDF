@@ -547,6 +547,9 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
             authToken: config.apiKey!.trim(),
           });
       }
+      if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
+        modelConfig.thinking = { type: 'adaptive' };
+      }
       model = new ChatAnthropic(modelConfig);
       if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
         patchMiniMaxAssistantRole(model);

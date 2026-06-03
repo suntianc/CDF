@@ -77,6 +77,71 @@ describe('createLangChainModel', () => {
     expect(model).toBeInstanceOf(ChatAnthropic);
     expect(model.model).toBe('deepseek-chat');
   });
+
+  it('should pass thinking: { type: "adaptive" } to ChatAnthropic for MiniMax', () => {
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.minimaxi.com/anthropic/v1',
+      defaultModel: 'MiniMax-M3',
+      providerType: 'minimax',
+    }) as any;
+
+    expect(model.thinking).toEqual({ type: 'adaptive' });
+  });
+
+  it('should pass thinking: { type: "adaptive" } to ChatAnthropic for MiniMax-overseas', () => {
+    const model = createLangChainModel({
+      apiKey: 'sk-cp-overseas-token',
+      apiUrl: 'https://api.minimax.io/anthropic',
+      defaultModel: 'MiniMax-M3',
+      providerType: 'minimax-overseas',
+    }) as any;
+
+    expect(model.thinking).toEqual({ type: 'adaptive' });
+  });
+
+  it('should not set thinking field for non-MiniMax providers', () => {
+    const openaiModel = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.example.com/v1/chat/completions',
+      defaultModel: 'gpt-4o-mini',
+      providerType: 'openai',
+    }) as any;
+    expect(openaiModel.thinking).toBeUndefined();
+
+    const anthropicModel = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.anthropic.com',
+      defaultModel: 'claude-3-5-sonnet-20241022',
+      providerType: 'anthropic',
+    }) as any;
+    // ChatAnthropic class field default is { type: "disabled" } — adapter must NOT override to "adaptive"
+    expect(anthropicModel.thinking).toEqual({ type: 'disabled' });
+
+    const ollamaModel = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'http://localhost:11434',
+      defaultModel: 'llama3',
+      providerType: 'ollama',
+    }) as any;
+    expect(ollamaModel.thinking).toBeUndefined();
+
+    const deepseekModel = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.deepseek.com/anthropic/v1',
+      defaultModel: 'deepseek-chat',
+      providerType: 'deepseek',
+    }) as any;
+    expect(deepseekModel.thinking).toEqual({ type: 'disabled' });
+
+    const zhipuModel = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://open.bigmodel.cn/api/anthropic/v1',
+      defaultModel: 'glm-4.5',
+      providerType: 'zhipu',
+    }) as any;
+    expect(zhipuModel.thinking).toEqual({ type: 'disabled' });
+  });
 });
 
 describe('getOllamaBaseUrl', () => {
