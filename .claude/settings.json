@@ -54,5 +54,18 @@
       "Bash(/Users/suntc/project/CDF/node_modules/.bin/electron test3.cjs)",
       "Bash(./node_modules/.bin/electron test4.cjs)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // \"\"' 2>/dev/null); if echo \"$CMD\" | grep -q 'gsd-sdk query worktree.cleanup-wave'; then echo '⚠ Use scripts/gsd-cleanup-worktree.sh instead of raw gsd-sdk call' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ]
   }
 }
