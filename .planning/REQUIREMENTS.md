@@ -69,27 +69,34 @@
 
 ## Traceability
 
-| Requirement | Phase | Source |
-|------------|-------|--------|
-| SLASH-01 | Phase 1 | PROJECT.md + research SUMMARY |
-| SLASH-02 | Phase 1 | PROJECT.md + research SUMMARY |
-| SLASH-03 | Phase 2 | PROJECT.md + research SUMMARY |
-| SLASH-04 | Phase 2 | PROJECT.md + research SUMMARY |
-| SLASH-05 | Phase 3 | PROJECT.md + research SUMMARY |
-| SLASH-06 | Phase 3 | PROJECT.md + research SUMMARY |
-| SLASH-07 | Phase 3 | PROJECT.md + research SUMMARY + PITFALLS P2 |
-| SLASH-08 | Phase 2 | PROJECT.md + research SUMMARY |
-| SLASH-09 | Phase 2 | PROJECT.md + research SUMMARY |
-| SLASH-10 | Phase 2 | PROJECT.md + research SUMMARY + PITFALLS P11 |
-| SLASH-11 | Phase 2 | PROJECT.md + research SUMMARY |
-| SLASH-12 | Phase 2 | PROJECT.md + research SUMMARY + PITFALLS P3 |
-| SLASH-13 | Phase 2 | PROJECT.md + research SUMMARY + PITFALLS P10 |
-| SLASH-DISPATCH | Phase 2 | research SUMMARY (cross-cutting) |
-| SLASH-REGRESSION | Phase 3 | research SUMMARY + PITFALLS P2 (load-bearing test) |
+| Requirement | Phase (v1.1) | Phase (overall) | Source |
+|------------|--------------|-----------------|--------|
+| SLASH-01 | Phase 1 (v1.1) | **Phase 5** | PROJECT.md + research SUMMARY |
+| SLASH-02 | Phase 1 (v1.1) | **Phase 5** | PROJECT.md + research SUMMARY |
+| SLASH-03 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-04 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-05 | Phase 3 (v1.1) | **Phase 7** | PROJECT.md + research SUMMARY |
+| SLASH-06 | Phase 3 (v1.1) | **Phase 7** | PROJECT.md + research SUMMARY |
+| SLASH-07 | Phase 3 (v1.1) | **Phase 7** | PROJECT.md + research SUMMARY + PITFALLS P2 |
+| SLASH-08 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-09 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-10 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P11 |
+| SLASH-11 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-12 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P3 |
+| SLASH-13 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P10 |
+| SLASH-DISPATCH | Phase 2 (v1.1) | **Phase 6** | research SUMMARY (cross-cutting) |
+| SLASH-REGRESSION | Phase 3 (v1.1) | **Phase 7** | research SUMMARY + PITFALLS P2 (load-bearing test) |
 
-**Total requirements: 14** (13 SLASH + 1 SLASH-DISPATCH + 1 SLASH-REGRESSION)
-**Coverage:** 100% (all 13 SLASH requirements in PROJECT.md + 2 cross-cutting invariants → mapped to 1+ phase)
+**Total requirements: 15** (13 SLASH + 1 SLASH-DISPATCH + 1 SLASH-REGRESSION)
+**v1.1 phase mapping:**
+- Phase 5 (Popup Shell + Spike): 2 reqs (SLASH-01, SLASH-02)
+- Phase 6 (4-Source Registry + Dispatcher): 9 reqs (SLASH-03, SLASH-04, SLASH-08, SLASH-09, SLASH-10, SLASH-11, SLASH-12, SLASH-13, SLASH-DISPATCH)
+- Phase 7 (System Commands + M3 Regression): 4 reqs (SLASH-05, SLASH-06, SLASH-07, SLASH-REGRESSION)
+- Phase 8 (Polish + Differentiators): 0 reqs (no new SLASH-XX; addresses FEATURES.md D1/D2/D7/D13/D14/D15 polish)
+
+**Coverage:** 100% (15/15 v1.1 SLASH requirements mapped)
 
 ---
 
 *Generated 2026-06-04 from PROJECT.md Active section + research SUMMARY + user clarifications (3 system + 4 plugin sources + project-level custom).*
+*Traceability updated 2026-06-04 to reflect overall phase numbering (v1.1 = Phases 5-8).*

@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: 基本能力完善
 status: planning
-last_updated: "2026-06-03T16:23:28.859Z"
-last_activity: 2026-06-03
+last_updated: "2026-06-04T00:00:00.000Z"
+last_activity: 2026-06-04
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,109 +19,94 @@ progress:
 
 **Project:** Agent 开发工作站
 **Core Value:** 开发者通过自然语言对话驱动自动化开发工作流，Master Agent 负责需求理解、流程编排、节点执行监控和结果交付
-**Current Focus:** Milestone v1.0 complete — all 6 phases done
+**Current Focus:** Milestone v1.1 — `/` command popup system (4 phases, 15 SLASH requirements)
+
+See: `.planning/PROJECT.md` (updated 2026-06-04)
+See: `.planning/REQUIREMENTS.md` (v1.1 SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION)
+See: `.planning/research/SUMMARY.md` (high-confidence synthesis, 2026-06-04)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 1 of 4 in v1.1 (Phase 5 overall — Popup Shell + Keyboard Spike)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-03 — Milestone v1.1 started
+Status: Ready to plan
+Last activity: 2026-06-04 — v1.1 roadmap created, awaiting approval
 
-## Quick Tasks Completed
+Progress: [░░░░░░░░░░] 0%
 
-| Date | ID | Task | Status |
-| --- | --- | --- | --- |
-| 2026-05-24 | 20260524-bind-pure-chat-master-agent | 纯聊天会话绑定 Master Agent | complete |
-| 2026-05-24 | 20260524-master-agent-subagents | Master Agent 调用其它 Agent 最小闭环 | complete |
-| 2026-05-24 | 260524-ojt | DeepAgents 原生上下文管理实施 | complete |
-| 2026-05-24 | 20260524-agent-trust-foundation | Agent 桌面应用信任底座 | complete |
-| 2026-05-25 | 20260525-openai-compatible-provider-adapter | OpenAI-Compatible Provider 适配层加固 | complete |
-| 2026-05-27 | 260527-isd | todo 轮询 → run.values 事件驱动 | complete |
-| 2026-05-27 | 260527-j8h | TodoList 跨回合残留修复 | complete |
-| 2026-05-27 | 260527-j8h | TodoList 跨轮次数据残留修复 | complete |
-| 2026-05-27 | 260527-jt8 | ArXiv 工具 UI 集成与开关控制 | complete |
-| 2026-05-27 | 260527-k3x | 工具注册表模式重构 + ArXiv 可见性修复 | complete |
-| 2026-05-27 | 260527-b97 | provider_type 统一为 lobehub 枚举值 | complete |
-| 2026-05-27 | 260527-vt1 | 修复工作流保存、重名、删除及外键级联问题 | complete |
-| 2026-05-31 | 260531-umu | 工作流节点输出 JSON Schema 校验机制（内置schema+5轮重试降级） | complete |
-| 2026-06-01 | 260601-nzn | 使用 patch-package 方案为 MiniMax M3 解锁视频透传能力 | complete |
-| 2026-06-01 | 260602-0ed | 工作流执行历史记录 + JSON 导出（含工作流配置+详细执行过程，脱敏 provider 与 MCP 密钥）+ 单条删除 | complete |
-| 2026-06-02 | 260602-dz3 | 移除节点输出 JSON Schema 校验机制（首轮无 schema 提示导致 5 次重试无效；与 routing 提取矛盾；validated 字段无下游消费者）| complete |
-| 2026-06-02 | 260602-fs4 | 应用 Claude Code Workflow 哲学加固稳定性（节点级 temperature/maxTokens + tool_calls 结构化落库 + error_type 分类）| complete |
-| 2026-06-02 | fast | 移除节点级 maxTokens 配置（保留 temperature；用户决定不限制 token 上限）| complete |
-| 2026-06-02 | fast | 导出 JSON 去重（events 剔除 node_log，logs 剔除工具相关文本；实测体积可减 50%+）| complete |
-| 2026-06-02 | 260602-un5 | 重构工作流节点执行轨迹为时序流（ExecutionStep[] 统一思考/工具调用/工具返回，handleLLMEnd 抓真实 LLM 思考文本，实时 UI 按 step.type 渲染）| complete |
-| 2026-06-02 | fast | execution_trace 可读性三坑修复（thinking 剔除 tool_calls JSON 尾巴 / tool_result 剥 LangChain ToolMessage 外壳 / tool_call.args 反序列化）| complete |
-| 2026-06-02 | fast | 导出 JSON 精简（pruneEmpty 递归剔除空值 + events 去 executionId/workflowId 冗余 + retry_count=0 省略）| complete |
-| 2026-06-02 | fast | 导出 JSON 精简三（events 剔除 node_log 类型 + 节点剔除 position 字段；体积再减 22%）| complete |
-| 2026-06-02 | fast | 节点字段改用白名单（对齐前端 NodeConfigDrawer，每个节点类型只导出该类型实际渲染的字段，剔除遗留垃圾）| complete |
-| 2026-06-02 | fast | hotfix: foreach 报错时应用黑屏（根因 IPC getWorkflowNodeRuns 漏 parse execution_trace/tool_calls，附 ErrorBoundary 护栏）| complete |
-| 2026-06-02 | fast | 导出 JSON 精简四（剔除 execution.output 字典冗余 + node output 元字段 + foreach results LangChain 残留）| complete |
-| 2026-06-03 | 260603-s29 | M3 thinking 开关（minimax/minimax-overseas 注入 `thinking: { type: "adaptive" }`，让 M3 上游发 thinking 事件；单测 PASS 10/0；详见 `.planning/debug/minimax-m3-thinking-missing.md`）| complete |
-| 2026-06-03 | 260603-se4 | hotfix — M3 thinking + temperature 互斥（Anthropic extended thinking 协议要求 thinking 启用时 temperature/top_p/top_k 必须 unset；本次在 minimax/minimax-overseas 同一 if-guard 内 `delete modelConfig.temperature`；新增 7 行测试断言；测试 PASS 10/0）| complete |
-| 2026-06-03 | 260603-soe | b — M3 多轮 signature 回带（v1 路径调研 + 3 it 锁定；用户实测后证实 fallthrough 路径有 bug，由 260603-tiy real-fix 修复）| complete |
-| 2026-06-03 | 260603-tiy | real-fix — M3 多轮 roundtrip patch（用户实测 M3 第二轮无思考区；根因 v1 路径 OK 但 fallthrough 走 _formatContentBlocks 时 _isAnthropicThinkingBlock 只识别 type=thinking 不识别 type=reasoning，reasoning 块被 silently dropped；在 _formatContentBlocks 追加 `type === "reasoning" && "signature" in contentPart` 分支 + 同步补丁 `.cjs`；1 个新 it 块覆盖 fallthrough；测试 4/0 PASS；详见 `.planning/quick/260603-tiy-real-fix-m3-roundtrip-patch-formatconten/`）| complete |
-| 2026-06-03 | 260603-u6w | real-fix-2 — v1 路径 isAnthropicMessage 守卫（260603-tiy 仍漏修 v1 路径；_formatStandardContent 中 reasoning 分支因 `response_metadata.model_provider === "anthropic"` 守卫在 deepagents checkpoint 走一圈后被 silently dropped；移除该守卫 + 同步 .cjs + 1.5 回归测试；测试 5/0 PASS；patch 5 hunks；详见 `.planning/quick/260603-u6w-real-fix-2-v1-isanthropicmessage-formats/`）| complete |
-| 2026-06-03 | 260603-vht | video patch .cjs parity（回填 260601-nzn 漏修的 standard.cjs:267 video 块 passthrough；补 .cjs 端 hunk；新建 `anthropic-video-passthrough.test.ts` 1 个 it 块 TDD-RED→GREEN；TDD 测试不应用 patch 必失败（blocks=[]），应用后通过；patch 6 hunks；3 测试文件 16/0 PASS；详见 `.planning/quick/260603-vht-video-patch-cjs-parity-standard-cjs-267-/`）| complete |
-| 2026-06-03 | 260603-w0y | gitignore daemon.pid — 在 root .gitignore 加 `.codegraph/` 规则 + `git rm --cached` 已跟踪的 `.codegraph/daemon.pid` 和 `.codegraph/.gitignore`；避免 codegraph daemon 进程 PID 变化污染 git status；本地 daemon.pid 保留（worktree cleanup 因 deletions 触发 guard, 改用 cherry-pick 应用 lost commit + 手动重写 daemon.pid with current PID 8191）| complete |
-| 2026-06-03 | 260603-wd4 | GSD cleanup 助手脚本 + PreToolUse hook（包装 `gsd-sdk query worktree.cleanup-wave` 解决 3 corner case：rescue untracked *-SUMMARY.md / 清 .git/worktrees/<name>/locked / 移除 node_modules symlink；失败时扫描 stderr 输出 `branch_contains_deletions` / `merge_failed` / `base_mismatch` 的人工合并/cherry-pick HINT；.claude/settings.json 加 PreToolUse hook 拦截裸 gsd-sdk 调用引导到包装脚本）| complete |
+## Performance Metrics
 
-## Deferred Items
+**Velocity (v1.0 baseline):**
+- Total plans completed: 21
+- Phases: 6 (4 + 2 inserted)
+- Duration: 2026-05-19 → 2026-06-03 (15 days)
+- LOC: 12,950 TypeScript/TSX
+- Commits: 395
 
-Items acknowledged and deferred at v1.0 milestone close on 2026-06-03 (audit-open false positives — all are actually complete in this milestone):
+**v1.1 (in progress):**
+- Total plans completed: 0
+- Average duration: —
 
-| Category | Item | Status | Notes |
-|----------|------|--------|-------|
-| quick_task | `debug-and-fix-welcome-send-disabled` | acknowledged | completed 20260522, commit on master |
-| quick_task | `fix-assistant-ui-typeerror` | acknowledged | completed 20260522 |
-| quick_task | `fix-llm-chat-url-endpoints` | acknowledged | completed 20260522 |
-| quick_task | `fix-minimax-auth-and-domain` | acknowledged | completed 20260522 |
-| quick_task | `fix-minimax-url-normalization` | acknowledged | completed 20260522 |
-| quick_task | `fix-stream-listener-race` | acknowledged | completed 20260522 |
-| quick_task | `master-agent-subagents` | acknowledged | status: reverted per audit; reverted-and-redone in subsequent commits |
-| quick_task | `260524-ojt-deepagents` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260527-isd-todo-run-values` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260527-j8h-todolist` | acknowledged | audit date/status: missing; actually complete (2 rows in STATE.md table) |
-| quick_task | `260527-jt8-arxiv-tool-ui-toggle` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260531-umu-node-output-schema` | acknowledged | audit date/status: missing; actually complete (later reverted by 260602-dz3) |
-| quick_task | `260601-nzn-patch-package-minimax-m3` | acknowledged | audit date/status: missing; actually complete (M3 video passthrough) |
-| quick_task | `260602-0ed-execution-json-provider` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260602-dz3-json-schema-output-validator-node-output` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260602-fs4-claude-code-workflow-temperature-maxtoke` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260602-un5-execution-trace-executionstep-node-execu` | acknowledged | audit date/status: missing; actually complete |
-| quick_task | `260603-s29-m3-thinking-minimax-minimax-overseas-pro` | acknowledged | audit date/status: missing; actually complete (M3 thinking 开关) |
-| quick_task | `260603-se4-hotfix-m3-thinking-temperature-minimax-m` | acknowledged | audit date/status: missing; actually complete (M3 temp hotfix) |
-| quick_task | `260603-soe-b-m3-signature-chat-assistant-thinking-s` | acknowledged | audit date/status: missing; actually complete (b roundtrip test) |
-| quick_task | `260603-tiy-real-fix-m3-roundtrip-patch-formatconten` | acknowledged | audit date/status: missing; actually complete (real-fix 1) |
-| quick_task | `260603-u6w-real-fix-2-v1-isanthropicmessage-formats` | acknowledged | audit date/status: missing; actually complete (real-fix 2) |
-| quick_task | `260603-vht-video-patch-cjs-parity-standard-cjs-267-` | acknowledged | audit date/status: missing; actually complete (video .cjs parity) |
-| quick_task | `260603-w0y-gitignore-daemon-pid-codegraph-gitignore` | acknowledged | audit date/status: missing; actually complete (gitignore) |
-| quick_task | `260603-wd4-gsd-cleanup-helper-scripts-gsd-cleanup-w` | acknowledged | audit date/status: missing; actually complete (helper + hook) |
-| uat_gap | `phase 03.1` (`03.1-UAT.md`) | acknowledged | status="testing", 0 open scenarios — UAT ran clean but file status not updated to "passed"; benign |
-
-All 26 items are tooling false positives in the strict audit. The audit's status-parsing regex doesn't match the actual SUMMARY.md frontmatter / UAT status fields we use. Real project state is **100% complete**: all phases shipped, all 25 quick tasks committed, all commits pushed to origin/master, working tree clean. Auditing is acknowledged for archival purposes; no further action needed.
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 5. Popup Shell + Spike | TBD | TBD | TBD |
+| 6. 4-Source Registry | TBD | TBD | TBD |
+| 7. System Commands | TBD | TBD | TBD |
+| 8. Polish | TBD | TBD | TBD |
 
 ## Accumulated Context
 
-### Roadmap Evolution
+### Decisions
 
-- Phase 03.1 inserted after Phase 3: 实现子agent调用流程 (URGENT)
-- Phase 03.2 inserted after Phase 3: 对当前产品进行系统性复核，基于 deepagents 官方文档，按模块进行复核检查 (URGENT)
+Full decision log: `.planning/PROJECT.md` Key Decisions table.
 
-### Session Log
+Recent v1.1 decisions (pending execution):
 
-| Timestamp | Action | Details |
-|-----------|--------|---------|
-| 2026-05-27T03:57:50Z | Plan 03.2-01 completed | Module 1 review: CompositeBackend wrapping, createDeepAgent 参数对齐 |
-| 2026-05-27T14:45:00Z | Phase 4 context gathered | 4 areas discussed: editor layout, node types, execution engine, state & persistence. Key decision: all executable nodes are Agent nodes. |
-| 2026-05-27T20:16:00Z | Phase 4 UI-SPEC approved | Visual and interaction contract for Phase 4 approved by UI checker. |
-| 2026-05-31T14:03:00Z | Quick task 260531-umu completed | 工作流节点输出 JSON Schema 校验机制 implemented — src/shared/node-output-schemas.ts, src/main/workflow/output-validator.ts, node-executor integration |
-| 2026-06-01T16:30:00Z | Quick task 260602-0ed completed | 工作流执行历史 + JSON 导出 + 单条删除 — src/main/workflow/log-exporter.ts(新), src/renderer/src/components/WorkflowEditor/ExecutionHistoryDrawer.tsx(新), 3 IPC + 2 新列(config_snapshot/events_snapshot) |
-| 2026-06-02T02:15:00Z | Quick task 260602-dz3 completed | 移除节点输出 JSON Schema 校验机制(撤销 260531-umu) — 删除 output-validator.ts/node-output-schemas.ts,node-executor.ts 三处调用直接 invokeAgent,净减 433 行 |
-| 2026-06-02T03:35:00Z | Quick task 260602-fs4 completed | Claude Code Workflow 稳定性加固 — 节点级 temperature/maxTokens、tool_calls 结构化落库(新列)、error_type 枚举(timeout/tool_error/llm_error/no_routing/aborted/unknown) |
-| 2026-06-02T14:25:00Z | Quick task 260602-un5 completed | 执行轨迹时序流重构 — ExecutionStep[] 统一 thinking/tool_call/tool_result;handleLLMEnd 抓 LLM 真实思考文本;execution_trace 新列;UI 按 step.type 渲染;旧 logs/tool_calls 字段作 fallback 保留 |
+- **v1.1 / Pop shell**: 拒绝 `unstable_useSlashCommandAdapter`（@deprecated）→ 自建 cmdk + Radix Popover 薄层
+- **v1.1 / Stack**: 引入 `cmdk@1.1.1` + `@radix-ui/react-popover@1.1.15` + `sonner` 三个新 dep
+- **v1.1 / IPC**: 仅新增 `commands:list` + `commands:readProjectCommands` 两个通道；plugin dispatch 复用 `llm:chat`
+- **v1.1 / /plan**: 实现为 `payload.overrides.planOnly` flag（llm.ts:324 扩展点），**不**新增 dispatch 路径
+- **v1.1 / Project commands**: 路径 `.cdf/commands/*.md`（**非** `.claude/commands/`），与 `.cdf/skills/` 对齐
+- **v1.1 / Conflict**: source badge + 两行都保留 + 优先级 `system > skill > workflow > mcp > project`
+- **v1.1 / Plugin dispatch**: 自然语言 prompt 重写 `"请调用 ${tool} 工具，参数：${args}"` 走 `llm:chat`
+- **v1.1 / /goal storage**: v1.1 内存 `useSessionStore.sessionGoals: Map<sessionId, string>`；v1.2+ 迁 SQLite
+- **v1.1 / Workflow seed**: 必须 seed `/pr-review` 3 节点 demo workflow（v1.0 DB 0 行）作为 e2e contract
+- **v1.1 / chokidar**: 用 `chokidar@3.6.0` + `awaitWriteFinish: { stabilityThreshold: 200 }`
+
+### Pending Todos
+
+None yet.
+
+### Blockers/Concerns
+
+- **MCP `inputSchema` shape** (LOW confidence) — 需 Phase 2 验证 MCP tool 是 zod schema 还是 JSON Schema
+- **chokidar 跨平台** (LOW confidence) — 需 Phase 2 CI 矩阵覆盖 macOS + Windows + Linux
+- **payload.overrides.planOnly runtime 语义** (LOW confidence) — 需 Phase 3 验证 deepagent 端行为
+- **v1.0 partial deliverable 收尾** (deferred) — draft workflow tests / work history UI polish 推 v1.2
+
+## Deferred Items (from v1.0 close)
+
+26 quick task audit false positives + 1 UAT gap (all benign — see v1.0 STATE for full list). No carry-forward needed.
+
+## v1.0 Carry-Forward (Deferred to v1.2+)
+
+| Category | Item | Reason |
+|----------|------|--------|
+| workflow | draft workflow tests | v1.0 partial deliverable; v1.1 激光聚焦 `/` |
+| workflow | work history UI polish | 260602-0ed 基础已建，UI wiring 推 v1.2 |
+| mcp | MCP connection/disconnect mgmt polish | v1.0 partial; 推 v1.2 |
+| skills | Skills versioning + execution log UI | basic 创建已 ship，UX 完整推 v1.2 |
+| testing | M3 thinking test matrix expansion | 5 it 块 happy path，edge cases 推 v1.2 |
+
+## Session Continuity
+
+Last session: 2026-06-04
+Stopped at: v1.1 roadmap created (ROADMAP.md + STATE.md + REQUIREMENTS.md traceability updated)
+Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+1. Review `.planning/ROADMAP.md` — 4 phases / 15 SLASH requirements mapped
+2. If approved → run `/gsd:plan-phase 5` to start Phase 5 (Popup Shell + Keyboard Spike)
+3. Phase 5 是 SPIKE：先验证 cmdk + Radix Popover 在裸 textarea 上的路径，再承诺 dispatcher 架构
+4. 注意 SLASH-REGRESSION 必须在 Phase 7 加入（6-hunk patch-package 护栏）
