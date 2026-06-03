@@ -61,6 +61,7 @@ Plan: 21/21 done
 | 2026-06-03 | 260603-se4 | hotfix — M3 thinking + temperature 互斥（Anthropic extended thinking 协议要求 thinking 启用时 temperature/top_p/top_k 必须 unset；本次在 minimax/minimax-overseas 同一 if-guard 内 `delete modelConfig.temperature`；新增 7 行测试断言；测试 PASS 10/0）| complete |
 | 2026-06-03 | 260603-soe | b — M3 多轮 signature 回带（v1 路径调研 + 3 it 锁定；用户实测后证实 fallthrough 路径有 bug，由 260603-tiy real-fix 修复）| complete |
 | 2026-06-03 | 260603-tiy | real-fix — M3 多轮 roundtrip patch（用户实测 M3 第二轮无思考区；根因 v1 路径 OK 但 fallthrough 走 _formatContentBlocks 时 _isAnthropicThinkingBlock 只识别 type=thinking 不识别 type=reasoning，reasoning 块被 silently dropped；在 _formatContentBlocks 追加 `type === "reasoning" && "signature" in contentPart` 分支 + 同步补丁 `.cjs`；1 个新 it 块覆盖 fallthrough；测试 4/0 PASS；详见 `.planning/quick/260603-tiy-real-fix-m3-roundtrip-patch-formatconten/`）| complete |
+| 2026-06-03 | 260603-u6w | real-fix-2 — v1 路径 isAnthropicMessage 守卫（260603-tiy 仍漏修 v1 路径；_formatStandardContent 中 reasoning 分支因 `response_metadata.model_provider === "anthropic"` 守卫在 deepagents checkpoint 走一圈后被 silently dropped；移除该守卫 + 同步 .cjs + 1.5 回归测试；测试 5/0 PASS；patch 5 hunks；详见 `.planning/quick/260603-u6w-real-fix-2-v1-isanthropicmessage-formats/`）| complete |
 
 ## Accumulated Context
 
