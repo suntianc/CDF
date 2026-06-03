@@ -50,6 +50,27 @@
  *   `_formatContentBlocks`, drop the new hunks from the patch and delete
  *   test 1.4 (the upstream library covers it).
  *
+ * Patch scope v2 (added 2026-06-03, real-fix-2 260603-u6w):
+ * - The 260603-tiy patch fixed the FALLTHROUGH path
+ *   (`_formatContentBlocks` in message_inputs.js/.cjs). This v2 patch
+ *   fixes the V1 path (`_formatStandardContent` in standard.js/.cjs)
+ *   by removing the redundant `isAnthropicMessage` guard from the
+ *   reasoning branch.
+ * - Rationale: `_formatStandardContent` lives in @langchain/anthropic,
+ *   so reasoning blocks can only come from Anthropic-compatible models.
+ *   The `isAnthropicMessage` runtime check is defensive but breaks
+ *   legitimate roundtrips where `response_metadata.model_provider` is
+ *   lost through deepagents' langgraph-checkpoint-sqlite (note: the
+ *   `output_version: "v1"` marker SURVIVES this serializer, so the
+ *   message still takes the v1 dispatch path — but the guard inside
+ *   `_formatStandardContent` is now false, and the reasoning branch
+ *   is skipped).
+ * - When upgrading @langchain/anthropic past 1.4.0: re-test both the
+ *   fallthrough path (test 1.4) and the v1 path without model_provider
+ *   (test 1.5). If upstream now handles `type: "reasoning"` in
+ *   `_formatStandardContent` unconditionally, drop the v2 hunks from
+ *   the patch and delete test 1.5.
+ *
  * References:
  * - node_modules/@langchain/core/dist/language_models/stream.cjs:403-491
  *   (ChatModelStream class + _assembleMessage)
@@ -84,6 +105,22 @@ const { _convertMessagesToAnthropicPayload } = require(cjsPath) as {
     messages: Array<{ role: string; content: unknown }>;
     system: unknown;
   };
+};
+
+// Test 1.5 calls `_formatStandardContent` directly via the same `createRequire`
+// + .cjs pattern. This function lives in `standard.cjs` and is what the v1
+// dispatch in `_convertMessagesToAnthropicPayload` (message_inputs.cjs:215-218)
+// delegates to when `response_metadata.output_version === "v1"`.
+const standardCjsPath = path.join(
+  process.cwd(),
+  'node_modules/@langchain/anthropic/dist/utils/standard.cjs'
+);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { _formatStandardContent } = require(standardCjsPath) as {
+  _formatStandardContent: (message: {
+    contentBlocks: Array<Record<string, unknown>>;
+    response_metadata?: Record<string, unknown>;
+  }) => Array<Record<string, unknown>>;
 };
 
 /**
@@ -282,5 +319,58 @@ describe('Anthropic thinking+signature roundtrip (M3 multi-turn)', () => {
     expect(blocks[0].type).toBe('thinking');
     expect(blocks[0].thinking).toBe('Let me think...');
     expect(blocks[0].signature).toBe('sig-fallthrough-xyz');
+  });
+
+  it('1.5 v1 path without model_provider — reasoning+signature block converts to thinking block', () => {
+    // **Why this test exists:** 260603-tiy fixed the fallthrough path
+    // (no `output_version: "v1"` marker — see test 1.4). This test
+    // pins the V1 path (`_convertMessagesToAnthropicPayload` at
+    // message_inputs.cjs:215-218 routes to `_formatStandardContent`)
+    // when the AIMessage has `output_version: "v1"` BUT is missing
+    // `model_provider: "anthropic"` from `response_metadata`.
+    //
+    // Empirically: deepagents' langgraph-checkpoint-sqlite serializer
+    // preserves `output_version: "v1"` but drops `model_provider` on
+    // roundtrip. Before the v2 patch, `_formatStandardContent` had:
+    //   } else if (block.type === "reasoning" && isAnthropicMessage)
+    // so the guard evaluated to false and the reasoning block was
+    // silently dropped. After the v2 patch the guard is removed and
+    // the reasoning block converts to a thinking block.
+    //
+    // **Test calls `_formatStandardContent` DIRECTLY** (via
+    // `createRequire` on standard.cjs) so this test is independent
+    // of the dispatch routing in `_convertMessagesToAnthropicPayload`
+    // — that routing is already pinned by test 1.2. Here we only
+    // assert that the function itself produces a thinking block for
+    // an AIMessage whose `model_provider` is missing.
+    //
+    // We pass a plain object with explicit `contentBlocks` (not an
+    // AIMessage instance) so we don't have to construct a fully
+    // assembled message just to feed one reasoning block to the
+    // function under test. `_formatStandardContent` only reads
+    // `message.contentBlocks` and `message.response_metadata`.
+    const message = {
+      contentBlocks: [
+        {
+          type: 'reasoning',
+          reasoning: 'Let me think about this problem...',
+          signature: 'sig-v1-no-provider-xyz',
+        },
+      ],
+      // output_version: "v1" is set (so v1 path is taken upstream)
+      // but model_provider is DELIBERATELY missing — this is the
+      // post-checkpoint state deepagents produces empirically.
+      response_metadata: { output_version: 'v1' },
+    } as unknown as Parameters<typeof _formatStandardContent>[0];
+
+    const blocks = _formatStandardContent(message);
+
+    // The reasoning block was converted to a thinking block (not
+    // silently dropped because of the redundant model_provider guard)
+    expect(blocks.length).toBeGreaterThanOrEqual(1);
+    const first = blocks[0];
+    expect(first.type).toBe('thinking');
+    expect(first.thinking).toBe('Let me think about this problem...');
+    expect(first.signature).toBe('sig-v1-no-provider-xyz');
   });
 });
