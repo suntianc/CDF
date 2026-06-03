@@ -87,6 +87,7 @@ describe('createLangChainModel', () => {
     }) as any;
 
     expect(model.thinking).toEqual({ type: 'adaptive' });
+    expect(model.temperature).toBeUndefined();
   });
 
   it('should pass thinking: { type: "adaptive" } to ChatAnthropic for MiniMax-overseas', () => {
@@ -98,6 +99,7 @@ describe('createLangChainModel', () => {
     }) as any;
 
     expect(model.thinking).toEqual({ type: 'adaptive' });
+    expect(model.temperature).toBeUndefined();
   });
 
   it('should not set thinking field for non-MiniMax providers', () => {
@@ -108,6 +110,7 @@ describe('createLangChainModel', () => {
       providerType: 'openai',
     }) as any;
     expect(openaiModel.thinking).toBeUndefined();
+    expect(openaiModel.temperature).toBe(0);
 
     const anthropicModel = createLangChainModel({
       apiKey: 'test-key',
@@ -117,6 +120,7 @@ describe('createLangChainModel', () => {
     }) as any;
     // ChatAnthropic class field default is { type: "disabled" } — adapter must NOT override to "adaptive"
     expect(anthropicModel.thinking).toEqual({ type: 'disabled' });
+    expect(anthropicModel.temperature).toBe(0);
 
     const ollamaModel = createLangChainModel({
       apiKey: 'test-key',
@@ -125,6 +129,7 @@ describe('createLangChainModel', () => {
       providerType: 'ollama',
     }) as any;
     expect(ollamaModel.thinking).toBeUndefined();
+    expect(ollamaModel.temperature).toBe(0);
 
     const deepseekModel = createLangChainModel({
       apiKey: 'test-key',
@@ -133,6 +138,7 @@ describe('createLangChainModel', () => {
       providerType: 'deepseek',
     }) as any;
     expect(deepseekModel.thinking).toEqual({ type: 'disabled' });
+    expect(deepseekModel.temperature).toBe(0);
 
     const zhipuModel = createLangChainModel({
       apiKey: 'test-key',
@@ -141,6 +147,7 @@ describe('createLangChainModel', () => {
       providerType: 'zhipu',
     }) as any;
     expect(zhipuModel.thinking).toEqual({ type: 'disabled' });
+    expect(zhipuModel.temperature).toBe(0);
   });
 });
 

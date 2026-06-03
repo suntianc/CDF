@@ -549,6 +549,7 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
       }
       if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
         modelConfig.thinking = { type: 'adaptive' };
+        delete modelConfig.temperature;
       }
       model = new ChatAnthropic(modelConfig);
       if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
