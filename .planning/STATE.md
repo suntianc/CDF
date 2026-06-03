@@ -59,7 +59,8 @@ Plan: 21/21 done
 | 2026-06-02 | fast | 导出 JSON 精简四（剔除 execution.output 字典冗余 + node output 元字段 + foreach results LangChain 残留）| complete |
 | 2026-06-03 | 260603-s29 | M3 thinking 开关（minimax/minimax-overseas 注入 `thinking: { type: "adaptive" }`，让 M3 上游发 thinking 事件；单测 PASS 10/0；详见 `.planning/debug/minimax-m3-thinking-missing.md`）| complete |
 | 2026-06-03 | 260603-se4 | hotfix — M3 thinking + temperature 互斥（Anthropic extended thinking 协议要求 thinking 启用时 temperature/top_p/top_k 必须 unset；本次在 minimax/minimax-overseas 同一 if-guard 内 `delete modelConfig.temperature`；新增 7 行测试断言；测试 PASS 10/0）| complete |
-| 2026-06-03 | 260603-soe | b — M3 多轮 signature 回带（调研发现 LangChain 1.4.0 的 convertAnthropicStream + ChatModelStream._assembleMessage + LangGraph JsonPlusSerializer 已自动 roundtrip thinking+signature 块；本次仅新增 `src/main/deepagent/anthropic-roundtrip.test.ts` 锁定行为，3 it 块 PASS；chat 侧无业务代码改动）| complete |
+| 2026-06-03 | 260603-soe | b — M3 多轮 signature 回带（v1 路径调研 + 3 it 锁定；用户实测后证实 fallthrough 路径有 bug，由 260603-tiy real-fix 修复）| complete |
+| 2026-06-03 | 260603-tiy | real-fix — M3 多轮 roundtrip patch（用户实测 M3 第二轮无思考区；根因 v1 路径 OK 但 fallthrough 走 _formatContentBlocks 时 _isAnthropicThinkingBlock 只识别 type=thinking 不识别 type=reasoning，reasoning 块被 silently dropped；在 _formatContentBlocks 追加 `type === "reasoning" && "signature" in contentPart` 分支 + 同步补丁 `.cjs`；1 个新 it 块覆盖 fallthrough；测试 4/0 PASS；详见 `.planning/quick/260603-tiy-real-fix-m3-roundtrip-patch-formatconten/`）| complete |
 
 ## Accumulated Context
 
