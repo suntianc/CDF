@@ -30,6 +30,7 @@ import { describe, expect, it } from 'vitest';
 import { createRequire } from 'module';
 import path from 'path';
 import { ChatModelStream } from '@langchain/core/language_models/stream';
+import type { ChatModelStreamEvent } from '@langchain/core/language_models/event';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 
 // The `_convertMessagesToAnthropicPayload` function is NOT exposed by
@@ -109,7 +110,15 @@ async function* v3Events(): AsyncGenerator<Record<string, unknown>> {
 
 describe('Anthropic thinking+signature roundtrip (M3 multi-turn)', () => {
   it('1.1 v3 stream with signature_delta -> AIMessage.content carries the signature', async () => {
-    const stream = new ChatModelStream(v3Events());
+    // Cast synthetic events to ChatModelStreamEvent: the generator's yield
+    // values are well-formed v3 events (matching MessageStartEvent /
+    // ContentBlockStartEvent / etc. shapes) but the AsyncGenerator's inferred
+    // type is `Record<string, unknown>` because of how we build the literals.
+    // The cast is safe at the boundary; runtime behavior is covered by
+    // vitest 3/3 PASS.
+    const stream = new ChatModelStream(
+      v3Events() as AsyncIterable<ChatModelStreamEvent>
+    );
     const message = await stream.output;
 
     // Content is the block-array form (not a string)
