@@ -37,10 +37,32 @@ index 22a83f7..39d0f7c 100644
  	}
  }
  function _formatContent(message, toolCalls) {
+diff --git a/node_modules/@langchain/anthropic/dist/utils/standard.cjs b/node_modules/@langchain/anthropic/dist/utils/standard.cjs
+index 2945dbf..f45eca5 100644
+--- a/node_modules/@langchain/anthropic/dist/utils/standard.cjs
++++ b/node_modules/@langchain/anthropic/dist/utils/standard.cjs
+@@ -126,7 +126,7 @@ function _formatStandardContent(message) {
+ 			name: block.name ?? "",
+ 			input
+ 		});
+-	} else if (block.type === "reasoning" && isAnthropicMessage) result.push({
++	} else if (block.type === "reasoning") result.push({
+ 		type: "thinking",
+ 		thinking: block.reasoning,
+ 		signature: String(block.signature)
 diff --git a/node_modules/@langchain/anthropic/dist/utils/standard.js b/node_modules/@langchain/anthropic/dist/utils/standard.js
-index c3fd54d..2b10a8c 100644
+index c3fd54d..e1701cc 100644
 --- a/node_modules/@langchain/anthropic/dist/utils/standard.js
 +++ b/node_modules/@langchain/anthropic/dist/utils/standard.js
+@@ -126,7 +126,7 @@ function _formatStandardContent(message) {
+ 			name: block.name ?? "",
+ 			input
+ 		});
+-	} else if (block.type === "reasoning" && isAnthropicMessage) result.push({
++	} else if (block.type === "reasoning") result.push({
+ 		type: "thinking",
+ 		thinking: block.reasoning,
+ 		signature: String(block.signature)
 @@ -264,7 +264,7 @@ function _formatStandardContent(message) {
  			continue;
  		}
