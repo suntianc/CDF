@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: 基本能力完善
 status: executing
 stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-06-04T03:38:07.427Z"
+last_updated: "2026-06-04T03:38:21.276Z"
 last_activity: 2026-06-04
 progress:
   total_phases: 4
@@ -76,6 +76,7 @@ Recent v1.1 decisions (pending execution):
 - **v1.1 / /goal storage**: v1.1 内存 `useSessionStore.sessionGoals: Map<sessionId, string>`；v1.2+ 迁 SQLite
 - **v1.1 / Workflow seed**: 必须 seed `/pr-review` 3 节点 demo workflow（v1.0 DB 0 行）作为 e2e contract
 - **v1.1 / chokidar**: 用 `chokidar@3.6.0` + `awaitWriteFinish: { stabilityThreshold: 200 }`
+- [Phase ?]: Shift+Enter must fall through to newline; TestHarness filters before slashRef
 
 ### Pending Todos
 
