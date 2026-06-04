@@ -168,7 +168,7 @@ Plans:
 | 3.1 子agent 调用流程 | v1.0 | 2/2 | Complete | 2026-05-23 |
 | 3.2 deepagents 复核 | v1.0 | 6/6 | Complete | 2026-05-27 |
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
-| 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete   | 2026-06-04 |
+| 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 0/TBD | Not started | - |
 | 7. System Commands + M3 Regression | v1.1 | 0/TBD | Not started | - |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
