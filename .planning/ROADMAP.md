@@ -170,7 +170,7 @@ Plans:
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
 | 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 2/2 | Complete    | 2026-06-04 |
-| 7. System Commands + M3 Regression | v1.1 | 2/2 | Complete   | 2026-06-04 |
+| 7. System Commands + M3 Regression | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
 
 ## Coverage

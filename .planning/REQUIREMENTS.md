@@ -20,9 +20,9 @@
 
 ### System Commands (SLASH-05..07)
 
-- [ ] **SLASH-05**: User can run `/goal [condition]` to set a session-level goal stored in `useSessionStore.sessionGoals: Map<sessionId, string>` (in-memory, v1.1; persistent in v1.2+); placeholder bubble `[system] 正在执行 /goal…` appears immediately, no LLM call
-- [ ] **SLASH-06**: User can run `/context [all]` to render a static bubble showing current session token usage (from `messages` table), without invoking the LLM
-- [ ] **SLASH-07**: User can run `/plan [description]` to enter plan mode; dispatcher sets `payload.overrides = { planOnly: true }` on the existing `llm:chat` call; first `message_chunk` after `/plan` MUST contain `<think>…plan only…</think>`; no `write_file` / `edit_file` / `bash` tool call fires during plan mode
+- [x] **SLASH-05**: User can run `/goal [condition]` to set a session-level goal stored in `useSessionStore.sessionGoals: Map<sessionId, string>` (in-memory, v1.1; persistent in v1.2+); placeholder bubble `[system] 正在执行 /goal…` appears immediately, no LLM call
+- [x] **SLASH-06**: User can run `/context [all]` to render a static bubble showing current session token usage (from `messages` table), without invoking the LLM
+- [x] **SLASH-07**: User can run `/plan [description]` to enter plan mode; dispatcher sets `payload.overrides = { planOnly: true }` on the existing `llm:chat` call; first `message_chunk` after `/plan` MUST contain `<think>…plan only…</think>`; no `write_file` / `edit_file` / `bash` tool call fires during plan mode
 
 ### Plugin Command Auto-Registration (SLASH-08..11)
 
@@ -39,7 +39,7 @@
 
 ### M3 Thinking Preservation (cross-cutting regression test)
 
-- [ ] **SLASH-REGRESSION**: New it block in `llm-adapter.test.ts` (or `llm.test.ts`) asserts that a `/plan` followed by a user message emits a `message_chunk` whose first `text` content starts with `<think>…` and contains no tool_call events until the user exits plan mode. This is the load-bearing test for the 6-hunk patch-package on `@langchain/anthropic@1.4.0`.
+- [x] **SLASH-REGRESSION**: New it block in `llm-adapter.test.ts` (or `llm.test.ts`) asserts that a `/plan` followed by a user message emits a `message_chunk` whose first `text` content starts with `<think>…` and contains no tool_call events until the user exits plan mode. This is the load-bearing test for the 6-hunk patch-package on `@langchain/anthropic@1.4.0`.
 
 ---
 
