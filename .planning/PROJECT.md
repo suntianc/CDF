@@ -8,20 +8,28 @@
 
 开发者通过自然语言对话驱动自动化开发工作流，Master Agent 负责需求理解、流程编排、节点执行监控和结果交付。
 
-## Current Milestone: v1.1 基本能力完善
+## Current Milestone: v1.1 基本能力完善 ✅ SHIPPED 2026-06-04
 
 **Goal:** 在 Master Agent 对话输入框实现 Claude Code 风格的 `/` 命令 popup，覆盖"3 系统命令 + 4 源插件自动注册"的极简设计，让用户用 `/` 探索和触发系统所有能力。
 
-**Target features:**
-- `/` 触发命令 popup（字母过滤 + 键盘导航）
-- 3 系统命令：`/goal`, `/context`, `/plan`
-- 4 源插件命令自动注册：
-  - MCP tools → `/${mcp_tool_name}` params
-  - Skills → `/${skill_name}` params
-  - Workflows → `/${workflow_name}` params（v1.0 phase 4 已建工作流）
-  - 项目级自定义 → `/${custom_name}` params（`.claude/commands/*.md`）
+**Delivered:**
+- `/` 触发命令 popup（字母过滤 + 键盘导航 + IME 安全 + CJK NFKC）— Phase 5
+- 3 系统命令：`/goal`, `/context`, `/plan` — Phase 7
+- 7 源插件命令自动注册：system / skill:global / skill:project / workflow / mcp / cmd:system / cmd:project — Phase 6
+- 4 种 CommandDispatchAction kinds：SystemSilent / SystemLocal / PluginRewrite / PlanMode — Phase 6
+- chokidar@3.6.0 双路热重载（system `~/.cdf/commands/` + project `<projectPath>/.cdf/commands/`）— Phase 6
+- 降级：chokidar 失败 → readdir 一次扫描 + `commands:fallback` IPC + sonner toast（C-04 dedup）— Phase 8
+- 加载态机：5 状态（idle / pending / slow@500ms / ready / error） + Skeleton row — Phase 8
+- 7 色 source badge 视觉打磨 + Toaster mount 修 Phase 6/7 静默 toast 隐患 — Phase 8
 
 **Reference:** Claude Code 的 95 命令文档（已 webfetch 调研）— 参考 popup UX + skill/command 注册模式
+
+## Next Milestone: v1.2 (TBD)
+
+Likely candidates (per ROADMAP.md next-milestone section):
+- SQLite-backed sessions (SLASH-15: `/goal` 从内存 Map 迁 SQLite)
+- Deferred v1.0 cleanup (draft workflow 测试, work history UI polish)
+- 跨平台 CI matrix（macOS + Windows + Linux chokidar coverage 各 ≥1 run）
 
 ## Requirements
 
@@ -59,6 +67,8 @@
 
 *Phase 7 closed all 4 active SLASH requirements. Phase 8 is polish — no new SLASH-XX required; addresses D-priority from FEATURES.md.*
 
+**v1.1 milestone shipped 2026-06-04 with 15/15 SLASH requirements validated.** No active v1.1 requirements remain. See `.planning/milestones/v1.1-ROADMAP.md` for archived milestone details.
+
 ### Out of Scope (v1.1 → v1.2+)
 
 - 自定义 skill body 内容生成（`/run-skill-generator`）
@@ -91,6 +101,15 @@
 - `assistant-ui` is the chat framework (compatible with input adornments)
 - Master Agent uses `runtime.agent.streamEvents v3` — plugin commands need to flow through this without breaking reasoning
 
+**v1.1 state (shipped 2026-06-04):**
+- 4 phases, 10 plans, 50 commits
+- 7 source aggregators: system / skill:global (`~/.cdf/skills/`) / skill:project (`<projectPath>/.cdf/skills/`) / workflow / mcp / cmd:system (`~/.cdf/commands/`) / cmd:project (`<projectPath>/.cdf/commands/`)
+- 241/243 tests passing (2 pre-existing v1.0 failures out of scope: file-tools.test.ts, skill-manager.test.ts)
+- chokidar@3.6.0 + cmdk@1.1.1 + @radix-ui/react-popover@1.1.15 + sonner@2.0.7 added as direct deps
+- SLASH-REGRESSION it blocks at llm-adapter.test.ts / llm.test.ts / runtime.test.ts protect 6-hunk patch-package
+- macOS IME 候选框 z-index 已知 issue 文档化（pointer comment in ChatArea + "Esc 关一次" work-around）
+- 3 system commands implemented (no LLM call: `/goal` `/context`; with LLM but planOnly: `/plan`)
+
 **Reference materials (already loaded):**
 - Claude Code slash commands doc (https://code.claude.com/docs/en/commands) — 95 commands, popup UX, registration model
 - Claude Code skills doc — `.claude/skills/*/SKILL.md` registration pattern
@@ -119,8 +138,17 @@
 | safeStorage 加密 API key | 委托 OS Keychain/libsecret/DPAPI；明文从不落盘 | ✓ Good (Phase 2) |
 | patch-package 永久化 LangChain 修复 | M3 video + reasoning roundtrip; 跨 npm install 自动应用 | ✓ Good (v1.0) |
 | GSD PreToolUse hook 强制 cleanup helper | 用机器强制代替人记；未来 quick task 受益 | ✓ Good (v1.0) |
-| **v1.1: `/` 命令极简设计**（3 系统 + 4 源插件） | 拒绝 95 命令全谱系（CLI 专属能力 50+ 不适用）；插件自动注册 = 零额外配置 | ✓ Phase 5 shell + keyboard contract locked; 4-source registry (Phase 6) pending |
-| **v1.1 / Spike-first Phase 5** | Phase 5 仅交付 popup 壳层 + 19 个键盘契约测试；拒绝在 spike 中承诺 dispatcher 架构 | ✓ Phase 5 complete (2026-06-04) — `19/19` vitest tests + manual browser checks approved |
+| **v1.1: `/` 命令极简设计**（3 系统 + 7 源插件聚合） | 拒绝 95 命令全谱系（CLI 专属能力 50+ 不适用）；插件自动注册 = 零额外配置 | ✓ Good (v1.1 shipped) |
+| **v1.1 / Spike-first Phase 5** | Phase 5 仅交付 popup 壳层 + 19 个键盘契约测试；拒绝在 spike 中承诺 dispatcher 架构 | ✓ Good (Phase 5 shipped) |
+| **v1.1 / 拒绝** `unstable_useSlashCommandAdapter` | `@deprecated Under active development`；要求 ComposerPrimitive adoption 会引爆 6-hunk patch-package（M3 thinking 链） | ✓ Good — 拒绝对了，slashed popup 走 `cmdk` + 手写 dispatcher |
+| **v1.1 / 接受** cmdk@1.1.1 + Radix Popover + sonner@2.0.7 | peer react ^18 \|\| ^19 兼容；Radix Popover 已是 transitive dep，promote to direct；sonner 单 source of truth | ✓ Good (Phase 5) |
+| **v1.1 / 接受** chokidar@3.6.0（**非** 4.x） | `awaitWriteFinish: { stabilityThreshold: 200 }` 处理 macOS VSCode atomic-write；4.x breaking changes 没必要 | ✓ Good (Phase 6) |
+| **v1.1 / 接受** 命名冲突策略：source badge + 两行都保留 + 优先级 `system > skill:project > skill:global > workflow > mcp > cmd:project > cmd:system` | 防止 Claude Code #61857/#62409/#64422 同类静默覆盖 bug | ✓ Good (Phase 6) |
+| **v1.1 / 接受** 插件命令以自然语言 prompt 重写走 `llm:chat`（**不**新增 dispatch IPC） | 维护 M3 thinking 链；零新事件类型 | ✓ Good (Phase 6) |
+| **v1.1 / 接受** `/plan` 为 `payload.overrides.planOnly` 运行时 flag（**不**新 dispatch 路径） | 走 llm.ts:324 现有扩展点；新增 SLASH-REGRESSION it 块保护 | ✓ Good (Phase 7) |
+| **v1.1 / 接受** `/goal` 内存存储（`useSessionStore.sessionGoals: Map<sessionId, string>`） | v1.1 范围；v1.2+ 迁 SQLite（SLASH-15） | ⚠️ Revisit in v1.2 (memory-only persistence) |
+| **v1.1 / 接受** 取消 `/pr-review` 3 节点 demo workflow seed | v1.0 Phase 4 已有 workflow 能力；PITFALLS P11 担忧消解 | ✓ Good — 避免 zombie code |
+| **v1.1 / 拒绝** v1.0 partial deliverable cleanup 混入 v1.1 | 推 v1.2；v1.1 激光聚焦 `/` 命令系统 | ✓ Good (scope discipline) |
 
 ## Evolution
 
@@ -140,6 +168,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 after Phase 5 completion*
+*Last updated: 2026-06-04 after v1.1 milestone completion*
 
 

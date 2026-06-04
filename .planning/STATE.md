@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: 基本能力完善
-status: executing
+status: Awaiting next milestone
 stopped_at: Phase 8 context gathered
-last_updated: "2026-06-04T15:04:46.446Z"
-last_activity: 2026-06-04 -- Phase 8 planning complete
+last_updated: "2026-06-04T16:51:20.451Z"
+last_activity: 2026-06-04 — Milestone v1.1 completed and archived
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 6
-  percent: 60
+  completed_plans: 10
+  percent: 100
 ---
 
 # State: Agent 开发工作站
@@ -28,12 +28,10 @@ See: `.planning/research/SUMMARY.md` (high-confidence synthesis, 2026-06-04)
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-04 -- Phase 8 planning complete
-
-Progress: [██████████] 100%
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-04 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -92,9 +90,25 @@ None yet.
 - **payload.overrides.planOnly runtime 语义** (LOW confidence) — 需 Phase 3 验证 deepagent 端行为
 - **v1.0 partial deliverable 收尾** (deferred) — draft workflow tests / work history UI polish 推 v1.2
 
-## Deferred Items (from v1.0 close)
+## Deferred Items (acknowledged at v1.1 close on 2026-06-04)
 
-26 quick task audit false positives + 1 UAT gap (all benign — see v1.0 STATE for full list). No carry-forward needed.
+Per `gsd-sdk query audit-open` at milestone close, 28 items were open. All are v1.0-era artifacts that do not block v1.1 shipped scope. Documented as deferred:
+
+| Category | Slug | Status | Reason |
+|----------|------|--------|--------|
+| quick_task | debug-and-fix-welcome-send-disabled | unknown | v1.0 debug session, fix shipped 2026-05-22 |
+| quick_task | fix-assistant-ui-typeerror | unknown | v1.0 debug session, fix shipped 2026-05-22 |
+| quick_task | fix-chat-markdown-rendering | missing | v1.0 artifact |
+| quick_task | fix-llm-chat-url-endpoints | unknown | v1.0 debug session, fix shipped 2026-05-22 |
+| quick_task | fix-minimax-auth-and-domain | unknown | v1.0 debug session, fix shipped 2026-05-22 |
+| quick_task | fix-minimax-url-normalization | unknown | v1.0 debug session, fix shipped 2026-05-22 |
+| quick_task | fix-stream-listener-race | missing | v1.0 artifact |
+| quick_task | (18 more) | missing | v1.0-era debug sessions, all closed in v1.0 |
+| verification_gap | phase 05 | unknown | Phase 5 verified by Phase 5 SUMMARY (19/19 tests + manual checkpoints) — stale flag |
+| uat_gap | phase 03.1 | unknown | Phase 3.1 verified by Phase 3.1 SUMMARY — stale flag |
+| uat_gap | phase 05 | unknown | Phase 5 verified by Phase 5 SUMMARY — stale flag |
+
+**Decision:** All 28 items acknowledged as v1.0 artifacts / stale flags. None affect v1.1 shipped functionality. Cleanup of `.planning/quick/2026*` directories can be done in v1.2 via `/gsd:cleanup`.
 
 ## v1.0 Carry-Forward (Deferred to v1.2+)
 
@@ -105,6 +119,9 @@ None yet.
 | mcp | MCP connection/disconnect mgmt polish | v1.0 partial; 推 v1.2 |
 | skills | Skills versioning + execution log UI | basic 创建已 ship，UX 完整推 v1.2 |
 | testing | M3 thinking test matrix expansion | 5 it 块 happy path，edge cases 推 v1.2 |
+| slash | `/goal` 内存存储 → SQLite | v1.1 内存 `sessionGoals: Map`；v1.2 SLASH-15 迁 SQLite |
+| testing | Cross-platform CI matrix (macOS + Windows + Linux) | Phase 6/8 chokidar 测试只在 macOS 跑过 |
+| testing | 2 pre-existing v1.0 test failures (file-tools.test.ts + skill-manager.test.ts) | 50 commits 后未修复，与 v1.1 无关 |
 
 ## Session Continuity
 
@@ -114,7 +131,4 @@ Resume file: .planning/phases/08-polish-differentiators/08-CONTEXT.md
 
 ## Operator Next Steps
 
-1. Review `.planning/ROADMAP.md` — 4 phases / 15 SLASH requirements mapped
-2. If approved → run `/gsd:plan-phase 5` to start Phase 5 (Popup Shell + Keyboard Spike)
-3. Phase 5 是 SPIKE：先验证 cmdk + Radix Popover 在裸 textarea 上的路径，再承诺 dispatcher 架构
-4. 注意 SLASH-REGRESSION 必须在 Phase 7 加入（6-hunk patch-package 护栏）
+- Start the next milestone with /gsd-new-milestone
