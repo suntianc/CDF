@@ -149,12 +149,15 @@ Plans:
   4. popup z-index ≥ 50，IME 中文候选框 z-index 9999 时候选不覆盖 popup（macOS 已知 issue：候选框期间可 Esc 一次关 popup）
   5. chokidar 失败时降级为 readdir 一次扫描 + UI toast "项目命令热重载不可用，已降级为静态扫描"（不打断用户）
 
-**Plans**: TBD (likely 1 polish plan)
+**Plans**: 4 plans
 **UI hint**: yes
 
 Plans:
 
-- [ ] 08-01: 源 badge 视觉系统 + skeleton/spinner 加载态 + CJK NFKC 过滤强化 + chokidar 失败降级 + IME z-index 边界处理
+- [ ] 08-01-PLAN.md: Wave A — App.tsx `<Toaster />` mount + skeleton.tsx + SlashCommandPopup 7-color badge + CJK NFKC + 预 normalize Map + Skeleton row + IME 注释 (D-01..D-12, D-15)
+- [ ] 08-02-PLAN.md: Wave B — useCommandRegistry loading 5-state 枚举 + 500ms 阈值 (D-07..D-11)
+- [ ] 08-03-PLAN.md: Wave C — chokidar 降级 (try-catch + readdir + commands:fallback IPC + toast dedup) (D-16..D-19, C-04)
+- [ ] 08-04-PLAN.md: Wave D — IME 注释 ChatArea 指针 + 08-SUMMARY.md 收尾
 
 ---
 
@@ -171,7 +174,7 @@ Plans:
 | 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 7. System Commands + M3 Regression | v1.1 | 2/2 | Complete    | 2026-06-04 |
-| 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
+| 8. Polish + Differentiators | v1.1 | 0/4 | Not started | - |
 
 ## Coverage
 
