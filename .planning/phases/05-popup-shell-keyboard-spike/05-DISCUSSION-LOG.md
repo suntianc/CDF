@@ -60,6 +60,19 @@
 
 ---
 
+## Tab/Enter 选中补全 (command text insertion)
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| 两者都 = 插入命令文本 + 关 popup（Phase 1 SPIKE 推荐） | Tab 与 Enter 都等效 = 插入选中命令文本到 textarea + 关 popup。Phase 1 SPIKE 不执行命令（没有 dispatcher）。 | ✓ |
+| Tab = 补全, Enter = 执行 (区别化) | Tab = 插入文本 + 关 popup。Enter = 关 popup + 直接触发命令。Phase 1 SPIKE Enter 仍然是补全。 | |
+| 只 Enter, Tab 不干涉 | Enter = 插入 + 关。Tab = 什么都不干。 | |
+
+**User's choice:** 两者都 = 插入命令文本 + 关 popup（Phase 1 SPIKE 推荐）
+**Notes:** User pointed out this is a "detail" missing from the CONTEXT.md. The decision locks Tab and Enter to be equivalent in Phase 1 SPIKE — both just complete the command text into the textarea and close the popup. `e.preventDefault()` is required for Tab to override textarea's default focus-shift. In Phase 2+ when the dispatcher is wired, Enter will diverge from Tab — Enter will trigger command execution (dispatcher flow), while Tab continues to just complete text without firing. Phase 1 SPIKE = "Tab and Enter are the same; insert text + close popup".
+
+---
+
 ## Claude's Discretion
 
 - **C-01:** Exact text of the interactive hint placeholder (D-03) — pick clear short hint fitting CDF's tone.

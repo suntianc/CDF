@@ -34,6 +34,10 @@ Out of scope: dispatcher / IPC / 4 源插件采集（属 Phase 6）；M3 thinkin
 - **D-05:** Filtering is **substring + case-insensitive + NFKC-normalized** on the command name. E.g., `/go` matches `/goal`; `/CTX` matches `/context`; `/上文` matches `/context` (NFKC for CJK compatibility). **Not fuzzy** (skipping chars). Matches Claude Code's behavior and is the simplest mental model.
 - **D-06:** Filter searches **only command name**, not description. Description-based search deferred to a future phase (would require descriptions to exist; in Phase 5 there are none).
 
+### Tab/Enter selection completion (command text insertion)
+
+- **D-07:** Both **Tab** and **Enter** keys have **identical behavior** in Phase 5 SPIKE: insert the highlighted command text (e.g., `/goal`) into the textarea, **close the popup**, and **do not execute** the command. `e.preventDefault()` is required for Tab to override textarea's default focus-shift behavior. In Phase 2+ when the dispatcher is wired, Enter will diverge from Tab — Enter will trigger command execution (dispatcher flow), while Tab continues to just complete text without firing. Phase 1 SPIKE = "Tab and Enter are the same; insert text + close popup".
+
 ### Claude's Discretion
 
 - **C-01:** The exact text of the "interactive hint placeholder" (D-03) is left to Claude — pick a clear, short hint that fits CDF's tone.
