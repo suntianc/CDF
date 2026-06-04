@@ -14,6 +14,7 @@ import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
 import { Workflow } from '../shared/types';
 import { PanelLeft } from 'lucide-react';
+import { Toaster } from 'sonner';
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -116,6 +117,7 @@ export default function App() {
           <PanelLeft className="w-4 h-4" />
         </button>
       )}
+      <Toaster richColors position="bottom-right" theme="dark" />
     </div>
   );
 }

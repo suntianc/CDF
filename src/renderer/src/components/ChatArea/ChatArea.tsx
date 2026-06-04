@@ -1170,6 +1170,7 @@ export function ChatArea({
                   commands={registry.commands}
                   hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
                   mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
+                  loading={registry.loading}
                 />
               </PopoverContent>
             </Popover>
