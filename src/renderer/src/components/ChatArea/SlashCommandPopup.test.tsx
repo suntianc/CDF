@@ -37,7 +37,17 @@ interface TestHarnessHandle {
   triggerCompositionStart: () => void;
 }
 
-function TestHarness({ refSetter }: { refSetter?: (h: TestHarnessHandle) => void }) {
+function TestHarness({
+  refSetter,
+  commands,
+  hasMcpWarning,
+  mcpWarningMessage,
+}: {
+  refSetter?: (h: TestHarnessHandle) => void;
+  commands?: import('../../../../shared/types').SlashCommand[];
+  hasMcpWarning?: boolean;
+  mcpWarningMessage?: string;
+}) {
   const [inputVal, setInputVal] = useState('');
   const [slashOpen, setSlashOpen] = useState(false);
   const slashRef = useRef<SlashCommandPopupHandle>(null);
@@ -148,6 +158,9 @@ function TestHarness({ refSetter }: { refSetter?: (h: TestHarnessHandle) => void
           query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
           onSelect={handleSlashSelect}
           onClose={() => setSlashOpen(false)}
+          commands={commands}
+          hasMcpWarning={hasMcpWarning}
+          mcpWarningMessage={mcpWarningMessage}
         />
       </PopoverContent>
     </Popover>
@@ -376,9 +389,10 @@ describe('SlashCommandPopup', () => {
     // matches all 3 commands; the D-03 hint is shown only if zero matches.
     // Here we just verify no crash and that the popup is still open with
     // the 3 commands visible. (PITFALLS P6c: filter must not throw on `//`.)
-    expect(screen.getByText('/goal')).toBeTruthy();
-    expect(screen.getByText('/context')).toBeTruthy();
-    expect(screen.getByText('/plan')).toBeTruthy();
+    // Phase 6: rows now contain <Badge> + <span> /goal — assert text via getAllByText substring.
+    expect(screen.getAllByText(/^\/goal$/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^\/context$/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^\/plan$/).length).toBeGreaterThan(0);
   });
 
   // 5-02-08 / PITFALLS P6e / D-04
@@ -523,5 +537,174 @@ describe('SlashCommandPopup', () => {
     const goalItem = () =>
       screen.getByText('/goal').closest('[cmdk-item]') as HTMLElement;
     expect(goalItem().getAttribute('data-selected')).toBe('true');
+  });
+});
+
+describe('Phase 6 source badges + warnings', () => {
+  const goalSlashCmd: import('../../../../shared/types').SlashCommand = {
+    name: 'goal',
+    description: '设置 session 目标',
+    source: 'system',
+    target: 'goal',
+    sourceLabel: 'system',
+    badge: '[system]',
+  };
+  const mcpCmd: import('../../../../shared/types').SlashCommand = {
+    name: 'arxiv_search',
+    description: 'Search arxiv papers',
+    source: 'mcp',
+    target: 'arxiv_search',
+    sourceLabel: 'mcp:arxiv',
+    badge: '[mcp:arxiv_search]',
+  };
+  const workflowCmd: import('../../../../shared/types').SlashCommand = {
+    name: 'pr-review',
+    description: 'PR review workflow',
+    source: 'workflow',
+    target: 'pr-review',
+    sourceLabel: 'workflow',
+    badge: '[workflow]',
+  };
+  const skillProjectCmd: import('../../../../shared/types').SlashCommand = {
+    name: 'code-review',
+    description: 'Code review skill',
+    source: 'skill:project',
+    target: 'code-review',
+    sourceLabel: 'skill:project',
+    badge: '[skill:project]',
+  };
+  const cmdSystemCmd: import('../../../../shared/types').SlashCommand = {
+    name: 'refactor',
+    description: 'Refactor command',
+    source: 'cmd:system',
+    target: 'refactor',
+    sourceLabel: 'cmd:system',
+    badge: '[cmd:system]',
+  };
+
+  it('renders source badge for system command', () => {
+    render(<TestHarness commands={[goalSlashCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    expect(screen.getByText('[system]')).toBeTruthy();
+    expect(screen.getByText('/goal')).toBeTruthy();
+  });
+
+  it('renders source badge for mcp tool', () => {
+    render(<TestHarness commands={[mcpCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/ar' } });
+    });
+    expect(screen.getByText('[mcp:arxiv_search]')).toBeTruthy();
+    // D-09: MCP tools do NOT render description
+    expect(screen.queryByText('Search arxiv papers')).toBeNull();
+  });
+
+  it('renders source badge for workflow', () => {
+    render(<TestHarness commands={[workflowCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/pr' } });
+    });
+    expect(screen.getByText('[workflow]')).toBeTruthy();
+  });
+
+  it('renders source badge for skill:project', () => {
+    render(<TestHarness commands={[skillProjectCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/co' } });
+    });
+    expect(screen.getByText('[skill:project]')).toBeTruthy();
+  });
+
+  it('renders source badge for cmd:system', () => {
+    render(<TestHarness commands={[cmdSystemCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/re' } });
+    });
+    expect(screen.getByText('[cmd:system]')).toBeTruthy();
+  });
+
+  it('does not render description for mcp tools (D-09)', () => {
+    render(<TestHarness commands={[mcpCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/ar' } });
+    });
+    expect(screen.queryByText('Search arxiv papers')).toBeNull();
+  });
+
+  it('renders description for non-mcp commands', () => {
+    render(<TestHarness commands={[goalSlashCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/go' } });
+    });
+    expect(screen.getByText('设置 session 目标')).toBeTruthy();
+  });
+
+  it('renders mcp_health_warning row at top when hasMcpWarning is true', () => {
+    render(<TestHarness hasMcpWarning mcpWarningMessage="MCP server down" />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    expect(screen.getByTestId('mcp-health-warning')).toBeTruthy();
+    expect(screen.getByText('MCP server down')).toBeTruthy();
+  });
+
+  it('does not render mcp_health_warning row when hasMcpWarning is false', () => {
+    render(<TestHarness hasMcpWarning={false} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    expect(screen.queryByTestId('mcp-health-warning')).toBeNull();
+  });
+
+  it('preserves D-04 — opens with top row highlighted even with 5+ commands', () => {
+    const all = [goalSlashCmd, mcpCmd, workflowCmd, skillProjectCmd, cmdSystemCmd];
+    render(<TestHarness commands={all} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    const firstItem = screen.getByText('/goal').closest('[cmdk-item]') as HTMLElement;
+    expect(firstItem.getAttribute('data-selected')).toBe('true');
+  });
+
+  it('key prop includes source — duplicate names render as 2 separate rows', () => {
+    const systemGoal = { ...goalSlashCmd, source: 'system' as const };
+    const workflowGoal: import('../../../../shared/types').SlashCommand = {
+      name: 'goal',
+      description: 'Goal workflow',
+      source: 'workflow',
+      target: 'goal',
+      sourceLabel: 'workflow',
+      badge: '[workflow]',
+    };
+    render(<TestHarness commands={[systemGoal, workflowGoal]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/go' } });
+    });
+    // Both rows should be in the document
+    expect(screen.getByText('[system]')).toBeTruthy();
+    expect(screen.getByText('[workflow]')).toBeTruthy();
+  });
+
+  it('data-source attribute matches command source for testing', () => {
+    render(<TestHarness commands={[goalSlashCmd, mcpCmd, workflowCmd]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    const systemItem = screen.getByText('/goal').closest('[cmdk-item]') as HTMLElement;
+    expect(systemItem.getAttribute('data-source')).toBe('system');
   });
 });
