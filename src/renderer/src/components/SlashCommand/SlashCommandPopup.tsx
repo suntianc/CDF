@@ -157,6 +157,15 @@ export const SlashCommandPopup = forwardRef<
     [filtered, selectedValue, onSelect, onClose]
   );
 
+  // IME z-index known issue (D-13..D-15, accepted as platform limitation):
+  // macOS IME candidate windows (Pinyin/Hiragana/Kana) render in a separate
+  // NSPanel at NSPopUpMenuWindowLevel (~101), which sits above any web-layer
+  // z-index. PopoverContent uses z-50 (from popover.tsx), but web-layer
+  // z-index cannot escape the NSWindow boundary. There is no Chromium/Electron
+  // API to render above the IME panel (as of 2026-06-04).
+  // Workaround: press Esc once to dismiss the IME candidate; the popup
+  // remains visible underneath. Tracked for v1.2 if Apple ships an
+  // IMKCandidates placement API.
   return (
     <Command
       value={selectedValue}
