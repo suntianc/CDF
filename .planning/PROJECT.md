@@ -50,13 +50,14 @@
 - [x] **SLASH-12**: 命名空间冲突处理（priority 排序 + source badge + CommandConflictError toast） — Phase 6
 - [x] **SLASH-13**: 插件命令注册时机（session 启动 + chokidar 热重载 + MCP 健康事件） — Phase 6
 - [x] **SLASH-DISPATCH**: 插件命令以自然语言重写 `请调用 ${tool} 工具，参数：${args}` 走 `llm:chat`（D-18: args 走 `message.content` 不传 tool schema） — Phase 6
+- [x] **SLASH-05**: `/goal [condition]` 系统命令（写 `useSessionStore.sessionGoals` Map + `[system] 正在执行 /goal…` toast，无 LLM 调用） — Phase 7
+- [x] **SLASH-06**: `/context [all]` 系统命令（当前 session token breakdown: conversation + skills + mcp + workflows + total） — Phase 7
+- [x] **SLASH-07**: `/plan [description]` 系统命令（`[plan]` toast + `payload.overrides.planOnly` + runtime strips bash/delete_file + interruptOn=false） — Phase 7
+- [x] **SLASH-REGRESSION**: 6-hunk patch-package 护栏 it 块（it 7.1 llm-adapter + it 7.2 runtime + it 7.3 llm） — Phase 7
 
 ### Active (v1.1)
 
-- [ ] **SLASH-05**: `/goal [condition]` 系统命令
-- [ ] **SLASH-06**: `/context [all]` 系统命令
-- [ ] **SLASH-07**: `/plan [description]` 系统命令（Master Agent 切只规划不执行）
-- [ ] **SLASH-REGRESSION**: 6-hunk patch-package 护栏 it 块（Phase 7 加入）
+*Phase 7 closed all 4 active SLASH requirements. Phase 8 is polish — no new SLASH-XX required; addresses D-priority from FEATURES.md.*
 
 ### Out of Scope (v1.1 → v1.2+)
 
