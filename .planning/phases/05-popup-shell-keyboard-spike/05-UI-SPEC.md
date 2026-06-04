@@ -1,7 +1,8 @@
 ---
 phase: 5
 slug: popup-shell-keyboard-spike
-status: draft
+status: approved
+reviewed_at: 2026-06-04
 shadcn_initialized: true
 preset: none
 created: 2026-06-04
@@ -120,11 +121,11 @@ Accent reserved for: Popover boundary active focus indicator, active border.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [/] Dimension 2 Visuals: FLAG
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-06-04
