@@ -101,5 +101,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exportExecution: (executionId: string) =>
       ipcRenderer.invoke('workflow:exportExecution', executionId),
   },
+  // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
+  commands: {
+    list: (projectId: string, agentId: string) =>
+      ipcRenderer.invoke('commands:list', projectId, agentId),
+    readProjectCommands: (projectId: string) =>
+      ipcRenderer.invoke('commands:readProjectCommands', projectId),
+    onChanged: (callback: (event: any, data: { source: string }) => void) => {
+      const listener = (event: any, data: { source: string }) => callback(event, data);
+      ipcRenderer.on('commands:changed', listener);
+      return () => {
+        ipcRenderer.removeListener('commands:changed', listener);
+      };
+    },
+  },
   platform: process.platform,
 });

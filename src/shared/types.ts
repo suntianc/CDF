@@ -479,6 +479,16 @@ export interface ElectronAPI {
     deleteExecution: (executionId: string) => Promise<void>;
     exportExecution: (executionId: string) => Promise<{ saved: boolean; path?: string; canceled?: boolean; error?: string }>;
   };
+  // ===== Phase 6 Plan 02: Slash Command Registry Bridge (D-15) =====
+  commands: {
+    list: (projectId: string, agentId: string) => Promise<{
+      commands: SlashCommand[];
+      conflicts: CommandConflictError[];
+      warnings: Array<{ type: 'mcp_health_warning'; message: string }>;
+    }>;
+    readProjectCommands: (projectId: string) => Promise<{ commands: SlashCommand[] }>;
+    onChanged: (callback: (event: any, data: { source: string }) => void) => () => void;
+  };
   platform: string;
 }
 

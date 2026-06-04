@@ -21,6 +21,9 @@ import {
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
 import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
+import { collectAllCommands } from './commands/command-registry';
+import { listProjectCommands } from './commands/project-commands';
+import { ensureProjectWatcher } from './commands/chokidar-watcher';
 
 const getProviderLabel = (type: string): string => {
   switch (type) {
@@ -777,4 +780,34 @@ export function registerIpcHandlers() {
 
   // ===== Phase 4: Workflow Runtime IPC Handlers =====
   registerWorkflowIpcHandlers();
+
+  // ===== Phase 6 Plan 02: Slash Command Registry IPC (D-15 O(1) memory read) =====
+  ipcMain.handle('commands:list', async (_evt, projectId: string, agentId: string) => {
+    try {
+      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      if (!project) {
+        return { commands: [], conflicts: [], warnings: [] };
+      }
+      // Lazily start project-scoped chokidar watcher on first call.
+      ensureProjectWatcher(project.path);
+      return await collectAllCommands(project.path, agentId);
+    } catch (err) {
+      console.error('[commands:list] failed:', err);
+      return { commands: [], conflicts: [], warnings: [] };
+    }
+  });
+
+  ipcMain.handle('commands:readProjectCommands', async (_evt, projectId: string) => {
+    try {
+      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      if (!project) {
+        return { commands: [] };
+      }
+      const commands = listProjectCommands(project.path);
+      return { commands };
+    } catch (err) {
+      console.error('[commands:readProjectCommands] failed:', err);
+      return { commands: [] };
+    }
+  });
 }
