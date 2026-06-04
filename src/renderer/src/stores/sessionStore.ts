@@ -55,12 +55,15 @@ interface SessionState {
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
   error: string | null;
+  // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
+  sessionGoals: Map<string, string>;
   fetchSessions: (projectId: string) => Promise<void>;
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => Promise<void>;
+  setSessionGoal: (sessionId: string, goal: string) => void;
   resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
@@ -94,6 +97,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   todos: [],
   pendingApproval: null,
   error: null,
+  sessionGoals: new Map(),
+
+  // D-02/D-03: setSessionGoal synchronously writes to a NEW Map (immutability for
+  // Zustand shallow-compare re-render). D-04: selectSession does NOT clear this.
+  setSessionGoal: (sessionId: string, goal: string) => {
+    set((state) => {
+      const next = new Map(state.sessionGoals);
+      next.set(sessionId, goal);
+      return { sessionGoals: next };
+    });
+  },
 
   fetchSessions: async (projectId: string) => {
     try {

@@ -114,3 +114,73 @@ describe('sessionStore sendMessage', () => {
     expect(state.messages[3].content).toBe('世界');
   });
 });
+
+describe('sessionStore sessionGoals (D-02/D-04/D-05)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+
+    window.electronAPI = {
+      store: { get: vi.fn(), set: vi.fn() },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(),
+        createSession: vi.fn(),
+        deleteSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage: vi.fn(),
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+        getAgentRuns: vi.fn(async () => []),
+        getAgentToolCalls: vi.fn(async () => []),
+        getLatestTodos: vi.fn(async () => undefined),
+      },
+      llm: {
+        chat: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn(),
+      },
+      platform: 'darwin',
+    };
+
+    useSessionStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      sessionGoals: new Map(),
+      error: null,
+    } as any);
+  });
+
+  it('A: setSessionGoal writes a per-session goal to the Map', () => {
+    useSessionStore.getState().setSessionGoal('session-1', 'write tests');
+    expect(useSessionStore.getState().sessionGoals.get('session-1')).toBe('write tests');
+  });
+
+  it('B: setSessionGoal overwrites the existing value for the same session', () => {
+    useSessionStore.getState().setSessionGoal('session-1', 'a');
+    useSessionStore.getState().setSessionGoal('session-1', 'b');
+    expect(useSessionStore.getState().sessionGoals.get('session-1')).toBe('b');
+    // Map should still have exactly 1 entry (no stale duplicate)
+    expect(useSessionStore.getState().sessionGoals.size).toBe(1);
+  });
+
+  it('C: setSessionGoal entries persist across session switches (D-04)', async () => {
+    useSessionStore.getState().setSessionGoal('s1', 'goal-A');
+    useSessionStore.getState().setSessionGoal('s2', 'goal-B');
+
+    // Switch active session — should NOT clear sessionGoals
+    await useSessionStore.getState().selectSession('s1');
+
+    const goals = useSessionStore.getState().sessionGoals;
+    expect(goals.get('s1')).toBe('goal-A');
+    expect(goals.get('s2')).toBe('goal-B');
+    expect(goals.size).toBe(2);
+  });
+});
