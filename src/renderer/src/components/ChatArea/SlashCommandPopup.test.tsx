@@ -43,11 +43,13 @@ function TestHarness({
   commands,
   hasMcpWarning,
   mcpWarningMessage,
+  loading,
 }: {
   refSetter?: (h: TestHarnessHandle) => void;
   commands?: import('../../../../shared/types').SlashCommand[];
   hasMcpWarning?: boolean;
   mcpWarningMessage?: string;
+  loading?: 'idle' | 'pending' | 'slow' | 'ready' | 'error';
 }) {
   const [inputVal, setInputVal] = useState('');
   const [slashOpen, setSlashOpen] = useState(false);
@@ -162,6 +164,7 @@ function TestHarness({
           commands={commands}
           hasMcpWarning={hasMcpWarning}
           mcpWarningMessage={mcpWarningMessage}
+          loading={loading}
         />
       </PopoverContent>
     </Popover>
@@ -737,5 +740,130 @@ describe('Phase 6 handleSlashSelect routing (light integration)', () => {
     // When resolve returns null, ChatArea still does setInputVal(cmd + ' ').
     // This test mirrors the Phase 5 behavior; Tab + unknown commands both
     // hit this fallback.
+  });
+});
+
+// -----------------------------------------------------------------
+// Phase 8 Plan 01 — popup polish (D-01..D-04 + D-05d + D-12 + D-15)
+// -----------------------------------------------------------------
+
+describe('Phase 8 polish', () => {
+  // D-01..D-04: 7-color source badge palette. Each Command.Source maps to a
+  // distinct text-* class via SOURCE_TEXT_COLOR lookup map. The Badge is the
+  // sibling <span> /{name}, so we look for it as the child element of
+  // [cmdk-item] that is not the [font-mono] slash span.
+  it('applies distinct text-* color class per CommandSource (D-01..D-04)', () => {
+    const all: import('../../../../shared/types').SlashCommand[] = [
+      { name: 'goal', description: '', source: 'system', target: 'goal', sourceLabel: 'system', badge: '[system]' },
+      { name: 'review-global', description: '', source: 'skill:global', target: 'review-global', sourceLabel: 'skill:global', badge: '[skill:global]' },
+      { name: 'review-project', description: '', source: 'skill:project', target: 'review-project', sourceLabel: 'skill:project', badge: '[skill:project]' },
+      { name: 'pr-flow', description: '', source: 'workflow', target: 'pr-flow', sourceLabel: 'workflow', badge: '[workflow]' },
+      { name: 'arxiv', description: '', source: 'mcp', target: 'arxiv', sourceLabel: 'mcp:arxiv', badge: '[mcp:arxiv]' },
+      { name: 'sys-cmd', description: '', source: 'cmd:system', target: 'sys-cmd', sourceLabel: 'cmd:system', badge: '[cmd:system]' },
+      { name: 'proj-cmd', description: '', source: 'cmd:project', target: 'proj-cmd', sourceLabel: 'cmd:project', badge: '[cmd:project]' },
+    ];
+    const expected: Array<[string, RegExp]> = [
+      ['goal', /text-blue-400/],
+      ['review-global', /text-violet-300/],
+      ['review-project', /text-purple-400/],
+      ['pr-flow', /text-green-400/],
+      ['arxiv', /text-amber-400/],
+      ['sys-cmd', /text-gray-400/],
+      ['proj-cmd', /text-gray-500/],
+    ];
+    render(<TestHarness commands={all} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    for (const [cmdName, cls] of expected) {
+      // The Badge contains the literal text in its child <div>: [system],
+      // [skill:global], etc. The slash name /${name} is in a sibling <span>.
+      const item = screen.getByText(`/${cmdName}`).closest('[cmdk-item]') as HTMLElement;
+      expect(item, `cmdk-item for /${cmdName} should be present`).toBeTruthy();
+      // Badge is the only non-[font-mono] element inside the row (the slash
+      // name uses font-mono too, so we filter by the bracket badge text).
+      const badge = Array.from(item.querySelectorAll('div')).find(
+        (el) => /^\[.+\]$/.test(el.textContent || '')
+      ) as HTMLElement | undefined;
+      expect(badge, `Badge div for /${cmdName}`).toBeTruthy();
+      expect(badge!.className, `className on Badge for /${cmdName}`).toMatch(cls);
+    }
+  });
+
+  // D-05d: NFKC + variation-selector removal. A command whose name contains
+  // the U+FE0F variation selector must still match a query typed without
+  // the selector (and vice-versa), because normForFilter strips VS1–VS16
+  // from BOTH the query and the name before comparison.
+  it('filters emoji with and without U+FE0F variation selector (D-05d)', () => {
+    // Command name has the U+FE0F VS16 attached (party🎉︎).
+    const partyWithSelector: import('../../../../shared/types').SlashCommand = {
+      name: 'party\u{1F389}️',
+      description: '',
+      source: 'system',
+      target: 'party\u{1F389}️',
+      sourceLabel: 'system',
+      badge: '[system]',
+    };
+    render(<TestHarness commands={[partyWithSelector]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    // Query WITHOUT U+FE0F (just the base codepoint U+1F389).
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/\u{1F389}' } });
+    });
+    expect(
+      screen.getByText('/party\u{1F389}️'),
+      'command should match when query has no VS16'
+    ).toBeTruthy();
+    // Query WITH U+FE0F VS16 — must still match (D-05d: equivalence after strip).
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/\u{1F389}️' } });
+    });
+    expect(
+      screen.getByText('/party\u{1F389}️'),
+      'command should match when query has VS16'
+    ).toBeTruthy();
+  });
+
+  // D-12: 1-row Skeleton placeholder when loading='slow'. The
+  // `data-testid="mcp-skeleton"` is the entry point; we also assert that
+  // exactly two <Skeleton> placeholders are rendered inside the row
+  // (badge-width + name-width).
+  it('renders Skeleton row when loading=slow (D-12)', () => {
+    render(<TestHarness commands={[]} loading="slow" />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    const skeletonRow = screen.getByTestId('mcp-skeleton');
+    expect(skeletonRow).toBeTruthy();
+    // Two Skeleton placeholders (badge + name) inside the row.
+    const placeholders = skeletonRow.querySelectorAll('[data-slot="skeleton"]');
+    expect(placeholders.length).toBe(2);
+  });
+
+  // D-15: IME z-index comment is present in the source. forwardRef components
+  // are React objects, not strings, so we read the file directly and grep
+  // for the marker phrase.
+  it('contains IME z-index known-issue comment (D-15)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    const filePath = path.resolve(
+      // Test file lives at src/renderer/src/components/ChatArea/
+      // Target file is at src/renderer/src/components/SlashCommand/
+      __dirname,
+      '../SlashCommand/SlashCommandPopup.tsx'
+    );
+    const source = fs.readFileSync(filePath, 'utf-8') as string;
+    expect(source).toContain('IME z-index known issue');
+    // Make sure no TODO/FIXME markers snuck in (Pitfall P9).
+    const commentStart = source.indexOf('IME z-index known issue');
+    const commentEnd = source.indexOf('IMKCandidates placement API', commentStart);
+    expect(commentStart).toBeGreaterThan(-1);
+    expect(commentEnd).toBeGreaterThan(commentStart);
+    const commentBlock = source.slice(commentStart, commentEnd);
+    expect(commentBlock).not.toMatch(/\b(TODO|FIXME)\b/);
   });
 });
