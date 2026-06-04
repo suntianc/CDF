@@ -8,7 +8,8 @@ import {
 import { Command } from 'cmdk';
 import { AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { SlashCommand } from '../../../../shared/types';
+import { cn } from '@/lib/utils';
+import type { SlashCommand, CommandSource } from '../../../../shared/types';
 
 const SYSTEM_COMMANDS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '/goal', label: '/goal' },
@@ -16,19 +17,27 @@ const SYSTEM_COMMANDS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '/plan', label: '/plan' },
 ];
 
-const filterCommands = (
-  query: string,
-  items: ReadonlyArray<SlashCommand>
-): SlashCommand[] => {
-  const normalized = query.normalize('NFKC').toLowerCase();
-  if (!normalized) return items.slice();
-  return items.filter((c) => {
-    const name = c.name.normalize('NFKC').toLowerCase();
-    // Match on the name itself OR the prefixed form `/${name}` so the
-    // Phase 5 `//` smoke test still passes (PITFALLS P6c).
-    return name.includes(normalized) || ('/' + name).includes(normalized);
-  });
+// Phase 8 — D-01..D-04: 7-color source badge palette (VS Code Dark+ style).
+// Static string literals (Tailwind v4 static class scan [VERIFIED: tailwindcss.com]).
+// D-02: text color only — no background/border change. D-04: no new CSS vars.
+const SOURCE_TEXT_COLOR: Record<CommandSource, string> = {
+  'system': 'text-blue-400',
+  'skill:global': 'text-violet-300',
+  'skill:project': 'text-purple-400',
+  'workflow': 'text-green-400',
+  'mcp': 'text-amber-400',
+  'cmd:system': 'text-gray-400',
+  'cmd:project': 'text-gray-500',
 };
+
+// Phase 8 — D-05d: Unicode variation selector removal so `/🎉` and `/🎉︎`
+// (U+FE0F VS16) match identically. Range covers BMP VS1–VS16 and the
+// Variation Selectors Supplement block (U+E0100–U+E01EF). MUST have `gu`
+// flags (PITFALL P8-8: astral plane needs the `u` flag).
+const VARIATION_SELECTORS = /[︀-️\u{E0100}-\u{E01EF}]/gu;
+
+const normForFilter = (s: string): string =>
+  s.normalize('NFKC').replace(VARIATION_SELECTORS, '').toLowerCase();
 
 export interface SlashCommandPopupHandle {
   handleKeyDown: (e: { key: string; preventDefault: () => void }) => boolean;
@@ -64,10 +73,31 @@ export const SlashCommandPopup = forwardRef<
     }));
   }, [commands]);
 
-  const filtered = useMemo(
-    () => filterCommands(query, displayCommands),
-    [query, displayCommands]
-  );
+  // Phase 8 — D-06: pre-normalize every command name into a Map so the
+  // per-keystroke filter is O(1) per item (Map.get) instead of re-running
+  // NFKC + variation-selector stripping on every keystroke × N items.
+  const normalizedMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of displayCommands) {
+      m.set(c.name, normForFilter(c.name));
+    }
+    return m;
+  }, [displayCommands]);
+
+  const filtered = useMemo(() => {
+    const normalizedQuery = normForFilter(query);
+    if (!normalizedQuery) return displayCommands.slice();
+    return displayCommands.filter((c) => {
+      // Fallback to a direct normForFilter call if a command name was added
+      // since the last normalizedMap rebuild (defensive — should not normally
+      // happen because displayCommands is the upstream dependency).
+      const name = normalizedMap.get(c.name) ?? normForFilter(c.name);
+      return (
+        name.includes(normalizedQuery) ||
+        ('/' + name).includes(normalizedQuery)
+      );
+    });
+  }, [query, displayCommands, normalizedMap]);
 
   const [selectedValue, setSelectedValue] = useState<string>(
     filtered[0]?.name ?? displayCommands[0]?.name ?? ''
@@ -150,7 +180,13 @@ export const SlashCommandPopup = forwardRef<
             onSelect={() => onSelect('/' + c.name)}
             className="flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] text-[var(--color-text-primary)] outline-none data-[selected=true]:bg-[var(--color-accent)]/15 data-[selected=true]:text-[var(--color-text-primary)]"
           >
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">
+            <Badge
+              variant="secondary"
+              className={cn(
+                'text-[10px] px-1.5 py-0 font-mono',
+                SOURCE_TEXT_COLOR[c.source]
+              )}
+            >
               {c.badge}
             </Badge>
             <span className="font-mono">/{c.name}</span>
