@@ -55,7 +55,7 @@
 **Coverage:** 15/15 SLASH requirements mapped (SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION)
 
 - [x] **Phase 5: Popup Shell + Keyboard Spike** - cmdk + Radix Popover 锚定在裸 textarea 上，`/` 触发 + 字母过滤 + ↑↓/Enter/Esc/Backspace 键盘导航 (completed 2026-06-04)
-- [ ] **Phase 6: 4-Source Command Registry + Dispatcher** - 3 系统 + 4 插件源注册表（含 2 源 skills: global `~/.cdf/skills/` + project `<projectPath>/.cdf/skills/`；2 源 commands: system `~/.cdf/commands/` + project `<projectPath>/.cdf/commands/`）+ 4 种 CommandDispatchAction 分发 + chokidar 热重载
+- [x] **Phase 6: 4-Source Command Registry + Dispatcher** - 3 系统 + 4 插件源注册表（含 2 源 skills: global `~/.cdf/skills/` + project `<projectPath>/.cdf/skills/`；2 源 commands: system `~/.cdf/commands/` + project `<projectPath>/.cdf/commands/`）+ 4 种 CommandDispatchAction 分发 + chokidar 热重载 (completed 2026-06-04)
 - [ ] **Phase 7: System Commands + M3 Regression Test** - `/goal` / `/context` / `/plan` 三系统命令 + M3 thinking 保留回归测试
 - [ ] **Phase 8: Polish + Differentiators** - 源 badge 视觉打磨（`[skill:global]` vs `[skill:project]` 等 5 色）+ IME z-index + CJK NFKC 过滤 + 加载态 + 错误降级
 
@@ -111,8 +111,8 @@ Plans:
 
 Plans:
 
-- [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts + Workflow 源 active SQL 拉取 + 4 shared/types + CI 跨平台 matrix（mac/win/linux）
-- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds）+ useCommandRegistry hook + IPC `commands:list` + `commands:readProjectCommands` + preload 桥接 + chokidar 双路热重载 + SlashCommandPopup source badge 列 + mcp_health_warning 行 + ChatArea handleSlashSelect 改造
+- [x] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts + Workflow 源 active SQL 拉取 + 4 shared/types + CI 跨平台 matrix（mac/win/linux）
+- [x] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds）+ useCommandRegistry hook + IPC `commands:list` + `commands:readProjectCommands` + preload 桥接 + chokidar 双路热重载 + SlashCommandPopup source badge 列 + mcp_health_warning 行 + ChatArea handleSlashSelect 改造
 - ~~[ ] 06-03: seed `/pr-review` 3 节点 demo workflow~~ **已取消**（2026-06-04 客人大人决定）
 
 ### Phase 7: System Commands + M3 Regression Test
@@ -169,7 +169,7 @@ Plans:
 | 3.2 deepagents 复核 | v1.0 | 6/6 | Complete | 2026-05-27 |
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
 | 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
-| 6. 4-Source Registry + Dispatcher | v1.1 | 0/TBD | Not started | - |
+| 6. 4-Source Registry + Dispatcher | v1.1 | 2/2 | Complete   | 2026-06-04 |
 | 7. System Commands + M3 Regression | v1.1 | 0/TBD | Not started | - |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
 
