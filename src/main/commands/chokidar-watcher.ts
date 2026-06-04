@@ -62,6 +62,17 @@ function degradeAndFallback(scope: 'system' | 'project', dir: string, err: unkno
 }
 
 /**
+ * Test-only: reset the module-scope `degraded` flag so each test in the
+ * fallback describe block can exercise the D-16 first-fail and D-19
+ * first-error-wins behavior in isolation. Not part of the public API.
+ */
+export function __resetDegradedForTests(): void {
+  degraded = false;
+  projectWatcherStop = null;
+  currentProjectPath = null;
+}
+
+/**
  * D-23 + D-24: Watch `~/.cdf/commands/*.md` for changes. Fires `onChange`
  * (after a 100ms debounce + 200ms awaitWriteFinish coalesce) and pushes a
  * `commands:changed` event to all renderer windows. Errors are logged via

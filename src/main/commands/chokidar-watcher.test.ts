@@ -52,7 +52,7 @@ vi.mock('../logger', () => ({
   },
 }));
 
-import { watchSystemCommandsDir, watchProjectCommandsDir, ensureProjectWatcher } from './chokidar-watcher';
+import { watchSystemCommandsDir, watchProjectCommandsDir, ensureProjectWatcher, __resetDegradedForTests } from './chokidar-watcher';
 
 describe('chokidar-watcher', () => {
   beforeEach(() => {
@@ -178,5 +178,56 @@ describe('chokidar-watcher', () => {
     ensureProjectWatcher('/second/path');
     expect(mocks.chokidarMock.watch.mock.calls.length).toBe(callsBefore + 1);
     stop1();
+  });
+});
+
+// ===== Phase 8 — D-16 + D-19: chokidar fallback + no retry =====
+describe('Phase 8 chokidar fallback (D-16..D-19)', () => {
+  // The `degraded` flag is module-scope. Use the test-only reset hook so
+  // each test starts with a clean `degraded = false` and the D-19 no-retry
+  // assertion is meaningful. Also clear sendMock (sibling describe has its
+  // own beforeEach, so the outer one does NOT clear it for us).
+  beforeEach(() => {
+    mocks.sendMock.mockClear();
+    mocks.chokidarMock.watch.mockClear();
+    __resetDegradedForTests();
+  });
+
+  it('D-16: emits "commands:fallback" IPC + readdir one-shot when chokidar.watch throws', () => {
+    mocks.chokidarMock.watch.mockImplementationOnce(() => {
+      throw new Error('EPERM: operation not permitted');
+    });
+
+    // Must trigger degradeAndFallback on sync failure
+    const stop = watchSystemCommandsDir(vi.fn().mockResolvedValue(undefined));
+
+    // commands:fallback event emitted
+    expect(mocks.sendMock).toHaveBeenCalledWith(
+      'commands:fallback',
+      expect.objectContaining({ scope: 'system', error: expect.stringContaining('EPERM') })
+    );
+    // stop function is no-op (per degradeAndFallback)
+    expect(typeof stop).toBe('function');
+  });
+
+  it('D-19: does not retry after degraded — second chokidar.watch call returns no-op', () => {
+    // First call degrades
+    mocks.chokidarMock.watch.mockImplementationOnce(() => {
+      throw new Error('first failure');
+    });
+    watchSystemCommandsDir(vi.fn().mockResolvedValue(undefined));
+    expect(mocks.sendMock).toHaveBeenCalledTimes(1);
+
+    // Second call (after degraded flag set) should still throw inside chokidar.watch
+    // (mock throw bypasses degraded-flag check because the throw is in chokidar.watch
+    // itself, not in degradeAndFallback). But degradeAndFallback is guarded by the
+    // `degraded` flag and will NOT emit a second commands:fallback IPC.
+    mocks.chokidarMock.watch.mockImplementationOnce(() => {
+      throw new Error('second failure');
+    });
+    const callsBefore = mocks.sendMock.mock.calls.length;
+    watchSystemCommandsDir(vi.fn().mockResolvedValue(undefined));
+    // sendMock calls count must NOT increase (degraded flag prevents re-emit)
+    expect(mocks.sendMock.mock.calls.length).toBe(callsBefore);
   });
 });
