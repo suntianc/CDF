@@ -114,6 +114,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.removeListener('commands:changed', listener);
       };
     },
+    // Phase 8 — D-16: chokidar fallback notification. Fired once per session
+    // when chokidar.watch() fails (EPERM/ENOENT/EBUSY). Renderer shows a
+    // user-visible toast and re-fetches the (now static) command list.
+    onFallback: (callback: (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => void) => {
+      const listener = (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => callback(event, data);
+      ipcRenderer.on('commands:fallback', listener);
+      return () => {
+        ipcRenderer.removeListener('commands:fallback', listener);
+      };
+    },
   },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   context: {

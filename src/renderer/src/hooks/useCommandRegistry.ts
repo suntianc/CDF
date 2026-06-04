@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type {
   CommandConflictError,
@@ -132,6 +132,32 @@ export function useCommandRegistry(
       if (data?.source === 'chokidar' || data?.source === 'mcp-health') {
         reload();
       }
+    });
+    return cleanup;
+  }, [reload]);
+
+  // Phase 8 — D-16 + D-17: chokidar fallback toast (with dedup by error fingerprint).
+  // C-04: `toastedFingerprints` Set ensures the same (scope, error) only
+  // toasts once per session. Mount-time reset (useRef on every mount).
+  const toastedFingerprintsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const api = (window as any).electronAPI?.commands;
+    if (!api?.onFallback) return;
+    const cleanup = api.onFallback((_event: unknown, data: { scope: 'system' | 'project'; dir: string; error: string }) => {
+      // D-17: dedup by fingerprint. Same (scope, error) = same fingerprint.
+      const fp = `${data.scope}:${data.error}`;
+      if (toastedFingerprintsRef.current.has(fp)) return;
+      toastedFingerprintsRef.current.add(fp);
+      toast.warning('项目命令热重载不可用，已降级为静态扫描', {
+        // D-18: 5000ms duration, sonner `warning` variant
+        description: `scope=${data.scope} dir=${data.dir.slice(0, 40)} error=${data.error.slice(0, 60)}`,
+        duration: 5000,
+        id: fp, // sonner-level dedup (belt-and-suspenders with our Set)
+      });
+      // D-16: also reload the command list (one-shot readdir already populated
+      // the underlying state on the main side, so the new fetch is a no-op
+      // for chokidar but the user sees fresh commands).
+      reload();
     });
     return cleanup;
   }, [reload]);

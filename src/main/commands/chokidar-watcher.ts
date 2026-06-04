@@ -1,10 +1,15 @@
 import { BrowserWindow } from 'electron';
 import chokidar from 'chokidar';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import log from '../logger';
 
 // P6.6: os.homedir() must be called from app.whenReady — see src/main/index.ts init site.
+// Phase 8 — D-16..D-19: chokidar failure degradation. When chokidar.watch() throws
+// OR emits 'error', we degrade gracefully: do a one-shot readdir() of the target
+// directory, push a `commands:fallback` IPC event to renderer, and stop trying
+// to re-init chokidar (D-19: first-error-wins via `degraded` flag).
 
 /**
  * Module-private debounce helper. Coalesces multiple chokidar events into a
@@ -21,6 +26,41 @@ function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
   }) as T;
 }
 
+// Phase 8 — D-19: first-error-wins degraded flag. Module-scope so any
+// subsequent chokidar.watch() in the same session reuses the same flag
+// (prevents re-init storms if the FS is briefly readonly during startup).
+let degraded = false;
+
+function emitFallbackEvent(scope: 'system' | 'project', dir: string, error: string): void {
+  try {
+    BrowserWindow.getAllWindows().forEach((w) => {
+      w.webContents.send('commands:fallback', { scope, dir, error });
+    });
+  } catch (emitErr) {
+    log.error('[commands-watcher] emit commands:fallback failed:', emitErr);
+  }
+}
+
+function readdirFallback(dir: string, scope: 'system' | 'project'): void {
+  // D-16: best-effort readdir as a static snapshot. Errors here are logged
+  // but do NOT trigger toast (the chokidar failure toast already fired).
+  try {
+    const files = fs.readdirSync(dir);
+    log.info(`[commands-watcher] readdir fallback for ${scope} dir=${dir}: ${files.length} entries`);
+  } catch (readErr) {
+    log.error(`[commands-watcher] readdir fallback also failed for ${scope} dir=${dir}:`, readErr);
+  }
+}
+
+function degradeAndFallback(scope: 'system' | 'project', dir: string, err: unknown): void {
+  if (degraded) return; // D-19: first-error-wins; no retry storm
+  degraded = true;
+  const msg = err instanceof Error ? err.message : String(err);
+  log.error(`[commands-watcher] chokidar degraded for ${scope} dir=${dir}:`, err);
+  readdirFallback(dir, scope);
+  emitFallbackEvent(scope, dir, msg);
+}
+
 /**
  * D-23 + D-24: Watch `~/.cdf/commands/*.md` for changes. Fires `onChange`
  * (after a 100ms debounce + 200ms awaitWriteFinish coalesce) and pushes a
@@ -35,7 +75,7 @@ function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
  */
 export function watchSystemCommandsDir(onChange: () => Promise<void>): () => void {
   const systemDir = path.join(os.homedir(), '.cdf', 'commands');
-  return startWatcher(systemDir, onChange);
+  return startWatcher(systemDir, onChange, 'system');
 }
 
 /**
@@ -47,7 +87,7 @@ export function watchProjectCommandsDir(
   onChange: () => Promise<void>
 ): () => void {
   const projectDir = path.join(projectPath, '.cdf', 'commands');
-  return startWatcher(projectDir, onChange);
+  return startWatcher(projectDir, onChange, 'project');
 }
 
 // Module-scope state for the lazy project watcher. When the user switches
@@ -77,13 +117,20 @@ export function ensureProjectWatcher(projectPath: string): void {
   log.info(`[commands-watcher] project watcher started: ${projectPath}/.cdf/commands`);
 }
 
-function startWatcher(dir: string, onChange: () => Promise<void>): () => void {
-  const handle = chokidar.watch(dir, {
-    awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
-    ignoreInitial: true,
-    depth: 0,
-    usePolling: false,
-  });
+function startWatcher(dir: string, onChange: () => Promise<void>, scope: 'system' | 'project' = 'system'): () => void {
+  let handle: ReturnType<typeof chokidar.watch>;
+  try {
+    handle = chokidar.watch(dir, {
+      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
+      ignoreInitial: true,
+      depth: 0,
+      usePolling: false,
+    });
+  } catch (err) {
+    // D-16: synchronous failure (e.g. EPERM, ENOENT at construct time)
+    degradeAndFallback(scope, dir, err);
+    return () => {}; // no-op stop function
+  }
 
   const fire = debounce(async () => {
     try {
@@ -100,6 +147,12 @@ function startWatcher(dir: string, onChange: () => Promise<void>): () => void {
     handle.on(evt, () => {
       void fire();
     });
+  });
+
+  // D-16 + D-19: async 'error' event triggers degrade-and-fallback.
+  // The `degraded` flag inside degradeAndFallback prevents re-entry storm.
+  handle.on('error', (err) => {
+    degradeAndFallback(scope, dir, err);
   });
 
   handle.on('error', (err) => {
