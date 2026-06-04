@@ -133,7 +133,7 @@ Plans:
 
 Plans:
 
-- [ ] 07-01: `/goal` + `/context` + `/plan` 三个 dispatcher 分支 + placeholder 气泡 + session 开头识别 sniff
+- [x] 07-01: `/goal` + `/context` + `/plan` 三个 dispatcher 分支 + placeholder 气泡 + session 开头识别 sniff
 - [ ] 07-02: SLASH-REGRESSION it 块接入（`llm-adapter.test.ts` / `llm.test.ts`），含 `<think>` chunk 首段断言 + no-tool-call-in-plan-mode 断言
 
 ### Phase 8: Polish + Differentiators
@@ -170,7 +170,7 @@ Plans:
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
 | 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 2/2 | Complete    | 2026-06-04 |
-| 7. System Commands + M3 Regression | v1.1 | 0/TBD | Not started | - |
+| 7. System Commands + M3 Regression | v1.1 | 1/2 | In Progress|  |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
 
 ## Coverage
