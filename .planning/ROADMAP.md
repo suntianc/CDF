@@ -100,20 +100,20 @@ Plans:
   3. **Skills 2 源** (SLASH-09a/09b): global skills 读 `~/.cdf/skills/`，project skills 读 `<projectPath>/.cdf/skills/`；同 name → project wins
   4. **Custom commands 2 源** (SLASH-11a/11b): system 读 `~/.cdf/commands/*.md`，project 读 `<projectPath>/.cdf/commands/*.md`；同 name → project wins
   5. MCP 工具通过 `loadMcpTools(agentId, mcpServers)` 复用 `mcpCache`（不重连），自动以 `/${mcp_tool_name}` 注册；空 tools 列表时 popup 不静默、显示 `mcp_health_warning` 行
-  6. 项目内置 1 个 `/pr-review` 3 节点 demo workflow（v1.0 DB 为 0 行）；新 SQL `SELECT id, name, description FROM workflows WHERE status='active'` 走轻量路径，**不**调 `db:getWorkflows`（避免 `graph_data` 重数据）
+  6. *(已取消 — 客人大人 2026-06-04 决定：v1.0 Phase 4 已有 workflow 能力，无需 seed demo workflow 占位；PITFALLS P11 担忧消解)* 新 SQL `SELECT id, name, description FROM workflows WHERE status='active'` 走轻量路径，**不**调 `db:getWorkflows`（避免 `graph_data` 重数据）
   7. `<projectPath>/.cdf/commands/*.md` 与 `~/.cdf/commands/*.md` 命令被读取，YAML frontmatter（`name` `description` `argument-hint`）解析；`$ARGUMENTS` 占位符在 body 内替换后再做自然语言 prompt 重写
   8. 同名冲突按优先级 `system > skill:project > skill:global > workflow > mcp > cmd:project > cmd:system` 解析（项目覆盖全局，技能优先于命令）；**两行都保留**带 badge；registry 构建期冲突抛 `CommandConflictError` 触发 sonner toast
   9. 插件命令以 `请调用 ${tool} 工具，参数：${args}` 自然语言 prompt 走现有 `llm:chat` IPC 通路（不新增 dispatch 通道），M3 reasoning chunk 仍作为 `message_chunk` 首段发出
   10. session 启动 + `~/.cdf/commands/` 与 `<projectPath>/.cdf/commands/` 两路都用 chokidar@3.6.0 `awaitWriteFinish: { stabilityThreshold: 200 }` 监听；MCP 健康事件触发插件源重新拉取
 
-**Plans**: TBD (likely 3 plans: 1 main 注册表 + 1 dispatcher + 1 IPC/preload 桥接 + 1 chokidar/seed workflow)
+**Plans**: TBD (likely 2 plans: 1 main 注册表 + dispatcher + 1 IPC/preload 桥接 + chokidar 双路热重载；原 plan 06-03 demo workflow seed 已取消)
 **UI hint**: yes (7-color source badge row styling, mcp_health_warning banner)
 
 Plans:
 
-- [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts
-- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds；MCP args = 只消费命令名 + 附加额外文本为 natural-language 上下文）+ IPC `commands:list` + `commands:readProjectCommands` + preload 桥接
-- [ ] 06-03: seed `/pr-review` 3 节点 demo workflow + chokidar 双路热重载 (`~/.cdf/commands/` + `<projectPath>/.cdf/commands/`) + CJK skill 端到端 NFKC 测试
+- [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts + Workflow 源 active SQL 拉取
+- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds；SystemSilent / SystemLocal / PluginRewrite / PlanMode）+ IPC `commands:list` + `commands:readProjectCommands` + preload 桥接 + chokidar 双路热重载 (`~/.cdf/commands/` + `<projectPath>/.cdf/commands/`)
+- ~~[ ] 06-03: seed `/pr-review` 3 节点 demo workflow~~ **已取消**（2026-06-04 客人大人决定）
 
 ### Phase 7: System Commands + M3 Regression Test
 
@@ -198,7 +198,7 @@ Plans:
 | **接受** 插件命令以自然语言 prompt 重写走 `llm:chat`（**不**新增 dispatch IPC） | 维护 M3 thinking 链；零新事件类型 | — Pending (v1.1) |
 | **接受** `/plan` 为 `payload.overrides.planOnly` 运行时 flag（**不**新 dispatch 路径） | 走 llm.ts:324 现有扩展点；新增 SLASH-REGRESSION it 块保护 | — Pending (v1.1) |
 | **接受** `/goal` 内存存储（`useSessionStore.sessionGoals: Map<sessionId, string>`） | v1.1 范围；v1.2+ 迁 SQLite（SLASH-15） | — Pending (v1.1) |
-| **接受** seed 1 个 `/pr-review` 3 节点 demo workflow（v1.0 DB 0 行） | PITFALLS P11：否则 SLASH-10 zombie code；作为 e2e contract | — Pending (v1.1) |
+| **接受** ~~seed 1 个 `/pr-review` 3 节点 demo workflow（v1.0 DB 0 行）~~ | **已取消** (2026-06-04 客人大人决定：v1.0 Phase 4 已有 workflow 能力；PITFALLS P11 担忧消解) | — Cancelled |
 | **拒绝** v1.0 partial deliverable cleanup（draft workflow 测试、work history UI polish）混入 v1.1 | 推 v1.2；v1.1 激光聚焦 `/` 命令系统 | — Pending (v1.1) |
 
 ## Hard "Do Not Touch" List (v1.1)
@@ -212,7 +212,8 @@ Plans:
 ## Notes for next phase
 
 - Phase 5 是 **SPIKE** — 必须先验证 cmdk + Radix Popover 在裸 textarea 上的路径，再承诺 dispatcher 架构
-- Phase 6 SLASH-10 必须 seed `/pr-review` demo workflow（v1.0 DB 0 行），否则 zombie code
+- ~~Phase 6 SLASH-10 必须 seed `/pr-review` demo workflow（v1.0 DB 0 行），否则 zombie code~~ (已取消)
+- Phase 6 dispatcher 4 种 kinds: `SystemSilent` / `SystemLocal` / `PluginRewrite` / `PlanMode`（客人大人 2026-06-04 决策）
 - Phase 7 SLASH-REGRESSION 是 6-hunk patch-package 的负载测试，**不可省**
 - Phase 8 是 polish，**没有** SLASH-XX 新需求；完成 v1.1 之前的所有稳定基座之后做
 - 跨平台 chokidar 测试矩阵：macOS + Windows + Linux 各至少 1 run（CI badge for v1.1 退出标准）
