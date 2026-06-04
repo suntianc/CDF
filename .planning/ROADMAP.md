@@ -56,7 +56,7 @@
 
 - [x] **Phase 5: Popup Shell + Keyboard Spike** - cmdk + Radix Popover 锚定在裸 textarea 上，`/` 触发 + 字母过滤 + ↑↓/Enter/Esc/Backspace 键盘导航 (completed 2026-06-04)
 - [x] **Phase 6: 4-Source Command Registry + Dispatcher** - 3 系统 + 4 插件源注册表（含 2 源 skills: global `~/.cdf/skills/` + project `<projectPath>/.cdf/skills/`；2 源 commands: system `~/.cdf/commands/` + project `<projectPath>/.cdf/commands/`）+ 4 种 CommandDispatchAction 分发 + chokidar 热重载 (completed 2026-06-04)
-- [ ] **Phase 7: System Commands + M3 Regression Test** - `/goal` / `/context` / `/plan` 三系统命令 + M3 thinking 保留回归测试
+- [x] **Phase 7: System Commands + M3 Regression Test** - `/goal` / `/context` / `/plan` 三系统命令 + M3 thinking 保留回归测试 (completed 2026-06-04)
 - [ ] **Phase 8: Polish + Differentiators** - 源 badge 视觉打磨（`[skill:global]` vs `[skill:project]` 等 5 色）+ IME z-index + CJK NFKC 过滤 + 加载态 + 错误降级
 
 ---
@@ -134,7 +134,7 @@ Plans:
 Plans:
 
 - [x] 07-01: `/goal` + `/context` + `/plan` 三个 dispatcher 分支 + placeholder 气泡 + session 开头识别 sniff
-- [ ] 07-02: SLASH-REGRESSION it 块接入（`llm-adapter.test.ts` / `llm.test.ts`），含 `<think>` chunk 首段断言 + no-tool-call-in-plan-mode 断言
+- [x] 07-02: SLASH-REGRESSION it 块接入（`llm-adapter.test.ts` / `llm.test.ts`），含 `<think>` chunk 首段断言 + no-tool-call-in-plan-mode 断言
 
 ### Phase 8: Polish + Differentiators
 
@@ -170,7 +170,7 @@ Plans:
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
 | 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 2/2 | Complete    | 2026-06-04 |
-| 7. System Commands + M3 Regression | v1.1 | 1/2 | In Progress|  |
+| 7. System Commands + M3 Regression | v1.1 | 2/2 | Complete   | 2026-06-04 |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
 
 ## Coverage
