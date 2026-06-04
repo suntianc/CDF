@@ -10,11 +10,24 @@ export type RegistryWarning = {
   message: string;
 };
 
+// Phase 8 — D-07..D-11: 5-state loading state machine for MCP skeleton gating.
+// - 'idle'    : no projectId/agentId (no IPC issued)
+// - 'pending' : IPC issued, awaiting response (< 500ms)
+// - 'slow'    : IPC still pending after 500ms threshold (triggers Skeleton row)
+// - 'ready'   : IPC resolved successfully
+// - 'error'   : IPC rejected → commands:fallback mcp_health_warning row
+export type RegistryLoadingState =
+  | 'idle'
+  | 'pending'
+  | 'slow'
+  | 'ready'
+  | 'error';
+
 export type RegistryState = {
   commands: SlashCommand[];
   conflicts: CommandConflictError[];
   warnings: RegistryWarning[];
-  loading: boolean;
+  loading: RegistryLoadingState;
   reload: () => void;
 };
 
@@ -43,21 +56,30 @@ export function useCommandRegistry(
   const [commands, setCommands] = useState<SlashCommand[]>(EMPTY_COMMANDS);
   const [conflicts, setConflicts] = useState<CommandConflictError[]>(EMPTY_CONFLICTS);
   const [warnings, setWarnings] = useState<RegistryWarning[]>(EMPTY_WARNINGS);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<RegistryLoadingState>('idle');
 
   const reload = useCallback(() => {
     if (!projectId || !agentId) {
       setCommands(EMPTY_COMMANDS);
       setConflicts(EMPTY_CONFLICTS);
       setWarnings(EMPTY_WARNINGS);
+      setLoading('idle');
       return;
     }
-    setLoading(true);
+    setLoading('pending');
     const api = (window as any).electronAPI?.commands;
     if (!api?.list) {
-      setLoading(false);
+      setLoading('idle');
       return;
     }
+    // Phase 8 — D-07: 500ms threshold timer promotes 'pending' → 'slow'.
+    // Functional updater guards against firing after IPC has already
+    // transitioned to 'ready' or 'error' (Pitfall P5: useFakeTimers + IPC
+    // promise interaction). clearTimeout in both .then and .catch is the
+    // primary defense; the prev-check is belt-and-suspenders.
+    const slowTimer = setTimeout(() => {
+      setLoading((prev: RegistryLoadingState) => (prev === 'pending' ? 'slow' : prev));
+    }, 500);
     api
       .list(projectId, agentId)
       .then((result: { commands: SlashCommand[]; conflicts: CommandConflictError[]; warnings: RegistryWarning[] }) => {
@@ -79,15 +101,22 @@ export function useCommandRegistry(
             description: `请手动选择 — 源: ${sources}`,
           });
         }
+        // D-10: clear the slow timer BEFORE setLoading('ready') so the
+        // timer cannot fire concurrently with the ready transition
+        // (defensive — vi.useFakeTimers + IPC microtask ordering).
+        clearTimeout(slowTimer);
+        setLoading('ready');
       })
       .catch((err: unknown) => {
         console.error('[useCommandRegistry] list failed:', err);
+        // D-11: IPC reject → synthetic mcp_health_warning so the popup
+        // renders a gray row (Phase 6 hasMcpWarning UI). Mirrors the
+        // behavior of a registry-returned mcp_health_warning.
         setCommands(EMPTY_COMMANDS);
         setConflicts(EMPTY_CONFLICTS);
-        setWarnings(EMPTY_WARNINGS);
-      })
-      .finally(() => {
-        setLoading(false);
+        setWarnings([{ type: 'mcp_health_warning', message: 'MCP 工具加载失败' }]);
+        clearTimeout(slowTimer);
+        setLoading('error');
       });
   }, [projectId, agentId]);
 
