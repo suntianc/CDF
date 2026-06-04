@@ -154,7 +154,7 @@ Plans:
 
 Plans:
 
-- [ ] 08-01-PLAN.md: Wave A — App.tsx `<Toaster />` mount + skeleton.tsx + SlashCommandPopup 7-color badge + CJK NFKC + 预 normalize Map + Skeleton row + IME 注释 (D-01..D-12, D-15)
+- [x] 08-01-PLAN.md: Wave A — App.tsx `<Toaster />` mount + skeleton.tsx + SlashCommandPopup 7-color badge + CJK NFKC + 预 normalize Map + Skeleton row + IME 注释 (D-01..D-12, D-15)
 - [ ] 08-02-PLAN.md: Wave B — useCommandRegistry loading 5-state 枚举 + 500ms 阈值 (D-07..D-11)
 - [ ] 08-03-PLAN.md: Wave C — chokidar 降级 (try-catch + readdir + commands:fallback IPC + toast dedup) (D-16..D-19, C-04)
 - [ ] 08-04-PLAN.md: Wave D — IME 注释 ChatArea 指针 + 08-SUMMARY.md 收尾
@@ -174,7 +174,7 @@ Plans:
 | 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 2/2 | Complete    | 2026-06-04 |
 | 7. System Commands + M3 Regression | v1.1 | 2/2 | Complete    | 2026-06-04 |
-| 8. Polish + Differentiators | v1.1 | 0/4 | Not started | - |
+| 8. Polish + Differentiators | v1.1 | 1/4 | In Progress|  |
 
 ## Coverage
 
