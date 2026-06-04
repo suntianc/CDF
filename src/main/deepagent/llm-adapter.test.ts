@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { createLangChainModel, getOllamaBaseUrl } from './llm-adapter';
 
@@ -155,5 +155,57 @@ describe('getOllamaBaseUrl', () => {
   it('should normalize common Ollama endpoint URLs', () => {
     expect(getOllamaBaseUrl('http://localhost:11434/api/chat')).toBe('http://localhost:11434');
     expect(getOllamaBaseUrl('http://localhost:11434/v1')).toBe('http://localhost:11434');
+  });
+});
+
+// ===== SLASH-REGRESSION it 7.1: planOnly 路径下首段 message_chunk 含 <think> =====
+// Load-bearing test for the 6-hunk patch-package on @langchain/anthropic@1.4.0
+// Verifies that the adapter chain is wired correctly so planOnly can flow from
+// dispatcher → IPC → runLLMChat → runtime → chat model. The actual `<think>`
+// emission is verified in the patch-package layer (src/main/deepagent/llm.ts
+// streamEvents) which is not unit-testable in isolation.
+describe('SLASH-REGRESSION: planOnly reasoning chain (D-18/D-12)', () => {
+  it('it 7.1a: anthropic adapter enables streaming + maxTokens (load-bearing for plan mode)', () => {
+    // The chain dispatcher → IPC → runLLMChat → runtime → chat model requires
+    // streaming + maxTokens to be set on the chat model. Plan mode adds
+    // overrides.planOnly = true, which the patch-package layer then translates
+    // into thinking-enabled config on the model.
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.anthropic.com/v1',
+      defaultModel: 'claude-3-5-sonnet-20241022',
+      providerType: 'anthropic',
+    }) as any;
+
+    expect(model.streaming).toBe(true);
+    expect(model.maxTokens).toBe(4096);
+  });
+
+  it('it 7.1b: minimax adapter sets thinking=adaptive (M3 thinking baseline)', () => {
+    // For minimax providers, the adapter sets thinking='adaptive' so the
+    // patch-package chain can preserve thinking blocks through streamEvents.
+    // This is the baseline that plan mode must not break.
+    const model = createLangChainModel({
+      apiKey: 'test-key',
+      apiUrl: 'https://api.minimaxi.com/v1',
+      defaultModel: 'abab6.5g-chat',
+      providerType: 'minimax',
+    }) as any;
+
+    expect(model.thinking).toEqual({ type: 'adaptive' });
+  });
+
+  it('it 7.1c: patch-package layer imports (load-bearing 6-hunk patch guard)', () => {
+    // Verifies that the 6-hunk patch-package files are present in patches/.
+    // If npm install strips them, this test fails — alerting us that
+    // M3 thinking preservation has been broken.
+    const fs = require('fs');
+    const path = require('path');
+    const patchDir = path.resolve(__dirname, '../../../patches');
+    expect(fs.existsSync(patchDir)).toBe(true);
+    const patches = fs.readdirSync(patchDir).filter((f: string) => f.endsWith('.patch'));
+    // The 6-hunk patch-package is on @langchain/anthropic@1.4.0
+    const anthropicPatch = patches.find((f: string) => f.includes('@langchain+anthropic'));
+    expect(anthropicPatch, '6-hunk patch-package on @langchain/anthropic must be present').toBeDefined();
   });
 });

@@ -417,4 +417,42 @@ describe('createDeepAgentRuntime', () => {
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents[0].name).toBe('code-agent');  // generated from 'Code Agent'
   });
+
+  // ===== SLASH-REGRESSION it 7.2: plan mode disables file-mutation tools + interrupts =====
+  // Load-bearing test for the 6-hunk patch-package on @langchain/anthropic@1.4.0
+  // and the runtime-level D-13 plan-mode gating.
+  it('it 7.2a: plan mode strips bash + delete_file from builtInTools', async () => {
+    await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: 'plan: write tests' },
+      'agent-1',
+      { planOnly: true },  // Phase 7-01 Gap 2+3: planOnly via ChatRuntimeOverrides alias
+      []
+    );
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    // D-13: plan mode removes bash + delete_file from builtInTools
+    const toolNames = (params.tools as any[]).map((t: any) => t?.name ?? t);
+    expect(toolNames).not.toContain('bash');
+    expect(toolNames).not.toContain('delete_file');
+  });
+
+  it('it 7.2b: plan mode sets interruptOn=false to suppress write_file/edit_file', async () => {
+    await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-2', content: 'plan: design API' },
+      'agent-1',
+      { planOnly: true },
+      []
+    );
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    // D-13: interruptOn: false means no interrupts, so any tool invocation
+    // is a no-op (or directly fails). This is the runtime's belt-and-suspenders
+    // approach: even if write_file/edit_file somehow make it into tools[],
+    // interruptOn=false ensures no approval flow is triggered.
+    expect(params.interruptOn).toBe(false);
+  });
 });
