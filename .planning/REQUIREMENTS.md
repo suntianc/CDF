@@ -13,10 +13,10 @@
 
 - [x] **SLASH-01**: User can type `/` in Master Agent chat input box to open a command popup
 - [x] **SLASH-02**: User can filter commands by substring (case-insensitive, NFKC-normalized for CJK) and navigate with ↑↓ + Enter + Esc + Backspace
-- [ ] **SLASH-03**: Command registry maintains a merged list of 5 sources: system (3 hardcoded) + MCP tools + Skills + Workflows + Project custom commands; each entry has source badge
-- [ ] **SLASH-04**: Command dispatcher routes each command to one of 4 `CommandDispatchAction` kinds: `local-silent` (/goal), `local-reply` (/context), `plan-mode` (/plan), `llm-chat` (plugins)
-- [ ] **SLASH-12**: Naming conflicts between sources are resolved with priority `system > skill > workflow > mcp > project`; both-rows-kept UI; no silent overwrite; `CommandConflictError` toast on registry build
-- [ ] **SLASH-13**: Command registry refreshes on session start + chokidar watches `.cdf/commands/*.md` for hot-reload; MCP server health transitions trigger re-fetch
+- [x] **SLASH-03**: Command registry maintains a merged list of 5 sources: system (3 hardcoded) + MCP tools + Skills + Workflows + Project custom commands; each entry has source badge
+- [x] **SLASH-04**: Command dispatcher routes each command to one of 4 `CommandDispatchAction` kinds: `local-silent` (/goal), `local-reply` (/context), `plan-mode` (/plan), `llm-chat` (plugins)
+- [x] **SLASH-12**: Naming conflicts between sources are resolved with priority `system > skill > workflow > mcp > project`; both-rows-kept UI; no silent overwrite; `CommandConflictError` toast on registry build
+- [x] **SLASH-13**: Command registry refreshes on session start + chokidar watches `.cdf/commands/*.md` for hot-reload; MCP server health transitions trigger re-fetch
 
 ### System Commands (SLASH-05..07)
 
@@ -26,16 +26,16 @@
 
 ### Plugin Command Auto-Registration (SLASH-08..11)
 
-- [ ] **SLASH-08**: Each connected MCP tool auto-registers as `/${mcp_tool_name}` (no args parsing in v1.1 — see PITFALLS P7 command injection risk). Reuses `loadMcpTools(agentId, mcpServers)` at `mcp-connector.ts:129` with `mcpCache` (no re-connect). **MCP args semantics**: dispatcher consumes only the command name; any text typed after the command (e.g. `/arxiv_search what is quantum computing`) is **appended as natural-language context** in the `llm:chat` payload — the tool itself runs with no arguments.
-- [ ] **SLASH-09a**: **Global Skills** (UI-managed via Skills panel) auto-register as `/${skill_name}`; stored in `~/.cdf/skills/` (read by `getScopePath(projectPath, 'global')` in `skill-manager.ts:91`); source badge `[skill:global]`. CJK skill names NFKC-normalized.
-- [ ] **SLASH-09b**: **Project Skills** auto-register as `/${skill_name}`; stored in `<projectPath>/.cdf/skills/` (read by `getScopePath(projectPath, 'project')`); source badge `[skill:project]`. Same name as a global skill → project wins (project is more specific).
-- [ ] **SLASH-10**: Each active Workflow auto-registers as `/${workflow_name}`; new lightweight SQL `SELECT id, name, description FROM workflows WHERE status='active'` (do NOT call `db:getWorkflows` which returns heavy `graph_data`); v1.1 ships 1 seed workflow (`/pr-review` 3-node) as e2e contract
-- [ ] **SLASH-11a**: **System-level custom commands** read from `~/.cdf/commands/*.md` (parallel to global skills location — user-installed, OS-level scope, cross-project visibility); YAML frontmatter (`name`, `description`, `argument-hint`); source badge `[cmd:system]`; chokidar hot-reload
-- [ ] **SLASH-11b**: **Project-level custom commands** read from `<projectPath>/.cdf/commands/*.md` (per-project scope); same YAML frontmatter schema as system-level; source badge `[cmd:project]`; chokidar hot-reload. `$ARGUMENTS` placeholder substituted in command body before dispatching as natural-language user message. Same name across system + project → project wins (project overrides system).
+- [x] **SLASH-08**: Each connected MCP tool auto-registers as `/${mcp_tool_name}` (no args parsing in v1.1 — see PITFALLS P7 command injection risk). Reuses `loadMcpTools(agentId, mcpServers)` at `mcp-connector.ts:129` with `mcpCache` (no re-connect). **MCP args semantics**: dispatcher consumes only the command name; any text typed after the command (e.g. `/arxiv_search what is quantum computing`) is **appended as natural-language context** in the `llm:chat` payload — the tool itself runs with no arguments.
+- [x] **SLASH-09a**: **Global Skills** (UI-managed via Skills panel) auto-register as `/${skill_name}`; stored in `~/.cdf/skills/` (read by `getScopePath(projectPath, 'global')` in `skill-manager.ts:91`); source badge `[skill:global]`. CJK skill names NFKC-normalized.
+- [x] **SLASH-09b**: **Project Skills** auto-register as `/${skill_name}`; stored in `<projectPath>/.cdf/skills/` (read by `getScopePath(projectPath, 'project')`); source badge `[skill:project]`. Same name as a global skill → project wins (project is more specific).
+- [x] **SLASH-10**: Each active Workflow auto-registers as `/${workflow_name}`; new lightweight SQL `SELECT id, name, description FROM workflows WHERE status='active'` (do NOT call `db:getWorkflows` which returns heavy `graph_data`); v1.1 ships 1 seed workflow (`/pr-review` 3-node) as e2e contract
+- [x] **SLASH-11a**: **System-level custom commands** read from `~/.cdf/commands/*.md` (parallel to global skills location — user-installed, OS-level scope, cross-project visibility); YAML frontmatter (`name`, `description`, `argument-hint`); source badge `[cmd:system]`; chokidar hot-reload
+- [x] **SLASH-11b**: **Project-level custom commands** read from `<projectPath>/.cdf/commands/*.md` (per-project scope); same YAML frontmatter schema as system-level; source badge `[cmd:project]`; chokidar hot-reload. `$ARGUMENTS` placeholder substituted in command body before dispatching as natural-language user message. Same name across system + project → project wins (project overrides system).
 
 ### Plugin Command Dispatch (cross-cutting, addressed in SLASH-04)
 
-- [ ] **SLASH-DISPATCH**: All plugin commands (MCP / Skill / Workflow / Project) dispatch through the existing `llm:chat` IPC (rewritten as natural-language prompt `"请调用 ${tool} 工具，参数：${args}"`); **NO** new dispatch IPC channels; plugin outputs render via existing `MarkdownRenderer` + `ToolMessageCard`; **M3 thinking preservation is the load-bearing constraint**
+- [x] **SLASH-DISPATCH**: All plugin commands (MCP / Skill / Workflow / Project) dispatch through the existing `llm:chat` IPC (rewritten as natural-language prompt `"请调用 ${tool} 工具，参数：${args}"`); **NO** new dispatch IPC channels; plugin outputs render via existing `MarkdownRenderer` + `ToolMessageCard`; **M3 thinking preservation is the load-bearing constraint**
 
 ### M3 Thinking Preservation (cross-cutting regression test)
 
