@@ -54,7 +54,7 @@
 
 **Coverage:** 15/15 SLASH requirements mapped (SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION)
 
-- [ ] **Phase 5: Popup Shell + Keyboard Spike** - cmdk + Radix Popover 锚定在裸 textarea 上，`/` 触发 + 字母过滤 + ↑↓/Enter/Esc/Backspace 键盘导航
+- [x] **Phase 5: Popup Shell + Keyboard Spike** - cmdk + Radix Popover 锚定在裸 textarea 上，`/` 触发 + 字母过滤 + ↑↓/Enter/Esc/Backspace 键盘导航 (completed 2026-06-04)
 - [ ] **Phase 6: 4-Source Command Registry + Dispatcher** - 3 系统 + 4 插件源注册表（含 2 源 skills: global `~/.cdf/skills/` + project `<projectPath>/.cdf/skills/`；2 源 commands: system `~/.cdf/commands/` + project `<projectPath>/.cdf/commands/`）+ 4 种 CommandDispatchAction 分发 + chokidar 热重载
 - [ ] **Phase 7: System Commands + M3 Regression Test** - `/goal` / `/context` / `/plan` 三系统命令 + M3 thinking 保留回归测试
 - [ ] **Phase 8: Polish + Differentiators** - 源 badge 视觉打磨（`[skill:global]` vs `[skill:project]` 等 5 色）+ IME z-index + CJK NFKC 过滤 + 加载态 + 错误降级
@@ -86,7 +86,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-02: 键盘契约测试（9 边界 vitest 单元测试：Esc/Backspace/↑↓ wrap/NFKC/period/double-slash/IME safety×2/Shift+Enter/D-04 reopen-top + 手动 checkpoint：PopoverAnchor layout + IME 候选框 z-index + cmdk Enter 事件序）
+- [x] 05-02: 键盘契约测试（9 边界 vitest 单元测试：Esc/Backspace/↑↓ wrap/NFKC/period/double-slash/IME safety×2/Shift+Enter/D-04 reopen-top + 手动 checkpoint：PopoverAnchor layout + IME 候选框 z-index + cmdk Enter 事件序）
 
 ### Phase 6: 4-Source Command Registry + Dispatcher
 
@@ -168,7 +168,7 @@ Plans:
 | 3.1 子agent 调用流程 | v1.0 | 2/2 | Complete | 2026-05-23 |
 | 3.2 deepagents 复核 | v1.0 | 6/6 | Complete | 2026-05-27 |
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
-| 5. Popup Shell + Keyboard Spike | v1.1 | 1/2 | In Progress|  |
+| 5. Popup Shell + Keyboard Spike | v1.1 | 2/2 | Complete   | 2026-06-04 |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 0/TBD | Not started | - |
 | 7. System Commands + M3 Regression | v1.1 | 0/TBD | Not started | - |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |

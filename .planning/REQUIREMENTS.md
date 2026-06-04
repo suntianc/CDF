@@ -11,8 +11,8 @@
 
 ### Slash Command Infrastructure (SLASH-01..04, 12, 13)
 
-- [ ] **SLASH-01**: User can type `/` in Master Agent chat input box to open a command popup
-- [ ] **SLASH-02**: User can filter commands by substring (case-insensitive, NFKC-normalized for CJK) and navigate with ↑↓ + Enter + Esc + Backspace
+- [x] **SLASH-01**: User can type `/` in Master Agent chat input box to open a command popup
+- [x] **SLASH-02**: User can filter commands by substring (case-insensitive, NFKC-normalized for CJK) and navigate with ↑↓ + Enter + Esc + Backspace
 - [ ] **SLASH-03**: Command registry maintains a merged list of 5 sources: system (3 hardcoded) + MCP tools + Skills + Workflows + Project custom commands; each entry has source badge
 - [ ] **SLASH-04**: Command dispatcher routes each command to one of 4 `CommandDispatchAction` kinds: `local-silent` (/goal), `local-reply` (/context), `plan-mode` (/plan), `llm-chat` (plugins)
 - [ ] **SLASH-12**: Naming conflicts between sources are resolved with priority `system > skill > workflow > mcp > project`; both-rows-kept UI; no silent overwrite; `CommandConflictError` toast on registry build
