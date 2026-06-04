@@ -3,7 +3,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
-import { 
+import {
   ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
   Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
   ChevronUp, Brain, Loader2
@@ -13,6 +13,8 @@ import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessa
 import { MessageItem, formatHMSTime } from './MessageItem';
 import { useChatScroll } from './useChatScroll';
 import { TodoList } from './TodoList';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { SlashCommandPopup, SlashCommandPopupHandle } from '@/components/SlashCommand/SlashCommandPopup';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -137,6 +139,7 @@ export function ChatArea({
   const [inputVal, setInputVal] = useState('');
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
+  const [slashOpen, setSlashOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
@@ -145,6 +148,7 @@ export function ChatArea({
   const isComposingRef = useRef(false);
   const justFinishedComposingRef = useRef(false);
   const compositionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const slashRef = useRef<SlashCommandPopupHandle>(null);
   const previousSessionIdRef = useRef<string | null>(null);
   const previousHasActivePlanRef = useRef(false);
 
@@ -655,8 +659,24 @@ export function ChatArea({
     return isComposingRef.current || e.isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229 || nativeEvent.which === 229;
   };
 
+  // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
+  const handleSlashSelect = (cmd: string) => {
+    setInputVal(cmd + ' ');
+    setSlashOpen(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
+    if (slashOpen) {
+      // PITFALLS P6: Backspace when only `/` remains → close popup
+      if (e.key === 'Backspace' && inputVal === '/') {
+        e.preventDefault();
+        setSlashOpen(false);
+        return;
+      }
+      const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+      if (handled) return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       if (justFinishedComposingRef.current) {
         consumeJustFinishedComposing();
@@ -999,18 +1019,26 @@ export function ChatArea({
                 onToggleExpanded={toggleTodoExpanded}
               />
             )}
-            <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
-              {/* Upper: Text Input Area */}
-              <textarea
-                value={inputVal}
-                onChange={(e) => setInputVal(e.target.value)}
-                onCompositionStart={handleCompositionStart}
-                onCompositionEnd={handleCompositionEnd}
-                onKeyDown={handleKeyDown}
-                placeholder="给 Master Agent 发送消息..."
-                rows={2}
-                className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
-              />
+            <Popover open={slashOpen} onOpenChange={setSlashOpen} modal={false}>
+              <PopoverAnchor asChild>
+                <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
+                  {/* Upper: Text Input Area */}
+                  <textarea
+                    value={inputVal}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setInputVal(value);
+                      if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
+                      const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
+                      setSlashOpen(shouldOpen);
+                    }}
+                    onCompositionStart={handleCompositionStart}
+                    onCompositionEnd={handleCompositionEnd}
+                    onKeyDown={handleKeyDown}
+                    placeholder="给 Master Agent 发送消息..."
+                    rows={2}
+                    className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
+                  />
               
               {/* Lower: Toolbar Row */}
               <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
@@ -1089,6 +1117,22 @@ export function ChatArea({
                 </div>
               </div>
             </form>
+              </PopoverAnchor>
+              <PopoverContent
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                align="start"
+                side="top"
+                sideOffset={8}
+                className="w-[var(--radix-popover-anchor-width)]"
+              >
+                <SlashCommandPopup
+                  ref={slashRef}
+                  query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
+                  onSelect={handleSlashSelect}
+                  onClose={() => setSlashOpen(false)}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </div>
