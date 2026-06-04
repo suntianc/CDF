@@ -218,3 +218,12 @@ point). No existing types or unions were changed.
 | threat_flag: chokidar-fs-watch | node_modules/chokidar/3.6.0 | New fs-watching dep with `awaitWriteFinish`. Path whitelisting (`~/.cdf/commands/` + `<projectPath>/.cdf/commands/`) + `depth: 0` is enforced in Plan 06-02 chokidar watcher. |
 | threat_flag: frontmatter-parse | src/main/commands/project-commands.ts | Untrusted user-edited `.md` files. Parser is line-based, no `eval`, no shell exec. D-20 fields only. |
 | threat_flag: mcp_cache | src/main/commands/collectors/mcp.ts | mcpCache stale-on-configHash documented as `accept` risk; chokidar + MCP health events trigger `mcpCache.delete(agentId)` in Plan 06-02. |
+
+## Self-Check: PASSED
+
+All 19 created/modified files found at expected paths. All 4 commit hashes
+verified in `git log`:
+- `18ae848` — Task 1 (deps + types + CI matrix)
+- `3733d53` — Task 2 (5 collectors + project-commands)
+- `cbb0f9d` — Task 3 (registry + conflict-detector)
+- `8b2e44d` — docs(06-01) plan summary
