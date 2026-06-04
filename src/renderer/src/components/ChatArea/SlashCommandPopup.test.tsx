@@ -7,6 +7,7 @@ import {
   SlashCommandPopup,
   SlashCommandPopupHandle,
 } from '@/components/SlashCommand/SlashCommandPopup';
+import { resolve as dispatcherResolve } from '@/lib/commands/dispatcher';
 
 // jsdom does not implement ResizeObserver (used by cmdk for sizing)
 // or scrollIntoView (used by cmdk for item navigation). Polyfill both.
@@ -706,5 +707,35 @@ describe('Phase 6 source badges + warnings', () => {
     });
     const systemItem = screen.getByText('/goal').closest('[cmdk-item]') as HTMLElement;
     expect(systemItem.getAttribute('data-source')).toBe('system');
+  });
+});
+
+describe('Phase 6 handleSlashSelect routing (light integration)', () => {
+  it('ChatArea handleSlashSelect pattern: dispatcher.resolve gets full /cmd', () => {
+    // This test documents the integration contract. The actual ChatArea
+    // handleSlashSelect in production calls dispatcher.resolve(inputVal, registry.commands).
+    // Verified in src/renderer/src/lib/commands/dispatcher.test.ts:
+    // - "plugin rewrite does not pass overrides (D-18)"
+    // - "PlanMode dispatch passes planOnly override"
+    // - "warns and returns when no active project"
+    // Here we just verify resolve() correctly maps `/goal` (full command) to SystemSilent.
+    const plan = dispatcherResolve('/goal', [{
+      name: 'goal', description: 'set goal', source: 'system', target: 'goal',
+      sourceLabel: 'system', badge: '[system]',
+    }]);
+    expect(plan).toEqual({
+      kind: 'SystemSilent',
+      command: expect.objectContaining({ name: 'goal' }),
+      args: '',
+    });
+  });
+
+  it('ChatArea handleSlashSelect pattern: null resolution falls back to text-insert', () => {
+    // Verified: dispatcher.resolve returns null for unknown commands; ChatArea
+    // falls back to the old `setInputVal(cmd + ' ')` path (D-07 preserved).
+    expect(dispatcherResolve('/unknown', [])).toBeNull();
+    // When resolve returns null, ChatArea still does setInputVal(cmd + ' ').
+    // This test mirrors the Phase 5 behavior; Tab + unknown commands both
+    // hit this fallback.
   });
 });

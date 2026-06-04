@@ -15,6 +15,8 @@ import { useChatScroll } from './useChatScroll';
 import { TodoList } from './TodoList';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { SlashCommandPopup, SlashCommandPopupHandle } from '@/components/SlashCommand/SlashCommandPopup';
+import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
+import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -659,10 +661,26 @@ export function ChatArea({
     return isComposingRef.current || e.isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229 || nativeEvent.which === 229;
   };
 
+  // Phase 6: registry consumer. Provides commands + fires sonner toasts.
+  const registry = useCommandRegistry(
+    currentProjectId,
+    (activeSession as any)?.agent_id ?? null
+  );
+
   // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
+  // Phase 6: route through dispatcher.resolve when the command resolves to a plan
+  // (Enter path). Tab / unknown commands fall back to text-insert.
   const handleSlashSelect = (cmd: string) => {
-    setInputVal(cmd + ' ');
-    setSlashOpen(false);
+    // cmd is the full `/name` string (e.g., `/goal`).
+    const plan = dispatcherResolve(cmd, registry.commands);
+    if (plan) {
+      setInputVal('');
+      setSlashOpen(false);
+      dispatcherDispatch(plan).catch((err) => console.error('[dispatcher] error:', err));
+    } else {
+      setInputVal(cmd + ' ');
+      setSlashOpen(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1130,6 +1148,9 @@ export function ChatArea({
                   query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
                   onSelect={handleSlashSelect}
                   onClose={() => setSlashOpen(false)}
+                  commands={registry.commands}
+                  hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
+                  mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
                 />
               </PopoverContent>
             </Popover>

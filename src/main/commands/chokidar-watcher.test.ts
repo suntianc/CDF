@@ -1,10 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EventEmitter } from 'events';
 
 // All hoisted variables for vi.mock factories must be declared via vi.hoisted.
+// Note: FakeFSWatcher is a plain class (not extending EventEmitter) to avoid
+// the `Cannot access '__vi_import_0__' before initialization` error from
+// vitest's module hoisting conflicting with Node's `events` import order.
 const mocks = vi.hoisted(() => {
-  class FakeFSWatcher extends EventEmitter {
+  class FakeFSWatcher {
+    private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     close = vi.fn().mockResolvedValue(undefined);
+    on(event: string, listener: (...args: unknown[]) => void) {
+      if (!this.listeners.has(event)) this.listeners.set(event, []);
+      this.listeners.get(event)!.push(listener);
+      return this;
+    }
+    emit(event: string, ...args: unknown[]) {
+      const ls = this.listeners.get(event) ?? [];
+      for (const l of ls) l(...args);
+    }
+    removeAllListeners() {
+      this.listeners.clear();
+    }
   }
   const fakeWatchInstances: FakeFSWatcher[] = [];
   const chokidarMock = {
@@ -147,12 +162,13 @@ describe('chokidar-watcher', () => {
 
   it('ensureProjectWatcher is idempotent for the same path (does not duplicate watchers)', () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
-    const stop1 = watchProjectCommandsDir('/idem/path', onChange);
+    // First call sets currentProjectPath = '/idem/path' and creates a watcher.
+    ensureProjectWatcher('/idem/path');
     const callsBefore = mocks.chokidarMock.watch.mock.calls.length;
+    // Subsequent calls with the same path should be no-ops.
     ensureProjectWatcher('/idem/path');
     ensureProjectWatcher('/idem/path');
     expect(mocks.chokidarMock.watch.mock.calls.length).toBe(callsBefore);
-    stop1();
   });
 
   it('ensureProjectWatcher restarts watcher on path change', () => {
