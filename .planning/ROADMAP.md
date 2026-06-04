@@ -49,9 +49,9 @@
 **Coverage:** 15/15 SLASH requirements mapped (SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION)
 
 - [ ] **Phase 5: Popup Shell + Keyboard Spike** - cmdk + Radix Popover 锚定在裸 textarea 上，`/` 触发 + 字母过滤 + ↑↓/Enter/Esc/Backspace 键盘导航
-- [ ] **Phase 6: 4-Source Command Registry + Dispatcher** - 3 系统 + 4 插件源注册表 + 4 种 CommandDispatchAction 分发 + chokidar 热重载
+- [ ] **Phase 6: 4-Source Command Registry + Dispatcher** - 3 系统 + 4 插件源注册表（含 2 源 skills: global `~/.cdf/skills/` + project `<projectPath>/.cdf/skills/`；2 源 commands: system `~/.cdf/commands/` + project `<projectPath>/.cdf/commands/`）+ 4 种 CommandDispatchAction 分发 + chokidar 热重载
 - [ ] **Phase 7: System Commands + M3 Regression Test** - `/goal` / `/context` / `/plan` 三系统命令 + M3 thinking 保留回归测试
-- [ ] **Phase 8: Polish + Differentiators** - 源 badge 视觉打磨 + IME z-index + CJK NFKC 过滤 + 加载态 + 错误降级
+- [ ] **Phase 8: Polish + Differentiators** - 源 badge 视觉打磨（`[skill:global]` vs `[skill:project]` 等 5 色）+ IME z-index + CJK NFKC 过滤 + 加载态 + 错误降级
 
 ---
 
@@ -75,24 +75,27 @@ Plans:
 - [ ] 05-02: 键盘契约测试（5 路径 IME / Shift+Enter / Esc / ↑↓ / Enter + 5 PITFALLS P6 case：`.` / CJK / `//` / 描述截断 / selectedIndex 越界）
 
 ### Phase 6: 4-Source Command Registry + Dispatcher
-**Goal:** 建立 5 源命令注册表（3 系统 + MCP + Skill + Workflow + Project）与 4 种 CommandDispatchAction 分发器，插件命令通过 `llm:chat` 现有 IPC 通路自然语言重写后发送
+**Goal:** 建立 6 源命令注册表（3 系统 + MCP + Skills-global + Skills-project + Workflow + Commands-system + Commands-project — 实际 5 源 + Skills 2 亚源 + Commands 2 亚源）与 4 种 CommandDispatchAction 分发器，插件命令通过 `llm:chat` 现有 IPC 通路自然语言重写后发送
 **Depends on:** Phase 5
-**Requirements:** SLASH-03, SLASH-04, SLASH-08, SLASH-09, SLASH-10, SLASH-11, SLASH-12, SLASH-13, SLASH-DISPATCH
+**Requirements:** SLASH-03, SLASH-04, SLASH-08, SLASH-09a, SLASH-09b, SLASH-10, SLASH-11a, SLASH-11b, SLASH-12, SLASH-13, SLASH-DISPATCH
 **Success Criteria** (what must be TRUE):
-  1. popup 列出 3 系统命令 + 所有已注册插件命令，每行带源 badge（`[system]` / `[skill]` / `[workflow]` / `[mcp:serverId]` / `[project]`）
-  2. MCP 工具通过 `loadMcpTools(agentId, mcpServers)` 复用 `mcpCache`（不重连），自动以 `/${mcp_tool_name}` 注册；空 tools 列表时 popup 不静默、显示 `mcp_health_warning` 行
-  3. 项目内置 1 个 `/pr-review` 3 节点 demo workflow（v1.0 DB 为 0 行）；新 SQL `SELECT id, name, description FROM workflows WHERE status='active'` 走轻量路径，**不**调 `db:getWorkflows`（避免 `graph_data` 重数据）
-  4. `<projectPath>/.cdf/commands/*.md` 项目级自定义命令被读取，YAML frontmatter（`name` `description` `argument-hint`）解析；`$ARGUMENTS` 占位符在 body 内替换后再做自然语言 prompt 重写
-  5. 同名冲突按优先级 `system > skill > workflow > mcp > project` 解析，**两行都保留**带 badge；registry 构建期冲突抛 `CommandConflictError` 触发 sonner toast
-  6. 插件命令以 `请调用 ${tool} 工具，参数：${args}` 自然语言 prompt 走现有 `llm:chat` IPC 通路（不新增 dispatch 通道），M3 reasoning chunk 仍作为 `message_chunk` 首段发出
-  7. session 启动 + `.cdf/commands/` 用 chokidar@3.6.0 `awaitWriteFinish: { stabilityThreshold: 200 }` 监听；MCP 健康事件触发插件源重新拉取
+  1. popup 列出 3 系统命令 + 所有已注册插件命令，每行带源 badge：`[system]` / `[skill:global]` / `[skill:project]` / `[workflow]` / `[mcp:serverId]` / `[cmd:system]` / `[cmd:project]`
+  2. **MCP args semantics** (SLASH-08 clarification): 用户打 `/arxiv_search foo bar` → 工具以无参方式调用；`foo bar` 作为自然语言上下文附加到 `llm:chat` payload（不传给 tool；避免 PITFALLS P7 命令注入）
+  3. **Skills 2 源** (SLASH-09a/09b): global skills 读 `~/.cdf/skills/`，project skills 读 `<projectPath>/.cdf/skills/`；同 name → project wins
+  4. **Custom commands 2 源** (SLASH-11a/11b): system 读 `~/.cdf/commands/*.md`，project 读 `<projectPath>/.cdf/commands/*.md`；同 name → project wins
+  5. MCP 工具通过 `loadMcpTools(agentId, mcpServers)` 复用 `mcpCache`（不重连），自动以 `/${mcp_tool_name}` 注册；空 tools 列表时 popup 不静默、显示 `mcp_health_warning` 行
+  6. 项目内置 1 个 `/pr-review` 3 节点 demo workflow（v1.0 DB 为 0 行）；新 SQL `SELECT id, name, description FROM workflows WHERE status='active'` 走轻量路径，**不**调 `db:getWorkflows`（避免 `graph_data` 重数据）
+  7. `<projectPath>/.cdf/commands/*.md` 与 `~/.cdf/commands/*.md` 命令被读取，YAML frontmatter（`name` `description` `argument-hint`）解析；`$ARGUMENTS` 占位符在 body 内替换后再做自然语言 prompt 重写
+  8. 同名冲突按优先级 `system > skill:project > skill:global > workflow > mcp > cmd:project > cmd:system` 解析（项目覆盖全局，技能优先于命令）；**两行都保留**带 badge；registry 构建期冲突抛 `CommandConflictError` 触发 sonner toast
+  9. 插件命令以 `请调用 ${tool} 工具，参数：${args}` 自然语言 prompt 走现有 `llm:chat` IPC 通路（不新增 dispatch 通道），M3 reasoning chunk 仍作为 `message_chunk` 首段发出
+  10. session 启动 + `~/.cdf/commands/` 与 `<projectPath>/.cdf/commands/` 两路都用 chokidar@3.6.0 `awaitWriteFinish: { stabilityThreshold: 200 }` 监听；MCP 健康事件触发插件源重新拉取
 **Plans**: TBD (likely 3 plans: 1 main 注册表 + 1 dispatcher + 1 IPC/preload 桥接 + 1 chokidar/seed workflow)
-**UI hint**: yes (source badge row styling, mcp_health_warning banner)
+**UI hint**: yes (7-color source badge row styling, mcp_health_warning banner)
 
 Plans:
-- [ ] 06-01: main 端 command-registry.ts（4 源采集 + 冲突检测 + CommandConflictError）+ project-commands.ts
-- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds）+ IPC `commands:list` + `commands:readProjectCommands` + preload 桥接
-- [ ] 06-03: seed `/pr-review` 3 节点 demo workflow + chokidar 热重载 + CJK skill 端到端 NFKC 测试
+- [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts
+- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds；MCP args = 只消费命令名 + 附加额外文本为 natural-language 上下文）+ IPC `commands:list` + `commands:readProjectCommands` + preload 桥接
+- [ ] 06-03: seed `/pr-review` 3 节点 demo workflow + chokidar 双路热重载 (`~/.cdf/commands/` + `<projectPath>/.cdf/commands/`) + CJK skill 端到端 NFKC 测试
 
 ### Phase 7: System Commands + M3 Regression Test
 **Goal:** 实现 3 个系统命令（`/goal` / `/context` / `/plan`），并加入 M3 thinking 保留回归测试作为 6-hunk patch-package 的护栏

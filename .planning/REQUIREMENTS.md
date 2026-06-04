@@ -26,10 +26,12 @@
 
 ### Plugin Command Auto-Registration (SLASH-08..11)
 
-- [ ] **SLASH-08**: Each connected MCP tool auto-registers as `/${mcp_tool_name}` (no args parsing in v1.1 — see SLASH-12 pitfall P7); reuses `loadMcpTools(agentId, mcpServers)` at `mcp-connector.ts:129` with `mcpCache` (no re-connect)
-- [ ] **SLASH-09**: Each installed Skill auto-registers as `/${skill_name}`; reuses `listPhysicalSkills(projectPath)` at `skill-manager.ts:89`; CJK skill names NFKC-normalized for filter matching
+- [ ] **SLASH-08**: Each connected MCP tool auto-registers as `/${mcp_tool_name}` (no args parsing in v1.1 — see PITFALLS P7 command injection risk). Reuses `loadMcpTools(agentId, mcpServers)` at `mcp-connector.ts:129` with `mcpCache` (no re-connect). **MCP args semantics**: dispatcher consumes only the command name; any text typed after the command (e.g. `/arxiv_search what is quantum computing`) is **appended as natural-language context** in the `llm:chat` payload — the tool itself runs with no arguments.
+- [ ] **SLASH-09a**: **Global Skills** (UI-managed via Skills panel) auto-register as `/${skill_name}`; stored in `~/.cdf/skills/` (read by `getScopePath(projectPath, 'global')` in `skill-manager.ts:91`); source badge `[skill:global]`. CJK skill names NFKC-normalized.
+- [ ] **SLASH-09b**: **Project Skills** auto-register as `/${skill_name}`; stored in `<projectPath>/.cdf/skills/` (read by `getScopePath(projectPath, 'project')`); source badge `[skill:project]`. Same name as a global skill → project wins (project is more specific).
 - [ ] **SLASH-10**: Each active Workflow auto-registers as `/${workflow_name}`; new lightweight SQL `SELECT id, name, description FROM workflows WHERE status='active'` (do NOT call `db:getWorkflows` which returns heavy `graph_data`); v1.1 ships 1 seed workflow (`/pr-review` 3-node) as e2e contract
-- [ ] **SLASH-11**: Project-level custom commands read from `<projectPath>/.cdf/commands/*.md` with YAML frontmatter (`name`, `description`, `argument-hint`); `$ARGUMENTS` placeholder substituted in command body before dispatching as natural-language user message; chokidar hot-reload
+- [ ] **SLASH-11a**: **System-level custom commands** read from `~/.cdf/commands/*.md` (parallel to global skills location — user-installed, OS-level scope, cross-project visibility); YAML frontmatter (`name`, `description`, `argument-hint`); source badge `[cmd:system]`; chokidar hot-reload
+- [ ] **SLASH-11b**: **Project-level custom commands** read from `<projectPath>/.cdf/commands/*.md` (per-project scope); same YAML frontmatter schema as system-level; source badge `[cmd:project]`; chokidar hot-reload. `$ARGUMENTS` placeholder substituted in command body before dispatching as natural-language user message. Same name across system + project → project wins (project overrides system).
 
 ### Plugin Command Dispatch (cross-cutting, addressed in SLASH-04)
 
@@ -78,16 +80,19 @@
 | SLASH-05 | Phase 3 (v1.1) | **Phase 7** | PROJECT.md + research SUMMARY |
 | SLASH-06 | Phase 3 (v1.1) | **Phase 7** | PROJECT.md + research SUMMARY |
 | SLASH-07 | Phase 3 (v1.1) | **Phase 7** | PROJECT.md + research SUMMARY + PITFALLS P2 |
-| SLASH-08 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
-| SLASH-09 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-08 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P7 (MCP injection) |
+| SLASH-09a | Phase 2 (v1.1) | **Phase 6** | user clarification (2026-06-04) — global skills in `~/.cdf/skills/` |
+| SLASH-09b | Phase 2 (v1.1) | **Phase 6** | user clarification (2026-06-04) — project skills in `<projectPath>/.cdf/skills/` |
 | SLASH-10 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P11 |
-| SLASH-11 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY |
+| SLASH-11a | Phase 2 (v1.1) | **Phase 6** | user clarification (2026-06-04) — system commands in `~/.cdf/commands/` |
+| SLASH-11b | Phase 2 (v1.1) | **Phase 6** | user clarification (2026-06-04) — project commands in `<projectPath>/.cdf/commands/` |
 | SLASH-12 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P3 |
 | SLASH-13 | Phase 2 (v1.1) | **Phase 6** | PROJECT.md + research SUMMARY + PITFALLS P10 |
 | SLASH-DISPATCH | Phase 2 (v1.1) | **Phase 6** | research SUMMARY (cross-cutting) |
 | SLASH-REGRESSION | Phase 3 (v1.1) | **Phase 7** | research SUMMARY + PITFALLS P2 (load-bearing test) |
 
-**Total requirements: 15** (13 SLASH + 1 SLASH-DISPATCH + 1 SLASH-REGRESSION)
+**Total requirements: 17** (15 SLASH including 09a/09b/11a/11b splits + 1 SLASH-DISPATCH + 1 SLASH-REGRESSION)
+**Coverage:** 100% (all 13 SLASH requirements in PROJECT.md + user clarifications on Skills/CustomCommands 2-type split + 2 cross-cutting invariants → mapped to 1+ phase)
 **v1.1 phase mapping:**
 - Phase 5 (Popup Shell + Spike): 2 reqs (SLASH-01, SLASH-02)
 - Phase 6 (4-Source Registry + Dispatcher): 9 reqs (SLASH-03, SLASH-04, SLASH-08, SLASH-09, SLASH-10, SLASH-11, SLASH-12, SLASH-13, SLASH-DISPATCH)
