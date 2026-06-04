@@ -41,21 +41,22 @@
 - [x] **SLASH-01**: `/` 触发命令 popup（renderer 输入框层） — Phase 5
 - [x] **SLASH-02**: 字母过滤 + ↑↓ 选择 + Enter 触发的键盘导航 — Phase 5
   - *Note:* Phase 5 是 SPIKE，仅交付壳层 + 键盘契约；实际命令执行（含 Enter 触发）延后到 Phase 6 dispatcher。当前 D-07 行为：Tab/Enter 插入 `cmd + ' '` 到 textarea 但**不**触发消息发送。
+- [x] **SLASH-03**: 命令注册表（系统命令静态 + 插件命令动态注入） — Phase 6
+- [x] **SLASH-04**: 命令分发层（4 kinds: SystemSilent / SystemLocal / PluginRewrite / PlanMode） — Phase 6
+- [x] **SLASH-08**: MCP 工具自动注册为 `/${mcp_tool_name}` 命令 — Phase 6
+- [x] **SLASH-09a/09b**: Skills 自动注册为 `/${skill_name}` 命令（global + project × 2 亚源） — Phase 6
+- [x] **SLASH-10**: Workflows 自动注册为 `/${workflow_name}` 命令（仅 `status='active'`） — Phase 6
+- [x] **SLASH-11a/11b**: 项目级自定义命令支持（`.cdf/commands/*.md` × 2 亚源） — Phase 6
+- [x] **SLASH-12**: 命名空间冲突处理（priority 排序 + source badge + CommandConflictError toast） — Phase 6
+- [x] **SLASH-13**: 插件命令注册时机（session 启动 + chokidar 热重载 + MCP 健康事件） — Phase 6
+- [x] **SLASH-DISPATCH**: 插件命令以自然语言重写 `请调用 ${tool} 工具，参数：${args}` 走 `llm:chat`（D-18: args 走 `message.content` 不传 tool schema） — Phase 6
 
 ### Active (v1.1)
 
-*(无活跃 SLASH-XX 需求 — Phase 5 spike 已闭合 SLASH-01/02；Phase 6 即将开始 SLASH-03..13 + SLASH-DISPATCH)*
-- [ ] **SLASH-03**: 命令注册表（系统命令静态 + 插件命令动态注入）
-- [ ] **SLASH-04**: 命令分发层（本地静默 / Master Agent 注入 / 弹层 / IPC）
 - [ ] **SLASH-05**: `/goal [condition]` 系统命令
 - [ ] **SLASH-06**: `/context [all]` 系统命令
 - [ ] **SLASH-07**: `/plan [description]` 系统命令（Master Agent 切只规划不执行）
-- [ ] **SLASH-08**: MCP 工具自动注册为 `/${mcp_tool_name}` 命令
-- [ ] **SLASH-09**: Skills 自动注册为 `/${skill_name}` 命令
-- [ ] **SLASH-10**: Workflows 自动注册为 `/${workflow_name}` 命令
-- [ ] **SLASH-11**: 项目级自定义命令支持（`.claude/commands/*.md` 读取）
-- [ ] **SLASH-12**: 命名空间冲突处理（plugin source 标签显示）
-- [ ] **SLASH-13**: 插件命令注册时机（session 启动时拉取 + MCP 动态监听）
+- [ ] **SLASH-REGRESSION**: 6-hunk patch-package 护栏 it 块（Phase 7 加入）
 
 ### Out of Scope (v1.1 → v1.2+)
 
