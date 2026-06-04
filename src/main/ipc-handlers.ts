@@ -24,6 +24,7 @@ import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
 import { collectAllCommands } from './commands/command-registry';
 import { listProjectCommands } from './commands/project-commands';
 import { ensureProjectWatcher } from './commands/chokidar-watcher';
+import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 
 const getProviderLabel = (type: string): string => {
   switch (type) {
@@ -808,6 +809,16 @@ export function registerIpcHandlers() {
     } catch (err) {
       console.error('[commands:readProjectCommands] failed:', err);
       return { commands: [] };
+    }
+  });
+
+  // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
+  ipcMain.handle('context:currentSession', async (_evt, sessionId: string) => {
+    try {
+      return await aggregateCurrentSessionContext(sessionId);
+    } catch (err) {
+      console.error('[context:currentSession] failed:', err);
+      return { breakdown: { conversation: 0, skills: 0, mcp: 0, workflows: 0 }, total: 0 };
     }
   });
 }
