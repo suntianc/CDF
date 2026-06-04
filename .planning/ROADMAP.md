@@ -67,12 +67,12 @@
   3. IME 中文/日文输入法期间 `onChange` 不误触 popup 开关（`isComposingRef` + 200ms `justFinishedComposingRef`）
   4. Shift+Enter 仍然插入换行不触发命令、用户按 Esc 关闭 popup 后焦点回到 textarea 光标位置不漂移
   5. popup 显示固定 3 个硬编码系统命令占位行（`/goal` `/context` `/plan`），即便插件源未注册也能看到这 3 行
-**Plans**: TBD (likely 2 plans: 1 shell PoC + 1 keyboard contract tests)
+**Plans**: 2 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 05-01: cmdk + Radix Popover 壳层 PoC（验证 bare-textarea + PopoverAnchor + onOpenAutoFocus preventDefault）
-- [ ] 05-02: 键盘契约测试（5 路径 IME / Shift+Enter / Esc / ↑↓ / Enter + 5 PITFALLS P6 case：`.` / CJK / `//` / 描述截断 / selectedIndex 越界）
+- [ ] 05-01: cmdk + Radix Popover 壳层 PoC（`npm install cmdk@1.1.1 @radix-ui/react-popover@1.1.15` + `popover.tsx` shim + `SlashCommandPopup.tsx` 组件 + ChatArea wire 5 个插入点 + 8 基础 vitest 单元测试）
+- [ ] 05-02: 键盘契约测试（9 边界 vitest 单元测试：Esc/Backspace/↑↓ wrap/NFKC/period/double-slash/IME safety×2/Shift+Enter/D-04 reopen-top + 手动 checkpoint：PopoverAnchor layout + IME 候选框 z-index + cmdk Enter 事件序）
 
 ### Phase 6: 4-Source Command Registry + Dispatcher
 **Goal:** 建立 6 源命令注册表（3 系统 + MCP + Skills-global + Skills-project + Workflow + Commands-system + Commands-project — 实际 5 源 + Skills 2 亚源 + Commands 2 亚源）与 4 种 CommandDispatchAction 分发器，插件命令通过 `llm:chat` 现有 IPC 通路自然语言重写后发送
@@ -142,7 +142,7 @@ Plans:
 | 3.1 子agent 调用流程 | v1.0 | 2/2 | Complete | 2026-05-23 |
 | 3.2 deepagents 复核 | v1.0 | 6/6 | Complete | 2026-05-27 |
 | 4. Workflow System | v1.0 | 4/4 | Complete | 2026-05-27 |
-| 5. Popup Shell + Keyboard Spike | v1.1 | 0/TBD | Not started | - |
+| 5. Popup Shell + Keyboard Spike | v1.1 | 0/2 | Not started | - |
 | 6. 4-Source Registry + Dispatcher | v1.1 | 0/TBD | Not started | - |
 | 7. System Commands + M3 Regression | v1.1 | 0/TBD | Not started | - |
 | 8. Polish + Differentiators | v1.1 | 0/TBD | Not started | - |
@@ -161,7 +161,7 @@ Plans:
 ## Key Decisions (v1.1)
 
 | Decision | Rationale | Outcome |
-|----------|-----------|---------|
+|----------|-----------|--------|
 | **拒绝** `unstable_useSlashCommandAdapter` | `@deprecated Under active development`；要求 ComposerPrimitive adoption 会引爆 6-hunk patch-package（M3 thinking 链） | — Pending (v1.1) |
 | **接受** `cmdk@1.1.1` + `@radix-ui/react-popover@1.1.15` 作为新 dep | 已 grep 验证版本、peer `react ^18 || ^19` 兼容；Radix Popover 已是 transitive dep，promote to direct | — Pending (v1.1) |
 | **接受** `sonner` 作为新 dep（shadcn toast） | D11 命名冲突 toast 需要；单 source of truth 比现有 notification 机制轻 | — Pending (v1.1) |
