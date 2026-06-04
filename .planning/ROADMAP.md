@@ -106,13 +106,13 @@ Plans:
   9. 插件命令以 `请调用 ${tool} 工具，参数：${args}` 自然语言 prompt 走现有 `llm:chat` IPC 通路（不新增 dispatch 通道），M3 reasoning chunk 仍作为 `message_chunk` 首段发出
   10. session 启动 + `~/.cdf/commands/` 与 `<projectPath>/.cdf/commands/` 两路都用 chokidar@3.6.0 `awaitWriteFinish: { stabilityThreshold: 200 }` 监听；MCP 健康事件触发插件源重新拉取
 
-**Plans**: TBD (likely 2 plans: 1 main 注册表 + dispatcher + 1 IPC/preload 桥接 + chokidar 双路热重载；原 plan 06-03 demo workflow seed 已取消)
+**Plans**: 2 plans (06-01 main 注册表数据层 + 06-02 dispatcher/IPC/chokidar 集成层；原 plan 06-03 demo workflow seed 已取消 2026-06-04)
 **UI hint**: yes (7-color source badge row styling, mcp_health_warning banner)
 
 Plans:
 
-- [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts + Workflow 源 active SQL 拉取
-- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds；SystemSilent / SystemLocal / PluginRewrite / PlanMode）+ IPC `commands:list` + `commands:readProjectCommands` + preload 桥接 + chokidar 双路热重载 (`~/.cdf/commands/` + `<projectPath>/.cdf/commands/`)
+- [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts + Workflow 源 active SQL 拉取 + 4 shared/types + CI 跨平台 matrix（mac/win/linux）
+- [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds）+ useCommandRegistry hook + IPC `commands:list` + `commands:readProjectCommands` + preload 桥接 + chokidar 双路热重载 + SlashCommandPopup source badge 列 + mcp_health_warning 行 + ChatArea handleSlashSelect 改造
 - ~~[ ] 06-03: seed `/pr-review` 3 节点 demo workflow~~ **已取消**（2026-06-04 客人大人决定）
 
 ### Phase 7: System Commands + M3 Regression Test
