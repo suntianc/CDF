@@ -137,9 +137,61 @@ export type LLMStreamEvent =
   | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
   | { type: 'todos_update'; todos: TodoItem[] };
 
+// ===== Phase 6: Slash Command Registry Types (D-01, D-06, D-07) =====
+
+/** D-06 priority order. Declaration order is informational only — actual
+ *  priority numbers live in renderer useCommandRegistry.ts. */
+export type CommandSource =
+  | 'system'
+  | 'mcp'
+  | 'skill:project'
+  | 'skill:global'
+  | 'workflow'
+  | 'cmd:project'
+  | 'cmd:system';
+
+export interface SlashCommand {
+  /** Command name without the leading `/` */
+  name: string;
+  /** One-line description. MCP tools collect but do not render (D-09). */
+  description: string;
+  /** Where this command was registered from. */
+  source: CommandSource;
+  /** Dispatch target: system enum key / MCP tool name / skill id / workflow id / command file path. */
+  target: string;
+  /** Display label for source discrimination. */
+  sourceLabel: string;
+  /** Source badge text rendered in popup, e.g. `[system]`, `[mcp:arxiv_search]`. */
+  badge: string;
+  /** Optional arg hint for custom commands (D-20). */
+  argumentHint?: string;
+}
+
+/** D-01 four dispatch kinds. args is always a passthrough string (D-02). */
+export type CommandDispatchAction =
+  | { kind: 'SystemSilent'; command: SlashCommand; args: string }
+  | { kind: 'SystemLocal'; command: SlashCommand; args: string }
+  | { kind: 'PluginRewrite'; command: SlashCommand; args: string; prompt: string }
+  | { kind: 'PlanMode'; command: SlashCommand; args: string };
+
+/** D-07 lock: build phase RETURNS errors (does NOT throw). Renderer consumes
+ *  the array to fire sonner toasts; both rows are preserved (D-05). */
+export class CommandConflictError extends Error {
+  constructor(
+    public readonly commandName: string,
+    public readonly conflicts: ReadonlyArray<{ source: CommandSource; badge: string }>
+  ) {
+    super(`Command conflict: ${commandName} registered from ${conflicts.length} sources`);
+    this.name = 'CommandConflictError';
+  }
+}
+
 export interface ChatRuntimeOverrides {
   providerId?: string;
   model?: string;
+  /** D-01 PlanMode dispatch extension point. Phase 7 SLASH-REGRESSION verifies
+   *  that the runtime actually consumes this flag. */
+  planOnly?: boolean;
 }
 
 export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted';
