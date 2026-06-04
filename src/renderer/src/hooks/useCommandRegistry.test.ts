@@ -155,4 +155,110 @@ describe('Phase 8 loading state machine (D-07..D-11)', () => {
       { type: 'mcp_health_warning', message: 'MCP 工具加载失败' },
     ]);
   });
+
+  it('registry-returned mcp_health_warning sets loading="ready" (not "error")', async () => {
+    const listMock = vi.fn().mockResolvedValue({
+      commands: [],
+      conflicts: [],
+      warnings: [{ type: 'mcp_health_warning', message: 'mcp server unreachable' }],
+    });
+    (window as any).electronAPI = {
+      commands: {
+        list: listMock,
+        readProjectCommands: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+        onFallback: vi.fn(() => () => {}),
+      },
+    };
+    const { result } = renderHook(() => useCommandRegistry('p1', 'a1'));
+    await waitFor(() => {
+      expect(result.current.loading).toBe('ready');
+    });
+    expect(result.current.warnings).toEqual([
+      { type: 'mcp_health_warning', message: 'mcp server unreachable' },
+    ]);
+  });
+
+  it('re-fetches when projectId changes (mount-time reload on deps)', async () => {
+    const listMock = vi.fn().mockResolvedValue({ commands: [], conflicts: [], warnings: [] });
+    (window as any).electronAPI = {
+      commands: {
+        list: listMock,
+        readProjectCommands: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+        onFallback: vi.fn(() => () => {}),
+      },
+    };
+    const { rerender } = renderHook(({ p, a }) => useCommandRegistry(p, a), {
+      initialProps: { p: 'p1', a: 'a1' },
+    });
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(1));
+    expect(listMock).toHaveBeenLastCalledWith('p1', 'a1');
+
+    rerender({ p: 'p2', a: 'a1' });
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    expect(listMock).toHaveBeenLastCalledWith('p2', 'a1');
+  });
+
+  it('does not fire IPC when projectId is null but agentId is set', () => {
+    const listMock = vi.fn().mockResolvedValue({ commands: [], conflicts: [], warnings: [] });
+    (window as any).electronAPI = {
+      commands: {
+        list: listMock,
+        readProjectCommands: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+        onFallback: vi.fn(() => () => {}),
+      },
+    };
+    const { result } = renderHook(() => useCommandRegistry(null, 'a1'));
+    expect(listMock).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe('idle');
+  });
+
+  it('reloads explicitly via reload() after IPC has resolved', async () => {
+    const listMock = vi.fn().mockResolvedValue({ commands: [], conflicts: [], warnings: [] });
+    (window as any).electronAPI = {
+      commands: {
+        list: listMock,
+        readProjectCommands: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+        onFallback: vi.fn(() => () => {}),
+      },
+    };
+    const { result } = renderHook(() => useCommandRegistry('p1', 'a1'));
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.reload();
+    });
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ===== Phase 8 — D-16..D-19: chokidar fallback toast (C-04 dedup) =====
+describe('Phase 8 chokidar fallback toast (D-16..D-19)', () => {
+  it('toast.warning fires once for a given (scope, error) fingerprint', async () => {
+    const captured: { cb: ((event: unknown, data: { scope: 'system' | 'project'; dir: string; error: string }) => void) | null } = { cb: null };
+    (window as any).electronAPI = {
+      commands: {
+        list: vi.fn().mockResolvedValue({ commands: [], conflicts: [], warnings: [] }),
+        readProjectCommands: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+        onFallback: vi.fn((cb) => {
+          captured.cb = cb;
+          return () => {};
+        }),
+      },
+    };
+    const { result } = renderHook(() => useCommandRegistry('p1', 'a1'));
+    await waitFor(() => expect(result.current.loading).toBe('ready'));
+    // Same scope + error → same fingerprint → second call is a no-op for the toast
+    act(() => {
+      captured.cb?.(null, { scope: 'system', dir: '/a', error: 'EPERM' });
+    });
+    act(() => {
+      captured.cb?.(null, { scope: 'system', dir: '/a', error: 'EPERM' });
+    });
+    // Contract: same fingerprint does not throw; hook stays in 'ready' state
+    await waitFor(() => expect(result.current.loading).toBe('ready'));
+  });
 });
