@@ -1155,6 +1155,7 @@ export function ChatArea({
               </div>
             </form>
               </PopoverAnchor>
+              {/* IME z-index known issue: see SlashCommandPopup.tsx for full context. macOS IME candidate windows sit above web-layer z-index; press Esc to dismiss. (D-13..D-15, accepted as platform limitation.) */}
               <PopoverContent
                 onOpenAutoFocus={(e) => e.preventDefault()}
                 align="start"
