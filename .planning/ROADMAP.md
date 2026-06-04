@@ -119,7 +119,7 @@ Plans:
 **Depends on:** Phase 7
 **Requirements:** (no new SLASH-XX; v1.1 polish from FEATURES.md D1/D2/D7/D13/D14/D15 + PITFALLS P1/P4/P6 residual concerns)
 **Success Criteria** (what must be TRUE):
-  1. 源 badge 视觉上可一眼区分（`[system]` 蓝、`[skill]` 紫、`[workflow]` 绿、`[mcp:serverId]` 橙、`[project]` 灰），且不破坏 5 行 popup 视觉密度
+  1. 源 badge 视觉上可一眼区分（`[system]` 蓝 / `[skill:global]` 紫灰 / `[skill:project]` 紫 / `[workflow]` 绿 / `[mcp:serverId]` 橙 / `[cmd:system]` 灰 / `[cmd:project]` 深灰 — 7 色），且不破坏 5 行 popup 视觉密度
   2. CJK 技能名（`代码审查` 等）输入 `/代` 能正确 NFKC 归一化匹配，不区分全/半角、不区分 Unicode 组合字符
   3. MCP 源慢加载时（>500ms）popup 行显示 skeleton spinner，**不**让 popup 跳变；加载失败显示 `mcp_health_warning` 灰行而非静默
   4. popup z-index ≥ 50，IME 中文候选框 z-index 9999 时候选不覆盖 popup（macOS 已知 issue：候选框期间可 Esc 一次关 popup）
