@@ -13,26 +13,32 @@
 <summary>✅ v1.0 MVP (Phases 1-4 + 03.1/03.2 inserts) — SHIPPED 2026-06-03</summary>
 
 ### Phase 1: Foundation Workspace
+
 **Goal:** 开发者可启动应用，看到主界面框架，支持主题切换和项目管理基础
 **Plans:** 1/1 complete (2026-05-21)
 
 ### Phase 2: AI Chat Engine
+
 **Goal:** 用户可与 Master Agent 进行多轮对话，配置 LLM 提供者，对话历史持久化
 **Plans:** 1/1 complete (2026-05-22)
 
 ### Phase 3: Agent Integration
+
 **Goal:** 开发者可定义 Agent 角色，配置其 LLM/MCP/Skills 资源
 **Plans:** 5/5 complete (2026-05-23)
 
 ### Phase 03.1: 子agent 调用流程 (INSERTED)
+
 **Goal:** 实现 Master Agent 调用子Agent 的完整流程
 **Plans:** 2/2 complete
 
 ### Phase 03.2: deepagents 集成系统性复核 (INSERTED)
+
 **Goal:** 按模块复核 deepagents.js 集成代码
 **Plans:** 6/6 complete (2026-05-27)
 
 ### Phase 4: Workflow System
+
 **Goal:** ReactFlow 可视化编排工作流，langgraph.js 执行引擎
 **Plans:** 4/4 complete (2026-05-27)
 
@@ -58,27 +64,37 @@
 ## Phase Details
 
 ### Phase 5: Popup Shell + Keyboard Spike
+
 **Goal:** 验证在现有裸 textarea 上叠加 cmdk + Radix Popover 路径可行，确立 `/` 触发的 popup 壳层与键盘导航契约
 **Depends on:** Phase 4 (v1.0 收尾)
 **Requirements:** SLASH-01, SLASH-02
 **Success Criteria** (what must be TRUE):
+
   1. 用户在 Master Agent 对话输入框打 `/` 立即弹出命令 popup（与 Claude Code 行为一致），`/` 之前的中文/字母自动消失
   2. 用户继续打字，popup 行按不区分大小写子串过滤；↑↓ 在行间循环移动、Enter 触发当前行、Esc 关 popup、Backspace 在只剩 `/` 时关 popup
   3. IME 中文/日文输入法期间 `onChange` 不误触 popup 开关（`isComposingRef` + 200ms `justFinishedComposingRef`）
   4. Shift+Enter 仍然插入换行不触发命令、用户按 Esc 关闭 popup 后焦点回到 textarea 光标位置不漂移
   5. popup 显示固定 3 个硬编码系统命令占位行（`/goal` `/context` `/plan`），即便插件源未注册也能看到这 3 行
+
 **Plans**: 2 plans
 **UI hint**: yes
 
 Plans:
+**Wave 1**
+
 - [ ] 05-01: cmdk + Radix Popover 壳层 PoC（`npm install cmdk@1.1.1 @radix-ui/react-popover@1.1.15` + `popover.tsx` shim + `SlashCommandPopup.tsx` 组件 + ChatArea wire 5 个插入点 + 8 基础 vitest 单元测试）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02: 键盘契约测试（9 边界 vitest 单元测试：Esc/Backspace/↑↓ wrap/NFKC/period/double-slash/IME safety×2/Shift+Enter/D-04 reopen-top + 手动 checkpoint：PopoverAnchor layout + IME 候选框 z-index + cmdk Enter 事件序）
 
 ### Phase 6: 4-Source Command Registry + Dispatcher
+
 **Goal:** 建立 6 源命令注册表（3 系统 + MCP + Skills-global + Skills-project + Workflow + Commands-system + Commands-project — 实际 5 源 + Skills 2 亚源 + Commands 2 亚源）与 4 种 CommandDispatchAction 分发器，插件命令通过 `llm:chat` 现有 IPC 通路自然语言重写后发送
 **Depends on:** Phase 5
 **Requirements:** SLASH-03, SLASH-04, SLASH-08, SLASH-09a, SLASH-09b, SLASH-10, SLASH-11a, SLASH-11b, SLASH-12, SLASH-13, SLASH-DISPATCH
 **Success Criteria** (what must be TRUE):
+
   1. popup 列出 3 系统命令 + 所有已注册插件命令，每行带源 badge：`[system]` / `[skill:global]` / `[skill:project]` / `[workflow]` / `[mcp:serverId]` / `[cmd:system]` / `[cmd:project]`
   2. **MCP args semantics** (SLASH-08 clarification): 用户打 `/arxiv_search foo bar` → 工具以无参方式调用；`foo bar` 作为自然语言上下文附加到 `llm:chat` payload（不传给 tool；避免 PITFALLS P7 命令注入）
   3. **Skills 2 源** (SLASH-09a/09b): global skills 读 `~/.cdf/skills/`，project skills 读 `<projectPath>/.cdf/skills/`；同 name → project wins
@@ -89,45 +105,55 @@ Plans:
   8. 同名冲突按优先级 `system > skill:project > skill:global > workflow > mcp > cmd:project > cmd:system` 解析（项目覆盖全局，技能优先于命令）；**两行都保留**带 badge；registry 构建期冲突抛 `CommandConflictError` 触发 sonner toast
   9. 插件命令以 `请调用 ${tool} 工具，参数：${args}` 自然语言 prompt 走现有 `llm:chat` IPC 通路（不新增 dispatch 通道），M3 reasoning chunk 仍作为 `message_chunk` 首段发出
   10. session 启动 + `~/.cdf/commands/` 与 `<projectPath>/.cdf/commands/` 两路都用 chokidar@3.6.0 `awaitWriteFinish: { stabilityThreshold: 200 }` 监听；MCP 健康事件触发插件源重新拉取
+
 **Plans**: TBD (likely 3 plans: 1 main 注册表 + 1 dispatcher + 1 IPC/preload 桥接 + 1 chokidar/seed workflow)
 **UI hint**: yes (7-color source badge row styling, mcp_health_warning banner)
 
 Plans:
+
 - [ ] 06-01: main 端 command-registry.ts（5 源采集 + 2 亚源 skills + 2 亚源 commands + 冲突检测 + CommandConflictError）+ project-commands.ts
 - [ ] 06-02: dispatcher.ts（4 种 CommandDispatchAction kinds；MCP args = 只消费命令名 + 附加额外文本为 natural-language 上下文）+ IPC `commands:list` + `commands:readProjectCommands` + preload 桥接
 - [ ] 06-03: seed `/pr-review` 3 节点 demo workflow + chokidar 双路热重载 (`~/.cdf/commands/` + `<projectPath>/.cdf/commands/`) + CJK skill 端到端 NFKC 测试
 
 ### Phase 7: System Commands + M3 Regression Test
+
 **Goal:** 实现 3 个系统命令（`/goal` / `/context` / `/plan`），并加入 M3 thinking 保留回归测试作为 6-hunk patch-package 的护栏
 **Depends on:** Phase 6
 **Requirements:** SLASH-05, SLASH-06, SLASH-07, SLASH-REGRESSION
 **Success Criteria** (what must be TRUE):
+
   1. 用户打 `/goal X`，popup 关后立即出现 `[system] 正在执行 /goal…` 占位气泡（200ms 内），`useSessionStore.sessionGoals: Map<sessionId, string>` 写入 X，**无 LLM 调用**
   2. 用户打 `/context [all]`，popup 关后立即出现静态气泡显示当前 session token 用量（从 `messages` 表聚合），**无 LLM 调用**
   3. 用户打 `/plan X`，dispatcher 走 `llm:chat` 时设置 `payload.overrides = { planOnly: true }`（llm.ts:324 扩展点）；首个 `message_chunk` 必须含 `<think>…plan only…</think>`，整个回合**不**触发 `write_file` / `edit_file` / `bash` 工具调用
   4. `llm-adapter.test.ts`（或 `llm.test.ts`）新增 it 块覆盖"slash 路径下首段 message_chunk 含 `<think>`"；这是 6-hunk patch-package 锁定 `@langchain/anthropic@1.4.0` 的负载测试
   5. 命令仅在消息开头识别：`handleSend` 前 5 行 sniff `value.startsWith('/') && selectionStart` 校验；3 个 case 单测（开头 `/`、`/foo bar` 中段 `/baz` 不识别、`/  foo` 仅 trim 后空 args）
+
 **Plans**: TBD (likely 2 plans: 1 系统命令实现 + 1 M3 regression test 接入)
 **UI hint**: yes (system command placeholder bubble + plan mode placeholder)
 
 Plans:
+
 - [ ] 07-01: `/goal` + `/context` + `/plan` 三个 dispatcher 分支 + placeholder 气泡 + session 开头识别 sniff
 - [ ] 07-02: SLASH-REGRESSION it 块接入（`llm-adapter.test.ts` / `llm.test.ts`），含 `<think>` chunk 首段断言 + no-tool-call-in-plan-mode 断言
 
 ### Phase 8: Polish + Differentiators
+
 **Goal:** 在稳定基座上加入源 badge 视觉打磨、加载态、CJK 过滤、IME z-index 健壮性等 v1.1 polish 细节，让 popup 用起来"丝滑"而非"能用"
 **Depends on:** Phase 7
 **Requirements:** (no new SLASH-XX; v1.1 polish from FEATURES.md D1/D2/D7/D13/D14/D15 + PITFALLS P1/P4/P6 residual concerns)
 **Success Criteria** (what must be TRUE):
+
   1. 源 badge 视觉上可一眼区分（`[system]` 蓝 / `[skill:global]` 紫灰 / `[skill:project]` 紫 / `[workflow]` 绿 / `[mcp:serverId]` 橙 / `[cmd:system]` 灰 / `[cmd:project]` 深灰 — 7 色），且不破坏 5 行 popup 视觉密度
   2. CJK 技能名（`代码审查` 等）输入 `/代` 能正确 NFKC 归一化匹配，不区分全/半角、不区分 Unicode 组合字符
   3. MCP 源慢加载时（>500ms）popup 行显示 skeleton spinner，**不**让 popup 跳变；加载失败显示 `mcp_health_warning` 灰行而非静默
   4. popup z-index ≥ 50，IME 中文候选框 z-index 9999 时候选不覆盖 popup（macOS 已知 issue：候选框期间可 Esc 一次关 popup）
   5. chokidar 失败时降级为 readdir 一次扫描 + UI toast "项目命令热重载不可用，已降级为静态扫描"（不打断用户）
+
 **Plans**: TBD (likely 1 polish plan)
 **UI hint**: yes
 
 Plans:
+
 - [ ] 08-01: 源 badge 视觉系统 + skeleton/spinner 加载态 + CJK NFKC 过滤强化 + chokidar 失败降级 + IME z-index 边界处理
 
 ---
@@ -151,6 +177,7 @@ Plans:
 
 **v1.1 requirements:** 15 total (SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION)
 **Mapped:** 15/15 (100%)
+
 - Phase 5: 2 (SLASH-01, SLASH-02)
 - Phase 6: 9 (SLASH-03, SLASH-04, SLASH-08, SLASH-09, SLASH-10, SLASH-11, SLASH-12, SLASH-13, SLASH-DISPATCH)
 - Phase 7: 4 (SLASH-05, SLASH-06, SLASH-07, SLASH-REGRESSION)
