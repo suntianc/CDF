@@ -151,6 +151,9 @@ export function ChatArea({
   const justFinishedComposingRef = useRef(false);
   const compositionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slashRef = useRef<SlashCommandPopupHandle>(null);
+  // Phase 7 D-14: 5-line slash sniff reads selectionStart from the textarea DOM
+  // (Pitfall P7-4 — must be bound to the <textarea> JSX ref attribute).
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousSessionIdRef = useRef<string | null>(null);
   const previousHasActivePlanRef = useRef(false);
 
@@ -616,6 +619,21 @@ export function ChatArea({
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    // Phase 7 D-14: 5-line sniff — only treat as slash command when caret is at start
+    // of textarea. A mid-text slash (selectionStart > 0) is just regular text.
+    if (
+      inputVal.startsWith('/') &&
+      textareaRef.current?.selectionStart === 0
+    ) {
+      const plan = dispatcherResolve(inputVal, registry.commands);
+      if (plan) {
+        setInputVal('');
+        dispatcherDispatch(plan).catch((err) => console.error('[handleSend/slash] error:', err));
+        return;
+      }
+      // D-15 case 3 (A7 in RESEARCH): dispatcher.resolve returned null (e.g. `/  foo`),
+      // fall through to regular sendMessage path.
+    }
     if (!inputVal.trim() || !currentProjectId || isStreaming) return;
 
     const value = inputVal;
@@ -1042,6 +1060,7 @@ export function ChatArea({
                 <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
                   <textarea
+                    ref={textareaRef}
                     value={inputVal}
                     onChange={(e) => {
                       const value = e.target.value;
