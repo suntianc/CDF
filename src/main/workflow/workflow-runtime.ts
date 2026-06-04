@@ -242,11 +242,9 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
   eventBuffers.set(executionId, []);
 
   // 1. 加载 workflow 定义
+  // status 字段仅控制 Agent 可见性（见 tools.ts 的 SQL 过滤 `status = 'active'`），
+  // 手动运行（编辑器 / 列表页 Run 按钮）允许 draft 与 active 两态工作流。
   const workflowRow = getWorkflow(workflowId);
-  // 防御性校验：对 Agent 隐藏的 draft 工作流，禁止执行。
-  if (workflowRow.status !== 'active') {
-    throw new Error(`Workflow ${workflowId} is not active and cannot be executed`);
-  }
   const graphData = JSON.parse(workflowRow.graph_data) as WorkflowDefinition;
   const executionInput = enrichWorkflowInput(input, graphData);
 
