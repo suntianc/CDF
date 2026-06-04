@@ -8,6 +8,7 @@ import {
 import { Command } from 'cmdk';
 import { AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { SlashCommand, CommandSource } from '../../../../shared/types';
 
@@ -53,12 +54,14 @@ export interface SlashCommandPopupProps {
   hasMcpWarning?: boolean;
   /** Phase 6: custom message for the mcp_health_warning row. */
   mcpWarningMessage?: string;
+  /** Phase 8 — D-09: when 'slow', render a 1-row Skeleton at the top of Command.List (D-08/D-12). The 'slow' state is set by useCommandRegistry after 500ms of pending commands:list IPC (D-07). */
+  loading?: 'idle' | 'pending' | 'slow' | 'ready' | 'error';
 }
 
 export const SlashCommandPopup = forwardRef<
   SlashCommandPopupHandle,
   SlashCommandPopupProps
->(({ query, onSelect, onClose, commands, hasMcpWarning, mcpWarningMessage }, ref) => {
+>(({ query, onSelect, onClose, commands, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
   // Phase 6: when `commands` prop is provided, use it. Otherwise fall back to
   // the Phase 5 SYSTEM_COMMANDS (mapped from `{value, label}` to SlashCommand shape).
   const displayCommands = useMemo<SlashCommand[]>(() => {
@@ -171,6 +174,17 @@ export const SlashCommandPopup = forwardRef<
             <AlertCircle className="w-3 h-3 flex-shrink-0" />
             <span>{mcpWarningMessage || 'MCP 工具未加载，请检查服务器连接'}</span>
           </div>
+        )}
+        {loading === 'slow' && (
+          <Command.Loading>
+            <div
+              data-testid="mcp-skeleton"
+              className="flex items-center gap-2 px-2 py-1.5 select-none"
+            >
+              <Skeleton className="h-3 w-12 rounded" />
+              <Skeleton className="h-3 w-24 rounded" />
+            </div>
+          </Command.Loading>
         )}
         {filtered.map((c) => (
           <Command.Item
