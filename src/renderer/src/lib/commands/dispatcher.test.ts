@@ -5,6 +5,8 @@ import type { SlashCommand } from '../../../../shared/types';
 const mockSendMessage = vi.fn();
 const mockGetProjectState = vi.fn();
 const mockGetSessionState = vi.fn();
+const mockSetSessionGoal = vi.fn();
+const mockContextCurrentSession = vi.fn();
 vi.mock('@/stores/projectStore', () => ({
   useProjectStore: { getState: () => mockGetProjectState() },
 }));
@@ -12,7 +14,16 @@ vi.mock('@/stores/sessionStore', () => ({
   useSessionStore: { getState: () => mockGetSessionState() },
 }));
 
+vi.mock('sonner', () => ({
+  toast: {
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
 import { resolve, dispatch } from './dispatcher';
+import { toast } from 'sonner';
 
 const goalCmd: SlashCommand = {
   name: 'goal',
@@ -134,6 +145,9 @@ describe('dispatcher.dispatch', () => {
     mockSendMessage.mockReset();
     mockGetProjectState.mockReset();
     mockGetSessionState.mockReset();
+    mockSetSessionGoal.mockReset();
+    mockContextCurrentSession.mockReset();
+    (window as any).electronAPI = { context: { currentSession: mockContextCurrentSession } };
   });
 
   it('plugin rewrite does not pass overrides (D-18)', async () => {
@@ -173,5 +187,67 @@ describe('dispatcher.dispatch', () => {
     expect(warnSpy).toHaveBeenCalledWith('[dispatcher] No active project; cannot dispatch');
     expect(mockSendMessage).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  // ===== Phase 7 Plan 01: real implementations (replaces 3 console.log placeholders) =====
+
+  it('A. SystemSilent: writes to sessionGoals + emits /goal toast (D-01/D-02/D-03)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: 'session-1',
+      setSessionGoal: mockSetSessionGoal,
+    });
+
+    await dispatch({ kind: 'SystemSilent', command: goalCmd, args: 'write tests' });
+
+    // setSessionGoal called with sessionId + trimmed args
+    expect(mockSetSessionGoal).toHaveBeenCalledWith('session-1', 'write tests');
+    // sendMessage NOT called (no LLM)
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    // toast.info called with the D-01 placeholder string
+    expect(toast.info).toHaveBeenCalled();
+    const toastCall = (toast.info as any).mock.calls[0];
+    expect(toastCall[0]).toBe('[system] 正在执行 /goal…');
+  });
+
+  it('B. SystemLocal: calls electronAPI.context.currentSession + emits breakdown toast (D-06/D-07/D-08)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ activeSessionId: 'session-1' });
+    mockContextCurrentSession.mockResolvedValue({
+      breakdown: { conversation: 100, skills: 50, mcp: 25, workflows: 75 },
+      total: 250,
+    });
+
+    await dispatch({ kind: 'SystemLocal', command: contextCmd, args: '' });
+
+    // IPC called with sessionId
+    expect(mockContextCurrentSession).toHaveBeenCalledWith('session-1');
+    // toast.info called with the breakdown
+    expect(toast.info).toHaveBeenCalled();
+    const toastCall = (toast.info as any).mock.calls[0];
+    expect(toastCall[0]).toBe('[system] 上下文');
+    // Description must include the per-source tokens + total
+    const desc: string = toastCall[1]?.description || '';
+    expect(desc).toContain('对话: 100 tokens');
+    expect(desc).toContain('Skills: 50 tokens');
+    expect(desc).toContain('MCP: 25 tokens');
+    expect(desc).toContain('Workflows: 75 tokens');
+    expect(desc).toContain('Total: 250 tokens');
+  });
+
+  it('C. PlanMode: emits [plan] toast + calls sendMessage with { planOnly: true } (D-10/D-11/D-12)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue(undefined);
+
+    await dispatch({ kind: 'PlanMode', command: planCmd, args: 'write tests' });
+
+    // sendMessage called with planOnly override
+    expect(mockSendMessage).toHaveBeenCalledWith('project-1', 'write tests', { planOnly: true });
+    // toast.info called with the [plan] marker
+    expect(toast.info).toHaveBeenCalled();
+    const toastCall = (toast.info as any).mock.calls[0];
+    expect(toastCall[0]).toContain('[plan] 进入 plan 模式');
+    expect(toastCall[0]).toContain('write tests');
   });
 });

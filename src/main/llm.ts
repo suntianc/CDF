@@ -8,6 +8,7 @@ import type {
   AgentApprovalResolution,
   AgentRunStatus,
   AgentToolCallStatus,
+  ChatRuntimeOverrides,
 } from '../shared/types';
 
 /**
@@ -37,10 +38,7 @@ export interface ChatPayload {
     id: string;
     content: string;
   };
-  overrides?: {
-    providerId?: string;
-    model?: string;
-  };
+  overrides?: ChatRuntimeOverrides;
 }
 
 const activeRequests = new Map<string, AbortController>();

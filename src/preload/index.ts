@@ -115,5 +115,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
     },
   },
+  // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
+  context: {
+    currentSession: (sessionId: string) =>
+      ipcRenderer.invoke('context:currentSession', sessionId),
+  },
   platform: process.platform,
 });

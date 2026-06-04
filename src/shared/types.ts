@@ -489,6 +489,13 @@ export interface ElectronAPI {
     readProjectCommands: (projectId: string) => Promise<{ commands: SlashCommand[] }>;
     onChanged: (callback: (event: any, data: { source: string }) => void) => () => void;
   };
+  // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
+  context: {
+    currentSession: (sessionId: string) => Promise<{
+      breakdown: { conversation: number; skills: number; mcp: number; workflows: number };
+      total: number;
+    }>;
+  };
   platform: string;
 }
 
