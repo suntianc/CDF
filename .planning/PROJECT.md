@@ -36,10 +36,15 @@
 - [x] **v1-MVP**: 主题切换 — Phase 1
 - [x] **v1-MVP**: 项目管理（多代码仓库项目管理） — Phase 1
 
+### Validated (v1.1)
+
+- [x] **SLASH-01**: `/` 触发命令 popup（renderer 输入框层） — Phase 5
+- [x] **SLASH-02**: 字母过滤 + ↑↓ 选择 + Enter 触发的键盘导航 — Phase 5
+  - *Note:* Phase 5 是 SPIKE，仅交付壳层 + 键盘契约；实际命令执行（含 Enter 触发）延后到 Phase 6 dispatcher。当前 D-07 行为：Tab/Enter 插入 `cmd + ' '` 到 textarea 但**不**触发消息发送。
+
 ### Active (v1.1)
 
-- [ ] **SLASH-01**: `/` 触发命令 popup（renderer 输入框层）
-- [ ] **SLASH-02**: 字母过滤 + ↑↓ 选择 + Enter 触发的键盘导航
+*(无活跃 SLASH-XX 需求 — Phase 5 spike 已闭合 SLASH-01/02；Phase 6 即将开始 SLASH-03..13 + SLASH-DISPATCH)*
 - [ ] **SLASH-03**: 命令注册表（系统命令静态 + 插件命令动态注入）
 - [ ] **SLASH-04**: 命令分发层（本地静默 / Master Agent 注入 / 弹层 / IPC）
 - [ ] **SLASH-05**: `/goal [condition]` 系统命令
@@ -112,7 +117,8 @@
 | safeStorage 加密 API key | 委托 OS Keychain/libsecret/DPAPI；明文从不落盘 | ✓ Good (Phase 2) |
 | patch-package 永久化 LangChain 修复 | M3 video + reasoning roundtrip; 跨 npm install 自动应用 | ✓ Good (v1.0) |
 | GSD PreToolUse hook 强制 cleanup helper | 用机器强制代替人记；未来 quick task 受益 | ✓ Good (v1.0) |
-| **v1.1: `/` 命令极简设计**（3 系统 + 4 源插件） | 拒绝 95 命令全谱系（CLI 专属能力 50+ 不适用）；插件自动注册 = 零额外配置 | — Pending (v1.1) |
+| **v1.1: `/` 命令极简设计**（3 系统 + 4 源插件） | 拒绝 95 命令全谱系（CLI 专属能力 50+ 不适用）；插件自动注册 = 零额外配置 | ✓ Phase 5 shell + keyboard contract locked; 4-source registry (Phase 6) pending |
+| **v1.1 / Spike-first Phase 5** | Phase 5 仅交付 popup 壳层 + 19 个键盘契约测试；拒绝在 spike 中承诺 dispatcher 架构 | ✓ Phase 5 complete (2026-06-04) — `19/19` vitest tests + manual browser checks approved |
 
 ## Evolution
 
@@ -132,6 +138,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 at v1.1 milestone start*
+*Last updated: 2026-06-04 after Phase 5 completion*
 
 
