@@ -913,4 +913,50 @@ describe('Phase 8 polish', () => {
     const commentBlock = source.slice(commentStart, commentEnd);
     expect(commentBlock).not.toMatch(/\b(TODO|FIXME)\b/);
   });
+
+  // ===== 08.2 D-09: frontmatter.userInvocable: false hides the command =====
+  it('filters out commands with frontmatter.userInvocable === false (D-09)', () => {
+    const all: import('../../../../shared/types').SlashCommand[] = [
+      // Visible: userInvocable explicitly true
+      {
+        name: 'visible-true',
+        description: '',
+        source: 'cmd:project',
+        target: 'visible-true',
+        sourceLabel: 'cmd:project',
+        badge: '[cmd:project]',
+        frontmatter: { userInvocable: true, allowedTools: [], whenToUse: '', arguments: [] },
+      },
+      // Visible: no frontmatter → defaults to invocable per D-10
+      {
+        name: 'visible-no-frontmatter',
+        description: '',
+        source: 'cmd:project',
+        target: 'visible-no-frontmatter',
+        sourceLabel: 'cmd:project',
+        badge: '[cmd:project]',
+      },
+      // Hidden: userInvocable=false
+      {
+        name: 'hidden-cmd',
+        description: '',
+        source: 'cmd:project',
+        target: 'hidden-cmd',
+        sourceLabel: 'cmd:project',
+        badge: '[cmd:project]',
+        frontmatter: { userInvocable: false, allowedTools: [], whenToUse: '', arguments: [] },
+      },
+    ];
+    render(<TestHarness commands={all} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+
+    // visible-true and visible-no-frontmatter appear as cmdk items
+    expect(screen.getByText('/visible-true')).toBeTruthy();
+    expect(screen.getByText('/visible-no-frontmatter')).toBeTruthy();
+    // hidden-cmd must NOT be rendered
+    expect(screen.queryByText('/hidden-cmd')).toBeNull();
+  });
 });

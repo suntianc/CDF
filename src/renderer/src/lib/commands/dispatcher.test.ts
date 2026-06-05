@@ -8,11 +8,15 @@ const mockGetSessionState = vi.fn();
 const mockSetSessionGoal = vi.fn();
 const mockContextCurrentSession = vi.fn();
 const mockReadBody = vi.fn();
+const mockPlanPopupOpen = vi.fn();
 vi.mock('@/stores/projectStore', () => ({
   useProjectStore: { getState: () => mockGetProjectState() },
 }));
 vi.mock('@/stores/sessionStore', () => ({
   useSessionStore: { getState: () => mockGetSessionState() },
+}));
+vi.mock('@/stores/planPopupStore', () => ({
+  usePlanPopupStore: { getState: () => ({ open: mockPlanPopupOpen }) },
 }));
 
 vi.mock('sonner', () => ({
@@ -97,12 +101,12 @@ describe('dispatcher.resolve', () => {
 
   it('returns PlanMode for /plan', () => {
     const plan = resolve('/plan', [planCmd]);
-    expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '' });
+    expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '', popupOpen: true });
   });
 
   it('PlanMode args passthrough — /plan --priority=high', () => {
     const plan = resolve('/plan --priority=high', [planCmd]);
-    expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '--priority=high' });
+    expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '--priority=high', popupOpen: true });
   });
 
   it('PluginRewrite for MCP with args (D-18, v1.1 server-dim)', () => {
@@ -157,6 +161,7 @@ describe('dispatcher.dispatch', () => {
     mockSetSessionGoal.mockReset();
     mockContextCurrentSession.mockReset();
     mockReadBody.mockReset();
+    mockPlanPopupOpen.mockReset();
     (window as any).electronAPI = {
       context: { currentSession: mockContextCurrentSession },
       commands: { readBody: mockReadBody },
@@ -180,7 +185,7 @@ describe('dispatcher.dispatch', () => {
     expect(mockSendMessage.mock.calls[0]).toHaveLength(2);
   });
 
-  it('PlanMode dispatch passes planOnly override', async () => {
+  it('PlanMode dispatch passes planOnly override (default popupOpen: false → toast path)', async () => {
     mockGetProjectState.mockReturnValue({ currentProjectId: 'projectId' });
     mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
     mockSendMessage.mockResolvedValue(undefined);
@@ -188,6 +193,39 @@ describe('dispatcher.dispatch', () => {
     await dispatch({ kind: 'PlanMode', command: planCmd, args: 'write tests' });
 
     expect(mockSendMessage).toHaveBeenCalledWith('projectId', 'write tests', { planOnly: true });
+  });
+
+  it('PlanMode with popupOpen=true: calls usePlanPopupStore.open(description) + sendMessage(planOnly:true)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue(undefined);
+
+    await dispatch({
+      kind: 'PlanMode',
+      command: planCmd,
+      args: '重构 ChatArea',
+      popupOpen: true,
+    });
+
+    expect(mockPlanPopupOpen).toHaveBeenCalledWith('重构 ChatArea');
+    expect(mockSendMessage).toHaveBeenCalledWith('project-1', '重构 ChatArea', { planOnly: true });
+  });
+
+  it('PlanMode with popupOpen=false: falls back to toast + sendMessage(planOnly:true)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue(undefined);
+
+    await dispatch({
+      kind: 'PlanMode',
+      command: planCmd,
+      args: 'write tests',
+      popupOpen: false,
+    });
+
+    expect(mockPlanPopupOpen).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('project-1', 'write tests', { planOnly: true });
   });
 
   it('warns and returns when no active project', async () => {
@@ -248,16 +286,21 @@ describe('dispatcher.dispatch', () => {
     expect(desc).toContain('Total: 250 tokens');
   });
 
-  it('C. PlanMode: emits [plan] toast + calls sendMessage with { planOnly: true } (D-10/D-11/D-12)', async () => {
+  it('C. PlanMode: popupOpen=false path emits [plan] toast + calls sendMessage with { planOnly: true } (D-10/D-11/D-12)', async () => {
     mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
     mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
     mockSendMessage.mockResolvedValue(undefined);
 
-    await dispatch({ kind: 'PlanMode', command: planCmd, args: 'write tests' });
+    await dispatch({
+      kind: 'PlanMode',
+      command: planCmd,
+      args: 'write tests',
+      popupOpen: false,  // explicit legacy toast path
+    });
 
     // sendMessage called with planOnly override
     expect(mockSendMessage).toHaveBeenCalledWith('project-1', 'write tests', { planOnly: true });
-    // toast.info called with the [plan] marker
+    // toast.info called with the [plan] marker (legacy path)
     expect(toast.info).toHaveBeenCalled();
     const toastCall = (toast.info as any).mock.calls[0];
     expect(toastCall[0]).toContain('[plan] 进入 plan 模式');

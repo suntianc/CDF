@@ -8,6 +8,7 @@ import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { WorkflowList } from './components/WorkflowEditor/WorkflowList';
 import { WorkflowEditor } from './components/WorkflowEditor/WorkflowEditor';
+import { PlanPopup } from './components/PlanPopup/PlanPopup';
 import { useThemeStore } from './stores/themeStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
@@ -118,6 +119,7 @@ export default function App() {
         </button>
       )}
       <Toaster richColors position="bottom-right" theme="dark" />
+      <PlanPopup />
     </div>
   );
 }
