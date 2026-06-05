@@ -19,7 +19,6 @@ import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 import { SlashToken } from '@/components/SlashCommand/SlashToken';
 import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
-import { cn } from '@/lib/utils';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -216,6 +215,12 @@ export function ChatArea({
   useEffect(() => {
     useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
   }, []);
+
+  // Clear input when active session changes to prevent drafts/capsules from being carried over
+  useEffect(() => {
+    setInputVal('');
+    setSlashOpen(false);
+  }, [activeSessionId]);
 
   useEffect(() => {
     fetchProviders();
@@ -625,8 +630,8 @@ export function ChatArea({
     // Phase 7 D-14: 5-line sniff — only treat as slash command when caret is at start
     // of textarea. A mid-text slash (selectionStart > 0) is just regular text.
     if (
-      inputVal.startsWith('/') &&
-      textareaRef.current?.selectionStart === 0
+      (inputVal.startsWith('/') && textareaRef.current?.selectionStart === 0) ||
+      parsedToken?.token
     ) {
       const plan = dispatcherResolve(inputVal, registry.commands);
       if (plan) {
@@ -748,10 +753,12 @@ export function ChatArea({
     // composition (Pinyin candidate dismissal) is preserved. Closes any open
     // slash popup as a side effect (R6 mutual exclusion).
     if (e.key === 'Backspace' && parsedToken?.token) {
-      e.preventDefault();
-      setInputVal('');
-      setSlashOpen(false);
-      return;
+      if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+        e.preventDefault();
+        setInputVal('');
+        setSlashOpen(false);
+        return;
+      }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       if (justFinishedComposingRef.current) {
@@ -861,33 +868,23 @@ export function ChatArea({
                 composer textarea are both in the DOM on the welcome screen. */}
             <Popover open={slashOpen && !activeSessionId} onOpenChange={setSlashOpen} modal={false}>
               <PopoverAnchor asChild>
-                {/* HOTFIX 2026-06-05: `style={{ fontSize: '15px' }}` on the
-                    wrapper ensures the SlashToken (child of overlay, which
-                    is child of this wrapper) inherits the same 15px font
-                    that the welcome textarea uses. The `ch` unit in
-                    SlashToken's `min-width` then matches the textarea's
-                    per-character width so the cursor lands at the right
-                    edge of the pill, not inside it. Matches the design
-                    intent of the 15px `.dialog-input` font. */}
-                <div className="relative w-full z-0" style={{ fontSize: '15px' }}>
+                <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '15px' }}>
+                  {parsedToken?.token && (
+                    <div className="flex-shrink-0 pt-[3px]">
+                      <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
+                    </div>
+                  )}
                   <textarea
-                    /* HOTFIX 2026-06-05: `text-transparent` is now
-                       CONDITIONAL on `parsedToken?.token`. Previously it
-                       was always on, which made normal non-slash typing
-                       invisible (the overlay only renders for slash
-                       commands, so plain text had nowhere to display).
-                       Now the textarea shows the typed text by default
-                       and only goes transparent when a slash token is
-                       active and the overlay takes over visually. */
-                    className={cn(
-                      'dialog-input animate-fade-in caret-[var(--color-text-primary)]',
-                      parsedToken?.token && 'text-transparent'
-                    )}
-                    placeholder="给 CDF 下达指令，或者问点什么……"
+                    className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5"
+                    placeholder={parsedToken?.token ? '' : '给 CDF 下达指令，或者问点什么……'}
                     rows={1}
-                    value={inputVal}
+                    value={parsedToken?.token ? (() => {
+                      const tail = inputVal.slice(parsedToken.token.name.length + 1);
+                      return tail.startsWith(' ') ? tail.slice(1) : tail;
+                    })() : inputVal}
                     onChange={(e) => {
-                      const value = e.target.value;
+                      const tail = e.target.value;
+                      const value = parsedToken?.token ? '/' + parsedToken.token.name + ' ' + tail.replace(/^ /, '') : tail;
                       setInputVal(value);
                       if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
                       // Mirror the composer's slash-open predicate so the popup
@@ -911,10 +908,12 @@ export function ChatArea({
                       }
                       // Phase 08.1 D-04 + SPEC R4: atomic Backspace on welcome (mirrors handleKeyDown).
                       if (e.key === 'Backspace' && parsedToken?.token) {
-                        e.preventDefault();
-                        setInputVal('');
-                        setSlashOpen(false);
-                        return;
+                        if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+                          e.preventDefault();
+                          setInputVal('');
+                          setSlashOpen(false);
+                          return;
+                        }
                       }
                       if (e.key === 'Enter' && !e.shiftKey) {
                         if (justFinishedComposingRef.current) {
@@ -927,16 +926,6 @@ export function ChatArea({
                       }
                     }}
                   />
-                  {parsedToken?.token && (
-                    <div
-                      className="absolute inset-0 z-[1] px-3 py-2 pointer-events-none flex items-start text-[var(--color-text-primary)]"
-                      aria-hidden="true"
-                      data-testid="slash-overlay-welcome"
-                    >
-                      <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
-                      <span className="whitespace-pre">{parsedToken.text}</span>
-                    </div>
-                  )}
                 </div>
               </PopoverAnchor>
               <PopoverContent
@@ -1191,12 +1180,21 @@ export function ChatArea({
                       in SlashToken's `min-width` then matches the textarea's
                       per-character width so the cursor lands at the right
                       edge of the pill, not inside it. */}
-                  <div className="relative w-full z-0" style={{ fontSize: '14px' }}>
+                  <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '14px' }}>
+                    {parsedToken?.token && (
+                      <div className="flex-shrink-0 pt-[2px]">
+                        <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
+                      </div>
+                    )}
                     <textarea
                       ref={textareaRef}
-                      value={inputVal}
+                      value={parsedToken?.token ? (() => {
+                        const tail = inputVal.slice(parsedToken.token.name.length + 1);
+                        return tail.startsWith(' ') ? tail.slice(1) : tail;
+                      })() : inputVal}
                       onChange={(e) => {
-                        const value = e.target.value;
+                        const tail = e.target.value;
+                        const value = parsedToken?.token ? '/' + parsedToken.token.name + ' ' + tail.replace(/^ /, '') : tail;
                         setInputVal(value);
                         if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
                         const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
@@ -1205,29 +1203,10 @@ export function ChatArea({
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
-                      placeholder="给 Master Agent 发送消息..."
+                      placeholder={parsedToken?.token ? '' : '给 Master Agent 发送消息...'}
                       rows={2}
-                      /* HOTFIX 2026-06-05: `text-transparent` is now
-                         CONDITIONAL on `parsedToken?.token`. Previously it
-                         was always on, which made normal non-slash typing
-                         invisible. Now the textarea shows typed text by
-                         default and only goes transparent when a slash
-                         token is active. */
-                      className={cn(
-                        'w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1',
-                        parsedToken?.token && 'text-transparent'
-                      )}
+                      className="w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
                     />
-                    {parsedToken?.token && (
-                      <div
-                        className="absolute inset-0 z-[1] px-0 py-1 pointer-events-none flex items-start text-[var(--color-text-primary)]"
-                        aria-hidden="true"
-                        data-testid="slash-overlay-composer"
-                      >
-                        <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
-                        <span className="whitespace-pre">{parsedToken.text}</span>
-                      </div>
-                    )}
                   </div>
               
               {/* Lower: Toolbar Row */}
