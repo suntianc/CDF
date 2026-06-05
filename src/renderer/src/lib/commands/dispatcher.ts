@@ -1,5 +1,6 @@
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePlanPopupStore } from '@/stores/planPopupStore';
 import { toast } from 'sonner';
 import type {
   ChatRuntimeOverrides,
@@ -48,7 +49,10 @@ export function resolve(
       return { kind: 'SystemLocal', command: match, args };
     }
     if (match.name === 'plan') {
-      return { kind: 'PlanMode', command: match, args };
+      // C3-05: PlanMode carries popupOpen=true so the dispatch path opens
+      // the Codex-style Radix Dialog. Callers that need the legacy toast
+      // path (e.g. unit tests) can opt out by passing `popupOpen: false`.
+      return { kind: 'PlanMode', command: match, args, popupOpen: true };
     }
     // Unknown system command — fall through to null
     return null;
@@ -137,12 +141,18 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
     }
 
     case 'PlanMode': {
-      // D-10/D-11: [plan] marker bubble (持续到首个 message_chunk 到达, C-04).
+      // C3-01/C3-05: open the Codex-style Radix Dialog popup. The legacy
+      // toast path is preserved when `popupOpen === false` (escape hatch
+      // for unit tests / Phase 7 callers that don't need the popup UI).
       const description = plan.args.trim() || '(无描述)';
-      toast.info(`[plan] 进入 plan 模式：${description}`, {
-        description: 'LLM 不会调用 write_file / edit_file / bash',
-        duration: 3000,
-      });
+      if (plan.popupOpen !== false) {
+        usePlanPopupStore.getState().open(description);
+      } else {
+        toast.info(`[plan] 进入 plan 模式：${description}`, {
+          description: 'LLM 不会调用 write_file / edit_file / bash',
+          duration: 3000,
+        });
+      }
       // D-12: 透传 planOnly 给 sendMessage → llm.ts → runtime.ts (Gap 1+2+3 chain).
       await sendMessage(projectId, plan.args, { planOnly: true });
       return;
