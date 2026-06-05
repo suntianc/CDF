@@ -9,6 +9,8 @@ const mockSetSessionGoal = vi.fn();
 const mockContextCurrentSession = vi.fn();
 const mockReadBody = vi.fn();
 const mockPlanPopupOpen = vi.fn();
+const mockStartGoalJudgeLoop = vi.fn();
+const mockStopGoalJudgeLoop = vi.fn();
 vi.mock('@/stores/projectStore', () => ({
   useProjectStore: { getState: () => mockGetProjectState() },
 }));
@@ -17,6 +19,10 @@ vi.mock('@/stores/sessionStore', () => ({
 }));
 vi.mock('@/stores/planPopupStore', () => ({
   usePlanPopupStore: { getState: () => ({ open: mockPlanPopupOpen }) },
+}));
+vi.mock('@/hooks/useGoalJudge', () => ({
+  startGoalJudgeLoop: (...args: unknown[]) => mockStartGoalJudgeLoop(...args),
+  stopGoalJudgeLoop: (...args: unknown[]) => mockStopGoalJudgeLoop(...args),
 }));
 
 vi.mock('sonner', () => ({
@@ -79,19 +85,19 @@ const workflowCmd: SlashCommand = {
 };
 
 describe('dispatcher.resolve', () => {
-  it('returns SystemSilent for /goal', () => {
+  it('returns GoalLoop for /goal (08.2 P3 C1-05)', () => {
     const plan = resolve('/goal', [goalCmd]);
-    expect(plan).toEqual({ kind: 'SystemSilent', command: goalCmd, args: '' });
+    expect(plan).toEqual({ kind: 'GoalLoop', command: goalCmd, args: '', goal: '' });
   });
 
-  it('args passthrough no flag parsing (D-02)', () => {
+  it('args passthrough no flag parsing (D-02) → GoalLoop carries goal', () => {
     const plan = resolve('/goal write tests', [goalCmd]);
-    expect(plan).toEqual({ kind: 'SystemSilent', command: goalCmd, args: 'write tests' });
+    expect(plan).toEqual({ kind: 'GoalLoop', command: goalCmd, args: 'write tests', goal: 'write tests' });
   });
 
   it('preserves literal `/cmd-name args` contract for /goal fix login (Phase 08.1 R5 + dispatcher contract regression)', () => {
     const plan = resolve('/goal fix login', [goalCmd]);
-    expect(plan).toEqual({ kind: 'SystemSilent', command: goalCmd, args: 'fix login' });
+    expect(plan).toEqual({ kind: 'GoalLoop', command: goalCmd, args: 'fix login', goal: 'fix login' });
   });
 
   it('returns SystemLocal for /context', () => {
@@ -162,6 +168,10 @@ describe('dispatcher.dispatch', () => {
     mockContextCurrentSession.mockReset();
     mockReadBody.mockReset();
     mockPlanPopupOpen.mockReset();
+    mockStartGoalJudgeLoop.mockReset();
+    mockStopGoalJudgeLoop.mockReset();
+    mockStartGoalJudgeLoop.mockResolvedValue(undefined);
+    mockStopGoalJudgeLoop.mockResolvedValue(undefined);
     (window as any).electronAPI = {
       context: { currentSession: mockContextCurrentSession },
       commands: { readBody: mockReadBody },
@@ -242,23 +252,57 @@ describe('dispatcher.dispatch', () => {
 
   // ===== Phase 7 Plan 01: real implementations (replaces 3 console.log placeholders) =====
 
-  it('A. SystemSilent: writes to sessionGoals + emits /goal toast (D-01/D-02/D-03)', async () => {
+  it('A. GoalLoop: writes sessionGoal + starts judge loop (08.2 P3 C1-05)', async () => {
     mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
     mockGetSessionState.mockReturnValue({
       activeSessionId: 'session-1',
       setSessionGoal: mockSetSessionGoal,
     });
 
-    await dispatch({ kind: 'SystemSilent', command: goalCmd, args: 'write tests' });
+    await dispatch({ kind: 'GoalLoop', command: goalCmd, args: 'write tests', goal: 'write tests' });
 
-    // setSessionGoal called with sessionId + trimmed args
+    // setSessionGoal called with sessionId + trimmed goal
     expect(mockSetSessionGoal).toHaveBeenCalledWith('session-1', 'write tests');
-    // sendMessage NOT called (no LLM)
+    // stopGoalJudgeLoop called first (防重入) then startGoalJudgeLoop
+    expect(mockStopGoalJudgeLoop).toHaveBeenCalledWith('session-1');
+    expect(mockStartGoalJudgeLoop).toHaveBeenCalledWith('session-1', 'write tests');
+    // No sendMessage (the judge hook handles message injection internally)
     expect(mockSendMessage).not.toHaveBeenCalled();
-    // toast.info called with the D-01 placeholder string
-    expect(toast.info).toHaveBeenCalled();
-    const toastCall = (toast.info as any).mock.calls[0];
-    expect(toastCall[0]).toBe('[system] 正在执行 /goal…');
+    // No toast (per UI-SPEC.md §Surface 1: bubble is the only feedback)
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it('A2. GoalLoop with empty goal: clear semantics — stop loop + clear goal, no start', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: 'session-1',
+      setSessionGoal: mockSetSessionGoal,
+    });
+
+    await dispatch({ kind: 'GoalLoop', command: goalCmd, args: '', goal: '' });
+
+    // stopGoalJudgeLoop called
+    expect(mockStopGoalJudgeLoop).toHaveBeenCalledWith('session-1');
+    // sessionGoal cleared to empty string
+    expect(mockSetSessionGoal).toHaveBeenCalledWith('session-1', '');
+    // startGoalJudgeLoop NOT called (no new goal)
+    expect(mockStartGoalJudgeLoop).not.toHaveBeenCalled();
+  });
+
+  it('A3. GoalLoop with no active session: logs warn, does NOT start judge loop', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: null,
+      setSessionGoal: mockSetSessionGoal,
+    });
+
+    await dispatch({ kind: 'GoalLoop', command: goalCmd, args: 'fix login', goal: 'fix login' });
+
+    expect(warnSpy).toHaveBeenCalledWith('[dispatcher] GoalLoop: no active session');
+    expect(mockStartGoalJudgeLoop).not.toHaveBeenCalled();
+    expect(mockSetSessionGoal).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('B. SystemLocal: calls electronAPI.context.currentSession + emits breakdown toast (D-06/D-07/D-08)', async () => {

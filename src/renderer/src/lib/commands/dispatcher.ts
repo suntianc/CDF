@@ -1,6 +1,7 @@
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePlanPopupStore } from '@/stores/planPopupStore';
+import { startGoalJudgeLoop, stopGoalJudgeLoop } from '@/hooks/useGoalJudge';
 import { toast } from 'sonner';
 import type {
   ChatRuntimeOverrides,
@@ -43,7 +44,9 @@ export function resolve(
 
   if (match.source === 'system') {
     if (match.name === 'goal') {
-      return { kind: 'SystemSilent', command: match, args };
+      // 08.2 P3 C1-05: /goal now drives a judge agent loop. Empty args
+      // resolves with goal='' so the dispatch case can recognize "clear".
+      return { kind: 'GoalLoop', command: match, args, goal: (args || '').trim() };
     }
     if (match.name === 'context') {
       return { kind: 'SystemLocal', command: match, args };
@@ -99,19 +102,11 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
 
   switch (plan.kind) {
     case 'SystemSilent': {
-      // D-02/D-03/D-04: write to sessionGoals Map (in-memory, persists across sessions).
-      // D-01: placeholder bubble via sonner toast (Phase 8 polish can swap to MessageItem).
-      const { activeSessionId, setSessionGoal } = useSessionStore.getState();
-      if (!activeSessionId) {
-        console.warn('[dispatcher] SystemSilent: no active session');
-        return;
-      }
-      const goal = (plan.args || '').trim();  // C-02: trim head/tail whitespace
-      setSessionGoal(activeSessionId, goal);
-      toast.info('[system] 正在执行 /goal…', {
-        description: `session=${activeSessionId.slice(0, 8)}  goal=${goal || '(无描述)'}`,
-        duration: 2000,
-      });
+      // Phase 7 placeholder. In 08.2 P3, /goal moved to GoalLoop kind;
+      // SystemSilent is no longer reachable from the /goal slash command.
+      // Kept as a defensive no-op so any external code that still emits
+      // SystemSilent (none in v1.1) does not break the dispatch switch.
+      console.warn('[dispatcher] SystemSilent path is no longer used by /goal (08.2 P3)');
       return;
     }
 
@@ -155,6 +150,30 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
       }
       // D-12: 透传 planOnly 给 sendMessage → llm.ts → runtime.ts (Gap 1+2+3 chain).
       await sendMessage(projectId, plan.args, { planOnly: true });
+      return;
+    }
+
+    case 'GoalLoop': {
+      // 08.2 P3 C1-05 + D-04: /goal drives an internal judge agent loop.
+      // Empty args / goal → "clear" semantics (per CONTEXT.md D-04):
+      //   stop the loop, clear the stored goal. No toast (bubble is the UI;
+      //   per UI-SPEC.md §Surface 1 the bubble is the only feedback surface).
+      // Non-empty goal → stop any prior loop (防重入), set session goal,
+      //   fire-and-forget the judge loop.
+      const { activeSessionId, setSessionGoal } = useSessionStore.getState();
+      if (!activeSessionId) {
+        console.warn('[dispatcher] GoalLoop: no active session');
+        return;
+      }
+      const goal = (plan.goal || '').trim();
+      if (!goal) {
+        await stopGoalJudgeLoop(activeSessionId);
+        setSessionGoal(activeSessionId, '');
+        return;
+      }
+      await stopGoalJudgeLoop(activeSessionId);
+      setSessionGoal(activeSessionId, goal);
+      void startGoalJudgeLoop(activeSessionId, goal);
       return;
     }
 
