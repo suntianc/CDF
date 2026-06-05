@@ -84,6 +84,11 @@ describe('dispatcher.resolve', () => {
     expect(plan).toEqual({ kind: 'SystemSilent', command: goalCmd, args: 'write tests' });
   });
 
+  it('preserves literal `/cmd-name args` contract for /goal fix login (Phase 08.1 R5 + dispatcher contract regression)', () => {
+    const plan = resolve('/goal fix login', [goalCmd]);
+    expect(plan).toEqual({ kind: 'SystemSilent', command: goalCmd, args: 'fix login' });
+  });
+
   it('returns SystemLocal for /context', () => {
     const plan = resolve('/context', [contextCmd]);
     expect(plan).toEqual({ kind: 'SystemLocal', command: contextCmd, args: '' });
