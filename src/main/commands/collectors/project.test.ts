@@ -85,4 +85,86 @@ describe('collectors/project', () => {
     const result = await collectProjectCommands(projectPath);
     expect(result.map((c) => c.source)).toEqual(['cmd:project', 'cmd:system']);
   });
+
+  // ===== 08.2 P1: SlashCommand.bodyPath + frontmatter wire (D-05 / D-07 / D-09) =====
+
+  it('D-05: sets bodyPath to the absolute .md file path for project commands', async () => {
+    fs.writeFileSync(
+      path.join(projectPath, '.cdf', 'commands', 'review.md'),
+      '---\nname: review\n---\nbody'
+    );
+    const result = await collectProjectCommands(projectPath);
+    expect(result[0].bodyPath).toBe(
+      path.join(projectPath, '.cdf', 'commands', 'review.md')
+    );
+  });
+
+  it('D-05: sets bodyPath for system commands (cmd:system) too', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, '.cdf', 'commands', 'global-cmd.md'),
+      '---\nname: global-cmd\n---\n'
+    );
+    const result = await collectProjectCommands(projectPath);
+    const sys = result.find((c) => c.source === 'cmd:system');
+    expect(sys?.bodyPath).toBe(
+      path.join(tempHome, '.cdf', 'commands', 'global-cmd.md')
+    );
+  });
+
+  it('D-07: sets frontmatter with typed 5-field ParsedFrontmatter', async () => {
+    fs.writeFileSync(
+      path.join(projectPath, '.cdf', 'commands', 'deploy.md'),
+      [
+        '---',
+        'name: deploy',
+        'description: Deploy service',
+        'disable-model-invocation: false',
+        'user-invocable: true',
+        'allowed-tools:',
+        '  - Read',
+        '  - Bash',
+        'when_to_use: 用户询问部署相关问题时调用',
+        'arguments:',
+        '  - env',
+        '  - flag',
+        '---',
+        'body',
+      ].join('\n')
+    );
+    const result = await collectProjectCommands(projectPath);
+    expect(result[0].frontmatter).toEqual({
+      disableModelInvocation: false,
+      userInvocable: true,
+      allowedTools: ['Read', 'Bash'],
+      whenToUse: '用户询问部署相关问题时调用',
+      arguments: ['env', 'flag'],
+    });
+  });
+
+  it('D-09: appends when_to_use to description (Claude Code alignment)', async () => {
+    fs.writeFileSync(
+      path.join(projectPath, '.cdf', 'commands', 'deploy.md'),
+      [
+        '---',
+        'name: deploy',
+        'description: Deploy service',
+        'when_to_use: 用户询问部署相关问题时调用',
+        '---',
+        'body',
+      ].join('\n')
+    );
+    const result = await collectProjectCommands(projectPath);
+    expect(result[0].description).toContain('Deploy service');
+    expect(result[0].description).toContain('何时使用：用户询问部署相关问题时调用');
+  });
+
+  it('D-09: does NOT append when_to_use when it is empty (description verbatim)', async () => {
+    fs.writeFileSync(
+      path.join(projectPath, '.cdf', 'commands', 'plain.md'),
+      '---\nname: plain\ndescription: plain command\n---\nbody'
+    );
+    const result = await collectProjectCommands(projectPath);
+    expect(result[0].description).toBe('plain command');
+    expect(result[0].description).not.toContain('何时使用');
+  });
 });
