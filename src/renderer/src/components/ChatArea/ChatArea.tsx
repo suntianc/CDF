@@ -19,6 +19,7 @@ import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 import { SlashToken } from '@/components/SlashCommand/SlashToken';
 import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
+import { GoalSystemBubble } from './GoalSystemBubble';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -1080,13 +1081,20 @@ export function ChatArea({
 
         {/* Messages Viewport */}
         <div className="flex-1 relative overflow-hidden">
-          <div 
+          <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="messages absolute inset-0 overflow-y-auto" 
+            className="messages absolute inset-0 overflow-y-auto"
             style={{ paddingBottom: '180px' }}
           >
-             {/* Messages List */}
+            {/* 08.2 P3 C1-04: /goal 状态气泡。Pinned near the top of the
+                messages list so the user sees the active goal the moment
+                they switch sessions. The component returns null when no
+                goal is set for the active session (P6 cross-session
+                isolation). */}
+            {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
+
+            {/* Messages List */}
             {processedItems.map((item, idx) => {
               if (item.type === 'pending_approval_block') {
                 return (
