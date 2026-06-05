@@ -184,3 +184,125 @@ describe('sessionStore sessionGoals (D-02/D-04/D-05)', () => {
     expect(goals.size).toBe(2);
   });
 });
+
+// ===== 08.2 P3 C1-05: goalJudgeStatus lifecycle =====
+describe('sessionStore goalJudgeStatus (P3)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    window.electronAPI = {
+      store: { get: vi.fn(), set: vi.fn() },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteSession: vi.fn(async () => undefined),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(async () => []),
+        createSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage: vi.fn(),
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+        getAgentRuns: vi.fn(async () => []),
+        getAgentToolCalls: vi.fn(async () => []),
+        getLatestTodos: vi.fn(async () => undefined),
+      },
+      llm: {
+        chat: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn(),
+      },
+      platform: 'darwin',
+    } as any;
+
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 's1',
+          project_id: 'project-1',
+          name: 'S1',
+          parent_session_id: null,
+          summary: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+        {
+          id: 's2',
+          project_id: 'project-1',
+          name: 'S2',
+          parent_session_id: null,
+          summary: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ],
+      activeSessionId: 's1',
+      sessionGoals: new Map(),
+      goalJudgeStatus: new Map(),
+      error: null,
+    } as any);
+  });
+
+  it('D: setGoalJudgeStatus seeds an empty entry on first call', () => {
+    useSessionStore.getState().setGoalJudgeStatus('s1', { status: 'judging' });
+    const entry = useSessionStore.getState().goalJudgeStatus.get('s1');
+    expect(entry).toBeDefined();
+    expect(entry?.status).toBe('judging');
+    expect(entry?.iteration).toBe(0);
+    expect(typeof entry?.startedAt).toBe('number');
+  });
+
+  it('E: setGoalJudgeStatus shallow-merges into existing entry (preserves iteration)', () => {
+    useSessionStore.getState().setGoalJudgeStatus('s1', {
+      status: 'unsatisfied',
+      iteration: 3,
+      reason: 'need more',
+    });
+    useSessionStore.getState().setGoalJudgeStatus('s1', { status: 'judging' });
+    const entry = useSessionStore.getState().goalJudgeStatus.get('s1');
+    expect(entry?.status).toBe('judging');
+    expect(entry?.iteration).toBe(3); // preserved
+    expect(entry?.reason).toBe('need more'); // preserved
+  });
+
+  it('F: clearGoalJudgeStatus removes the entry', () => {
+    useSessionStore.getState().setGoalJudgeStatus('s1', { status: 'satisfied' });
+    expect(useSessionStore.getState().goalJudgeStatus.has('s1')).toBe(true);
+    useSessionStore.getState().clearGoalJudgeStatus('s1');
+    expect(useSessionStore.getState().goalJudgeStatus.has('s1')).toBe(false);
+  });
+
+  it('G: getGoalJudgeStatus returns the entry or undefined', () => {
+    useSessionStore.getState().setGoalJudgeStatus('s1', { status: 'paused', iteration: 20 });
+    expect(useSessionStore.getState().getGoalJudgeStatus('s1')?.status).toBe('paused');
+    expect(useSessionStore.getState().getGoalJudgeStatus('unknown')).toBeUndefined();
+  });
+
+  it('H: goalJudgeStatus persists across session switches (P6 — sticky goal)', async () => {
+    useSessionStore.getState().setGoalJudgeStatus('s1', { status: 'judging' });
+    useSessionStore.getState().setGoalJudgeStatus('s2', { status: 'satisfied' });
+
+    await useSessionStore.getState().selectSession('s2');
+
+    const status = useSessionStore.getState().goalJudgeStatus;
+    expect(status.get('s1')?.status).toBe('judging');
+    expect(status.get('s2')?.status).toBe('satisfied');
+    expect(status.size).toBe(2);
+  });
+
+  it('I: deleteSession cleans up both sessionGoals and goalJudgeStatus entries', async () => {
+    useSessionStore.getState().setSessionGoal('s1', 'goal-A');
+    useSessionStore.getState().setGoalJudgeStatus('s1', { status: 'judging' });
+    expect(useSessionStore.getState().sessionGoals.has('s1')).toBe(true);
+    expect(useSessionStore.getState().goalJudgeStatus.has('s1')).toBe(true);
+
+    await useSessionStore.getState().deleteSession('s1');
+    expect(useSessionStore.getState().sessionGoals.has('s1')).toBe(false);
+    expect(useSessionStore.getState().goalJudgeStatus.has('s1')).toBe(false);
+  });
+});

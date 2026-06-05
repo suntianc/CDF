@@ -42,6 +42,19 @@ export interface DelegatedTask {
   errorCode?: string;
 }
 
+// 08.2 P3 C1-05: per-session /goal judge status. Type intentionally lives
+// alongside the store contract (rather than in useGoalJudge.ts) so other
+// consumers (e.g. GoalSystemBubble) can import the canonical shape without
+// pulling in the judge orchestration module.
+export type JudgeStatus = 'idle' | 'judging' | 'satisfied' | 'unsatisfied' | 'failed' | 'paused';
+
+export interface GoalJudgeStatusEntry {
+  status: JudgeStatus;
+  iteration: number;
+  startedAt: number;
+  reason?: string;
+}
+
 interface SessionState {
   sessions: Session[];
   activeSessionId: string | null;
@@ -57,6 +70,11 @@ interface SessionState {
   error: string | null;
   // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
   sessionGoals: Map<string, string>;
+  // 08.2 P3 C1-05: per-session /goal judge status (iteration + reason).
+  // P6 pitfall (session leak): status is keyed by sessionId and NOT cleared
+  // on session switch — goal is sticky per P6 lock. ChatArea/GoalSystemBubble
+  // filter by activeSessionId at render time.
+  goalJudgeStatus: Map<string, GoalJudgeStatusEntry>;
   fetchSessions: (projectId: string) => Promise<void>;
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -64,6 +82,9 @@ interface SessionState {
   fetchAgentActivity: (sessionId: string) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => Promise<void>;
   setSessionGoal: (sessionId: string, goal: string) => void;
+  setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => void;
+  getGoalJudgeStatus: (sessionId: string) => GoalJudgeStatusEntry | undefined;
+  clearGoalJudgeStatus: (sessionId: string) => void;
   resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
@@ -98,6 +119,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   pendingApproval: null,
   error: null,
   sessionGoals: new Map(),
+  goalJudgeStatus: new Map(),
 
   // D-02/D-03: setSessionGoal synchronously writes to a NEW Map (immutability for
   // Zustand shallow-compare re-render). D-04: selectSession does NOT clear this.
@@ -106,6 +128,36 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const next = new Map(state.sessionGoals);
       next.set(sessionId, goal);
       return { sessionGoals: next };
+    });
+  },
+
+  // 08.2 P3 C1-05: shallow-merge judge status partial into existing entry.
+  // Empty seed when entry is absent (e.g. first call after startGoalJudgeLoop).
+  setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => {
+    set((state) => {
+      const existing = state.goalJudgeStatus.get(sessionId);
+      const next = new Map(state.goalJudgeStatus);
+      next.set(sessionId, {
+        status: existing?.status ?? 'idle',
+        iteration: existing?.iteration ?? 0,
+        startedAt: existing?.startedAt ?? Date.now(),
+        reason: existing?.reason,
+        ...partial,
+      });
+      return { goalJudgeStatus: next };
+    });
+  },
+
+  getGoalJudgeStatus: (sessionId: string) => {
+    return get().goalJudgeStatus.get(sessionId);
+  },
+
+  clearGoalJudgeStatus: (sessionId: string) => {
+    set((state) => {
+      if (!state.goalJudgeStatus.has(sessionId)) return state;
+      const next = new Map(state.goalJudgeStatus);
+      next.delete(sessionId);
+      return { goalJudgeStatus: next };
     });
   },
 
@@ -137,12 +189,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const nextActive = state.activeSessionId === sessionId
           ? (remaining[0]?.id || null)
           : state.activeSessionId;
+        // 08.2 P3 P6: clean up goal storage when session is deleted (avoid
+        // stale entries that the renderer would never read).
+        const nextGoals = new Map(state.sessionGoals);
+        nextGoals.delete(sessionId);
+        const nextJudge = new Map(state.goalJudgeStatus);
+        nextJudge.delete(sessionId);
         return {
           sessions: remaining,
           activeSessionId: nextActive,
+          sessionGoals: nextGoals,
+          goalJudgeStatus: nextJudge,
         };
       });
-      
+
       const { activeSessionId } = get();
       if (activeSessionId) {
         await get().selectSession(activeSessionId);
