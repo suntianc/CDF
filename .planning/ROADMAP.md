@@ -27,8 +27,11 @@
 **Milestone Goal:** Master Agent 对话输入框实现 Claude Code 风格的 `/` 命令 popup，覆盖 3 系统命令 + 4 源插件自动注册。
 
 ### Phase 5: Popup Shell + Keyboard Spike (completed 2026-06-04)
+
 ### Phase 6: 4-Source Command Registry + Dispatcher (completed 2026-06-04)
+
 ### Phase 7: System Commands + M3 Regression (completed 2026-06-04)
+
 ### Phase 8: Polish + Differentiators (completed 2026-06-04)
 
 ### Phase 08.1: 斜杠命令输入框内联渲染 (INSERTED)
@@ -39,6 +42,7 @@
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 08.1 to break down)
 
 **Coverage:** 15/15 SLASH requirements (SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION) — all validated.
@@ -46,6 +50,7 @@ Plans:
 ## Next Milestone
 
 `/gsd:new-milestone` to start v1.2 planning. Likely candidates:
+
 - SQLite-backed sessions (SLASH-15 migration for `/goal` persistence)
 - Deferred v1.0 cleanup (draft workflow tests, work history UI polish)
 - Cross-platform CI matrix (macOS + Windows + Linux chokidar coverage)
