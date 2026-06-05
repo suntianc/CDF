@@ -107,6 +107,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('commands:list', projectId, agentId),
     readProjectCommands: (projectId: string) =>
       ipcRenderer.invoke('commands:readProjectCommands', projectId),
+    // 08.2 D-06: lazy body load on dispatch. Returns body + mtime; defensive
+    // empty values on path-traversal/missing-file/IO failure.
+    readBody: (bodyPath: string): Promise<{ body: string; mtimeMs: number }> =>
+      ipcRenderer.invoke('commands:readBody', bodyPath),
     onChanged: (callback: (event: any, data: { source: string }) => void) => {
       const listener = (event: any, data: { source: string }) => callback(event, data);
       ipcRenderer.on('commands:changed', listener);

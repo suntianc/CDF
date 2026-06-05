@@ -2,9 +2,11 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { toast } from 'sonner';
 import type {
+  ChatRuntimeOverrides,
   CommandDispatchAction,
   SlashCommand,
 } from '../../../../shared/types';
+import { substituteArgs } from './argSubstitution';
 
 /**
  * Resolve a `/`-prefixed user input to one of 4 CommandDispatchAction kinds.
@@ -147,11 +149,50 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
     }
 
     case 'PluginRewrite':
-      // D-18 + PITFALLS P7: args are appended to message.content as
-      // natural-language context. They are NOT passed to the tool's schema
-      // args — that path would enable command injection via crafted arg
-      // strings. We do NOT pass `overrides` to sendMessage.
-      await sendMessage(projectId, plan.prompt);
-      return;
+      // 08.2 P1 D-01/D-03/D-09: lazy body load + $ARGUMENTS substitution + body
+      // replaces user message. The command name does NOT appear in the user
+      // message (D-03).
+      //
+      // Priority: if `plan.command.bodyPath` is set, read the .md body via
+      // IPC, substitute placeholders, and send the substituted body as the
+      // user message. If body is empty (race / missing file / path-traversal
+      // rejected), fall through to the existing prompt-rewrite path so the
+      // system stays usable.
+      //
+      // D-09 allowed-tools: pass frontmatter.allowedTools as runtime override
+      // (type-level seam; runtime hard enforcement is deferred to v1.2+ per
+      // Issue 2 probe — see SUMMARY "ALLOWED-TOOLS RUNTIME GAP").
+      {
+        const overrides: ChatRuntimeOverrides = {};
+        const allowed = plan.command.frontmatter?.allowedTools;
+        if (Array.isArray(allowed) && allowed.length > 0) {
+          overrides.allowedTools = allowed;
+        }
+        const hasOverrides = Object.keys(overrides).length > 0;
+        const bodyPath = plan.command.bodyPath;
+        if (bodyPath) {
+          const { body } = await window.electronAPI.commands.readBody(bodyPath);
+          if (body) {
+            const substituted = substituteArgs(body, {
+              args: plan.args,
+              arguments: plan.command.frontmatter?.arguments,
+            });
+            if (hasOverrides) {
+              await sendMessage(projectId, substituted, overrides);
+            } else {
+              await sendMessage(projectId, substituted);
+            }
+            return;
+          }
+        }
+        // Fall through (D-18): existing prompt-rewrite path for system/MCP
+        // /workflow commands (no bodyPath) or when body read returned empty.
+        if (hasOverrides) {
+          await sendMessage(projectId, plan.prompt, overrides);
+        } else {
+          await sendMessage(projectId, plan.prompt);
+        }
+        return;
+      }
   }
 }

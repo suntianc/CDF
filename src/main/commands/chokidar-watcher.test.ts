@@ -147,6 +147,33 @@ describe('chokidar-watcher', () => {
     stop();
   });
 
+  // ===== Phase 08.2 Plan 01: D-04 unlink handling (Issue 7 probe — wire NOT implemented;
+  //       registry is stateless so commands:changed IPC push is the recovery mechanism) =====
+  it('D-04: unlink event triggers onChange + commands:changed IPC push (renderer refetches via commands:list)', async () => {
+    const onChange = vi.fn().mockResolvedValue(undefined);
+    const stop = watchSystemCommandsDir(onChange);
+    // Simulate a .md file being deleted — chokidar fires 'unlink' with the path
+    mocks.fakeWatchInstances[0].emit('unlink', '/home/user/.cdf/commands/deleted-cmd.md');
+    await new Promise((r) => setTimeout(r, 150));
+    // The onChange callback is invoked (renderer will refetch via commands:list)
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // The commands:changed IPC is broadcast to all BrowserWindows (D-13 push channel)
+    expect(mocks.sendMock).toHaveBeenCalledWith('commands:changed', { source: 'chokidar' });
+    stop();
+  });
+
+  it('D-04: project watcher unlink triggers commands:changed with project scope (race-safe)', async () => {
+    const onChange = vi.fn().mockResolvedValue(undefined);
+    const stop = watchProjectCommandsDir('/my/project', onChange);
+    const projectWatcher = mocks.fakeWatchInstances[mocks.fakeWatchInstances.length - 1];
+    // Simulate unlink within a project's .cdf/commands/
+    projectWatcher.emit('unlink', '/my/project/.cdf/commands/stale.md');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(onChange).toHaveBeenCalled();
+    expect(mocks.sendMock).toHaveBeenCalledWith('commands:changed', { source: 'chokidar' });
+    stop();
+  });
+
   it('watchProjectCommandsDir watches project .cdf/commands', async () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
     const stop = watchProjectCommandsDir('/my/project', onChange);
