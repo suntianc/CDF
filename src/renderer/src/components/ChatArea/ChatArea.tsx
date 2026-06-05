@@ -17,6 +17,8 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { SlashCommandPopup, SlashCommandPopupHandle } from '@/components/SlashCommand/SlashCommandPopup';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
+import { SlashToken } from '@/components/SlashCommand/SlashToken';
+import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -691,6 +693,14 @@ export function ChatArea({
     (activeSession as any)?.agent_id ?? activeSessionAgent?.id ?? null
   );
 
+  // Phase 08.1 (D-03 + SPEC R7): parse leading /cmd-name from inputVal. Used by
+  // the overlay below the textarea to render a SlashToken pill in place of
+  // the leading text, and by the atomic Backspace check in handleKeyDown.
+  const parsedToken = useMemo(
+    () => parseInputToTokens(inputVal, registry.commands),
+    [inputVal, registry.commands]
+  );
+
   // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
   // Phase 6: route through dispatcher.resolve when the command resolves to a plan
   // (Enter path). Tab / unknown commands fall back to text-insert.
@@ -729,6 +739,18 @@ export function ChatArea({
       }
       const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
       if (handled) return;
+    }
+    // Phase 08.1 D-04 + SPEC R4: atomic Backspace when a token is rendered.
+    // When the user has just inserted a slash command (parsedToken.token is
+    // non-null), a single Backspace clears the entire inputVal in one event
+    // - not character-by-character. Gated behind isComposingKeyEvent so IME
+    // composition (Pinyin candidate dismissal) is preserved. Closes any open
+    // slash popup as a side effect (R6 mutual exclusion).
+    if (e.key === 'Backspace' && parsedToken?.token) {
+      e.preventDefault();
+      setInputVal('');
+      setSlashOpen(false);
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       if (justFinishedComposingRef.current) {
@@ -838,45 +860,64 @@ export function ChatArea({
                 composer textarea are both in the DOM on the welcome screen. */}
             <Popover open={slashOpen && !activeSessionId} onOpenChange={setSlashOpen} modal={false}>
               <PopoverAnchor asChild>
-                <textarea
-                  className="dialog-input animate-fade-in"
-                  placeholder="给 CDF 下达指令，或者问点什么……"
-                  rows={1}
-                  value={inputVal}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setInputVal(value);
-                    if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
-                    // Mirror the composer's slash-open predicate so the popup
-                    // also triggers when typing `/` in the welcome textarea.
-                    const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
-                    setSlashOpen(shouldOpen);
-                  }}
-                  onCompositionStart={handleCompositionStart}
-                  onCompositionEnd={handleCompositionEnd}
-                  onKeyDown={(e) => {
-                    if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
-                    // Slash popup navigation (mirrors handleKeyDown on composer).
-                    if (slashOpen) {
-                      if (e.key === 'Backspace' && inputVal === '/') {
+                <div className="relative w-full z-0">
+                  <textarea
+                    className="dialog-input animate-fade-in text-transparent caret-[var(--color-text-primary)]"
+                    placeholder="给 CDF 下达指令，或者问点什么……"
+                    rows={1}
+                    value={inputVal}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setInputVal(value);
+                      if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
+                      // Mirror the composer's slash-open predicate so the popup
+                      // also triggers when typing `/` in the welcome textarea.
+                      const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
+                      setSlashOpen(shouldOpen);
+                    }}
+                    onCompositionStart={handleCompositionStart}
+                    onCompositionEnd={handleCompositionEnd}
+                    onKeyDown={(e) => {
+                      if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
+                      // Slash popup navigation (mirrors handleKeyDown on composer).
+                      if (slashOpen) {
+                        if (e.key === 'Backspace' && inputVal === '/') {
+                          e.preventDefault();
+                          setSlashOpen(false);
+                          return;
+                        }
+                        const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+                        if (handled) return;
+                      }
+                      // Phase 08.1 D-04 + SPEC R4: atomic Backspace on welcome (mirrors handleKeyDown).
+                      if (e.key === 'Backspace' && parsedToken?.token) {
                         e.preventDefault();
+                        setInputVal('');
                         setSlashOpen(false);
                         return;
                       }
-                      const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
-                      if (handled) return;
-                    }
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      if (justFinishedComposingRef.current) {
-                        consumeJustFinishedComposing();
-                        e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
-                        return;
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        if (justFinishedComposingRef.current) {
+                          consumeJustFinishedComposing();
+                          e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
+                          return;
+                        }
+                        e.preventDefault();
+                        handleWelcomeSend();
                       }
-                      e.preventDefault();
-                      handleWelcomeSend();
-                    }
-                  }}
-                />
+                    }}
+                  />
+                  {parsedToken?.token && (
+                    <div
+                      className="absolute inset-0 z-[1] px-3 py-2 pointer-events-none flex items-start text-sm text-[var(--color-text-primary)]"
+                      aria-hidden="true"
+                      data-testid="slash-overlay-welcome"
+                    >
+                      <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
+                      <span className="whitespace-pre">{parsedToken.text}</span>
+                    </div>
+                  )}
+                </div>
               </PopoverAnchor>
               <PopoverContent
                 onOpenAutoFocus={(e) => e.preventDefault()}
@@ -1124,23 +1165,35 @@ export function ChatArea({
               <PopoverAnchor asChild>
                 <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
-                  <textarea
-                    ref={textareaRef}
-                    value={inputVal}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setInputVal(value);
-                      if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
-                      const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
-                      setSlashOpen(shouldOpen);
-                    }}
-                    onCompositionStart={handleCompositionStart}
-                    onCompositionEnd={handleCompositionEnd}
-                    onKeyDown={handleKeyDown}
-                    placeholder="给 Master Agent 发送消息..."
-                    rows={2}
-                    className="w-full bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
-                  />
+                  <div className="relative w-full z-0">
+                    <textarea
+                      ref={textareaRef}
+                      value={inputVal}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setInputVal(value);
+                        if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
+                        const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
+                        setSlashOpen(shouldOpen);
+                      }}
+                      onCompositionStart={handleCompositionStart}
+                      onCompositionEnd={handleCompositionEnd}
+                      onKeyDown={handleKeyDown}
+                      placeholder="给 Master Agent 发送消息..."
+                      rows={2}
+                      className="w-full bg-transparent text-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
+                    />
+                    {parsedToken?.token && (
+                      <div
+                        className="absolute inset-0 z-[1] px-0 py-1 pointer-events-none flex items-start text-sm text-[var(--color-text-primary)]"
+                        aria-hidden="true"
+                        data-testid="slash-overlay-composer"
+                      >
+                        <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
+                        <span className="whitespace-pre">{parsedToken.text}</span>
+                      </div>
+                    )}
+                  </div>
               
               {/* Lower: Toolbar Row */}
               <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
