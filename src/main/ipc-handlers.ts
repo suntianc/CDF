@@ -858,12 +858,29 @@ export function registerIpcHandlers() {
   });
 
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
-  ipcMain.handle('context:currentSession', async (_evt, sessionId: string) => {
+  // 08.2 P4: accepts optional `contextLimit` arg so renderer can pin
+  // the active provider's limit (P10 mitigation). Falls back to provider
+  // lookup → 200_000 default inside the aggregator.
+  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number) => {
     try {
-      return await aggregateCurrentSessionContext(sessionId);
+      return await aggregateCurrentSessionContext(sessionId, contextLimit);
     } catch (err) {
       console.error('[context:currentSession] failed:', err);
-      return { breakdown: { conversation: 0, skills: 0, mcp: 0, workflows: 0 }, total: 0 };
+      return {
+        breakdown: {
+          conversation: 0, skills: 0, mcp: 0, workflows: 0,
+          systemPrompt: 0, systemTools: 0, customAgents: 0, memoryFiles: 0,
+          messages: 0, projectCommandBodies: 0, freeSpace: 0, autocompactBuffer: 0,
+          mcpPerTool: [],
+        },
+        total: 0,
+        modelName: '',
+        contextLimit: 200_000,
+        used: 0,
+        usedPct: 0,
+        freePct: 100,
+        mcpPerTool: [],
+      };
     }
   });
 }

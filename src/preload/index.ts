@@ -130,9 +130,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
+  // 08.2 P4: optional contextLimit so renderer can pin the active provider
+  // limit (P10 mitigation). Falls back to default 200_000 server-side.
   context: {
-    currentSession: (sessionId: string) =>
-      ipcRenderer.invoke('context:currentSession', sessionId),
+    currentSession: (sessionId: string, contextLimit?: number) =>
+      ipcRenderer.invoke('context:currentSession', sessionId, contextLimit),
   },
   platform: process.platform,
 });
