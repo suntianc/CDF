@@ -5,7 +5,7 @@ import {
   Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
-import { ProviderIcon } from '@lobehub/icons';
+import { ProviderIcon } from '../ui/ProviderIcon';
 
 const getDefaultModelForType = (type: string) => {
   switch (type) {

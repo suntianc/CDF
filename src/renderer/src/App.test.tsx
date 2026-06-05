@@ -10,9 +10,11 @@ import App from './App';
 // drop it.
 
 // Mock the heavy view modules so the full App tree can render in jsdom without
-// dragging in the entire @lobehub icon family (which has deep peer-dep chains
-// that Vite's pre-bundler chokes on). The views themselves are not the subject
-// of this test — only the Toaster mount is.
+// rendering their full contents. The views themselves are not the subject of
+// this test — only the Toaster mount is. (ProviderIcon is now a thin shim
+// over @lobehub/icons-static-svg SVGs via Vite ?raw imports, so the previous
+// "@lobehub icon family peer-dep chain" concern is no longer relevant — we
+// could unmock these views in a follow-up if desired.)
 vi.mock('@/components/AgentLibrary/AgentLibrary', () => ({
   AgentLibrary: () => null,
 }));

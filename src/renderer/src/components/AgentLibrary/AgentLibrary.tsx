@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Edit2, X, Bot, Layers, Code, Search
 } from 'lucide-react';
 import { AgentEditDialog } from './AgentEditDialog';
-import { ProviderIcon } from '@lobehub/icons';
+import { ProviderIcon } from '../ui/ProviderIcon';
 
 const mapProviderTypeToIcon = (type: string): string => {
   if (type === 'glm-overseas') return 'zhipu';
