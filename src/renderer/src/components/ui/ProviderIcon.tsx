@@ -68,15 +68,14 @@ export const ProviderIcon: FC<Props> = ({
 
   // Color SVGs are self-styled; mono SVGs need the parent text color to match
   // the brand. fontSize={size} makes the 1em-sized SVG paths render at `size`px.
-  // backgroundColor: pure white — keeps the brand color readable in both
-  // light and dark themes (the parent container was inheriting theme tints).
+  // No background: the brand color is already saturated enough to be visible
+  // on the parent card surface; a backing tile was too heavy visually.
   const style: CSSProperties = {
     width: size,
     height: size,
     fontSize: size,
     lineHeight: 0,
     color: brandColor,
-    backgroundColor: '#ffffff',
   };
 
   return (
