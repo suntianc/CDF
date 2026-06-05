@@ -1,32 +1,48 @@
-import type { FC } from 'react';
+import type { CSSProperties, FC } from 'react';
 import { Settings2 } from 'lucide-react';
 
 // Static SVG brand icons from @lobehub/icons-static-svg (peer-dep-free).
 // Replaces the heavyweight @lobehub/icons (which transitively pulled antd@6
-// + @lobehub/ui). All SVGs use fill="currentColor" so they inherit the
-// parent's text color and stay theme-aware (light/dark).
+// + @lobehub/ui). All mono SVGs use fill="currentColor" so they inherit the
+// container's text color; the shim sets per-provider brand colors from the
+// lobehub/lobe-icons `src/<Brand>/style.ts` COLOR_PRIMARY definitions.
 import openaiSvg from '@lobehub/icons-static-svg/icons/openai.svg?raw';
 import anthropicSvg from '@lobehub/icons-static-svg/icons/anthropic.svg?raw';
 import ollamaSvg from '@lobehub/icons-static-svg/icons/ollama.svg?raw';
-import deepseekSvg from '@lobehub/icons-static-svg/icons/deepseek.svg?raw';
-import zhipuSvg from '@lobehub/icons-static-svg/icons/zhipu.svg?raw';
-import minimaxSvg from '@lobehub/icons-static-svg/icons/minimax.svg?raw';
+import deepseekColorSvg from '@lobehub/icons-static-svg/icons/deepseek-color.svg?raw';
+import zhipuColorSvg from '@lobehub/icons-static-svg/icons/zhipu-color.svg?raw';
+import minimaxColorSvg from '@lobehub/icons-static-svg/icons/minimax-color.svg?raw';
 import moonshotSvg from '@lobehub/icons-static-svg/icons/moonshot.svg?raw';
-import qwenSvg from '@lobehub/icons-static-svg/icons/qwen.svg?raw';
+import qwenColorSvg from '@lobehub/icons-static-svg/icons/qwen-color.svg?raw';
 import xiaomimimoSvg from '@lobehub/icons-static-svg/icons/xiaomimimo.svg?raw';
 
-const ICON_MAP: Record<string, string> = {
+// Brand colors from lobehub/lobe-icons src/<Brand>/style.ts COLOR_PRIMARY.
+// Used for providers that have no -color.svg variant in the static-svg pkg.
+const BRAND_COLORS: Record<string, string> = {
+  openai: '#000000',
+  anthropic: '#141413',
+  ollama: '#000000',
+  moonshot: '#16191E',
+  xiaomimimo: '#000000',
+};
+
+// Mono SVGs (inherits currentColor).
+const MONO_SVG: Record<string, string> = {
   openai: openaiSvg,
   anthropic: anthropicSvg,
   ollama: ollamaSvg,
-  deepseek: deepseekSvg,
-  zhipu: zhipuSvg,
-  'glm-overseas': zhipuSvg,
-  minimax: minimaxSvg,
-  'minimax-overseas': minimaxSvg,
   moonshot: moonshotSvg,
-  qwen: qwenSvg,
   xiaomimimo: xiaomimimoSvg,
+};
+
+// Pre-baked color SVGs (have explicit brand colors/gradients).
+const COLOR_SVG: Record<string, string> = {
+  deepseek: deepseekColorSvg,
+  zhipu: zhipuColorSvg,
+  minimax: minimaxColorSvg,
+  'glm-overseas': zhipuColorSvg,
+  'minimax-overseas': minimaxColorSvg,
+  qwen: qwenColorSvg,
 };
 
 interface Props {
@@ -42,20 +58,30 @@ export const ProviderIcon: FC<Props> = ({
   shape = 'circle',
   className = '',
 }) => {
-  const svg = ICON_MAP[provider];
-  if (!svg) {
-    // Fallback for 'custom' and any future unknown provider_type
+  const colorSvg = COLOR_SVG[provider];
+  const monoSvg = MONO_SVG[provider];
+  const brandColor = BRAND_COLORS[provider];
+
+  if (!colorSvg && !monoSvg) {
     return <Settings2 size={size} className={className} aria-label={provider} />;
   }
-  // fontSize: the imported SVGs use width/height="1em" so they scale with the
-  // container's font size. Setting fontSize={size} on a 32x32 box yields a
-  // 32px icon centered in the box.
+
+  // Color SVGs are self-styled; mono SVGs need the parent text color to match
+  // the brand. fontSize={size} makes the 1em-sized SVG paths render at `size`px.
+  const style: CSSProperties = {
+    width: size,
+    height: size,
+    fontSize: size,
+    lineHeight: 0,
+    color: brandColor,
+  };
+
   return (
     <span
       className={`inline-flex items-center justify-center leading-none ${shape === 'circle' ? 'rounded-full overflow-hidden' : ''} ${className}`}
-      style={{ width: size, height: size, fontSize: size }}
+      style={style}
       aria-label={provider}
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{ __html: colorSvg ?? monoSvg }}
     />
   );
 };
