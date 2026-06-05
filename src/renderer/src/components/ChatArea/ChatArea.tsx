@@ -814,7 +814,12 @@ export function ChatArea({
           )}
 
           <div className="dialog-box">
-            <Popover open={slashOpen} onOpenChange={setSlashOpen} modal={false}>
+            {/* Welcome popover. `open` is gated on `!activeSessionId` so the
+                slash popup is mutually exclusive with the composer popover:
+                both `<Popover open={slashOpen}>` instances would otherwise
+                render simultaneously because the welcome textarea AND the
+                composer textarea are both in the DOM on the welcome screen. */}
+            <Popover open={slashOpen && !activeSessionId} onOpenChange={setSlashOpen} modal={false}>
               <PopoverAnchor asChild>
                 <textarea
                   className="dialog-input animate-fade-in"
@@ -1095,7 +1100,9 @@ export function ChatArea({
                 onToggleExpanded={toggleTodoExpanded}
               />
             )}
-            <Popover open={slashOpen} onOpenChange={setSlashOpen} modal={false}>
+            {/* Composer popover. Mirrors welcome popover's `!activeSessionId`
+                gate so only one slash popup is open at a time. */}
+            <Popover open={slashOpen && !!activeSessionId} onOpenChange={setSlashOpen} modal={false}>
               <PopoverAnchor asChild>
                 <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
