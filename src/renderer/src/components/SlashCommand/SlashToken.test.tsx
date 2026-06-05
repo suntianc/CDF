@@ -13,7 +13,7 @@
 // the component relies on) rather than on lucide's internal SVG geometry.
 
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
+import { createEvent, fireEvent, render } from '@testing-library/react';
 import { SlashToken } from './SlashToken';
 
 // Map every icon component the production code MIGHT import from lucide-react
@@ -98,46 +98,16 @@ describe('SlashToken (Phase 08.1 — D-02 / D-04 / D-05 / D-06)', () => {
   it('click on the token does not move focus (onMouseDown preventDefault)', () => {
     const { getByTestId } = render(<SlashToken name="goal" source="system" />);
     const token = getByTestId('slash-token');
-    // firing a mousedown event lets us inspect defaultPrevented synchronously.
-    // We do NOT use preventDefault on the test side; we rely on the
-    // production handler doing it.
-    fireEvent.mouseDown(token);
-    // The onMouseDown handler is the inline (e) => e.preventDefault(); the
-    // React synthetic event passes a SyntheticEvent whose nativeEvent is
-    // a real MouseEvent — we can read defaultPrevented off the synthetic.
-    // (fireEvent returns a boolean indicating the dispatch happened, not
-    // the event itself, so we read it off the token's _reactProps below.)
-    // The reliable assertion path is: dispatch and confirm the click
-    // event was intercepted by reading document.activeElement / verifying
-    // the synthetic defaultPrevented via the dispatched event from React.
-    //
-    // Easier: directly assert the wired handler exists by triggering
-    // a non-React MouseEvent and checking the React-bound handler ran.
-    // fireEvent dispatches a real MouseEvent that bubbles through React's
-    // synthetic system; React then invokes the onMouseDown prop, which
-    // calls e.preventDefault() on the SyntheticEvent — that calls
-    // preventDefault() on the native MouseEvent, which sets
-    // event.defaultPrevented = true on the dispatched event.
-    //
-    // To capture this, we use a manual dispatch + addEventListener('mousedown')
-    // before fireEvent to record defaultPrevented post-dispatch.
-    let defaultPrevented = false;
-    const listener = (e: Event) => {
-      defaultPrevented = e.defaultPrevented;
-    };
-    token.addEventListener('mousedown', listener, { capture: false });
-    fireEvent.mouseDown(token);
-    // React fires its synthetic event listeners on the document root; the
-    // native MouseEvent bubbles back to the token. The order is:
-    //   1. native MouseEvent dispatched on token
-    //   2. React's delegated listener (on document) runs the synthetic
-    //      onMouseDown, which calls e.preventDefault() on the synthetic
-    //      event (this also prevents the default action)
-    //   3. Our listener on token (added via addEventListener) sees the
-    //      bubbled native event AFTER React's preventDefault, so
-    //      e.defaultPrevented is true.
-    expect(defaultPrevented).toBe(true);
-    token.removeEventListener('mousedown', listener);
+    // Create a native MouseEvent, dispatch via fireEvent (which routes
+    // through React 17+ event delegation on the document root), then read
+    // the SAME event's `defaultPrevented` synchronously. The onMouseDown
+    // handler is `(e) => e.preventDefault()` — when React's synthetic
+    // handler invokes e.preventDefault() on the SyntheticEvent, React
+    // calls the same method on the underlying native event, so
+    // `event.defaultPrevented` becomes true before fireEvent returns.
+    const event = createEvent.mouseDown(token);
+    fireEvent(token, event);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   // Test 8 — data-testid override (SPEC R1)
