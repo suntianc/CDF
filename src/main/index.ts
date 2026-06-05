@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { registerIpcHandlers } from './ipc-handlers';
 import { disconnectAllMcpServers } from './deepagent/mcp-connector';
-import { watchSystemCommandsDir } from './commands/chokidar-watcher';
+import { watchSystemCommandsDir, stopAllWatchers } from './commands/chokidar-watcher';
 import store from './store';
 import log from './logger';
 import path from 'path';
@@ -92,7 +92,28 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', async () => {
+// ===== Shutdown: clean exit so macOS dock icon disappears =====
+// Bug: Right-click dock → Quit would leave the dock icon stuck because
+// (a) `before-quit` was async without preventDefault, so Electron didn't
+//     wait for MCP disconnects to finish.
+// (b) chokidar watcher stop functions were never invoked, leaking fs
+//     handles that keep the Node event loop alive.
+// Fix: preventDefault → drain async cleanup → app.quit() (synchronous
+// re-entry via `isQuitting` flag). Safety net: process.exit(0) after
+// 1s in case app.quit() can't drain (e.g. orphaned log handles).
+let isQuitting = false;
+app.on('before-quit', (event) => {
+  if (isQuitting) return; // second pass after our own app.quit() — let it through
+  event.preventDefault();
+  isQuitting = true;
   log.info('Application quitting, cleaning up...');
-  await disconnectAllMcpServers();
+
+  Promise.all([disconnectAllMcpServers(), Promise.resolve(stopAllWatchers())])
+    .catch((err) => log.error('[shutdown] cleanup error:', err))
+    .finally(() => {
+      app.quit();
+      // Safety net: if app.quit() can't drain the event loop (e.g. orphan
+      // log file descriptors from electron-log), force exit after 1s.
+      setTimeout(() => process.exit(0), 1000).unref();
+    });
 });

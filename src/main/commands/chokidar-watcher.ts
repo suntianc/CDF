@@ -70,6 +70,25 @@ export function __resetDegradedForTests(): void {
   degraded = false;
   projectWatcherStop = null;
   currentProjectPath = null;
+  systemWatcherStop = null;
+}
+
+/**
+ * Shutdown hook: close all chokidar watchers (system + project). Called
+ * from `app.on('before-quit')` in `src/main/index.ts` to release fs handles
+ * so the Node event loop can drain and the process can actually exit —
+ * otherwise the macOS dock icon stays around after Quit.
+ */
+export function stopAllWatchers(): void {
+  if (systemWatcherStop) {
+    systemWatcherStop();
+    systemWatcherStop = null;
+  }
+  if (projectWatcherStop) {
+    projectWatcherStop();
+    projectWatcherStop = null;
+  }
+  currentProjectPath = null;
 }
 
 /**
@@ -86,7 +105,14 @@ export function __resetDegradedForTests(): void {
  */
 export function watchSystemCommandsDir(onChange: () => Promise<void>): () => void {
   const systemDir = path.join(os.homedir(), '.cdf', 'commands');
-  return startWatcher(systemDir, onChange, 'system');
+  // Re-start semantics: if a previous system watcher is alive (shouldn't
+  // happen in normal lifecycle, but defensive), close it first so we don't
+  // leak fs handles. Then track the new stop fn for `stopAllWatchers`.
+  if (systemWatcherStop) {
+    systemWatcherStop();
+  }
+  systemWatcherStop = startWatcher(systemDir, onChange, 'system');
+  return systemWatcherStop;
 }
 
 /**
@@ -105,6 +131,7 @@ export function watchProjectCommandsDir(
 // projects (rare in a session lifecycle), we stop the old watcher and start
 // a new one.
 let projectWatcherStop: (() => void) | null = null;
+let systemWatcherStop: (() => void) | null = null;
 let currentProjectPath: string | null = null;
 
 /**
