@@ -11,6 +11,7 @@ import {
   shouldUseAnthropicAuthToken,
 } from '../shared/provider-url';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   listPhysicalSkills,
@@ -809,6 +810,50 @@ export function registerIpcHandlers() {
     } catch (err) {
       console.error('[commands:readProjectCommands] failed:', err);
       return { commands: [] };
+    }
+  });
+
+  // ===== Phase 08.2 Plan 01: commands:readBody — lazy body load (D-06, ASVS V5.1.3) =====
+  // Renderer calls this on dispatch for any SlashCommand with bodyPath. The body
+  // is the .md file content (post-frontmatter). Path-traversal guarded.
+  ipcMain.handle('commands:readBody', async (_evt, bodyPath: string) => {
+    try {
+      // ASVS V5.1.3 input validation — defensive checks, never throw
+      if (typeof bodyPath !== 'string' || bodyPath.length === 0 || bodyPath.length > 1024) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      // Build allowlisted prefixes: ~/.cdf/commands/ + every registered project's .cdf/commands/
+      const allowedPrefixes: string[] = [
+        path.join(os.homedir(), '.cdf', 'commands'),
+      ];
+      try {
+        const rows = db.prepare('SELECT path FROM projects').all() as Array<{ path: string }>;
+        for (const r of rows) {
+          if (r?.path) allowedPrefixes.push(path.join(r.path, '.cdf', 'commands'));
+        }
+      } catch (dbErr) {
+        // If project enumeration fails, fall back to homedir-only allowlist
+        console.warn('[commands:readBody] project enumeration failed, using homedir only:', dbErr);
+      }
+
+      const resolved = path.resolve(bodyPath);
+      const isAllowed = allowedPrefixes.some(
+        (p) => resolved === p || resolved.startsWith(p + path.sep)
+      );
+      if (!isAllowed) {
+        console.warn('[commands:readBody] path not under allowed dir:', bodyPath);
+        return { body: '', mtimeMs: 0 };
+      }
+      if (!fs.existsSync(resolved)) {
+        return { body: '', mtimeMs: 0 };
+      }
+      const stat = fs.statSync(resolved);
+      const body = fs.readFileSync(resolved, 'utf-8');
+      return { body, mtimeMs: stat.mtimeMs };
+    } catch (err) {
+      console.error('[commands:readBody] failed:', err);
+      return { body: '', mtimeMs: 0 };
     }
   });
 

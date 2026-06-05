@@ -7,6 +7,7 @@ const mockGetProjectState = vi.fn();
 const mockGetSessionState = vi.fn();
 const mockSetSessionGoal = vi.fn();
 const mockContextCurrentSession = vi.fn();
+const mockReadBody = vi.fn();
 vi.mock('@/stores/projectStore', () => ({
   useProjectStore: { getState: () => mockGetProjectState() },
 }));
@@ -155,7 +156,11 @@ describe('dispatcher.dispatch', () => {
     mockGetSessionState.mockReset();
     mockSetSessionGoal.mockReset();
     mockContextCurrentSession.mockReset();
-    (window as any).electronAPI = { context: { currentSession: mockContextCurrentSession } };
+    mockReadBody.mockReset();
+    (window as any).electronAPI = {
+      context: { currentSession: mockContextCurrentSession },
+      commands: { readBody: mockReadBody },
+    };
   });
 
   it('plugin rewrite does not pass overrides (D-18, v1.1 server-dim)', async () => {
@@ -257,5 +262,96 @@ describe('dispatcher.dispatch', () => {
     const toastCall = (toast.info as any).mock.calls[0];
     expect(toastCall[0]).toContain('[plan] 进入 plan 模式');
     expect(toastCall[0]).toContain('write tests');
+  });
+
+  // ===== 08.2 P1: PluginRewrite body load + $ARGUMENTS substitution (D-01/D-03) =====
+
+  it('PluginRewrite with bodyPath: reads body via IPC, substitutes $ARGUMENTS, sends as user message (no prompt prefix)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue(undefined);
+    mockReadBody.mockResolvedValue({
+      body: '请部署到 $0 环境。参数：$ARGUMENTS',
+      mtimeMs: 12345,
+    });
+
+    const cmd: SlashCommand = {
+      ...mcpCmd,
+      bodyPath: '/home/user/.cdf/commands/deploy.md',
+      frontmatter: { userInvocable: true, allowedTools: [], whenToUse: '', arguments: [] },
+    };
+
+    await dispatch({
+      kind: 'PluginRewrite',
+      command: cmd,
+      args: 'production --force 顺带更新 changelog',
+      prompt: '请使用 arxiv MCP 服务器上的合适工具处理：production --force',
+    });
+
+    // IPC readBody called with bodyPath
+    expect(mockReadBody).toHaveBeenCalledWith('/home/user/.cdf/commands/deploy.md');
+    // sendMessage called with substituted body — NOT the original prompt
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      'project-1',
+      '请部署到 production 环境。参数：production --force 顺带更新 changelog'
+    );
+    // Only 2 args: no overrides (allowedTools is empty array → no overrides)
+    expect(mockSendMessage.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('PluginRewrite without bodyPath: falls through to existing prompt rewrite (D-18 path)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue(undefined);
+    mockReadBody.mockResolvedValue({ body: '', mtimeMs: 0 });
+
+    // mcpCmd has no bodyPath → existing prompt-rewrite path
+    await dispatch({
+      kind: 'PluginRewrite',
+      command: mcpCmd,
+      args: 'foo',
+      prompt: '请使用 arxiv MCP 服务器上的合适工具处理：foo',
+    });
+
+    // readBody NOT called (no bodyPath)
+    expect(mockReadBody).not.toHaveBeenCalled();
+    // sendMessage called with the original prompt
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      'project-1',
+      '请使用 arxiv MCP 服务器上的合适工具处理：foo'
+    );
+  });
+
+  it('PluginRewrite with frontmatter.allowedTools: passes overrides.allowedTools to sendMessage (D-09 type-level)', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue(undefined);
+    mockReadBody.mockResolvedValue({
+      body: '请部署到 $0 环境',
+      mtimeMs: 0,
+    });
+
+    const cmd: SlashCommand = {
+      ...mcpCmd,
+      bodyPath: '/home/user/.cdf/commands/deploy.md',
+      frontmatter: {
+        userInvocable: true,
+        allowedTools: ['Read', 'Bash'],
+        whenToUse: '',
+        arguments: [],
+      },
+    };
+
+    await dispatch({
+      kind: 'PluginRewrite',
+      command: cmd,
+      args: 'production',
+      prompt: '请使用 arxiv MCP 服务器上的合适工具处理：production',
+    });
+
+    // sendMessage called with allowedTools in overrides
+    expect(mockSendMessage).toHaveBeenCalledWith('project-1', '请部署到 production 环境', {
+      allowedTools: ['Read', 'Bash'],
+    });
   });
 });

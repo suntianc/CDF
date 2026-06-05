@@ -1,10 +1,13 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { SlashCommand } from '../../shared/types';
+import YAML from 'yaml';
+import type { ParsedFrontmatter, SlashCommand } from '../../shared/types';
 
-/** D-20: frontmatter fields recognized in custom command `.md` files. */
-export interface CommandFrontmatter {
+/** D-20 / Phase 6: original hand-rolled frontmatter fields. 08.2 keeps them
+ *  on the new typed return shape for back-compat with consumers that read
+ *  `fm.name` / `fm.description` / `fm['argument-hint']` as strings. */
+export interface CommandFrontmatter extends ParsedFrontmatter {
   name?: string;
   description?: string;
   'argument-hint'?: string;
@@ -14,15 +17,21 @@ const FRONTMATTER_START = '---\n';
 const FRONTMATTER_END = '\n---';
 
 /**
- * Parse YAML-ish frontmatter from a `.md` file. Returns an empty object when:
+ * Parse YAML frontmatter from a `.md` file. Returns an empty object when:
  * - the file does not exist
  * - the file does not start with `---`
  * - the closing `---` marker is missing
  *
- * NOTE: this is a minimal parser (key: value, one per line). It does NOT
- * handle multi-line strings or block scalars — those are Phase 7+ work. The
- * D-20 spec only requires `name` / `description` / `argument-hint`, all
- * single-line values.
+ * 08.2 D-08 / D-10: backed by `yaml@2.9.0` for proper boolean / array coercion.
+ * Returns a typed `CommandFrontmatter` (extends `ParsedFrontmatter`) so consumers
+ * get `boolean | string[]` instead of the raw string.
+ *
+ * D-10 defaults (applied here so downstream can rely on stable shape):
+ *   disableModelInvocation: undefined  // not defaulted; absence means false
+ *   userInvocable:           true
+ *   allowedTools:            []
+ *   whenToUse:               ''
+ *   arguments:               []
  */
 export function parseFrontmatter(filePath: string): CommandFrontmatter {
   if (!fs.existsSync(filePath)) return {};
@@ -32,17 +41,38 @@ export function parseFrontmatter(filePath: string): CommandFrontmatter {
   const end = content.indexOf(FRONTMATTER_END, FRONTMATTER_START.length);
   if (end === -1) return {};
 
-  const body = content.slice(FRONTMATTER_START.length, end);
-  const result: CommandFrontmatter = {};
-  for (const line of body.split('\n')) {
-    const colon = line.indexOf(':');
-    if (colon === -1) continue;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
-    if (!key) continue;
-    (result as Record<string, string>)[key] = value;
-  }
-  return result;
+  const raw = content.slice(FRONTMATTER_START.length, end);
+  // yaml@2.9.0 parse — returns { key: typedValue } where booleans/arrays/strings
+  // are correctly typed. `?? {}` guards against a top-level scalar (single-line
+  // frontmatter that YAML.parse resolves to a non-object).
+  const parsed = (YAML.parse(raw) ?? {}) as Record<string, unknown>;
+
+  return {
+    name: typeof parsed['name'] === 'string' ? (parsed['name'] as string) : undefined,
+    description:
+      typeof parsed['description'] === 'string' ? (parsed['description'] as string) : undefined,
+    'argument-hint':
+      typeof parsed['argument-hint'] === 'string'
+        ? (parsed['argument-hint'] as string)
+        : undefined,
+    // D-10 defaults — keep stable shape downstream
+    disableModelInvocation:
+      typeof parsed['disable-model-invocation'] === 'boolean'
+        ? (parsed['disable-model-invocation'] as boolean)
+        : undefined,
+    userInvocable:
+      typeof parsed['user-invocable'] === 'boolean'
+        ? (parsed['user-invocable'] as boolean)
+        : true,
+    allowedTools: Array.isArray(parsed['allowed-tools'])
+      ? (parsed['allowed-tools'] as unknown[]).filter((v): v is string => typeof v === 'string')
+      : [],
+    whenToUse:
+      typeof parsed['when_to_use'] === 'string' ? (parsed['when_to_use'] as string) : '',
+    arguments: Array.isArray(parsed['arguments'])
+      ? (parsed['arguments'] as unknown[]).filter((v): v is string => typeof v === 'string')
+      : [],
+  };
 }
 
 function listCommandsInDir(
@@ -56,14 +86,32 @@ function listCommandsInDir(
     .map((file) => {
       const filePath = path.join(dir, file);
       const fm = parseFrontmatter(filePath);
+      // D-09 when_to_use 拼接 (Claude Code behavior): append soft hint to
+      // description so the LLM can decide when to auto-trigger. Only when
+      // whenToUse is non-empty (otherwise the original description is kept verbatim).
+      const baseDescription = fm.description || '';
+      const whenToUse = fm.whenToUse?.trim() || '';
+      const description = whenToUse
+        ? `${baseDescription}\n\n何时使用：${whenToUse}`
+        : baseDescription;
       return {
         name: fm.name || file.replace(/\.md$/, ''),
-        description: fm.description || '',
+        description,
         source,
         target: filePath,
         sourceLabel: source,
         badge: `[${source}]`,
         argumentHint: fm['argument-hint'],
+        // D-05: absolute path so dispatcher can lazy-load body on Enter
+        bodyPath: filePath,
+        // D-07: pre-parsed frontmatter for downstream consumers
+        frontmatter: {
+          disableModelInvocation: fm.disableModelInvocation,
+          userInvocable: fm.userInvocable,
+          allowedTools: fm.allowedTools,
+          whenToUse: fm.whenToUse,
+          arguments: fm.arguments,
+        },
       } as SlashCommand;
     });
 }

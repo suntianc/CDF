@@ -54,6 +54,12 @@ describe('project-commands', () => {
         name: 'review',
         description: 'Review PR',
         'argument-hint': '<branch>',
+        // D-10 defaults are applied even when not declared in frontmatter
+        disableModelInvocation: undefined,
+        userInvocable: true,
+        allowedTools: [],
+        whenToUse: '',
+        arguments: [],
       });
     });
 
@@ -61,6 +67,68 @@ describe('project-commands', () => {
       const f = path.join(tempProject, 'url.md');
       fs.writeFileSync(f, '---\ndescription: http://foo.com/bar\n---\n');
       expect(parseFrontmatter(f).description).toBe('http://foo.com/bar');
+    });
+
+    // ===== 08.2 P1: 4-field typed frontmatter parsing (D-07 / D-08 / D-10) =====
+
+    it('coerces disable-model-invocation: true to boolean (D-08 yaml@2.9.0)', () => {
+      const f = path.join(tempProject, 'bool.md');
+      fs.writeFileSync(
+        f,
+        '---\nname: x\ndisable-model-invocation: true\n---\nbody'
+      );
+      const fm = parseFrontmatter(f);
+      expect(fm.disableModelInvocation).toBe(true);
+    });
+
+    it('coerces disable-model-invocation: false to boolean (D-10 default)', () => {
+      const f = path.join(tempProject, 'bool-false.md');
+      fs.writeFileSync(
+        f,
+        '---\nname: x\ndisable-model-invocation: false\n---\nbody'
+      );
+      const fm = parseFrontmatter(f);
+      expect(fm.disableModelInvocation).toBe(false);
+    });
+
+    it('coerces allowed-tools array correctly (D-08 yaml@2.9.0)', () => {
+      const f = path.join(tempProject, 'tools.md');
+      fs.writeFileSync(
+        f,
+        '---\nname: x\nallowed-tools:\n  - Read\n  - Grep\n  - Glob\n---\nbody'
+      );
+      const fm = parseFrontmatter(f);
+      expect(fm.allowedTools).toEqual(['Read', 'Grep', 'Glob']);
+    });
+
+    it('parses when_to_use string (D-09 soft hint)', () => {
+      const f = path.join(tempProject, 'when.md');
+      fs.writeFileSync(
+        f,
+        '---\nname: x\nwhen_to_use: 用户询问部署相关问题时调用\n---\nbody'
+      );
+      const fm = parseFrontmatter(f);
+      expect(fm.whenToUse).toBe('用户询问部署相关问题时调用');
+    });
+
+    it('parses arguments list (D-02 named placeholder declaration)', () => {
+      const f = path.join(tempProject, 'args.md');
+      fs.writeFileSync(
+        f,
+        '---\nname: deploy\narguments:\n  - env\n  - flag\n---\nbody'
+      );
+      const fm = parseFrontmatter(f);
+      expect(fm.arguments).toEqual(['env', 'flag']);
+    });
+
+    it('applies D-10 defaults when fields are missing', () => {
+      const f = path.join(tempProject, 'defaults.md');
+      fs.writeFileSync(f, '---\nname: x\n---\nbody');
+      const fm = parseFrontmatter(f);
+      expect(fm.userInvocable).toBe(true);
+      expect(fm.allowedTools).toEqual([]);
+      expect(fm.whenToUse).toBe('');
+      expect(fm.arguments).toEqual([]);
     });
   });
 
