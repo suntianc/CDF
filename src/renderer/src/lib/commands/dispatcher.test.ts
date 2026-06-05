@@ -53,12 +53,15 @@ const planCmd: SlashCommand = {
 };
 
 const mcpCmd: SlashCommand = {
-  name: 'arxiv_search',
-  description: 'Search arxiv papers',
+  // v1.1 polish: server-dimension. One slash command per MCP server, not
+  // per tool — the LLM picks the appropriate tool from the server's
+  // available tools at dispatch time.
+  name: 'arxiv',
+  description: 'arxiv MCP server (search/summarize/etc.)',
   source: 'mcp',
-  target: 'arxiv_search',
+  target: 'arxiv',
   sourceLabel: 'mcp:arxiv',
-  badge: '[mcp:arxiv_search]',
+  badge: '[mcp:arxiv]',
 };
 
 const workflowCmd: SlashCommand = {
@@ -96,27 +99,27 @@ describe('dispatcher.resolve', () => {
     expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '--priority=high' });
   });
 
-  it('PluginRewrite for MCP with args (D-18)', () => {
-    const plan = resolve('/arxiv_search foo bar', [mcpCmd]);
+  it('PluginRewrite for MCP with args (D-18, v1.1 server-dim)', () => {
+    const plan = resolve('/arxiv foo bar', [mcpCmd]);
     expect(plan).toEqual({
       kind: 'PluginRewrite',
       command: mcpCmd,
       args: 'foo bar',
-      prompt: '请调用 arxiv_search 工具，参数：foo bar',
+      prompt: '请使用 arxiv MCP 服务器上的合适工具处理：foo bar',
     });
   });
 
   it('PluginRewrite for MCP with no args (no crash)', () => {
-    const plan = resolve('/arxiv_search', [mcpCmd]);
+    const plan = resolve('/arxiv', [mcpCmd]);
     expect(plan).toEqual({
       kind: 'PluginRewrite',
       command: mcpCmd,
       args: '',
-      prompt: '请调用 arxiv_search 工具，参数：(无参数)',
+      prompt: '请使用 arxiv MCP 服务器上的合适工具处理：(无具体参数)',
     });
   });
 
-  it('PluginRewrite for workflow', () => {
+  it('PluginRewrite for workflow (stays per-workflow, not server-dim)', () => {
     const plan = resolve('/pr-review', [workflowCmd]);
     expect(plan).toEqual({
       kind: 'PluginRewrite',
@@ -150,7 +153,7 @@ describe('dispatcher.dispatch', () => {
     (window as any).electronAPI = { context: { currentSession: mockContextCurrentSession } };
   });
 
-  it('plugin rewrite does not pass overrides (D-18)', async () => {
+  it('plugin rewrite does not pass overrides (D-18, v1.1 server-dim)', async () => {
     mockGetProjectState.mockReturnValue({ currentProjectId: 'projectId' });
     mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
     mockSendMessage.mockResolvedValue(undefined);
@@ -159,10 +162,10 @@ describe('dispatcher.dispatch', () => {
       kind: 'PluginRewrite',
       command: mcpCmd,
       args: 'foo',
-      prompt: '请调用 arxiv_search 工具，参数：foo',
+      prompt: '请使用 arxiv MCP 服务器上的合适工具处理：foo',
     });
 
-    expect(mockSendMessage).toHaveBeenCalledWith('projectId', '请调用 arxiv_search 工具，参数：foo');
+    expect(mockSendMessage).toHaveBeenCalledWith('projectId', '请使用 arxiv MCP 服务器上的合适工具处理：foo');
     // CRITICAL: no third argument (D-18 — args go to message.content, not tool schema)
     expect(mockSendMessage.mock.calls[0]).toHaveLength(2);
   });

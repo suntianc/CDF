@@ -55,11 +55,17 @@ export function resolve(
   // MCP / Skills / Workflows / Custom commands all use PluginRewrite.
   // D-18: args are appended to the natural-language prompt and passed as
   // message.content; they are NOT injected into the tool's schema args.
+  // v1.1 polish: MCP commands are server-dimension (one `/<server>` per MCP
+  // server, NOT one per tool). The prompt tells the LLM to pick a tool
+  // from the server's available tools rather than hardcoding a tool name.
+  const prompt = match.source === 'mcp'
+    ? `请使用 ${match.name} MCP 服务器上的合适工具处理：${args || '(无具体参数)'}`
+    : `请调用 ${match.name} 工具，参数：${args || '(无参数)'}`;
   return {
     kind: 'PluginRewrite',
     command: match,
     args,
-    prompt: `请调用 ${match.name} 工具，参数：${args || '(无参数)'}`,
+    prompt,
   };
 }
 

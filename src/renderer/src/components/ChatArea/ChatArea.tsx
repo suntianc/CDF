@@ -814,27 +814,67 @@ export function ChatArea({
           )}
 
           <div className="dialog-box">
-            <textarea
-              className="dialog-input animate-fade-in"
-              placeholder="给 CDF 下达指令，或者问点什么……"
-              rows={1}
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onCompositionStart={handleCompositionStart}
-              onCompositionEnd={handleCompositionEnd}
-              onKeyDown={(e) => {
-                if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  if (justFinishedComposingRef.current) {
-                    consumeJustFinishedComposing();
-                    e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
-                    return;
-                  }
-                  e.preventDefault();
-                  handleWelcomeSend();
-                }
-              }}
-            />
+            <Popover open={slashOpen} onOpenChange={setSlashOpen} modal={false}>
+              <PopoverAnchor asChild>
+                <textarea
+                  className="dialog-input animate-fade-in"
+                  placeholder="给 CDF 下达指令，或者问点什么……"
+                  rows={1}
+                  value={inputVal}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setInputVal(value);
+                    if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
+                    // Mirror the composer's slash-open predicate so the popup
+                    // also triggers when typing `/` in the welcome textarea.
+                    const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
+                    setSlashOpen(shouldOpen);
+                  }}
+                  onCompositionStart={handleCompositionStart}
+                  onCompositionEnd={handleCompositionEnd}
+                  onKeyDown={(e) => {
+                    if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
+                    // Slash popup navigation (mirrors handleKeyDown on composer).
+                    if (slashOpen) {
+                      if (e.key === 'Backspace' && inputVal === '/') {
+                        e.preventDefault();
+                        setSlashOpen(false);
+                        return;
+                      }
+                      const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+                      if (handled) return;
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      if (justFinishedComposingRef.current) {
+                        consumeJustFinishedComposing();
+                        e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
+                        return;
+                      }
+                      e.preventDefault();
+                      handleWelcomeSend();
+                    }
+                  }}
+                />
+              </PopoverAnchor>
+              <PopoverContent
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                align="start"
+                side="top"
+                sideOffset={8}
+                className="w-[var(--radix-popover-anchor-width)]"
+              >
+                <SlashCommandPopup
+                  ref={slashRef}
+                  query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
+                  onSelect={handleSlashSelect}
+                  onClose={() => setSlashOpen(false)}
+                  commands={registry.commands}
+                  hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
+                  mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
+                  loading={registry.loading}
+                />
+              </PopoverContent>
+            </Popover>
             <div className="dialog-bottom">
               <div className="dialog-bottom-left">
                 <button type="button" className="dialog-btn" title="添加附件" aria-label="添加附件">

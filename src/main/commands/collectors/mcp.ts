@@ -16,8 +16,13 @@ interface McpCollectorResult {
  * - Reuses `loadMcpTools(agentId, servers)` (mcpCache hit, no reconnect).
  * - Returns BOTH the mapped `SlashCommand[]` AND `hasAgentMcp` so the IPC
  *   layer can decide whether to fire `mcp_health_warning` (P6.5).
- * - Description is collected for internal log only; popup does not render it
- *   (D-09).
+ *
+ * Server-dimension grouping (v1.1 polish): one SlashCommand per MCP server
+ * rather than one per tool. The LLM picks the appropriate tool from the
+ * server's available tools at dispatch time, so the user does not need
+ * to memorize the exact tool name (`/arxiv_search`, `/arxiv_summarize`).
+ * Pre-loads tools so the dispatcher can confidently tell the LLM "the
+ * arxiv server has these tools available".
  */
 export async function collectMcpCommands(agentId: string): Promise<McpCollectorResult> {
   const agentServers = db
@@ -32,15 +37,21 @@ export async function collectMcpCommands(agentId: string): Promise<McpCollectorR
     return { commands: [], hasAgentMcp: false };
   }
 
-  const { tools } = await loadMcpTools(agentId, agentServers);
+  // Pre-warm the tool cache so the LLM has tools loaded for this agent
+  // by the time the user dispatches. Result is unused here — the dispatcher
+  // reads from the same cache on its own.
+  await loadMcpTools(agentId, agentServers);
 
-  const commands: SlashCommand[] = tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description || '',
+  // One command per server. `name` and `target` are both the server name
+  // so `dispatcher.resolve()` can match `/<server>` and `dispatcher.dispatch()`
+  // can build the prompt from the same identifier.
+  const commands: SlashCommand[] = agentServers.map((server) => ({
+    name: server.name,
+    description: server.description || `MCP server: ${server.name}`,
     source: 'mcp',
-    target: tool.name,
-    sourceLabel: `mcp:${tool.name}`,
-    badge: `[mcp:${tool.name}]`,
+    target: server.name,
+    sourceLabel: `mcp:${server.name}`,
+    badge: `[mcp:${server.name}]`,
   }));
 
   return { commands, hasAgentMcp: true };
