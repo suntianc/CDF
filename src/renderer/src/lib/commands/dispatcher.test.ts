@@ -9,6 +9,7 @@ const mockSetSessionGoal = vi.fn();
 const mockContextCurrentSession = vi.fn();
 const mockReadBody = vi.fn();
 const mockPlanPopupOpen = vi.fn();
+const mockContextModalOpen = vi.fn();
 const mockStartGoalJudgeLoop = vi.fn();
 const mockStopGoalJudgeLoop = vi.fn();
 vi.mock('@/stores/projectStore', () => ({
@@ -19,6 +20,9 @@ vi.mock('@/stores/sessionStore', () => ({
 }));
 vi.mock('@/stores/planPopupStore', () => ({
   usePlanPopupStore: { getState: () => ({ open: mockPlanPopupOpen }) },
+}));
+vi.mock('@/stores/contextModalStore', () => ({
+  useContextModalStore: { getState: () => ({ open: mockContextModalOpen }) },
 }));
 vi.mock('@/hooks/useGoalJudge', () => ({
   startGoalJudgeLoop: (...args: unknown[]) => mockStartGoalJudgeLoop(...args),
@@ -168,6 +172,7 @@ describe('dispatcher.dispatch', () => {
     mockContextCurrentSession.mockReset();
     mockReadBody.mockReset();
     mockPlanPopupOpen.mockReset();
+    mockContextModalOpen.mockReset();
     mockStartGoalJudgeLoop.mockReset();
     mockStopGoalJudgeLoop.mockReset();
     mockStartGoalJudgeLoop.mockResolvedValue(undefined);
@@ -305,29 +310,19 @@ describe('dispatcher.dispatch', () => {
     warnSpy.mockRestore();
   });
 
-  it('B. SystemLocal: calls electronAPI.context.currentSession + emits breakdown toast (D-06/D-07/D-08)', async () => {
+  it('B. SystemLocal: 08.2 P4 — opens useContextModalStore modal, NO toast, NO sendMessage (C2-03)', async () => {
     mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
     mockGetSessionState.mockReturnValue({ activeSessionId: 'session-1' });
-    mockContextCurrentSession.mockResolvedValue({
-      breakdown: { conversation: 100, skills: 50, mcp: 25, workflows: 75 },
-      total: 250,
-    });
 
     await dispatch({ kind: 'SystemLocal', command: contextCmd, args: '' });
 
-    // IPC called with sessionId
-    expect(mockContextCurrentSession).toHaveBeenCalledWith('session-1');
-    // toast.info called with the breakdown
-    expect(toast.info).toHaveBeenCalled();
-    const toastCall = (toast.info as any).mock.calls[0];
-    expect(toastCall[0]).toBe('[system] 上下文');
-    // Description must include the per-source tokens + total
-    const desc: string = toastCall[1]?.description || '';
-    expect(desc).toContain('对话: 100 tokens');
-    expect(desc).toContain('Skills: 50 tokens');
-    expect(desc).toContain('MCP: 25 tokens');
-    expect(desc).toContain('Workflows: 75 tokens');
-    expect(desc).toContain('Total: 250 tokens');
+    // C2-04 dual entry: /context slash command opens the same modal
+    expect(mockContextModalOpen).toHaveBeenCalled();
+    // C2-03: /context does NOT enter the chat stream
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    // No toast: the modal is the only feedback surface (UI-SPEC.md §Surface 2)
+    expect(toast.info).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('C. PlanMode: popupOpen=false path emits [plan] toast + calls sendMessage with { planOnly: true } (D-10/D-11/D-12)', async () => {

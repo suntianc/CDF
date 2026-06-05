@@ -9,6 +9,7 @@ import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { WorkflowList } from './components/WorkflowEditor/WorkflowList';
 import { WorkflowEditor } from './components/WorkflowEditor/WorkflowEditor';
 import { PlanPopup } from './components/PlanPopup/PlanPopup';
+import { ContextModal } from './components/ContextModal/ContextModal';
 import { useThemeStore } from './stores/themeStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
@@ -120,6 +121,7 @@ export default function App() {
       )}
       <Toaster richColors position="bottom-right" theme="dark" />
       <PlanPopup />
+      <ContextModal />
     </div>
   );
 }

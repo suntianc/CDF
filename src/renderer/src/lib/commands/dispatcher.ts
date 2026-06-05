@@ -1,6 +1,7 @@
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePlanPopupStore } from '@/stores/planPopupStore';
+import { useContextModalStore } from '@/stores/contextModalStore';
 import { startGoalJudgeLoop, stopGoalJudgeLoop } from '@/hooks/useGoalJudge';
 import { toast } from 'sonner';
 import type {
@@ -111,27 +112,17 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
     }
 
     case 'SystemLocal': {
-      // D-06/D-07/D-08: pull token breakdown from main process IPC; render static bubble.
+      // 08.2 P4 C2-02 + C2-03 + C2-04: /context now opens the Radix Dialog
+      // <ContextModal> (Claude Code 完整版). No toast, no sendMessage — the
+      // LLM never sees this data (C2-03). Data fetch is owned by the modal
+      // component (useEffect on isOpen). Dual entry: /context slash AND the
+      // persistent <ContextButton> both call useContextModalStore.open().
       const { activeSessionId } = useSessionStore.getState();
       if (!activeSessionId) {
         console.warn('[dispatcher] SystemLocal: no active session');
         return;
       }
-      try {
-        const result = await window.electronAPI.context.currentSession(activeSessionId);
-        toast.info('[system] 上下文', {
-          description:
-            `对话: ${result.breakdown.conversation} tokens\n` +
-            `Skills: ${result.breakdown.skills} tokens\n` +
-            `MCP: ${result.breakdown.mcp} tokens\n` +
-            `Workflows: ${result.breakdown.workflows} tokens\n` +
-            `Total: ${result.total} tokens`,
-          duration: 4000,
-        });
-      } catch (err: any) {
-        console.error('[dispatcher] SystemLocal IPC failed:', err);
-        toast.error('[system] 上下文拉取失败', { description: err?.message || '未知错误' });
-      }
+      useContextModalStore.getState().open();
       return;
     }
 

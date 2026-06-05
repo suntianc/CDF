@@ -20,6 +20,7 @@ import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 import { SlashToken } from '@/components/SlashCommand/SlashToken';
 import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
 import { GoalSystemBubble } from './GoalSystemBubble';
+import { ContextButton } from '@/components/Composer/ContextButton';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -1269,7 +1270,8 @@ export function ChatArea({
                   </div>
                 </div>
 
-                <div>
+                <div className="flex items-center gap-1.5">
+                  <ContextButton />
                   {isStreaming ? (
                     <button
                       type="button"
