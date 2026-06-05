@@ -69,6 +69,25 @@ Likely candidates (per ROADMAP.md next-milestone section):
 
 **v1.1 milestone shipped 2026-06-04 with 15/15 SLASH requirements validated.** No active v1.1 requirements remain. See `.planning/milestones/v1.1-ROADMAP.md` for archived milestone details.
 
+### Validated (Phase 08.2 — v1.1 hotfix, 2026-06-06)
+
+基于 Claude Code + Codex 桌面版调研，重构 4 核心 slash command 的执行原则。Phase 08.2 是 v1.1 紧急插单（在 2026-06-05 v1.1 ship 后），4 plans / 4 waves / 27 commits 全部完成。
+
+- [x] **D-01..D-10**: 完整 frontmatter 字段执行（yaml@2.9.0 解析 4 字段 + arguments list）
+  - `disable-model-invocation: true` → skill-manager 过滤（不暴露给 LLM）
+  - `user-invocable: false` → SlashCommandPopup 过滤（不显示）
+  - `allowed-tools: [...]` → dispatcher 透传 runtime overrides
+  - `when_to_use: "..."` → description 追加（LLM 自觉）
+  - `$ARGUMENTS` / `$0` / `$1` / `$2` / `$name` 字符串替换（pure transform）
+  - `.md body` 按需 lazy load（commands:readBody IPC + path-traversal 守卫）
+- [x] **C1-01..C1-05**: `/goal` 真正"驱动 agent 直到完成" — useGoalJudge hook + 20-turn cap + 4 状态气泡（工作中/达成/已暂停/judge 失败）
+- [x] **C2-01..C2-04**: `/context` 升级 Claude Code 完整版 modal（11 类 breakdown = 7 真实 + 4 v1.2 placeholder；autocompact buffer 15%；dual entry = `/context` slash + 常驻 ContextButton 📊）
+- [x] **C3-01..C3-05**: `/plan` 升级 Codex 风格弹窗 + modify loop（usePlanPopupStore 状态机 + 20-turn cap + 「修改计划」/「立即执行」两按钮）
+- [x] **F-01**: per-command UI surface 区分（`/goal` 系统气泡 / `/context` modal / `/plan` 弹窗）
+- [x] **G-01**: LLM 始终在 loop（无 plugin direct tool call 旁路）
+
+**Phase 08.2 delivery:** 4/4 plans, 4/4 waves, 27 commits, 39 files changed (+4304 / -141 LOC), 73/73 new tests pass, 358/364 total (6 pre-existing v1.0 failures). Hard Do Not Touch（`llm.ts` / `llm-adapter.ts` / `runtime.ts`）完整保留。Code review: 0 Critical / 8 Warning / 5 Info（v1.2+ follow-up）。
+
 ### Out of Scope (v1.1 → v1.2+)
 
 - 自定义 skill body 内容生成（`/run-skill-generator`）
@@ -149,6 +168,11 @@ Likely candidates (per ROADMAP.md next-milestone section):
 | **v1.1 / 接受** `/goal` 内存存储（`useSessionStore.sessionGoals: Map<sessionId, string>`） | v1.1 范围；v1.2+ 迁 SQLite（SLASH-15） | ⚠️ Revisit in v1.2 (memory-only persistence) |
 | **v1.1 / 接受** 取消 `/pr-review` 3 节点 demo workflow seed | v1.0 Phase 4 已有 workflow 能力；PITFALLS P11 担忧消解 | ✓ Good — 避免 zombie code |
 | **v1.1 / 拒绝** v1.0 partial deliverable cleanup 混入 v1.1 | 推 v1.2；v1.1 激光聚焦 `/` 命令系统 | ✓ Good (scope discipline) |
+| **v1.1 hotfix / 接受** `.md body` 懒加载 + `$ARGUMENTS`/`$0`/`$1`/`$name` 替换 + body 作为 user message 代替原命令 | 对标 Claude Code skills `body loads only when it's used`；lazy load 减 registry 启动时间；body 替换走 LLM 视野避免 args 进 tool schema（PITFALLS P7） | ✓ Good (Phase 08.2) |
+| **v1.1 hotfix / 接受** `/goal` 升 judge agent loop（专用内置 agent + 复用当前模型） | 对标 Claude Code `/goal` 完整机制（专用 judge + Stop hook wrapper + first message + reason loop） | ✓ Good (Phase 08.2) |
+| **v1.1 hotfix / 接受** `/context` 升 Claude Code 完整版 modal（11 类 = 7 真实 + 4 v1.2 推） | 11 类完整化是渐进过程；v1.1 落地 7 类（`conversation` / `skills` / `mcp` / `workflows` / `projectCommandBodies` / `mcpPerTool` / `freeSpace` + `autocompactBuffer`），4 类 v1.2 推（`systemPrompt` / `systemTools` / `customAgents` / `memoryFiles`）；不虚假承诺 | ✓ Good (Phase 08.2) |
+| **v1.1 hotfix / 接受** `/plan` 升 Codex 弹窗模式（plan-then-execute + modify loop） | 拒持久权限模式（plan + execute 阶段分明）；modify loop 让用户审阅 + 修改 + 立即执行 | ✓ Good (Phase 08.2) |
+| **v1.1 hotfix / 接受** 完整 frontmatter 字段（`disable-model-invocation` / `user-invocable` / `allowed-tools` / `when_to_use`）全代码层强制 | 4 字段对标 Claude Code skill frontmatter；类型层 seam + 运行时硬过滤（D-09 全部） | ✓ Good (Phase 08.2) |
 
 ## Evolution
 
@@ -168,6 +192,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 after v1.1 milestone completion*
+*Last updated: 2026-06-06 after Phase 08.2 (v1.1 hotfix) completion*
 
 
