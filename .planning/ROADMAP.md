@@ -1,6 +1,6 @@
 # Roadmap: Agent 开发工作站
 
-**Last updated:** 2026-06-04 — v1.1 milestone shipped
+**Last updated:** 2026-06-05 — Phase 08.2 plans created (4 plans, 4 waves sequential)
 
 ## Milestones
 
@@ -46,6 +46,24 @@ Plans:
 - [ ] TBD (run /gsd-plan-phase 08.1 to break down)
 
 **Coverage:** 15/15 SLASH requirements (SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION) — all validated.
+
+### Phase 08.2: Slash command execution principle optimization (INSERTED)
+
+**Goal:** 基于 Claude Code + Codex 桌面版调研，重构 4 核心 slash command 的执行原则：(1) `.cdf/commands/*.md` body 真正参与 dispatch（懒加载 + $ARGUMENTS/$N/$name 替换，body 作为 user message 代替原命令）；(2) `/goal` 升级为内置 judge agent 循环（首次告诉目标 + judge 不满足时把 reason 作为下轮指引，20-turn cap，4 状态系统气泡）；(3) `/context` 升级为 Claude Code 完整版 modal（11 类 breakdown + per-MCP-tool + autocompact buffer 15%，常驻按钮 + slash 双入口）；(4) `/plan` 升级为 Codex 风格弹窗 + modify loop（planOnly flag + 读写工具分级，20-turn cap）；(5) 完整 frontmatter 字段执行（disable-model-invocation / user-invocable / allowed-tools / when_to_use 全代码层强制，yaml@2.9.0 解析）。Hard Do Not Touch：runLLMChat / llm-adapter / 6-hunk patch-package。
+**Requirements**: D-01..D-10, C1-01..C1-05, C2-01..C2-04, C3-01..C3-05, F-01 (CONTEXT.md locked decisions; REQUIREMENTS.md 无 REQ-IDs)
+**Depends on:** Phase 8
+**Plans:** 4 plans
+
+Plans:
+
+- [ ] 08.2-01-PLAN.md — 基础设施：types/IPC/frontmatter 解析 (yaml@2.9.0)/chokidar 验证/argSubstitution/dispatcher PluginRewrite body 懒加载（D-01..D-08, D-10）
+- [ ] 08.2-02-PLAN.md — /plan Codex 弹窗 + Zustand 状态机（20-turn cap）+ frontmatter 运行时强制（user-invocable + allowed-tools + planOnly tool gate 回归）（C3-01..C3-05, D-09 部分）
+- [ ] 08.2-03-PLAN.md — /goal judge agent + JSON 解析（剥离 think 块）+ reason 循环（20-turn cap）+ 4 状态系统气泡（C1-01..C1-05, F-01 /goal 表面）
+- [ ] 08.2-04-PLAN.md — /context Claude Code 完整版 modal（11 类 + autocompact 15%）+ 常驻按钮（info 色）+ aggregator 扩展 + skill-manager disable-model-invocation 强制（C2-01..C2-04, D-09 收尾, F-01 /context 表面）
+
+**Cross-cutting constraints:**
+
+- SLASH-REGRESSION green；llm.ts / llm-adapter.ts / runtime.ts 未被改动
 
 ## Next Milestone
 
