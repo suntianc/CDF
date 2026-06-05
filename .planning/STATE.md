@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.1
-milestone_name: 基本能力完善
-status: Awaiting next milestone
-stopped_at: Phase 8 context gathered
-last_updated: "2026-06-04T16:51:20.451Z"
-last_activity: 2026-06-04 — Milestone v1.1 completed and archived
+milestone_name: milestone
+status: executing
+stopped_at: Phase 08.1 context gathered
+last_updated: "2026-06-05T07:22:24.310Z"
+last_activity: 2026-06-05 -- Phase 08.1 planning complete
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 10
+  total_plans: 14
   completed_plans: 10
-  percent: 100
+  percent: 71
 ---
 
 # State: Agent 开发工作站
@@ -20,7 +20,7 @@ progress:
 
 **Project:** Agent 开发工作站
 **Core Value:** 开发者通过自然语言对话驱动自动化开发工作流，Master Agent 负责需求理解、流程编排、节点执行监控和结果交付
-**Current Focus:** Phase 8 — polish + differentiators
+**Current Focus:** Phase 08.1 — 斜杠命令输入框内联渲染 (INSERTED)
 
 See: `.planning/PROJECT.md` (updated 2026-06-04)
 See: `.planning/REQUIREMENTS.md` (v1.1 SLASH-01..13 + SLASH-DISPATCH + SLASH-REGRESSION)
@@ -28,10 +28,10 @@ See: `.planning/research/SUMMARY.md` (high-confidence synthesis, 2026-06-04)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: 08.1 — 斜杠命令输入框内联渲染 (INSERTED)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-04 — Milestone v1.1 completed and archived
+Status: Ready to execute
+Last activity: 2026-06-05 -- Phase 08.1 planning complete
 
 ## Performance Metrics
 
@@ -60,6 +60,10 @@ Last activity: 2026-06-04 — Milestone v1.1 completed and archived
 | 7 | 2 | - | - |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 08.1 inserted after Phase 8: 斜杠命令输入框内联渲染 - v1.1 ship 后发现的 UI 体验紧急优化：把 `<textarea>` 升级为支持内联 token 渲染（slash 命令被选中后替换为图标+标题化名称胶囊 + 闪烁光标），与既有 popup dispatch 契约对齐 (URGENT)
 
 ### Decisions
 
@@ -125,10 +129,10 @@ Per `gsd-sdk query audit-open` at milestone close, 28 items were open. All are v
 
 ## Session Continuity
 
-Last session: 2026-06-04T14:07:13.970Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-polish-differentiators/08-CONTEXT.md
+Last session: 2026-06-05T06:22:42.059Z
+Stopped at: Phase 08.1 context gathered
+Resume file: .planning/phases/08.1-slash-input-rendering/08.1-CONTEXT.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run /gsd:plan-phase 08.1 to break down 斜杠命令输入框内联渲染 into executable plans
