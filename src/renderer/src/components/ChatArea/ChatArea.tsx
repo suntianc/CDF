@@ -680,9 +680,15 @@ export function ChatArea({
   };
 
   // Phase 6: registry consumer. Provides commands + fires sonner toasts.
+  // v1.1 polish: fall back to the project's default agent when there is no
+  // active session yet, so the slash popup on the WELCOME screen shows the
+  // full command set (system + MCP + skills + workflows) for the default
+  // agent, not just the 3 hardcoded system commands. Before this fallback
+  // `agentId` was `null` on welcome → `useCommandRegistry` early-returned
+  // with EMPTY_COMMANDS and the popup fell back to the system-only stub.
   const registry = useCommandRegistry(
     currentProjectId,
-    (activeSession as any)?.agent_id ?? null
+    (activeSession as any)?.agent_id ?? activeSessionAgent?.id ?? null
   );
 
   // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
