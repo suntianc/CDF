@@ -9,6 +9,13 @@ import {
 } from '@/components/SlashCommand/SlashCommandPopup';
 import { resolve as dispatcherResolve } from '@/lib/commands/dispatcher';
 
+// v1.1 polish: module-scope mocks for handleSlashSelect / handleSlashInsert
+// so individual tests can assert which path the popup triggered
+// (Enter → onSelect / Tab → onInsert). The TestHarness re-uses these refs
+// and exposes them via the harness handle.
+const handleSlashSelectMock = vi.fn();
+const handleSlashInsertMock = vi.fn();
+
 // jsdom does not implement ResizeObserver (used by cmdk for sizing)
 // or scrollIntoView (used by cmdk for item navigation). Polyfill both.
 beforeAll(() => {
@@ -36,6 +43,10 @@ interface TestHarnessHandle {
   setInputVal: (v: string) => void;
   triggerCompositionEnd: () => void;
   triggerCompositionStart: () => void;
+  // v1.1 polish: expose the two distinct onSelect / onInsert mocks so
+  // tests can assert which path the popup triggered (Enter vs Tab).
+  onSelect: ReturnType<typeof vi.fn>;
+  onInsert: ReturnType<typeof vi.fn>;
 }
 
 function TestHarness({
@@ -101,13 +112,27 @@ function TestHarness({
       setInputVal,
       triggerCompositionEnd: () => handleCompositionEnd(),
       triggerCompositionStart: () => handleCompositionStart(),
+      // v1.1 polish: expose the two distinct onSelect / onInsert mocks so
+      // tests can assert which path the popup triggered (Enter vs Tab).
+      onSelect: handleSlashSelect,
+      onInsert: handleSlashInsert,
     });
   });
 
-  const handleSlashSelect = (cmd: string) => {
+  // v1.1 polish: Tab inserts without dispatching. Both mocks are declared
+  // at module scope so tests can assert which path the popup triggered.
+  const handleSlashSelect = handleSlashSelectMock;
+  const handleSlashInsert = handleSlashInsertMock;
+  // Re-implement the local side effect (mock + setInputVal + setSlashOpen)
+  // so the test harness still exercises the textarea state path.
+  handleSlashSelect.mockImplementation((cmd: string) => {
     setInputVal(cmd + ' ');
     setSlashOpen(false);
-  };
+  });
+  handleSlashInsert.mockImplementation((cmd: string) => {
+    setInputVal(cmd + ' ');
+    setSlashOpen(false);
+  });
 
   return (
     <Popover open={slashOpen} onOpenChange={setSlashOpen} modal={false}>
@@ -160,6 +185,7 @@ function TestHarness({
           ref={slashRef}
           query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
           onSelect={handleSlashSelect}
+          onInsert={handleSlashInsert}
           onClose={() => setSlashOpen(false)}
           commands={commands}
           hasMcpWarning={hasMcpWarning}
@@ -236,19 +262,38 @@ describe('SlashCommandPopup', () => {
     expect(screen.queryByText('/goal')).toBeNull();
   });
 
-  it('inserts command text and closes popup on Tab (identical to Enter)', () => {
+  it('Tab inserts command text into textarea via onInsert (v1.1 polish — does NOT dispatch)', () => {
     let harness: TestHarnessHandle | null = null;
     render(<TestHarness refSetter={(h) => (harness = h)} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });
     });
-    // First row (/goal) is selected by default (D-04); Tab confirms
+    // First row (/goal) is selected by default (D-04); Tab inserts it.
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Tab' });
     });
     expect(harness?.getInputVal()).toBe('/goal ');
     expect(screen.queryByText('/context')).toBeNull();
+    // v1.1 polish: Tab must NOT fire the Enter-only onSelect (dispatch) path.
+    expect(handleSlashSelectMock).not.toHaveBeenCalled();
+    expect(handleSlashInsertMock).toHaveBeenCalledWith('/goal');
+  });
+
+  it('Enter still fires onSelect (dispatch path) for known commands', () => {
+    let harness: TestHarnessHandle | null = null;
+    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+    act(() => {
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+    });
+    expect(harness?.getInputVal()).toBe('/goal ');
+    expect(handleSlashSelectMock).toHaveBeenCalledWith('/goal');
+    // v1.1 polish: Enter must NOT also fire onInsert — only one of the two.
+    expect(handleSlashInsertMock).not.toHaveBeenCalled();
   });
 
   it('shows first row highlighted on initial open', () => {
@@ -278,6 +323,8 @@ describe('SlashCommandPopup', () => {
   // Reset fake timers after each test in case a previous test left them on.
   afterEach(() => {
     vi.useRealTimers();
+    handleSlashSelectMock.mockClear();
+    handleSlashInsertMock.mockClear();
   });
 
   // 5-02-01 / SLASH-01

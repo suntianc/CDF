@@ -46,7 +46,15 @@ export interface SlashCommandPopupHandle {
 
 export interface SlashCommandPopupProps {
   query: string;
+  /** Enter: dispatch/send the highlighted command (Phase 6 default behavior). */
   onSelect: (command: string) => void;
+  /**
+   * Tab: insert the highlighted command into the textarea (cmd + ' ') without
+   * firing the dispatcher. v1.1 polish — keeps the user in the composer
+   * to add args before sending. Falls back to onSelect if not provided
+   * (so older call sites keep their existing Enter-or-Tab-sends behavior).
+   */
+  onInsert?: (command: string) => void;
   onClose: () => void;
   /** Phase 6: optional registry commands (from useCommandRegistry). If undefined, falls back to SYSTEM_COMMANDS for back-compat. */
   commands?: SlashCommand[];
@@ -61,7 +69,7 @@ export interface SlashCommandPopupProps {
 export const SlashCommandPopup = forwardRef<
   SlashCommandPopupHandle,
   SlashCommandPopupProps
->(({ query, onSelect, onClose, commands, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
+>(({ query, onSelect, onInsert, onClose, commands, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
   // Phase 6: when `commands` prop is provided, use it. Otherwise fall back to
   // the Phase 5 SYSTEM_COMMANDS (mapped from `{value, label}` to SlashCommand shape).
   const displayCommands = useMemo<SlashCommand[]>(() => {
@@ -141,9 +149,21 @@ export const SlashCommandPopup = forwardRef<
           );
           return true;
         }
-        if (e.key === 'Enter' || e.key === 'Tab') {
+        if (e.key === 'Enter') {
+          // Enter: dispatch/send the highlighted command (v1.0 behavior).
           e.preventDefault();
           onSelect('/' + selectedValue);
+          return true;
+        }
+        if (e.key === 'Tab') {
+          // Tab: insert the highlighted command into the textarea with a
+          // trailing space (so the user can keep typing args). v1.1 polish —
+          // previously Tab was treated identically to Enter, which was
+          // confusing because users expected Tab to "fill in" the command
+          // (like shell completion) and then let them review/edit before
+          // pressing Enter to actually send.
+          e.preventDefault();
+          (onInsert ?? onSelect)('/' + selectedValue);
           return true;
         }
         if (e.key === 'Escape') {
@@ -154,7 +174,7 @@ export const SlashCommandPopup = forwardRef<
         return false;
       },
     }),
-    [filtered, selectedValue, onSelect, onClose]
+    [filtered, selectedValue, onSelect, onInsert, onClose]
   );
 
   // IME z-index known issue (D-13..D-15, accepted as platform limitation):

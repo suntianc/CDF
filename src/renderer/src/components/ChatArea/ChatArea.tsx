@@ -707,6 +707,17 @@ export function ChatArea({
     }
   };
 
+  // v1.1 polish: Tab key on the popup inserts the command text into the
+  // textarea (with a trailing space) instead of dispatching. Lets the user
+  // review/edit and add args before pressing Enter to actually send.
+  // Mirrors handleSlashSelect's "no plan" branch — the popup has already
+  // closed by the time this runs, so the textarea retains focus and the
+  // caret lands after the inserted text.
+  const handleSlashInsert = (cmd: string) => {
+    setInputVal(cmd + ' ');
+    setSlashOpen(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
     if (slashOpen) {
@@ -878,6 +889,7 @@ export function ChatArea({
                   ref={slashRef}
                   query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
                   onSelect={handleSlashSelect}
+                  onInsert={handleSlashInsert}
                   onClose={() => setSlashOpen(false)}
                   commands={registry.commands}
                   hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
@@ -1220,6 +1232,7 @@ export function ChatArea({
                   ref={slashRef}
                   query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
                   onSelect={handleSlashSelect}
+                  onInsert={handleSlashInsert}
                   onClose={() => setSlashOpen(false)}
                   commands={registry.commands}
                   hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
