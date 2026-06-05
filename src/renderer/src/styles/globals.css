@@ -177,7 +177,16 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: none;
   border: none;
   outline: none;
-  color: var(--text-primary);
+  /* HOTFIX 2026-06-05: changed from `color: var(--text-primary)` to
+     `color: inherit` so that the Tailwind `text-transparent` utility
+     (used by Phase 08.1's overlay-rendering textarea in ChatArea.tsx:865)
+     is no longer overridden by the .dialog-input rule that comes later
+     in globals.css. The previous `color: var(--text-primary)` won the
+     same-specificity tie-breaker and kept the textarea text visible
+     underneath the SlashToken overlay. `inherit` lets the parent's
+     color flow through; textareas without an explicit `text-transparent`
+     utility still render with the parent color via the body. */
+  color: inherit;
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.6;

@@ -29,6 +29,15 @@
 //   - `data-testid` defaults to 'slash-token' and accepts an override
 //     for compositional test selectors (SPEC R1).
 //   - `data-slash-token=""` semantic marker for the overlay in Plan 03.
+//   - **HOTFIX 2026-06-05:** `minWidth: ${name.length + 1}ch` (ch unit
+//     inherited from the parent textarea's font) makes the pill's
+//     visual width exactly equal to the text it replaces
+//     (`/goal` = 5 chars in textarea's font). The textarea caret at the
+//     end of `inputVal` now lands at the right edge of the pill + the
+//     trailing space, NOT inside the pill. `font-size: inherit` keeps
+//     the ch unit consistent with the textarea so the calculation
+//     stays accurate across both textareas (welcome 15px, composer
+//     14px).
 //
 // This is a pure presentational component — no state, no useEffect, no
 // useRef. All Tailwind utility classes are hardcoded (Phase 8 D-01..D-04
@@ -49,6 +58,11 @@ export interface SlashTokenProps {
 export function SlashToken({ name, source, ...rest }: SlashTokenProps) {
   const Icon = getSlashTokenIcon(source);
   const testId = rest['data-testid'] ?? 'slash-token';
+  // The pill replaces the literal `/<name>` text in the textarea. The
+  // `ch` unit is based on the current element's font — by inheriting
+  // font-size from the parent (textarea wrapper), `1ch` matches the
+  // textarea's per-character width. `+1` accounts for the leading `/`.
+  const pillMinWidthCh = name.length + 1;
 
   return (
     <span
@@ -56,11 +70,12 @@ export function SlashToken({ name, source, ...rest }: SlashTokenProps) {
       data-slash-token=""
       contentEditable={false}
       onMouseDown={(e) => e.preventDefault()}
+      style={{ minWidth: `${pillMinWidthCh}ch`, fontSize: 'inherit' }}
       className={cn(
         'inline-flex items-center gap-1 align-middle',
         'rounded-full px-1.5 py-0.5',
         'bg-[var(--color-bg-active)] border border-[var(--color-border)]',
-        'text-[11px] font-medium text-[var(--color-text-primary)]',
+        'font-medium text-[var(--color-text-primary)]',
         'select-none whitespace-nowrap',
         'mx-0.5',
         'pointer-events-auto'
