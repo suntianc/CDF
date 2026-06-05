@@ -19,6 +19,7 @@ import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 import { SlashToken } from '@/components/SlashCommand/SlashToken';
 import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
+import { cn } from '@/lib/utils';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -860,9 +861,28 @@ export function ChatArea({
                 composer textarea are both in the DOM on the welcome screen. */}
             <Popover open={slashOpen && !activeSessionId} onOpenChange={setSlashOpen} modal={false}>
               <PopoverAnchor asChild>
-                <div className="relative w-full z-0">
+                {/* HOTFIX 2026-06-05: `style={{ fontSize: '15px' }}` on the
+                    wrapper ensures the SlashToken (child of overlay, which
+                    is child of this wrapper) inherits the same 15px font
+                    that the welcome textarea uses. The `ch` unit in
+                    SlashToken's `min-width` then matches the textarea's
+                    per-character width so the cursor lands at the right
+                    edge of the pill, not inside it. Matches the design
+                    intent of the 15px `.dialog-input` font. */}
+                <div className="relative w-full z-0" style={{ fontSize: '15px' }}>
                   <textarea
-                    className="dialog-input animate-fade-in text-transparent caret-[var(--color-text-primary)]"
+                    /* HOTFIX 2026-06-05: `text-transparent` is now
+                       CONDITIONAL on `parsedToken?.token`. Previously it
+                       was always on, which made normal non-slash typing
+                       invisible (the overlay only renders for slash
+                       commands, so plain text had nowhere to display).
+                       Now the textarea shows the typed text by default
+                       and only goes transparent when a slash token is
+                       active and the overlay takes over visually. */
+                    className={cn(
+                      'dialog-input animate-fade-in caret-[var(--color-text-primary)]',
+                      parsedToken?.token && 'text-transparent'
+                    )}
                     placeholder="给 CDF 下达指令，或者问点什么……"
                     rows={1}
                     value={inputVal}
@@ -909,7 +929,7 @@ export function ChatArea({
                   />
                   {parsedToken?.token && (
                     <div
-                      className="absolute inset-0 z-[1] px-3 py-2 pointer-events-none flex items-start text-sm text-[var(--color-text-primary)]"
+                      className="absolute inset-0 z-[1] px-3 py-2 pointer-events-none flex items-start text-[var(--color-text-primary)]"
                       aria-hidden="true"
                       data-testid="slash-overlay-welcome"
                     >
@@ -1165,7 +1185,13 @@ export function ChatArea({
               <PopoverAnchor asChild>
                 <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
-                  <div className="relative w-full z-0">
+                  {/* HOTFIX 2026-06-05: `style={{ fontSize: '14px' }}` on the
+                      wrapper ensures the SlashToken inherits the same 14px
+                      font that the composer's textarea uses. The `ch` unit
+                      in SlashToken's `min-width` then matches the textarea's
+                      per-character width so the cursor lands at the right
+                      edge of the pill, not inside it. */}
+                  <div className="relative w-full z-0" style={{ fontSize: '14px' }}>
                     <textarea
                       ref={textareaRef}
                       value={inputVal}
@@ -1181,11 +1207,20 @@ export function ChatArea({
                       onKeyDown={handleKeyDown}
                       placeholder="给 Master Agent 发送消息..."
                       rows={2}
-                      className="w-full bg-transparent text-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
+                      /* HOTFIX 2026-06-05: `text-transparent` is now
+                         CONDITIONAL on `parsedToken?.token`. Previously it
+                         was always on, which made normal non-slash typing
+                         invisible. Now the textarea shows typed text by
+                         default and only goes transparent when a slash
+                         token is active. */
+                      className={cn(
+                        'w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1',
+                        parsedToken?.token && 'text-transparent'
+                      )}
                     />
                     {parsedToken?.token && (
                       <div
-                        className="absolute inset-0 z-[1] px-0 py-1 pointer-events-none flex items-start text-sm text-[var(--color-text-primary)]"
+                        className="absolute inset-0 z-[1] px-0 py-1 pointer-events-none flex items-start text-[var(--color-text-primary)]"
                         aria-hidden="true"
                         data-testid="slash-overlay-composer"
                       >
