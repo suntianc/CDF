@@ -23,8 +23,12 @@ import { SlashToken } from './SlashToken';
 // (or future maintainer) might swap in.
 vi.mock('lucide-react', () => {
   const sentinel = (testId: string) => {
-    const Cmp = (props: { className?: string; 'aria-hidden'?: boolean | string }) => (
-      <svg data-testid={testId} className={props.className} aria-hidden={props['aria-hidden']} />
+    // Type as ComponentType to bypass the strict SVGProps type check —
+    // the mock intentionally has a narrower prop surface than a real
+    // lucide icon, and the wider SVGProps would reject `className`
+    // coming through as a non-SVGAttribute value.
+    const Cmp = (props: { className?: string; 'aria-hidden'?: boolean | string } & Record<string, unknown>) => (
+      <svg data-testid={testId} {...(props as React.SVGAttributes<SVGElement>)} />
     );
     Cmp.displayName = `MockIcon(${testId})`;
     return Cmp;
