@@ -73,15 +73,23 @@ export const SlashCommandPopup = forwardRef<
   // Phase 6: when `commands` prop is provided, use it. Otherwise fall back to
   // the Phase 5 SYSTEM_COMMANDS (mapped from `{value, label}` to SlashCommand shape).
   const displayCommands = useMemo<SlashCommand[]>(() => {
-    if (commands && commands.length > 0) return commands;
-    return SYSTEM_COMMANDS.map((c) => ({
-      name: c.value.replace(/^\//, ''),
-      description: '',
-      source: 'system' as const,
-      target: c.value.replace(/^\//, ''),
-      sourceLabel: 'system',
-      badge: '[system]',
-    }));
+    let base: SlashCommand[];
+    if (commands && commands.length > 0) {
+      base = commands;
+    } else {
+      base = SYSTEM_COMMANDS.map((c) => ({
+        name: c.value.replace(/^\//, ''),
+        description: '',
+        source: 'system' as const,
+        target: c.value.replace(/^\//, ''),
+        sourceLabel: 'system',
+        badge: '[system]',
+      }));
+    }
+    // 08.2 D-09: filter out commands declared as non-invocable by users
+    // (frontmatter `user-invocable: false`). Missing frontmatter defaults
+    // to invocable (true) per D-10.
+    return base.filter((c) => c.frontmatter?.userInvocable !== false);
   }, [commands]);
 
   // Phase 8 — D-06: pre-normalize every command name into a Map so the
