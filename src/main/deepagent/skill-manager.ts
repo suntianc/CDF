@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { listSkills, type FilesystemPermission } from 'deepagents';
+import type { ParsedFrontmatter } from '../../shared/types';
 
 type SkillScope = 'global' | 'project';
 
@@ -18,6 +19,9 @@ interface PhysicalSkillView {
   resourceFiles: string[];
   created_at: number;
   updated_at: number;
+  /** 08.2 P4 D-09: pre-parsed frontmatter; consumers can read
+   *  `frontmatter.disableModelInvocation` to gate LLM exposure. */
+  frontmatter?: ParsedFrontmatter;
 }
 
 function ensureDir(targetDir: string): void {
@@ -26,7 +30,21 @@ function ensureDir(targetDir: string): void {
   }
 }
 
-function parseFrontmatter(filePath: string): Record<string, string> {
+/**
+ * Parse the YAML frontmatter from a skill's SKILL.md. 08.2 P4 D-09 extends
+ * the legacy hand-rolled parser to also pick up the 4 Claude Code-aligned
+ * fields. Returns a partial `ParsedFrontmatter` (camelCase keys) — consumers
+ * apply D-10 defaults themselves.
+ *
+ * We intentionally keep the simple hand-rolled parser here (vs pulling in
+ * `yaml@2.9.0`) because:
+ *   1. The skill frontmatter is human-authored and tiny (typically 3-5 lines).
+ *   2. Boolean values default to undefined when absent (matches D-10: "absence
+ *      means false"); we don't need YAML's typed coercion.
+ *   3. Avoids a transitive dep edge from a `deepagent/*` file to project-commands
+ *      which is currently in the slash-command subsystem.
+ */
+function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {
   if (!fs.existsSync(filePath)) return {};
   const content = fs.readFileSync(filePath, 'utf-8');
   if (!content.startsWith('---\n')) return {};
@@ -34,14 +52,34 @@ function parseFrontmatter(filePath: string): Record<string, string> {
   const end = content.indexOf('\n---', 4);
   if (end === -1) return {};
 
-  const frontmatter = content.slice(4, end).split('\n');
+  const lines = content.slice(4, end).split('\n');
   const result: Record<string, string> = {};
-  for (const line of frontmatter) {
+  for (const line of lines) {
     const [rawKey, ...rawValue] = line.split(':');
     if (!rawKey || rawValue.length === 0) continue;
     result[rawKey.trim()] = rawValue.join(':').trim();
   }
-  return result;
+
+  // 08.2 P4 D-09: parse the 4 Claude Code-aligned fields (kebab-case → camelCase).
+  // Booleans are recognized by literal "true" / "false" — absence leaves the
+  // field undefined so the D-10 default ("absence means false") applies downstream.
+  const disableRaw = result['disable-model-invocation'];
+  const userInvocableRaw = result['user-invocable'];
+  const result_: ParsedFrontmatter & { name?: string; description?: string } = {
+    name: result['name'],
+    description: result['description'],
+    disableModelInvocation:
+      disableRaw === 'true' ? true : disableRaw === 'false' ? false : undefined,
+    userInvocable:
+      userInvocableRaw === 'true' ? true : userInvocableRaw === 'false' ? false : undefined,
+    whenToUse: result['when_to_use'] || '',
+  };
+  return result_;
+}
+
+/** 08.2 P4 D-09: does this skill's SKILL.md mark `disable-model-invocation: true`? */
+function isSkillDisabledFromLLM(skillDir: string): boolean {
+  return parseFrontmatter(path.join(skillDir, 'SKILL.md')).disableModelInvocation === true;
 }
 
 function getSkillDir(projectPath: string, scope: SkillScope, skillName: string): string {
@@ -64,16 +102,31 @@ function buildSkillMarkdown(skill: PhysicalSkillInput): string {
 function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillName: string): PhysicalSkillView {
   const skillDir = getSkillDir(projectPath, scope, skillName);
   const stat = fs.statSync(skillDir);
-  const frontmatter = parseFrontmatter(path.join(skillDir, 'SKILL.md'));
+  const fm = parseFrontmatter(path.join(skillDir, 'SKILL.md'));
+
+  // 08.2 P4 D-09: append `when_to_use` text to the description so the LLM
+  // can self-judge when to auto-trigger the skill (Claude Code behavior).
+  // The joined text is also what the UI popup shows; the `frontmatter`
+  // field preserves the raw `whenToUse` for consumers that need to split.
+  const baseDescription = fm.description || '';
+  const whenToUse = (fm.whenToUse || '').trim();
+  const description = whenToUse
+    ? `${baseDescription}\n\n何时使用：${whenToUse}`
+    : baseDescription;
 
   return {
     id: `${scope}:${skillName}`,
-    name: frontmatter.name || skillName,
-    description: frontmatter.description || '',
+    name: fm.name || skillName,
+    description,
     scope,
     resourceFiles: listResourceFiles(skillDir),
     created_at: stat.birthtimeMs || stat.ctimeMs,
     updated_at: stat.mtimeMs,
+    frontmatter: {
+      disableModelInvocation: fm.disableModelInvocation,
+      userInvocable: fm.userInvocable,
+      whenToUse: fm.whenToUse,
+    },
   };
 }
 
@@ -165,8 +218,51 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
     sources.push(globalSkillsDir);
   }
 
+  // 08.2 P4 D-09 disable-model-invocation enforcement: filter the LLM-visible
+  // sources so deepagents never sees a skill marked disable-model-invocation: true.
+  // We rewrite the per-skill entries to either keep the parent dir (when no skill
+  // inside it is disabled) or expand the dir into a list of individual skill
+  // subdirectories that are NOT disabled. Walk sources and replace any directory
+  // that contains a disabled skill.
+  const filtered: string[] = [];
+  for (const src of sources) {
+    if (!fs.existsSync(src)) continue;
+    const stat = fs.statSync(src);
+    if (!stat.isDirectory()) {
+      filtered.push(src);
+      continue;
+    }
+    // Check if src is a "skills dir" (i.e. lists sibling skill subdirectories)
+    // vs an "individual skill dir" (contains a SKILL.md). An individual skill
+    // dir never has disabled siblings to filter, so just push it.
+    const hasSkillMd = fs.existsSync(path.join(src, 'SKILL.md'));
+    if (hasSkillMd) {
+      filtered.push(src);
+      continue;
+    }
+    // Skills dir: keep only skill subdirs whose SKILL.md is NOT disable-model-invocation: true
+    const keep: string[] = [];
+    let allKept = true;
+    for (const entry of fs.readdirSync(src)) {
+      const entryPath = path.join(src, entry);
+      if (!fs.statSync(entryPath).isDirectory()) continue;
+      if (isSkillDisabledFromLLM(entryPath)) {
+        allKept = false;
+        continue;
+      }
+      keep.push(entryPath);
+    }
+    if (allKept) {
+      // No disabled skills found — keep the original directory entry (cheaper
+      // for deepagents to enumerate, and matches the pre-08.2 behavior).
+      filtered.push(src);
+    } else {
+      filtered.push(...keep);
+    }
+  }
+
   return {
-    skillsSources: sources,
+    skillsSources: filtered,
     permissions: [
       { operations: ['read', 'write'] as const, paths: [path.join(projectPath, '*'), path.join(projectPath, '**', '*')] },
     ],

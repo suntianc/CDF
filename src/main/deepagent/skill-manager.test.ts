@@ -74,4 +74,64 @@ describe('skill-manager', () => {
     expect(paths).toContain(path.join(tempProjectPath, '*'));
     expect(paths).toContain(path.join(tempProjectPath, '**', '*'));
   });
+
+  // ===== 08.2 P4 D-09: disable-model-invocation + whenToUse enforcement =====
+
+  it('resolveAgentSkillsConfig: skills with disable-model-invocation: true are filtered out (D-09)', () => {
+    // Create two skills in project .cdf/skills: one disabled, one enabled
+    const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
+    fs.mkdirSync(path.join(skillsDir, 'enabled-skill'), { recursive: true });
+    fs.mkdirSync(path.join(skillsDir, 'secret-skill'), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillsDir, 'enabled-skill', 'SKILL.md'),
+      '---\nname: enabled-skill\ndescription: A normal skill\n---\n'
+    );
+    fs.writeFileSync(
+      path.join(skillsDir, 'secret-skill', 'SKILL.md'),
+      '---\nname: secret-skill\ndescription: A secret skill\ndisable-model-invocation: true\n---\n'
+    );
+
+    const config = resolveAgentSkillsConfig(tempProjectPath);
+    const enabledPath = path.join(skillsDir, 'enabled-skill');
+    const secretPath = path.join(skillsDir, 'secret-skill');
+
+    expect(config.skillsSources).toContain(enabledPath);
+    expect(config.skillsSources).not.toContain(secretPath);
+  });
+
+  it('resolveAgentSkillsConfig: skills with disable-model-invocation absent or false are kept (D-10 default)', () => {
+    const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
+    fs.mkdirSync(path.join(skillsDir, 'no-frontmatter-skill'), { recursive: true });
+    fs.mkdirSync(path.join(skillsDir, 'explicitly-enabled-skill'), { recursive: true });
+    // No frontmatter at all — D-10 default: not disabled
+    fs.writeFileSync(
+      path.join(skillsDir, 'no-frontmatter-skill', 'SKILL.md'),
+      '# Just a body, no frontmatter'
+    );
+    // Explicit disable-model-invocation: false
+    fs.writeFileSync(
+      path.join(skillsDir, 'explicitly-enabled-skill', 'SKILL.md'),
+      '---\nname: explicitly-enabled-skill\ndescription: ok\ndisable-model-invocation: false\n---\n'
+    );
+
+    const config = resolveAgentSkillsConfig(tempProjectPath);
+    // When no skill is disabled, the parent skills dir is kept (no expansion).
+    expect(config.skillsSources).toContain(skillsDir);
+  });
+
+  it('listPhysicalSkills: whenToUse is appended to description in the returned view', () => {
+    const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
+    fs.mkdirSync(path.join(skillsDir, 'hinted-skill'), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillsDir, 'hinted-skill', 'SKILL.md'),
+      '---\nname: hinted-skill\ndescription: A skill with a hint\nwhen_to_use: 当用户提到 cookie 时调用\n---\n'
+    );
+
+    const skills = listPhysicalSkills(tempProjectPath);
+    const hinted = skills.find((s) => s.name === 'hinted-skill');
+    expect(hinted).toBeTruthy();
+    expect(hinted?.description).toContain('A skill with a hint');
+    expect(hinted?.description).toContain('何时使用：当用户提到 cookie 时调用');
+    expect(hinted?.frontmatter?.whenToUse).toBe('当用户提到 cookie 时调用');
+  });
 });
