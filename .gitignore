@@ -47,3 +47,6 @@ electron-log-*
 # CodeGraph MCP — per-machine daemon runtime state (db, pid, log, sock, cache)
 # These files are managed locally by the codegraph daemon and must never be committed.
 .codegraph/
+
+# Playwright MCP runtime artifacts
+.playwright-mcp/
