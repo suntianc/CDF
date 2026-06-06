@@ -25,6 +25,11 @@ export const SYSTEM_COMMANDS: ReadonlyArray<SlashCommand> = [
     target: 'context',
     sourceLabel: 'system',
     badge: '[system]',
+    // 08.2 polish: <ContextButton> 📊 in the composer is the primary
+    // entry; the slash popup would be a duplicate of the same affordance.
+    // Slash input `/context` still dispatches via the dispatcher for
+    // users who prefer the keyboard path.
+    hideFromPopup: true,
   },
   {
     name: 'plan',

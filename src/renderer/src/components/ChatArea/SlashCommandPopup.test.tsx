@@ -959,4 +959,51 @@ describe('Phase 8 polish', () => {
     // hidden-cmd must NOT be rendered
     expect(screen.queryByText('/hidden-cmd')).toBeNull();
   });
+
+  // ===== 08.2 polish: hideFromPopup: true omits the command from the popup
+  //       (used for /context because <ContextButton> 📊 is the primary
+  //       entry). Slash input still dispatches via the dispatcher; this
+  //       filter only affects popup visibility.
+  it('filters out commands with hideFromPopup === true (08.2 polish)', () => {
+    const all: import('../../../../shared/types').SlashCommand[] = [
+      // Visible: hideFromPopup undefined / false
+      {
+        name: 'goal',
+        description: '设置 session 目标',
+        source: 'system',
+        target: 'goal',
+        sourceLabel: 'system',
+        badge: '[system]',
+      },
+      {
+        name: 'plan',
+        description: '进入 plan 模式',
+        source: 'system',
+        target: 'plan',
+        sourceLabel: 'system',
+        badge: '[system]',
+      },
+      // Hidden: hideFromPopup: true (system command with a persistent button)
+      {
+        name: 'context',
+        description: '查看 session token 用量',
+        source: 'system',
+        target: 'context',
+        sourceLabel: 'system',
+        badge: '[system]',
+        hideFromPopup: true,
+      },
+    ];
+    render(<TestHarness commands={all} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+    });
+
+    // /goal and /plan are visible
+    expect(screen.getByText('/goal')).toBeTruthy();
+    expect(screen.getByText('/plan')).toBeTruthy();
+    // /context must NOT be in the popup (ContextButton 📊 is the primary entry)
+    expect(screen.queryByText('/context')).toBeNull();
+  });
 });

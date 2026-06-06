@@ -170,6 +170,11 @@ export interface SlashCommand {
   bodyPath?: string;
   /** D-07: parsed frontmatter object; absent for system-hardcoded commands. */
   frontmatter?: ParsedFrontmatter;
+  /** 08.2 polish: when true, the command is omitted from the `/` popup
+   *  rendering — typically because a persistent UI affordance (e.g. the
+   *  ContextButton 📊) already exposes the same action. Slash input
+   *  (`/cmd …`) still dispatches via the dispatcher. Default: false. */
+  hideFromPopup?: boolean;
 }
 
 /** D-07 / D-10: typed frontmatter fields supported in custom command `.md` files.

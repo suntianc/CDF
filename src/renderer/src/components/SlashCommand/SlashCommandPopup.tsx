@@ -89,7 +89,13 @@ export const SlashCommandPopup = forwardRef<
     // 08.2 D-09: filter out commands declared as non-invocable by users
     // (frontmatter `user-invocable: false`). Missing frontmatter defaults
     // to invocable (true) per D-10.
-    return base.filter((c) => c.frontmatter?.userInvocable !== false);
+    // 08.2 polish: also filter out commands that opted into `hideFromPopup`
+    // (system commands whose primary entry is a persistent UI button, e.g.
+    // `<ContextButton>` for /context). Slash input still dispatches via the
+    // dispatcher; this only affects popup visibility.
+    return base.filter(
+      (c) => c.frontmatter?.userInvocable !== false && !c.hideFromPopup
+    );
   }, [commands]);
 
   // Phase 8 — D-06: pre-normalize every command name into a Map so the
