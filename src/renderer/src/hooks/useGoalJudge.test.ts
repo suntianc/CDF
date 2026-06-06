@@ -334,4 +334,41 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
     expect(failedCall).toBeTruthy();
     expect(failedCall![1].reason).toMatch(/^judge 失败：/);
   });
+
+  it('G: judge prompt includes summarized tool results and truncates large output', async () => {
+    const hugeOutput = 'x'.repeat(5_000);
+    mockState.messages = [
+      { role: 'user', content: '实现功能' },
+      { role: 'assistant', content: '<think>准备读文件</think>' },
+      {
+        role: 'system',
+        content: JSON.stringify({
+          type: 'tool',
+          name: 'read_file',
+          status: 'success',
+          input: { path: '/src/App.tsx' },
+          output: hugeOutput,
+        }),
+      },
+      { role: 'assistant', content: '已经完成修改' },
+    ];
+
+    await startFresh('确认功能完成');
+    mockState.isStreaming = true;
+    fireStateChange();
+    mockState.isStreaming = false;
+    fireStateChange();
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const judgePayload = judgeChatMock.mock.calls[0][1];
+    const prompt: string = judgePayload?.message?.content ?? '';
+    expect(prompt).toContain('[tool] name=read_file status=success');
+    expect(prompt).toContain('input={"path":"/src/App.tsx"}');
+    expect(prompt).toContain('output=' + 'x'.repeat(220) + '...');
+    expect(prompt).not.toContain(hugeOutput);
+  });
 });

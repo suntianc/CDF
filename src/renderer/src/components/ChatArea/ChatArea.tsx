@@ -57,14 +57,17 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
                 />
               );
             }
-            return (
-              <MessageItem
-                key={item.id}
-                message={item.message}
-                isLast={false}
-                isStreaming={false}
-              />
-            );
+            if (item.type === 'message' && item.message) {
+              return (
+                <MessageItem
+                  key={item.id}
+                  message={item.message}
+                  isLast={false}
+                  isStreaming={false}
+                />
+              );
+            }
+            return null;
           })}
         </div>
       )}
@@ -1125,14 +1128,17 @@ export function ChatArea({
                   />
                 );
               }
-              return (
-                <MessageItem
-                  key={item.id}
-                  message={item.message}
-                  isLast={idx === processedItems.length - 1}
-                  isStreaming={isStreaming}
-                />
-              );
+              if (item.type === 'message' && item.message) {
+                return (
+                  <MessageItem
+                    key={item.id}
+                    message={item.message}
+                    isLast={idx === processedItems.length - 1}
+                    isStreaming={isStreaming}
+                  />
+                );
+              }
+              return null;
             })}
 
             {/* Typing Indicator while streaming empty block */}

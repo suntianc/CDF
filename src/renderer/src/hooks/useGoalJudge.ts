@@ -92,13 +92,55 @@ function stripThinkBlocks(raw: string): string {
     .trim();
 }
 
-/** Render the last N user/assistant messages into a short transcript for the judge. */
+function truncateForJudge(value: unknown, maxLength = 300): string {
+  let text = '';
+  if (typeof value === 'string') {
+    text = value;
+  } else if (value !== null && value !== undefined) {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+  }
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function renderToolSummary(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (!parsed || parsed.type !== 'tool') return null;
+    const parts = [
+      `name=${parsed.name || 'unknown'}`,
+      `status=${parsed.status || 'unknown'}`,
+    ];
+    const input = truncateForJudge(parsed.input, 160);
+    const output = truncateForJudge(parsed.output, 220);
+    const error = truncateForJudge(parsed.error, 220);
+    if (input) parts.push(`input=${input}`);
+    if (output) parts.push(`output=${output}`);
+    if (error) parts.push(`error=${error}`);
+    return `[tool] ${parts.join(' ')}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Render the last N user/assistant/tool messages into a short transcript for the judge. */
 function renderRecentTurns(messages: ReadonlyArray<{ role: string; content: string }>): string {
   const transcript = messages
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .filter((m) => m.content && m.content.trim().length > 0)
-    .slice(-JUDGE_CONTEXT_TURNS * 2) // user+assistant pairs
-    .map((m) => `[${m.role}] ${m.content.slice(0, 500)}`)
+    .map((m) => {
+      if (!m.content || !m.content.trim()) return null;
+      if (m.role === 'user' || m.role === 'assistant') {
+        return `[${m.role}] ${truncateForJudge(m.content, 500)}`;
+      }
+      if (m.role === 'system') {
+        return renderToolSummary(m.content);
+      }
+      return null;
+    })
+    .filter((line): line is string => Boolean(line))
+    .slice(-JUDGE_CONTEXT_TURNS * 3) // user + assistant + summarized tools
     .join('\n');
   return transcript || '(no prior turns)';
 }
