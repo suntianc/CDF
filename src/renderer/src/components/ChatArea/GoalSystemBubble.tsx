@@ -105,14 +105,9 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
 export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
   const { status, iteration, startedAt, reason, goal } = useGoalJudgeStatus(sessionId);
 
-  // No goal, no bubble
-  if (!status || !goal) {
-    return null;
-  }
-
-  const state = BUBBLE_STATES[status];
+  const state = status ? BUBBLE_STATES[status] : null;
   // 「工作中」states need a ticking clock; others freeze at the final value.
-  const isWorking = WORKING_STATUSES.has(status);
+  const isWorking = status ? WORKING_STATUSES.has(status) : false;
   const [tickElapsed, setTickElapsed] = useState<number>(() =>
     startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   );
@@ -138,6 +133,10 @@ export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
     mql.addEventListener('change', handler);
     return () => mql.removeEventListener('change', handler);
   }, []);
+
+  if (!status || !goal || !state) {
+    return null;
+  }
 
   const animatePulse = state.pulse && !prefersReducedMotion;
   const copy = state.copy(goal, iteration, tickElapsed, reason);

@@ -33,6 +33,8 @@ export interface DelegatedTask {
   goal: string;
   status: 'running' | 'success' | 'failure';
   chunks: string[];
+  startedAt?: number;
+  completedAt?: number;
   result?: {
     status: 'success' | 'failure';
     artifacts: string[];
@@ -81,6 +83,7 @@ interface SessionState {
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => Promise<void>;
+  getMessagesForSession: (sessionId: string) => Message[];
   setSessionGoal: (sessionId: string, goal: string) => void;
   setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => void;
   getGoalJudgeStatus: (sessionId: string) => GoalJudgeStatusEntry | undefined;
@@ -409,10 +412,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  getMessagesForSession: (sessionId: string) => {
+    if (get().activeSessionId === sessionId) return get().messages;
+    return streamingSessionsCache.get(sessionId)?.messages ?? [];
+  },
+
+
   sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => {
     const { activeSessionId, isStreaming, sessions } = get();
     if (!activeSessionId || isStreaming) return;
-    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    const sessionId = activeSessionId;
+    const activeSession = sessions.find((session) => session.id === sessionId);
 
     // Clear old todos immediately to prevent stale data flashing
     set({ todos: [] });
@@ -421,7 +431,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const userTokens = estimateTokens(content);
     const userMsg: Message = {
       id: userMsgId,
-      session_id: activeSessionId,
+      session_id: sessionId,
       role: 'user',
       content,
       tokens: userTokens,
@@ -436,15 +446,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const assistantMsgId = window.crypto.randomUUID();
       const assistantMsgPlaceholder: Message = {
         id: assistantMsgId,
-        session_id: activeSessionId,
+        session_id: sessionId,
         role: 'assistant',
         content: '',
         tokens: 0,
         created_at: Date.now(),
       };
 
+      const baseMessages = get().getMessagesForSession(sessionId);
       const initialState: StreamingSessionState = {
-        messages: [...get().messages, userMsg, assistantMsgPlaceholder],
+        messages: [...baseMessages, userMsg, assistantMsgPlaceholder],
         todos: [],
         delegatedTasks: [],
         agentRuns: [],
@@ -455,9 +466,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         streamingMessageId: assistantMsgId,
       };
 
-      streamingSessionsCache.set(activeSessionId, initialState);
+      streamingSessionsCache.set(sessionId, initialState);
 
-      set(initialState);
+      if (activeSessionId === sessionId) {
+        set(initialState);
+      }
 
       let accumulatedContent = '';
       let cleanup = () => {};
@@ -465,8 +478,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       let currentAssistantMsgId = assistantMsgId;
 
       const streamPromise = new Promise<void>((resolve, reject) => {
-        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event, data: LLMStreamEvent) => {
-          const cached = streamingSessionsCache.get(activeSessionId);
+        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event: unknown, data: LLMStreamEvent) => {
+          const cached = streamingSessionsCache.get(sessionId);
           if (!cached) return;
 
           if (data.type === 'todos_update') {
@@ -478,7 +491,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             cached.agentRuns = [
               {
                 id: data.runId,
-                session_id: activeSessionId,
+                session_id: sessionId,
                 agent_id: data.agentId,
                 request_id: assistantMsgId,
                 status: data.status,
@@ -507,7 +520,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
           else if (data.type === 'delegated_task_start') {
             const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat' && get().activeSessionId === activeSessionId) {
+            if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
               projectStore.setTaskPanelOpen(true);
             }
             cached.delegatedTasks = [
@@ -551,7 +564,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             if (!hasMsg) {
               const newPlaceholder: Message = {
                 id: currentAssistantMsgId,
-                session_id: activeSessionId,
+                session_id: sessionId,
                 role: 'assistant',
                 content: '',
                 tokens: 0,
@@ -561,6 +574,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             }
 
             accumulatedContent += data.text;
+            if (overrides?.planOnly) {
+              void import('./planPopupStore').then(({ usePlanPopupStore }) => {
+                usePlanPopupStore.getState().appendChunk(data.text);
+              });
+            }
             cached.messages = cached.messages.map((m) =>
               m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
             );
@@ -568,21 +586,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
           else if (data.type === 'tool_start') {
             const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat' && get().activeSessionId === activeSessionId) {
+            if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
               projectStore.setTaskPanelOpen(true);
             }
             // 1. 如果上一段助手有说话，将其持久化写入 SQLite
             if (accumulatedContent.trim()) {
               const prevMsg = {
                 id: currentAssistantMsgId,
-                session_id: activeSessionId,
+                session_id: sessionId,
                 role: 'assistant' as const,
                 content: accumulatedContent,
                 tokens: estimateTokens(accumulatedContent),
               };
-              window.electronAPI.db.saveMessage(prevMsg).catch((err) => {
+              window.electronAPI.db.saveMessage(prevMsg).catch((err: unknown) => {
                 console.error('Failed to save intermediate assistant message:', err);
-                if (get().activeSessionId === activeSessionId) {
+                if (get().activeSessionId === sessionId) {
                   set({ error: '消息保存失败，对话历史可能不完整' });
                 }
               });
@@ -605,7 +623,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
             const toolMsg: Message = {
               id: toolMessageId,
-              session_id: activeSessionId,
+              session_id: sessionId,
               role: 'system',
               content: JSON.stringify(toolMsgContent),
               created_at: Date.now(),
@@ -643,7 +661,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 ];
               }
 
-              window.electronAPI.db.saveMessage(toolMsg).catch((err) => {
+              window.electronAPI.db.saveMessage(toolMsg).catch((err: unknown) => {
                 console.error('Failed to save tool start message:', err);
               });
             }
@@ -726,14 +744,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
               const savedMsg = {
                 id: toolMessageId,
-                session_id: activeSessionId,
+                session_id: sessionId,
                 role: 'system' as const,
                 content: updatedContent,
                 created_at: currentMsg?.created_at || Date.now(),
                 tokens: 0,
               };
 
-              window.electronAPI.db.saveMessage(savedMsg).catch((err) => {
+              window.electronAPI.db.saveMessage(savedMsg).catch((err: unknown) => {
                 console.error('Failed to save tool output to db:', err);
               });
             }
@@ -746,7 +764,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 const assistantTokens = estimateTokens(accumulatedContent);
                 const finalAssistantMsg = {
                   id: currentAssistantMsgId,
-                  session_id: activeSessionId,
+                  session_id: sessionId,
                   role: 'assistant' as const,
                   content: accumulatedContent,
                   tokens: assistantTokens,
@@ -766,7 +784,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               cached.streamingMessageId = null;
               cached.pendingApproval = null;
 
-              if (get().activeSessionId === activeSessionId) {
+              if (get().activeSessionId === sessionId) {
                 set({
                   messages: cached.messages,
                   isStreaming: false,
@@ -779,7 +797,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   activeRunId: cached.activeRunId,
                 });
               }
-              streamingSessionsCache.delete(activeSessionId);
+              streamingSessionsCache.delete(sessionId);
               resolve();
             } catch (err: any) {
               console.error('Failed to save message or complete stream:', err);
@@ -788,7 +806,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               cached.streamingMessageId = null;
               cached.pendingApproval = null;
 
-              if (get().activeSessionId === activeSessionId) {
+              if (get().activeSessionId === sessionId) {
                 set({
                   messages: cached.messages,
                   isStreaming: false,
@@ -797,7 +815,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   error: err.message || '保存回复消息失败',
                 });
               }
-              streamingSessionsCache.delete(activeSessionId);
+              streamingSessionsCache.delete(sessionId);
               reject(err);
             }
             return;
@@ -813,7 +831,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             cached.streamingMessageId = null;
             cached.pendingApproval = null;
 
-            if (get().activeSessionId === activeSessionId) {
+            if (get().activeSessionId === sessionId) {
               set({
                 messages: cached.messages,
                 isStreaming: false,
@@ -822,13 +840,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 error: data.error || '对话请求出错',
               });
             }
-            streamingSessionsCache.delete(activeSessionId);
+            streamingSessionsCache.delete(sessionId);
             reject(new Error(data.error || '对话请求出错'));
             return;
           }
 
           // Sync with Zustand if currently active
-          if (get().activeSessionId === activeSessionId) {
+          if (get().activeSessionId === sessionId) {
             set({
               messages: cached.messages,
               todos: cached.todos,
@@ -847,7 +865,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       try {
         await window.electronAPI.llm.chat(assistantMsgId, {
           projectId,
-          sessionId: activeSessionId,
+          sessionId,
           agentId: activeSession?.agent_id || undefined,
           message: {
             id: userMsgId,
@@ -861,7 +879,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // 移除未持久化的 assistant 占位和工具消息
         const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
         pendingToolMessages.clear();
-        const cached = streamingSessionsCache.get(activeSessionId);
+        const cached = streamingSessionsCache.get(sessionId);
         if (cached) {
           cached.messages = cached.messages.filter(
             (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
@@ -870,7 +888,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           cached.streamingMessageId = null;
           cached.pendingApproval = null;
         }
-        if (get().activeSessionId === activeSessionId) {
+        if (get().activeSessionId === sessionId) {
           set((state) => ({
             messages: state.messages.filter(
               (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
@@ -881,17 +899,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             error: err.message || '发送消息失败',
           }));
         }
-        streamingSessionsCache.delete(activeSessionId);
+        streamingSessionsCache.delete(sessionId);
       }
     } catch (err: any) {
-      if (get().activeSessionId === activeSessionId) {
+      if (get().activeSessionId === sessionId) {
         set({
           isStreaming: false,
           streamingMessageId: null,
           error: err.message || '发送消息失败',
         });
       }
-      streamingSessionsCache.delete(activeSessionId);
+      streamingSessionsCache.delete(sessionId);
     }
   },
 

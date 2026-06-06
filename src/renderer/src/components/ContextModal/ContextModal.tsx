@@ -82,8 +82,8 @@ interface ContextAggregate {
  * open always shows fresh values (per UI-SPEC.md empty state).
  */
 export function ContextModal() {
-  const isOpen = useContextModalStore((s) => s.isOpen);
-  const close = useContextModalStore((s) => s.close);
+  const isOpen = useContextModalStore((s: ReturnType<typeof useContextModalStore.getState>) => s.isOpen);
+  const close = useContextModalStore((s: ReturnType<typeof useContextModalStore.getState>) => s.close);
   const [data, setData] = useState<ContextAggregate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,17 +114,22 @@ export function ContextModal() {
     const active = useLLMStore.getState().activeProvider;
     const limit = active?.context_limit;
 
+    let cancelled = false;
     window.electronAPI.context
       .currentSession(activeSessionId, limit)
-      .then((payload) => {
-        setData(payload as unknown as ContextAggregate);
+      .then((payload: ContextAggregate) => {
+        if (!cancelled) setData(payload);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const progressBarColor = (() => {
@@ -214,7 +219,7 @@ export function ContextModal() {
   return (
     <Dialog
       open={isOpen}
-      onOpenChange={(open) => {
+      onOpenChange={(open: boolean) => {
         if (!open) close();
       }}
     >

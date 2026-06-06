@@ -27,6 +27,14 @@ import { listProjectCommands } from './commands/project-commands';
 import { ensureProjectWatcher } from './commands/chokidar-watcher';
 import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 
+function stripMarkdownFrontmatter(content: string): string {
+  if (!content.startsWith('---\n')) return content;
+  const end = content.indexOf('\n---', 4);
+  if (end === -1) return content;
+  const bodyStart = end + '\n---'.length;
+  return content.slice(content[bodyStart] === '\n' ? bodyStart + 1 : bodyStart);
+}
+
 const getProviderLabel = (type: string): string => {
   switch (type) {
     case 'openai': return 'OpenAI';
@@ -838,18 +846,25 @@ export function registerIpcHandlers() {
       }
 
       const resolved = path.resolve(bodyPath);
-      const isAllowed = allowedPrefixes.some(
-        (p) => resolved === p || resolved.startsWith(p + path.sep)
+      if (!fs.existsSync(resolved)) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const realResolved = fs.realpathSync(resolved);
+      const realAllowedPrefixes = allowedPrefixes
+        .filter((p) => fs.existsSync(p))
+        .map((p) => fs.realpathSync(p));
+      const isAllowed = realAllowedPrefixes.some(
+        (p) => realResolved === p || realResolved.startsWith(p + path.sep)
       );
       if (!isAllowed) {
         console.warn('[commands:readBody] path not under allowed dir:', bodyPath);
         return { body: '', mtimeMs: 0 };
       }
-      if (!fs.existsSync(resolved)) {
-        return { body: '', mtimeMs: 0 };
-      }
-      const stat = fs.statSync(resolved);
-      const body = fs.readFileSync(resolved, 'utf-8');
+
+      const stat = fs.statSync(realResolved);
+      const content = fs.readFileSync(realResolved, 'utf-8');
+      const body = stripMarkdownFrontmatter(content);
       return { body, mtimeMs: stat.mtimeMs };
     } catch (err) {
       console.error('[commands:readBody] failed:', err);

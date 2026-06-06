@@ -85,7 +85,13 @@ function listCommandsInDir(
     .filter((file) => file.endsWith('.md'))
     .map((file) => {
       const filePath = path.join(dir, file);
-      const fm = parseFrontmatter(filePath);
+      let fm: CommandFrontmatter;
+      try {
+        fm = parseFrontmatter(filePath);
+      } catch (err) {
+        console.warn('[project-commands] invalid frontmatter ignored:', filePath, err);
+        fm = {};
+      }
       // D-09 when_to_use 拼接 (Claude Code behavior): append soft hint to
       // description so the LLM can decide when to auto-trigger. Only when
       // whenToUse is non-empty (otherwise the original description is kept verbatim).

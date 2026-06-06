@@ -9,6 +9,8 @@ type SkillScope = 'global' | 'project';
 interface PhysicalSkillInput {
   name: string;
   description?: string;
+  script_type?: string;
+  script_content?: string;
 }
 
 interface PhysicalSkillView {
@@ -17,6 +19,9 @@ interface PhysicalSkillView {
   description: string;
   scope: SkillScope;
   resourceFiles: string[];
+  script_type?: string;
+  entryScript?: string;
+  script_content?: string;
   created_at: number;
   updated_at: number;
   /** 08.2 P4 D-09: pre-parsed frontmatter; consumers can read
@@ -114,12 +119,20 @@ function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillNam
     ? `${baseDescription}\n\n何时使用：${whenToUse}`
     : baseDescription;
 
+  const resourceFiles = listResourceFiles(skillDir);
+  const entryScript = resourceFiles.find((file) => file === 'main.js' || file === 'main.py') ?? resourceFiles[0];
+  const scriptPath = entryScript ? path.join(skillDir, entryScript) : null;
+  const scriptContent = scriptPath && fs.existsSync(scriptPath) ? fs.readFileSync(scriptPath, 'utf-8') : undefined;
+
   return {
     id: `${scope}:${skillName}`,
     name: fm.name || skillName,
     description,
     scope,
-    resourceFiles: listResourceFiles(skillDir),
+    resourceFiles,
+    script_type: entryScript?.endsWith('.py') ? 'python' : entryScript ? 'javascript' : undefined,
+    entryScript,
+    script_content: scriptContent,
     created_at: stat.birthtimeMs || stat.ctimeMs,
     updated_at: stat.mtimeMs,
     frontmatter: {
@@ -163,6 +176,10 @@ export function savePhysicalSkill(projectPath: string, scope: SkillScope, skill:
   ensureDir(skillDir);
 
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), buildSkillMarkdown(skill), 'utf-8');
+  if (skill.script_content) {
+    const entryScript = skill.script_type === 'python' ? 'main.py' : 'main.js';
+    fs.writeFileSync(path.join(skillDir, entryScript), skill.script_content, 'utf-8');
+  }
   return buildPhysicalSkillView(projectPath, scope, skill.name);
 }
 
@@ -237,7 +254,9 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
     // dir never has disabled siblings to filter, so just push it.
     const hasSkillMd = fs.existsSync(path.join(src, 'SKILL.md'));
     if (hasSkillMd) {
-      filtered.push(src);
+      if (!isSkillDisabledFromLLM(src)) {
+        filtered.push(src);
+      }
       continue;
     }
     // Skills dir: keep only skill subdirs whose SKILL.md is NOT disable-model-invocation: true

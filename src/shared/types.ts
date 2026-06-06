@@ -227,6 +227,65 @@ export interface ChatRuntimeOverrides {
   allowedTools?: string[];
 }
 
+export interface MCPToolDetail {
+  tool: string;
+  server: string;
+  tokens: number;
+}
+
+export interface SkillDetail {
+  name: string;
+  scope: 'global' | 'project';
+  tokens: number;
+}
+
+export interface WorkflowDetail {
+  id: string;
+  name: string;
+  tokens: number;
+}
+
+export interface SystemToolDetail {
+  name: string;
+  tokens: number;
+}
+
+export interface ProjectCommandDetail {
+  name: string;
+  tokens: number;
+}
+
+export interface ContextBreakdown {
+  conversation: number;
+  skills: number;
+  mcp: number;
+  workflows: number;
+  systemPrompt: number;
+  systemTools: number;
+  customAgents: number;
+  memoryFiles: number;
+  messages: number;
+  projectCommandBodies: number;
+  freeSpace: number;
+  autocompactBuffer: number;
+  mcpPerTool: MCPToolDetail[];
+  skillsPerSkill: SkillDetail[];
+  workflowsPerWorkflow: WorkflowDetail[];
+  systemToolsPerTool: SystemToolDetail[];
+  projectCommandsPerFile: ProjectCommandDetail[];
+}
+
+export interface ContextAggregate {
+  breakdown: ContextBreakdown;
+  total: number;
+  modelName: string;
+  contextLimit: number;
+  used: number;
+  usedPct: number;
+  freePct: number;
+  mcpPerTool: MCPToolDetail[];
+}
+
 export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted';
 export type AgentToolCallStatus = 'running' | 'success' | 'error' | 'skipped';
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited';
@@ -520,6 +579,7 @@ export interface ElectronAPI {
       warnings: Array<{ type: 'mcp_health_warning'; message: string }>;
     }>;
     readProjectCommands: (projectId: string) => Promise<{ commands: SlashCommand[] }>;
+    readBody: (bodyPath: string) => Promise<{ body: string; mtimeMs: number }>;
     onChanged: (callback: (event: any, data: { source: string }) => void) => () => void;
     // Phase 8 — D-16: chokidar fallback notification bridge
     onFallback: (
@@ -528,10 +588,7 @@ export interface ElectronAPI {
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {
-    currentSession: (sessionId: string) => Promise<{
-      breakdown: { conversation: number; skills: number; mcp: number; workflows: number };
-      total: number;
-    }>;
+    currentSession: (sessionId: string, contextLimit?: number) => Promise<ContextAggregate>;
   };
   platform: string;
 }

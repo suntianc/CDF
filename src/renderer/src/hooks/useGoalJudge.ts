@@ -58,7 +58,7 @@ export interface GoalJudgeInstance {
     goal: string,
     options?: JudgeOptions
   ) => Promise<void>;
-  stopGoalJudgeLoop: (sessionId: string) => Promise<void>;
+  stopGoalJudgeLoop: (sessionId: string, options?: { clearStatus?: boolean }) => Promise<void>;
   useGoalJudgeStatus: (sessionId: string | null) => GoalJudgeStatus;
   /** Internal — exposed for tests that need to assert subscription state. */
   _internal: {
@@ -179,7 +179,7 @@ export function createGoalJudge(): GoalJudgeInstance {
   ): Promise<void> {
     // 防重入：同 sessionId 已有 loop → 先停
     if (subs.has(sessionId)) {
-      await stopGoalJudgeLoop(sessionId);
+      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
     }
 
     const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
@@ -197,9 +197,24 @@ export function createGoalJudge(): GoalJudgeInstance {
       return;
     }
 
-    // 1) 首轮：把 goal 作为 user message 注入主 agent。
+    // 1) 先订阅 sessionStore.isStreaming 转换。true→false 翻转 = 主 agent 一轮结束。
+    let prevStreaming = useSessionStore.getState().isStreaming;
+    const unsubscribe = useSessionStore.subscribe((s: { isStreaming: boolean }) => {
+      const nowStreaming = s.isStreaming;
+      if (prevStreaming && !nowStreaming) {
+        void runJudgeIteration(sessionId, goal, maxTurns, projectId, options.model);
+      }
+      prevStreaming = nowStreaming;
+    });
+    subs.set(sessionId, { unsubscribe });
+
+    // 2) 首轮：把 goal 作为 user message 注入主 agent。
     //    不传 overrides（平等 user message；judge 自己用独立 channel）
     try {
+      const store = useSessionStore.getState();
+      if (store.activeSessionId !== sessionId) {
+        await store.selectSession(sessionId);
+      }
       await useSessionStore.getState().sendMessage(projectId, goal);
     } catch (err) {
       console.error('[useGoalJudge] initial sendMessage failed:', err);
@@ -207,22 +222,8 @@ export function createGoalJudge(): GoalJudgeInstance {
         status: 'failed',
         reason: 'goal 注入失败：' + ((err as any)?.message || 'unknown'),
       });
-      return;
+      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
     }
-
-    // 2) 订阅 sessionStore.isStreaming 转换。true→false 翻转 = 主 agent 一轮结束。
-    let prevStreaming = useSessionStore.getState().isStreaming;
-    const unsubscribe = useSessionStore.subscribe((s: { isStreaming: boolean }) => {
-      const nowStreaming = s.isStreaming;
-      // 只关心 true → false 翻转（main agent 一轮完成）
-      if (prevStreaming && !nowStreaming) {
-        // 跑 judge（async fire-and-forget）
-        void runJudgeIteration(sessionId, goal, maxTurns, projectId, options.model);
-      }
-      prevStreaming = nowStreaming;
-    });
-
-    subs.set(sessionId, { unsubscribe });
   }
 
   async function runJudgeIteration(
@@ -237,7 +238,10 @@ export function createGoalJudge(): GoalJudgeInstance {
 
     useSessionStore.getState().setGoalJudgeStatus(sessionId, { status: 'judging' });
 
-    const messages = useSessionStore.getState().messages;
+    const store = useSessionStore.getState();
+    const messages = typeof store.getMessagesForSession === 'function'
+      ? store.getMessagesForSession(sessionId)
+      : store.messages;
     const recentTurns = renderRecentTurns(messages);
 
     let decision: JudgeDecision;
@@ -255,7 +259,7 @@ export function createGoalJudge(): GoalJudgeInstance {
         reason: 'judge 失败：' + ((err && err.message) || 'unknown'),
       });
       // 失败：停掉 loop（不再进 sendMessage 死循环）
-      await stopGoalJudgeLoop(sessionId);
+      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
       return;
     }
 
@@ -264,7 +268,7 @@ export function createGoalJudge(): GoalJudgeInstance {
         status: 'satisfied',
         reason: decision.reason,
       });
-      await stopGoalJudgeLoop(sessionId);
+      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
       return;
     }
 
@@ -280,7 +284,7 @@ export function createGoalJudge(): GoalJudgeInstance {
       toast.warning('/goal 暂停', {
         description: `已达 ${maxTurns} 轮上限。输入 /goal 清空。`,
       });
-      await stopGoalJudgeLoop(sessionId);
+      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
       return;
     }
 
@@ -291,6 +295,10 @@ export function createGoalJudge(): GoalJudgeInstance {
       reason: decision.reason,
     });
     try {
+      const store = useSessionStore.getState();
+      if (store.activeSessionId !== sessionId) {
+        await store.selectSession(sessionId);
+      }
       await useSessionStore.getState().sendMessage(projectId, '继续：' + decision.reason);
     } catch (err) {
       console.error('[useGoalJudge] continue sendMessage failed:', err);
@@ -298,11 +306,14 @@ export function createGoalJudge(): GoalJudgeInstance {
         status: 'failed',
         reason: 'continue 注入失败：' + ((err as any)?.message || 'unknown'),
       });
-      await stopGoalJudgeLoop(sessionId);
+      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
     }
   }
 
-  async function stopGoalJudgeLoop(sessionId: string): Promise<void> {
+  async function stopGoalJudgeLoop(
+    sessionId: string,
+    options: { clearStatus?: boolean } = {}
+  ): Promise<void> {
     const sub = subs.get(sessionId);
     if (sub) {
       try {
@@ -312,7 +323,9 @@ export function createGoalJudge(): GoalJudgeInstance {
       }
       subs.delete(sessionId);
     }
-    useSessionStore.getState().clearGoalJudgeStatus(sessionId);
+    if (options.clearStatus !== false) {
+      useSessionStore.getState().clearGoalJudgeStatus(sessionId);
+    }
   }
 
   function useGoalJudgeStatus(sessionId: string | null): GoalJudgeStatus {
@@ -327,10 +340,10 @@ export function createGoalJudge(): GoalJudgeInstance {
     // (Phase 08.2 P3 review warning WR-01 — promoted to runtime Critical
     // during user testing). Zustand v5 internally uses useSyncExternalStore
     // with Object.is comparison, giving us the correct behavior out of the box.
-    const entry = useSessionStore((s) =>
+    const entry = useSessionStore((s: ReturnType<typeof useSessionStore.getState>) =>
       sessionId ? s.goalJudgeStatus.get(sessionId) : undefined
     );
-    const goal = useSessionStore((s) =>
+    const goal = useSessionStore((s: ReturnType<typeof useSessionStore.getState>) =>
       sessionId ? (s.sessionGoals.get(sessionId) ?? '') : ''
     );
     return {

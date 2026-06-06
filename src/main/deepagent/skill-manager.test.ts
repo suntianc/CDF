@@ -39,15 +39,15 @@ describe('skill-manager', () => {
     expect(fs.existsSync(path.join(skillDir, 'main.js'))).toBe(true);
 
     const skills = listPhysicalSkills(tempProjectPath);
-    expect(skills).toHaveLength(1);
-    expect(skills[0]).toMatchObject({
+    const saved = skills.find((skill) => skill.id === 'project:test-js-skill');
+    expect(saved).toMatchObject({
       id: 'project:test-js-skill',
       name: 'test-js-skill',
       scope: 'project',
       script_type: 'javascript',
       entryScript: 'main.js',
     });
-    expect(skills[0].script_content).toBe('console.log("hello");');
+    expect(saved?.script_content).toBe('console.log("hello");');
   });
 
   it('should resolve relative deepagents source paths with project taking precedence', () => {

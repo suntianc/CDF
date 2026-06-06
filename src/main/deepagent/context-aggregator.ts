@@ -614,8 +614,7 @@ export async function aggregateCurrentSessionContext(
     systemPrompt +
     systemTools +
     customAgents +
-    memoryFiles +
-    messages;
+    memoryFiles;
   const freeSpace = Math.max(0, resolvedLimit - total - autocompactBuffer);
   const usedPct = Math.min(100, Math.round((total / resolvedLimit) * 100));
   const freePct = Math.round((freeSpace / resolvedLimit) * 100);

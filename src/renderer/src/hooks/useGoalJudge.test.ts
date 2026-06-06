@@ -4,26 +4,32 @@
 // module-level singleton state does not leak between cases.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { act } from '@testing-library/react';
 
 // ===== Mocks =====
 // Mockable sessionStore + projectStore. We expose mutable state and a
 // subscribe bus that the judge hook subscribes to for isStreaming changes.
 const mockState: {
+  activeSessionId: string;
   messages: Array<{ role: string; content: string }>;
   isStreaming: boolean;
   sessionGoals: Map<string, string>;
   goalJudgeStatus: Map<string, any>;
+  selectSession: ReturnType<typeof vi.fn>;
   sendMessage: ReturnType<typeof vi.fn>;
+  getMessagesForSession: ReturnType<typeof vi.fn>;
   setGoalJudgeStatus: ReturnType<typeof vi.fn>;
   getGoalJudgeStatus: ReturnType<typeof vi.fn>;
   clearGoalJudgeStatus: ReturnType<typeof vi.fn>;
 } = {
+  activeSessionId: 'session-1',
   messages: [],
   isStreaming: false,
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
+  selectSession: vi.fn(async () => undefined),
   sendMessage: vi.fn(async () => undefined),
+  getMessagesForSession: vi.fn((sessionId: string) => sessionId === 'session-1' ? mockState.messages : []),
   setGoalJudgeStatus: vi.fn(),
   getGoalJudgeStatus: vi.fn(),
   clearGoalJudgeStatus: vi.fn(),
@@ -110,12 +116,17 @@ const fireJudgeChunk = (text: string, done: boolean = false) => {
 describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
   beforeEach(() => {
     // Reset module-level mock state for isolation between tests.
+    mockState.activeSessionId = 'session-1';
     mockState.messages = [];
     mockState.isStreaming = false;
     mockState.sessionGoals = new Map();
     mockState.goalJudgeStatus = new Map();
+    mockState.selectSession.mockReset();
+    mockState.selectSession.mockResolvedValue(undefined);
     mockState.sendMessage.mockReset();
     mockState.sendMessage.mockResolvedValue(undefined);
+    mockState.getMessagesForSession.mockReset();
+    mockState.getMessagesForSession.mockImplementation((sessionId: string) => sessionId === 'session-1' ? mockState.messages : []);
     mockState.setGoalJudgeStatus.mockReset();
     mockState.getGoalJudgeStatus.mockReset();
     mockState.clearGoalJudgeStatus.mockReset();
@@ -206,8 +217,8 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
 
     // No further sendMessage (loop terminated)
     expect(mockState.sendMessage).toHaveBeenCalledTimes(1);
-    // clearGoalJudgeStatus was called (via stopGoalJudgeLoop)
-    expect(mockState.clearGoalJudgeStatus).toHaveBeenCalledWith('session-1');
+    // Terminal status is preserved so GoalSystemBubble can render the result.
+    expect(mockState.clearGoalJudgeStatus).not.toHaveBeenCalled();
   });
 
   it('C: judge returns {satisfied: false, reason} → sendMessage called with 继续：${reason}, iteration increments', async () => {

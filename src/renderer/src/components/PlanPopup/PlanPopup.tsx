@@ -38,6 +38,7 @@ export function PlanPopup() {
   const descLabel = desc.length > 60 ? desc.slice(0, 60) + '…' : desc;
 
   const isCapReached = status === 'cap-reached';
+  const isBusy = status === 'generating' || status === 'modifying' || status === 'executing';
   const showWarning = iterationCount === 18 || iterationCount === 19;
   const showCapReached = iterationCount >= MAX_ITERATIONS;
 
@@ -139,6 +140,7 @@ export function PlanPopup() {
           </Button>
           <Button
             variant="default"
+            disabled={isBusy}
             onClick={() => void execute()}
             data-testid="plan-popup-execute-button"
           >
