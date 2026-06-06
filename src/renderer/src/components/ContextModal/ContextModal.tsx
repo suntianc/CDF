@@ -300,7 +300,7 @@ export function ContextModal() {
               'mcp',
               'MCP tools',
               <Server className="size-3" />,
-              data.breakdown.mcpPerTool.map((t) => ({
+              (data.breakdown.mcpPerTool ?? []).map((t) => ({
                 key: t.tool,
                 name: t.tool,
                 meta: t.server,
@@ -312,7 +312,7 @@ export function ContextModal() {
               'skills',
               'Skills',
               <FileText className="size-3" />,
-              data.breakdown.skillsPerSkill.map((s) => ({
+              (data.breakdown.skillsPerSkill ?? []).map((s) => ({
                 key: s.name,
                 name: s.name,
                 meta: s.scope,
@@ -324,7 +324,7 @@ export function ContextModal() {
               'workflows',
               'Workflows',
               <GitBranch className="size-3" />,
-              data.breakdown.workflowsPerWorkflow.map((w) => ({
+              (data.breakdown.workflowsPerWorkflow ?? []).map((w) => ({
                 key: w.id,
                 name: w.name,
                 tokens: w.tokens,
@@ -335,7 +335,7 @@ export function ContextModal() {
               'systemTools',
               'System tools',
               <Wrench className="size-3" />,
-              data.breakdown.systemToolsPerTool.map((t) => ({
+              (data.breakdown.systemToolsPerTool ?? []).map((t) => ({
                 key: t.name,
                 name: t.name,
                 tokens: t.tokens,
@@ -346,7 +346,7 @@ export function ContextModal() {
               'projectCommands',
               'Project commands',
               <Terminal className="size-3" />,
-              data.breakdown.projectCommandsPerFile.map((f) => ({
+              (data.breakdown.projectCommandsPerFile ?? []).map((f) => ({
                 key: f.name,
                 name: f.name,
                 tokens: f.tokens,
