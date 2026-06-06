@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { aggregateCurrentSessionContext } from './context-aggregator';
+import { aggregateCurrentSessionContext, BUILTIN_TOOL_CHARS } from './context-aggregator';
 
 // Mock the database + skill-manager + mcp-connector so we don't need a real
 // SQLite DB / MCP servers. Each test composes its own row set / behavior.
@@ -45,6 +45,15 @@ interface FakeQueryPlan {
   // default row for any key not in sessionRows / sessionSingle
   defaultRows?: Record<string, unknown>[];
   defaultSingle?: Record<string, unknown>;
+  // 08.2 polish: dedicated row for the provider lookup
+  // (SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p).
+  // Used when the test wants to control modelName / system_prompt
+  // independently of the project lookup row.
+  agentRow?: Record<string, unknown>;
+  // 08.2 polish: dedicated row for the project lookup
+  // (SELECT p.name, p.path FROM projects p JOIN sessions s). Used for
+  // sizing systemPrompt via buildProjectContext.
+  projectsRow?: Record<string, unknown>;
 }
 
 function installFakeDb(plan: FakeQueryPlan): void {
@@ -53,10 +62,15 @@ function installFakeDb(plan: FakeQueryPlan): void {
   // distinct SELECT patterns the aggregator uses.
   (db.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
     // Provider lookup (08.2 P4 NEW): SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p
-    // Must come FIRST because the agent-only SQL also contains "JOIN agents a JOIN sessions s".
-    if (/JOIN agents a/.test(sql) && /JOIN llm_providers/.test(sql)) {
+    // Must come FIRST because the agent-only SQL also contains "FROM agents a JOIN sessions s".
+    //
+    // Note: the actual SQL starts with `FROM agents a` (not `JOIN agents a`).
+    // The `JOIN llm_providers` token is the discriminator between this query
+    // and the agent-only lookup below.
+    if (/FROM agents a/.test(sql) && /JOIN llm_providers/.test(sql)) {
       return {
         get: (sessionId: string) => {
+          if (plan.agentRow !== undefined) return plan.agentRow;
           if (plan.sessionSingle && sessionId in plan.sessionSingle) {
             return plan.sessionSingle[sessionId];
           }
@@ -66,10 +80,12 @@ function installFakeDb(plan: FakeQueryPlan): void {
         all: () => [],
       };
     }
-    // Project lookup (skills + projectCommandBodies): SELECT p.path FROM projects p JOIN sessions s
+    // Project lookup (skills + projectCommandBodies + systemPrompt context):
+    // SELECT p.path FROM projects p JOIN sessions s
     if (/FROM projects p/.test(sql) || (/JOIN projects p/.test(sql) && /JOIN sessions s/.test(sql))) {
       return {
         get: (sessionId: string) => {
+          if (plan.projectsRow !== undefined) return plan.projectsRow;
           if (plan.sessionSingle && sessionId in plan.sessionSingle) {
             return plan.sessionSingle[sessionId];
           }
@@ -177,9 +193,19 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
-    // 200_000 limit → 30_000 buffer; total defaults to 0 → freeSpace = 170_000
+    // 200_000 limit → 30_000 buffer.
+    // total = conversation(0) + skills(0) + mcp(0) + workflows(0) +
+    //         projectCommandBodies(0) + systemPrompt(0) + systemTools(BUILTIN_CHARS/4) +
+    //         customAgents(0) + memoryFiles(0) + messages(0)
+    // 08.2 polish: systemTools is now a real calculation (6 built-in tool
+    // schemas) and counts toward the total, so the expected freeSpace
+    // reflects that.
     const result = await aggregateCurrentSessionContext('session-1', 200_000);
-    expect(result.breakdown.freeSpace).toBe(200_000 - 0 - 30_000);
+    const expectedSystemTools = Math.ceil(BUILTIN_TOOL_CHARS / 4);
+    const expectedTotal = expectedSystemTools;
+    expect(result.breakdown.freeSpace).toBe(200_000 - expectedTotal - 30_000);
+    // Sanity: confirm we actually computed the BUILTIN_TOOL_CHARS total
+    expect(result.breakdown.systemTools).toBe(expectedSystemTools);
   });
 
   it('freeSpace clamps to 0 when total exceeds limit', async () => {
@@ -291,23 +317,73 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     warnSpy.mockRestore();
   });
 
-  it('systemPrompt / systemTools / customAgents / memoryFiles return 0 (v1.1 placeholder, v1.2 推)', async () => {
+  it('systemPrompt + systemTools now report real values (08.2 polish promoted placeholders to real calculations)', async () => {
+    // 08.2 polish: systemPrompt now reads agents.system_prompt + the static
+    // buildProjectContext template, and systemTools now sums the 6 built-in
+    // tool schemas (fetch / delete_file / bash / tavily / anysearch / arxiv).
+    // Both should be > 0 for a session backed by a real agent row.
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    installFakeDb({
+      agentRow: {
+        id: 'agent-1',
+        system_prompt: '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
+        provider_id: 'provider-1',
+        model_name: 'MiniMax-M3',
+        context_limit: 200_000,
+      },
+      projectsRow: { name: 'CDF', path: tempProjectPath },
+    });
+    const result = await aggregateCurrentSessionContext('session-1');
+    // systemPrompt = safeMath(agent prompt chars + project context template)
+    expect(result.breakdown.systemPrompt).toBeGreaterThan(0);
+    // systemTools = safeMath(6 built-in tool schemas)
+    expect(result.breakdown.systemTools).toBeGreaterThan(0);
+    // The new SQL column selected default_model; expect the real model name.
+    expect(result.modelName).toBe('MiniMax-M3');
+    // No console.warn spam for the promoted fields (WR-02 follow-up).
+    const warnMessages = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warnMessages.some((m) => m.includes('systemPrompt 估算未实现'))).toBe(false);
+    expect(warnMessages.some((m) => m.includes('systemTools 估算未实现'))).toBe(false);
+    warnSpy.mockRestore();
+  });
+
+  it('customAgents + memoryFiles still return 0 (v1.1 placeholder, v1.2 推)', async () => {
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
     const result = await aggregateCurrentSessionContext('session-1');
-    expect(result.breakdown.systemPrompt).toBe(0);
-    expect(result.breakdown.systemTools).toBe(0);
     expect(result.breakdown.customAgents).toBe(0);
     expect(result.breakdown.memoryFiles).toBe(0);
-    // Each placeholder emits a console.warn marker (Issue 1 acknowledgement)
-    const warnMessages = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(warnMessages.some((m) => m.includes('systemPrompt'))).toBe(true);
-    expect(warnMessages.some((m) => m.includes('systemTools'))).toBe(true);
-    expect(warnMessages.some((m) => m.includes('customAgents'))).toBe(true);
-    expect(warnMessages.some((m) => m.includes('memoryFiles'))).toBe(true);
-    warnSpy.mockRestore();
+  });
+
+  it('modelName resolves from llm_providers.default_model (not a.model which does not exist)', async () => {
+    // Regression: agents table has no `model` column. Previously the query
+    // selected `a.model` which silently returned undefined → modelName=''
+    // → modal rendered "(未知)". The 08.2 polish query selects
+    // `p.default_model AS model_name` instead.
+    installFakeDb({
+      agentRow: {
+        id: 'agent-1',
+        system_prompt: '...',
+        provider_id: 'provider-1',
+        model_name: 'deepseek-v4-flash',
+        context_limit: 200_000,
+      },
+    });
+    const result = await aggregateCurrentSessionContext('session-1');
+    expect(result.modelName).toBe('deepseek-v4-flash');
+  });
+
+  it('modelName falls back to "" (modal shows "未知") when no active provider joined', async () => {
+    // Defensive: if the JOIN to llm_providers on is_active=1 yields no row,
+    // modelName should be empty (not throw). The current renderer maps '' to
+    // "(未知)" via the ContextModal fallback copy.
+    installFakeDb({
+      agentRow: undefined,
+      defaultSingle: undefined,
+    });
+    const result = await aggregateCurrentSessionContext('session-1');
+    expect(result.modelName).toBe('');
   });
 
   it('mcp failure does NOT break other categories (per-category try-catch)', async () => {

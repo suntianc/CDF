@@ -1,14 +1,17 @@
 // D-07/D-08/D-09: Aggregate token breakdown for the current session's loaded context.
 // Data sources: conversation (messages table), skills (listPhysicalSkills),
-// MCP tools (loadMcpTools), workflows (workflows table graph_data).
+// MCP tools (loadMcpTools), workflows (workflows table graph_data),
+// system prompt (agents.system_prompt + buildProjectContext),
+// system tools (5 built-in tool schemas — fetch/delete_file/bash/tavily/anysearch/arxiv).
 // Token heuristic: Math.ceil(chars * 0.25) — OpenAI rough 1 token ≈ 4 chars.
 // Per-source try-catch: if one source fails, the others still report real values.
 //
 // 08.2 P4 C2-01: extended to 11 categories + per-MCP-tool breakdown +
 // autocompact buffer (context_limit × 15%, CDF 85% threshold) + free space.
-// 7 of 11 are real calculations; 4 are v1.1 placeholders defaulting to 0
-// (systemPrompt / systemTools / customAgents / memoryFiles) — deferred to
-// v1.2+ per CONTEXT.md Issue 1.
+// 08.2 polish: systemPrompt + systemTools + modelName upgraded from
+// v1.1 placeholders to real calculations. customAgents + memoryFiles
+// remain v1.1 placeholders (deepagent runtime does not expose subagent
+// definitions; memory file system is not implemented) — deferred to v1.2+.
 
 import fs from 'fs';
 import os from 'os';
@@ -30,9 +33,9 @@ export interface ContextBreakdown {
   skills: number;
   mcp: number;
   workflows: number;
-  // 08.2 P4 NEW — 7 of 11 are real calculations (per CONTEXT.md C2-01 / Issue 1):
-  systemPrompt: number;          // v1.1 placeholder — default 0 (v1.2 推)
-  systemTools: number;           // v1.1 placeholder — default 0 (v1.2 推)
+  // 08.2 P4 — promoted to real calculations (polish after CONTEXT.md Issue 1):
+  systemPrompt: number;          // 08.2 polish: agents.system_prompt + buildProjectContext
+  systemTools: number;           // 08.2 polish: 5 built-in tool schema sum
   customAgents: number;          // v1.1 placeholder — default 0 (v1.2 推)
   memoryFiles: number;           // v1.1 placeholder — default 0 (v1.2 推)
   messages: number;              // alias of conversation (Claude Code parity)
@@ -59,14 +62,12 @@ const ZERO_BREAKDOWN: ContextBreakdown = {
   skills: 0,
   mcp: 0,
   workflows: 0,
-  // v1.1 placeholders (Issue 1):
   systemPrompt: 0,
   systemTools: 0,
   customAgents: 0,
   memoryFiles: 0,
   messages: 0,
   projectCommandBodies: 0,
-  // computed:
   freeSpace: 0,
   autocompactBuffer: 0,
   mcpPerTool: [],
@@ -85,6 +86,138 @@ function safeFileSize(filePath: string): number {
 }
 
 const DEFAULT_CONTEXT_LIMIT = 200_000;
+
+// === System-prompt estimate ===============================================
+// runtime.ts:296 (buildProjectContext) appends a fixed CJK block describing
+// the project name, root path, and Skill conventions. We replicate the
+// template here (keeping parameters dynamic) so the aggregator can size the
+// bytes that the LLM actually receives. Update both sites in lockstep if
+// the runtime template changes.
+function buildProjectContextString(projectName: string, projectPath: string): string {
+  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+}
+
+// === Built-in tool schemas (08.2 polish) =================================
+// Mirrors the schemas defined in:
+//   - fetch-tool.ts (FETCH_SCHEMA)
+//   - file-tools.ts (DELETE_FILE_SCHEMA)
+//   - bash-tool.ts (inline schema for `bash`)
+//   - search-tools.ts (TAVILY_SCHEMA, ANYSEARCH_SCHEMA)
+//   - arxiv-tool.ts (ARXIV_SCHEMA)
+// Schema strings are duplicated here rather than imported so the aggregator
+// stays independent of the deepagent tool factory. The tool's `.tool({...})`
+// wrapper adds an additional `name` + `description` block on top of the
+// schema body; we include the description (the LLM-visible name+description
+// pair) so the per-tool token count reflects what is actually billed to the
+// model. Update both sites in lockstep if a schema changes.
+const FETCH_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    url: { type: 'string', description: 'The webpage URL to fetch.' },
+    timeout: { type: 'number', description: 'Optional timeout in ms (default 12000).' },
+  },
+  required: ['url'],
+  additionalProperties: false,
+};
+const FETCH_META: { name: string; description: string } = {
+  name: 'fetch',
+  description:
+    'Fetch a webpage and convert it to markdown. Use this to read the content of a web page when you have a URL. Returns the page title and content in markdown format.',
+};
+
+const DELETE_FILE_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    file_path: {
+      type: 'string',
+      description:
+        'Absolute path to the file to delete, for example /Users/xxx/project/src/example.ts',
+    },
+  },
+  required: ['file_path'],
+  additionalProperties: false,
+};
+const DELETE_FILE_META = {
+  name: 'delete_file',
+  description:
+    'Delete a file inside the current project. Use absolute paths. Cannot delete directories, symlinks, or protected paths (.env, .git, node_modules, out, dist).',
+};
+
+const BASH_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    command: { type: 'string', description: 'The bash command to execute' },
+  },
+  required: ['command'],
+  additionalProperties: false,
+};
+const BASH_META = {
+  name: 'bash',
+  description:
+    'Execute a bash command. Returns stdout, stderr, and exit code. Use this to run system commands, scripts, or interact with the file system. Only use for tasks that require shell commands.',
+};
+
+const TAVILY_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    query: { type: 'string' },
+    max_results: { type: 'number' },
+  },
+  required: ['query'],
+};
+const TAVILY_META = {
+  name: 'tavily_search',
+  description: 'Search the web using Tavily.',
+};
+
+const ANYSEARCH_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    query: { type: 'string' },
+    top_k: { type: 'number' },
+  },
+  required: ['query'],
+};
+const ANYSEARCH_META = {
+  name: 'anysearch',
+  description: 'Search using AnySearch.',
+};
+
+const ARXIV_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    query: { type: 'string' },
+    max_results: { type: 'number' },
+  },
+  required: ['query'],
+};
+const ARXIV_META = {
+  name: 'arxiv_search',
+  description: 'Search arxiv papers.',
+};
+
+const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: string }; schema: unknown }> = [
+  { meta: FETCH_META, schema: FETCH_SCHEMA },
+  { meta: DELETE_FILE_META, schema: DELETE_FILE_SCHEMA },
+  { meta: BASH_META, schema: BASH_SCHEMA },
+  { meta: TAVILY_META, schema: TAVILY_SCHEMA },
+  { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
+  { meta: ARXIV_META, schema: ARXIV_SCHEMA },
+];
+
+// Pre-compute character length of every built-in tool's name+description+schema
+// once at module load. Avoids re-serializing on every modal open.
+export const BUILTIN_TOOL_CHARS: number = BUILTIN_TOOL_BUDGET.reduce((acc, t) => {
+  return acc + t.meta.name.length + t.meta.description.length + safeStringifyLen(t.schema);
+}, 0);
+
+function safeStringifyLen(v: unknown): number {
+  try {
+    return JSON.stringify(v).length;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Aggregate token breakdown for the active session (D-07/D-08).
@@ -127,29 +260,65 @@ export async function aggregateCurrentSessionContext(
   // Resolve contextLimit + modelName from the active provider (P10 — provider-specific).
   let resolvedLimit = DEFAULT_CONTEXT_LIMIT;
   let modelName = '';
+  let agentSystemPrompt: string | null = null;
+  let projectName: string | undefined;
+  let projectPathFromAgent: string | undefined;
   try {
     if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
       resolvedLimit = contextLimit;
     } else {
-      // Look up the session's agent → active provider
+      // Look up the session's agent → active provider.
+      // NOTE: agents table has no `model` column — model name lives on
+      // llm_providers.default_model. Previously this query selected
+      // `a.model`, which silently returned undefined → modelName='' and
+      // the modal rendered "(未知)". Fixed in 08.2 polish.
       const agent = db
         .prepare(
-          `SELECT a.id, a.model, a.provider_id, p.context_limit, p.name AS provider_name
+          `SELECT a.id, a.system_prompt, a.provider_id, p.context_limit,
+                  p.default_model AS model_name, p.name AS provider_name
            FROM agents a
            JOIN sessions s ON s.agent_id = a.id
            JOIN llm_providers p ON p.id = a.provider_id AND p.is_active = 1
            WHERE s.id = ?`
         )
         .get(sessionId) as
-        | { id: string; model: string; provider_id: string; context_limit: number; provider_name: string }
+        | {
+            id: string;
+            system_prompt: string | null;
+            provider_id: string;
+            context_limit: number;
+            model_name: string;
+            provider_name: string;
+          }
         | undefined;
       if (agent?.context_limit && agent.context_limit > 0) {
         resolvedLimit = agent.context_limit;
       }
-      modelName = agent?.model || '';
+      modelName = agent?.model_name || '';
+      agentSystemPrompt = agent?.system_prompt ?? null;
     }
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
+  }
+
+  // Pull project name + path for system-prompt size (mirrors
+  // buildProjectContext in runtime.ts:296). This duplicates the lookup from
+  // the "Skills" block below (which also queries projects) so we can run it
+  // even when the Skills block fails.
+  try {
+    const proj = db
+      .prepare(
+        `SELECT p.name, p.path FROM projects p
+         JOIN sessions s ON s.project_id = p.id
+         WHERE s.id = ?`
+      )
+      .get(sessionId) as { name: string; path: string } | undefined;
+    if (proj) {
+      projectName = proj.name;
+      projectPathFromAgent = proj.path;
+    }
+  } catch {
+    // non-fatal — systemPrompt will fall back to agent-only length
   }
 
   // 1. Conversation tokens (try-catch #1)
@@ -275,35 +444,44 @@ export async function aggregateCurrentSessionContext(
     console.warn('[context-aggregator] projectCommandBodies failed:', err);
   }
 
-  // 6. systemPrompt (08.2 P4 NEW — v1.1 PLACEHOLDER, v1.2 推)
-  //     CONTEXT.md Issue 1: v1.1 phase best-effort; default 0.
-  //     No source for the LLM's actual system prompt is exposed in v1.1.
+  // 6. systemPrompt (08.2 polish — promoted to real calculation).
+  //     runtime.ts:486 builds: (agents.system_prompt || '') + buildProjectContext(project)
+  //     We replicate the same two-part sum so the modal reports what the
+  //     LLM actually sees in the system-prompt slot.
   let systemPrompt = 0;
-  console.warn(
-    '[context-aggregator] systemPrompt 估算未实现 - default 0（v1.2 推）'
-  );
+  try {
+    const agentPromptChars = (agentSystemPrompt || '').length;
+    const projectCtxChars = projectName && projectPathFromAgent
+      ? buildProjectContextString(projectName, projectPathFromAgent).length
+      : 0;
+    systemPrompt = safeMath(agentPromptChars + projectCtxChars);
+  } catch (err) {
+    console.warn('[context-aggregator] systemPrompt failed:', err);
+  }
 
-  // 7. systemTools (08.2 P4 NEW — v1.1 PLACEHOLDER, v1.2 推)
-  //     CONTEXT.md Issue 1: built-in tool schema enumeration is deepagent-runtime
-  //     internal; v1.1 defaults to 0.
+  // 7. systemTools (08.2 polish — promoted to real calculation).
+  //     runtime.ts:492-504 mounts a fixed array of built-in tools into
+  //     every agent regardless of MCP / skill bindings:
+  //       [fetch, delete_file (plan-mode stripped), bash (plan-mode stripped),
+  //        tavily / anysearch / arxiv (tool_configs.is_enabled=1 only)]
+  //     We sum the character length of name+description+schema for all 6
+  //     (note: plan-mode strips 2, so the live count is 4 for plan sessions —
+  //     we report the full 6 here; the delta is negligible).
   let systemTools = 0;
-  console.warn(
-    '[context-aggregator] systemTools 估算未实现 - default 0（v1.2 推）'
-  );
+  try {
+    systemTools = safeMath(BUILTIN_TOOL_CHARS);
+  } catch (err) {
+    console.warn('[context-aggregator] systemTools failed:', err);
+  }
 
-  // 8. customAgents (08.2 P4 NEW — v1.1 PLACEHOLDER, v1.2 推)
-  //     CONTEXT.md Issue 1: subagent definitions are not exposed in v1.1.
+  // 8. customAgents (08.2 P4 — v1.1 PLACEHOLDER, v1.2 推).
+  //     deepagent runtime does not expose sub-agent definitions in a
+  //     queryable form; they live in the runtime's compiled closure.
   let customAgents = 0;
-  console.warn(
-    '[context-aggregator] customAgents 估算未实现 - default 0（v1.2 推）'
-  );
 
-  // 9. memoryFiles (08.2 P4 NEW — v1.1 PLACEHOLDER, v1.2 推)
-  //     CONTEXT.md Issue 1: MEMORY.md / CLAUDE.md sources not implemented.
+  // 9. memoryFiles (08.2 P4 — v1.1 PLACEHOLDER, v1.2 推).
+  //     The CLAUDE.md / MEMORY.md source system is not implemented.
   let memoryFiles = 0;
-  console.warn(
-    '[context-aggregator] memoryFiles 估算未实现 - default 0（v1.2 推）'
-  );
 
   // 10. messages — alias of conversation (Claude Code parity)
   const messages = conversation;
