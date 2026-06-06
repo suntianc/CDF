@@ -536,9 +536,11 @@ export function ChatArea({
             postFoldItems.push(responseItems[i]);
           }
 
-          // Calculate duration
+          // Calculate duration from message items only. `responseItems` may end
+          // with a tool_group, which has no `.message` field.
           const startTimestamp = responseItems[firstThinkIdx].message.created_at;
-          const endTimestamp = responseItems[responseItems.length - 1].message.created_at;
+          const lastMessageItem = [...responseItems].reverse().find((item) => item.type === 'message' && item.message);
+          const endTimestamp = lastMessageItem?.message.created_at ?? startTimestamp;
           const totalSeconds = Math.max(1, Math.round((endTimestamp - startTimestamp) / 1000));
 
           finalItems.push(...preFoldItems);
