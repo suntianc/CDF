@@ -577,11 +577,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             }
 
             accumulatedContent += data.text;
-            if (overrides?.planOnly) {
-              void import('./planPopupStore').then(({ usePlanPopupStore }) => {
-                usePlanPopupStore.getState().appendChunk(data.text);
-              });
-            }
             cached.messages = cached.messages.map((m) =>
               m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
             );

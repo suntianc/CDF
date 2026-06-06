@@ -36,10 +36,16 @@ function resolveProjectFile(projectPath: string, filePath: string): string {
   }
 
   const relative = path.relative(projectPath, filePath);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return filePath;
+  }
+
+  const virtualPath = path.join(projectPath, filePath.replace(/^[/\\]+/, ''));
+  const virtualRelative = path.relative(projectPath, virtualPath);
+  if (virtualRelative === '' || virtualRelative.startsWith('..') || path.isAbsolute(virtualRelative)) {
     throw new Error(`Path is outside project: ${filePath}`);
   }
-  return filePath;
+  return virtualPath;
 }
 
 export function createDeleteFileTool(projectPath: string) {

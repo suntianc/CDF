@@ -102,6 +102,8 @@ export const renderMarkdownText = (text: string) => {
   let tableHeaders: string[] = [];
   let tableRows: string[][] = [];
   let tableAlignments: ('left' | 'center' | 'right')[] = [];
+
+  let currentBlockquoteLines: string[] = [];
   
   const flushParagraph = (key: string | number) => {
     if (currentParagraphLines.length > 0) {
@@ -141,6 +143,18 @@ export const renderMarkdownText = (text: string) => {
       }
       currentListItems = [];
       currentListType = null;
+    }
+  };
+
+  const flushBlockquote = (key: string | number) => {
+    if (currentBlockquoteLines.length > 0) {
+      const quoteText = currentBlockquoteLines.join('\n');
+      elements.push(
+        <blockquote key={`quote-${key}`} className="border-l-4 border-[var(--color-accent)]/60 bg-[var(--color-bg-sidebar)]/30 pl-4 pr-3 py-2 rounded-r-lg my-2 text-[var(--color-text-secondary)] text-sm select-text leading-relaxed">
+          {renderMarkdownText(quoteText)}
+        </blockquote>
+      );
+      currentBlockquoteLines = [];
     }
   };
 
@@ -198,6 +212,7 @@ export const renderMarkdownText = (text: string) => {
     flushParagraph(key);
     flushList(key);
     flushTable(key);
+    flushBlockquote(key);
   };
   
   lines.forEach((line, index) => {
@@ -237,6 +252,19 @@ export const renderMarkdownText = (text: string) => {
       flushTable(index);
     }
     
+    // Check if it's a blockquote row
+    if (trimmedLine.startsWith('>')) {
+      flushParagraph(index);
+      flushList(index);
+      flushTable(index);
+      let content = line.slice(line.indexOf('>') + 1);
+      if (content.startsWith(' ')) {
+        content = content.slice(1);
+      }
+      currentBlockquoteLines.push(content);
+      return;
+    }
+
     // 1. 匹配标题
     if (trimmedLine.startsWith('# ')) {
       const isFirst = elements.length === 0 && currentParagraphLines.length === 0 && !currentListType && !inTable;
@@ -313,6 +341,7 @@ export const renderMarkdownText = (text: string) => {
         if (currentListType) {
           flushList(index);
         }
+        flushBlockquote(index);
         currentParagraphLines.push(line);
       }
     }

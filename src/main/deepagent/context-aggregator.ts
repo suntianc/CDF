@@ -329,41 +329,38 @@ export async function aggregateCurrentSessionContext(
   let projectName: string | undefined;
   let projectPathFromAgent: string | undefined;
   try {
+    // ALWAYS look up the session's agent → active provider to resolve modelName and agentSystemPrompt.
+    const agent = db
+      .prepare(
+        `SELECT a.id, a.system_prompt, a.provider_id, p.context_limit,
+                p.default_model AS model_name, p.name AS provider_name
+         FROM agents a
+         JOIN sessions s ON s.agent_id = a.id
+         JOIN llm_providers p ON p.id = a.provider_id AND p.is_active = 1
+         WHERE s.id = ?`
+      )
+      .get(sessionId) as
+      | {
+          id: string;
+          system_prompt: string | null;
+          provider_id: string;
+          context_limit: number;
+          model_name: string;
+          provider_name: string;
+        }
+      | undefined;
     if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
       resolvedLimit = contextLimit;
-    } else {
-      // Look up the session's agent → active provider.
-      // NOTE: agents table has no `model` column — model name lives on
-      // llm_providers.default_model. Previously this query selected
-      // `a.model`, which silently returned undefined → modelName='' and
-      // the modal rendered "(未知)". Fixed in 08.2 polish.
-      const agent = db
-        .prepare(
-          `SELECT a.id, a.system_prompt, a.provider_id, p.context_limit,
-                  p.default_model AS model_name, p.name AS provider_name
-           FROM agents a
-           JOIN sessions s ON s.agent_id = a.id
-           JOIN llm_providers p ON p.id = a.provider_id AND p.is_active = 1
-           WHERE s.id = ?`
-        )
-        .get(sessionId) as
-        | {
-            id: string;
-            system_prompt: string | null;
-            provider_id: string;
-            context_limit: number;
-            model_name: string;
-            provider_name: string;
-          }
-        | undefined;
-      if (agent?.context_limit && agent.context_limit > 0) {
-        resolvedLimit = agent.context_limit;
-      }
-      modelName = agent?.model_name || '';
-      agentSystemPrompt = agent?.system_prompt ?? null;
+    } else if (agent?.context_limit && agent.context_limit > 0) {
+      resolvedLimit = agent.context_limit;
     }
+    modelName = agent?.model_name || '';
+    agentSystemPrompt = agent?.system_prompt ?? null;
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
+    if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
+      resolvedLimit = contextLimit;
+    }
   }
 
   // Pull project name + path for system-prompt size (mirrors

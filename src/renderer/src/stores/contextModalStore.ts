@@ -3,8 +3,8 @@ import { create } from 'zustand';
 /**
  * 08.2 P4 C2-02 + C2-04: minimal open/close store for the /context modal.
  *
- * Pattern matches `themeStore.ts` / `planPopupStore.ts` (Zustand singleton,
- * no provider). The data fetch is owned by the `<ContextModal>` component
+ * Pattern matches other Zustand singleton stores (no provider). The data fetch
+ * is owned by the `<ContextModal>` component
  * (useEffect on isOpen) so the store stays tiny and stale-data free.
  */
 interface ContextModalState {

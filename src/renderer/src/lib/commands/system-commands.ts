@@ -1,7 +1,7 @@
 import type { SlashCommand } from '../../../../shared/types';
 
 /**
- * Renderer-side fallback for the 3 system commands. Mirrors what
+ * Renderer-side fallback for the 2 system commands. Mirrors what
  * `collectSystemCommands` in the main process returns. Kept here so the
  * renderer can render the popup before the registry IPC round-trip
  * completes (and so unit tests don't need to mock the IPC bridge).
@@ -30,13 +30,5 @@ export const SYSTEM_COMMANDS: ReadonlyArray<SlashCommand> = [
     // Slash input `/context` still dispatches via the dispatcher for
     // users who prefer the keyboard path.
     hideFromPopup: true,
-  },
-  {
-    name: 'plan',
-    description: '进入 plan 模式',
-    source: 'system',
-    target: 'plan',
-    sourceLabel: 'system',
-    badge: '[system]',
   },
 ];

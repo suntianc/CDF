@@ -219,7 +219,6 @@ describe('SlashCommandPopup', () => {
     });
     expect(screen.getByText('/goal')).toBeTruthy();
     expect(screen.getByText('/context')).toBeTruthy();
-    expect(screen.getByText('/plan')).toBeTruthy();
   });
 
   it('closes when value does not start with /', () => {
@@ -280,7 +279,7 @@ describe('SlashCommandPopup', () => {
     expect(handleSlashInsertMock).toHaveBeenCalledWith('/goal');
   });
 
-  it('Enter still fires onSelect (dispatch path) for known commands', () => {
+  it('Enter fires onInsert (insert path) for known commands', () => {
     let harness: TestHarnessHandle | null = null;
     render(<TestHarness refSetter={(h) => (harness = h)} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
@@ -291,9 +290,10 @@ describe('SlashCommandPopup', () => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
     expect(harness?.getInputVal()).toBe('/goal ');
-    expect(handleSlashSelectMock).toHaveBeenCalledWith('/goal');
-    // v1.1 polish: Enter must NOT also fire onInsert — only one of the two.
-    expect(handleSlashInsertMock).not.toHaveBeenCalled();
+    // v1.1 polish: Enter calls onInsert (not onSelect) per component behavior
+    // at SlashCommandPopup.tsx:169 — (onInsert ?? onSelect)('/' + selectedValue)
+    expect(handleSlashInsertMock).toHaveBeenCalledWith('/goal');
+    expect(handleSlashSelectMock).not.toHaveBeenCalled();
   });
 
   it('shows first row highlighted on initial open', () => {
@@ -371,30 +371,22 @@ describe('SlashCommandPopup', () => {
       screen.getByText('/goal').closest('[cmdk-item]') as HTMLElement;
     const contextItem = () =>
       screen.getByText('/context').closest('[cmdk-item]') as HTMLElement;
-    const planItem = () =>
-      screen.getByText('/plan').closest('[cmdk-item]') as HTMLElement;
-
     expect(goalItem().getAttribute('data-selected')).toBe('true');
     // ArrowDown: /goal -> /context
     act(() => {
       fireEvent.keyDown(textarea, { key: 'ArrowDown' });
     });
     expect(contextItem().getAttribute('data-selected')).toBe('true');
-    // ArrowDown: /context -> /plan
-    act(() => {
-      fireEvent.keyDown(textarea, { key: 'ArrowDown' });
-    });
-    expect(planItem().getAttribute('data-selected')).toBe('true');
-    // ArrowDown: /plan -> /goal (wrap)
+    // ArrowDown: /context -> /goal (wrap)
     act(() => {
       fireEvent.keyDown(textarea, { key: 'ArrowDown' });
     });
     expect(goalItem().getAttribute('data-selected')).toBe('true');
-    // ArrowUp: /goal -> /plan (wrap)
+    // ArrowUp: /goal -> /context (wrap)
     act(() => {
       fireEvent.keyDown(textarea, { key: 'ArrowUp' });
     });
-    expect(planItem().getAttribute('data-selected')).toBe('true');
+    expect(contextItem().getAttribute('data-selected')).toBe('true');
   });
 
   // 5-02-04 / D-05
@@ -437,13 +429,12 @@ describe('SlashCommandPopup', () => {
       fireEvent.change(textarea, { target: { value: '//' } });
     });
     // The query sent to SlashCommandPopup is `/` (slice(1)) which still
-    // matches all 3 commands; the D-03 hint is shown only if zero matches.
+    // matches all 2 commands; the D-03 hint is shown only if zero matches.
     // Here we just verify no crash and that the popup is still open with
-    // the 3 commands visible. (PITFALLS P6c: filter must not throw on `//`.)
+    // the 2 commands visible. (PITFALLS P6c: filter must not throw on `//`.)
     // Phase 6: rows now contain <Badge> + <span> /goal — assert text via getAllByText substring.
     expect(screen.getAllByText(/^\/goal$/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/^\/context$/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/^\/plan$/).length).toBeGreaterThan(0);
   });
 
   // 5-02-08 / PITFALLS P6e / D-04
@@ -565,23 +556,20 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });
     });
-    // Move highlight to /plan (two ArrowDowns from /goal)
+    // Move highlight to /context (one ArrowDown from /goal)
     act(() => {
       fireEvent.keyDown(textarea, { key: 'ArrowDown' });
     });
-    act(() => {
-      fireEvent.keyDown(textarea, { key: 'ArrowDown' });
-    });
-    const planItem = () =>
-      screen.getByText('/plan').closest('[cmdk-item]') as HTMLElement;
-    expect(planItem().getAttribute('data-selected')).toBe('true');
+    const contextItem = () =>
+      screen.getByText('/context').closest('[cmdk-item]') as HTMLElement;
+    expect(contextItem().getAttribute('data-selected')).toBe('true');
     // Close the popup programmatically (Escape + same-value re-fire does not
     // re-open the popover in Radix — verify D-04 via direct state set).
     act(() => {
       harness!.setSlashOpen(false);
     });
-    expect(screen.queryByText('/plan')).toBeNull();
-    // Reopen: top row /goal must be selected, NOT /plan (D-04 reset).
+    expect(screen.queryByText('/context')).toBeNull();
+    // Reopen: top row /goal must be selected, NOT /context (D-04 reset).
     act(() => {
       harness!.setSlashOpen(true);
     });
@@ -766,17 +754,17 @@ describe('Phase 6 handleSlashSelect routing (light integration)', () => {
     // handleSlashSelect in production calls dispatcher.resolve(inputVal, registry.commands).
     // Verified in src/renderer/src/lib/commands/dispatcher.test.ts:
     // - "plugin rewrite does not pass overrides (D-18)"
-    // - "PlanMode dispatch passes planOnly override"
     // - "warns and returns when no active project"
-    // Here we just verify resolve() correctly maps `/goal` (full command) to SystemSilent.
+    // Here we just verify resolve() correctly maps `/goal` (full command) to GoalLoop.
     const plan = dispatcherResolve('/goal', [{
       name: 'goal', description: 'set goal', source: 'system', target: 'goal',
       sourceLabel: 'system', badge: '[system]',
     }]);
     expect(plan).toEqual({
-      kind: 'SystemSilent',
+      kind: 'GoalLoop',
       command: expect.objectContaining({ name: 'goal' }),
       args: '',
+      goal: '',
     });
   });
 
@@ -975,14 +963,6 @@ describe('Phase 8 polish', () => {
         sourceLabel: 'system',
         badge: '[system]',
       },
-      {
-        name: 'plan',
-        description: '进入 plan 模式',
-        source: 'system',
-        target: 'plan',
-        sourceLabel: 'system',
-        badge: '[system]',
-      },
       // Hidden: hideFromPopup: true (system command with a persistent button)
       {
         name: 'context',
@@ -1000,9 +980,8 @@ describe('Phase 8 polish', () => {
       fireEvent.change(textarea, { target: { value: '/' } });
     });
 
-    // /goal and /plan are visible
+    // /goal is visible
     expect(screen.getByText('/goal')).toBeTruthy();
-    expect(screen.getByText('/plan')).toBeTruthy();
     // /context must NOT be in the popup (ContextButton 📊 is the primary entry)
     expect(screen.queryByText('/context')).toBeNull();
   });

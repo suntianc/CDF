@@ -40,9 +40,7 @@ interface RuntimeProjectRow {
   path: string;
 }
 
-// Phase 7 Plan 01: alias to shared ChatRuntimeOverrides (Gap 2 fix). The shared
-// type already declares `planOnly?: boolean`, which is consumed in
-// createDeepAgentRuntime below for the D-13 plan-mode tool suppression.
+// Phase 7 Plan 01: alias to shared ChatRuntimeOverrides (Gap 2 fix).
 type RuntimeModelOverrides = ChatRuntimeOverrides;
 
 interface RuntimeInputMessage {
@@ -485,15 +483,11 @@ export async function createDeepAgentRuntime(
 
   const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
 
-  // D-13: plan mode flag. When set, strip bash/delete_file from tools and disable
-  // interruptOn so the LLM cannot fire write_file/edit_file/bash (PITFALLS P2).
-  const isPlanMode = Boolean(overrides?.planOnly);
-
-  const builtInTools: any[] = [createFetchTool()];
-  if (!isPlanMode) {
-    builtInTools.push(createDeleteFileTool(project.path));
-    builtInTools.push(createBashTool({ workingDir: project.path }));
-  }
+  const builtInTools: any[] = [
+    createFetchTool(),
+    createDeleteFileTool(project.path),
+    createBashTool({ workingDir: project.path }),
+  ];
 
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [
@@ -604,10 +598,7 @@ export async function createDeepAgentRuntime(
     tools: [...mcpRuntime.tools, ...builtInTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     middleware: [createRecoverableToolErrorMiddleware()],
-    // D-13: plan mode disables all interrupts so write_file/edit_file cannot
-    // be triggered. Combined with the stripped tools array (no bash /
-    // delete_file), the agent is fully read-only in plan mode.
-    interruptOn: isPlanMode ? false : DEFAULT_INTERRUPT_ON,
+    interruptOn: DEFAULT_INTERRUPT_ON,
     checkpointer,
     memory: memory.length ? memory : undefined,
   });

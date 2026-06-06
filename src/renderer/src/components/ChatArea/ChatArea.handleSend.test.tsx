@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 
@@ -12,24 +11,6 @@ vi.mock('@/lib/commands/dispatcher', async () => {
     dispatch: vi.fn(),
   };
 });
-
-// Module-scoped mocks for the PlanPopup integration test. Defined up here
-// so they're available in the `vi.mock` factory below.
-const mockSendMessage = vi.fn();
-const mockGetProjectState = vi.fn();
-const mockGetSessionState = vi.fn();
-const mockStopChat = vi.fn();
-
-vi.mock('@/stores/projectStore', () => ({
-  useProjectStore: { getState: () => mockGetProjectState() },
-}));
-vi.mock('@/stores/sessionStore', () => ({
-  useSessionStore: { getState: () => mockGetSessionState() },
-}));
-
-// The PlanPopup store imports the mocked session/project stores at module
-// load time, so its getState() calls are routed through our mocks above.
-import { usePlanPopupStore } from '@/stores/planPopupStore';
 
 const mockResolve = vi.mocked(dispatcherResolve);
 const mockDispatch = vi.mocked(dispatcherDispatch);
@@ -44,8 +25,6 @@ describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
   function makeTestHarness() {
     function TestHarness() {
       const [inputVal, setInputVal] = useState('');
-      const [currentProjectId] = useState('project-1');
-      const [isStreaming] = useState(false);
       const textareaRef = useRef<HTMLTextAreaElement>(null);
       const registry = useCommandRegistry('project-1', null);
 
@@ -85,9 +64,10 @@ describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
 
   it('D-15 case 1: `/goal X` at message start (selectionStart=0) routes through dispatcher', async () => {
     mockResolve.mockReturnValue({
-      kind: 'SystemSilent',
+      kind: 'GoalLoop',
       command: { name: 'goal', description: '', source: 'system', target: 'goal', sourceLabel: 'system', badge: '[system]' },
       args: 'write tests',
+      goal: 'write tests',
     });
 
     const TestHarness = makeTestHarness();
@@ -106,9 +86,10 @@ describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
 
     expect(mockResolve).toHaveBeenCalledWith('/goal write tests', expect.any(Array));
     expect(mockDispatch).toHaveBeenCalledWith({
-      kind: 'SystemSilent',
+      kind: 'GoalLoop',
       command: expect.objectContaining({ name: 'goal' }),
       args: 'write tests',
+      goal: 'write tests',
     });
   });
 
@@ -154,65 +135,3 @@ describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
   });
 });
 
-// ===== 08.2 C-3: 「立即执行」 integration (C3-03) =====
-//
-// Contract: clicking "立即执行" in PlanPopup → store.execute() →
-// useSessionStore.sendMessage(projectId, '立即执行', undefined). The 3rd
-// argument must be undefined (or an object without `planOnly: true`) so
-// the next LLM call drives the agent into execution mode (no plan gate).
-//
-// The user-message path is the same one used by the regular ChatArea
-// composer; this test pins the contract from the popup side and asserts
-// the call shape that downstream sendMessage consumers (llm.ts → runtime.ts)
-// rely on.
-describe('PlanPopup 「立即执行」 integration (C3-03)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSendMessage.mockReset();
-    mockGetProjectState.mockReset();
-    mockGetSessionState.mockReset();
-    mockStopChat.mockReset();
-
-    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
-    mockGetSessionState.mockReturnValue({
-      sendMessage: mockSendMessage,
-      streamingMessageId: null,
-    });
-
-    (window as any).electronAPI = { llm: { stopChat: mockStopChat } };
-    usePlanPopupStore.setState({
-      isOpen: false,
-      status: 'closed',
-      planContent: '',
-      iterationCount: 0,
-      modifyHistory: [],
-      currentRequestId: null,
-      description: '',
-    });
-  });
-
-  it("execute() sends '立即执行' as user message WITHOUT planOnly flag (overrides is undefined or lacks planOnly)", async () => {
-    mockSendMessage.mockResolvedValue(undefined);
-
-    // Open the popup the way the dispatcher would: `usePlanPopupStore.open(desc)`.
-    usePlanPopupStore.getState().open('重构 ChatArea');
-    // Sanity: the popup is open and ready
-    expect(usePlanPopupStore.getState().isOpen).toBe(true);
-
-    // User clicks "立即执行" → store.execute()
-    await usePlanPopupStore.getState().execute();
-
-    // C3-03 contract: the synthetic user message must be exactly "立即执行"
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    const call = mockSendMessage.mock.calls[0];
-    expect(call[0]).toBe('project-1');
-    expect(call[1]).toBe('立即执行');
-    // The 3rd argument must NOT include `planOnly: true`. We allow it to be
-    // undefined (cleanest), an empty object, or any other shape that doesn't
-    // carry the planOnly flag.
-    const overrides = call[2];
-    if (overrides !== undefined) {
-      expect(overrides).not.toMatchObject({ planOnly: true });
-    }
-  });
-});

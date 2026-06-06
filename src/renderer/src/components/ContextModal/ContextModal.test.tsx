@@ -29,7 +29,7 @@ vi.mock('@/stores/llmStore', () => ({
   useLLMStore: { getState: () => mockLLMGet() },
 }));
 
-// Radix Dialog mocks (mirrors PlanPopup.test.tsx pattern)
+// Radix Dialog mocks
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
     open ? <div data-testid="dialog-root">{children}</div> : null,

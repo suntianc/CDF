@@ -195,12 +195,11 @@ export interface ParsedFrontmatter {
 }
 
 /** D-01 four dispatch kinds. args is always a passthrough string (D-02).
- *  08.2 extensions: PlanMode.popupOpen (C3-05) + new GoalLoop kind (C1-05). */
+ *  08.2 extensions: GoalLoop kind (C1-05). */
 export type CommandDispatchAction =
   | { kind: 'SystemSilent'; command: SlashCommand; args: string }
   | { kind: 'SystemLocal'; command: SlashCommand; args: string }
   | { kind: 'PluginRewrite'; command: SlashCommand; args: string; prompt: string }
-  | { kind: 'PlanMode'; command: SlashCommand; args: string; popupOpen?: boolean }
   | { kind: 'GoalLoop'; command: SlashCommand; args: string; goal: string };
 
 /** D-07 lock: build phase RETURNS errors (does NOT throw). Renderer consumes
@@ -218,9 +217,6 @@ export class CommandConflictError extends Error {
 export interface ChatRuntimeOverrides {
   providerId?: string;
   model?: string;
-  /** D-01 PlanMode dispatch extension point. Phase 7 SLASH-REGRESSION verifies
-   *  that the runtime actually consumes this flag. */
-  planOnly?: boolean;
   /** D-09: frontmatter `allowed-tools` whitelist. Type-only seam — llm.ts:322
    *  already pass-throughs `payload.overrides`. Runtime hard enforcement is
    *  deferred to v1.2+ (ALLOWED-TOOLS RUNTIME GAP, see 08.2-01 SUMMARY). */

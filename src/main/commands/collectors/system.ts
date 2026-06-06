@@ -30,13 +30,5 @@ export function collectSystemCommands(): SlashCommand[] {
       // users who prefer the keyboard path.
       hideFromPopup: true,
     },
-    {
-      name: 'plan',
-      description: '进入 plan 模式',
-      source: 'system',
-      target: 'plan',
-      sourceLabel: 'system',
-      badge: '[system]',
-    },
   ];
 }

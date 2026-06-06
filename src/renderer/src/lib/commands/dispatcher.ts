@@ -1,9 +1,7 @@
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { usePlanPopupStore } from '@/stores/planPopupStore';
 import { useContextModalStore } from '@/stores/contextModalStore';
 import { startGoalJudgeLoop, stopGoalJudgeLoop } from '@/hooks/useGoalJudge';
-import { toast } from 'sonner';
 import type {
   ChatRuntimeOverrides,
   CommandDispatchAction,
@@ -52,12 +50,6 @@ export function resolve(
     if (match.name === 'context') {
       return { kind: 'SystemLocal', command: match, args };
     }
-    if (match.name === 'plan') {
-      // C3-05: PlanMode carries popupOpen=true so the dispatch path opens
-      // the Codex-style Radix Dialog. Callers that need the legacy toast
-      // path (e.g. unit tests) can opt out by passing `popupOpen: false`.
-      return { kind: 'PlanMode', command: match, args, popupOpen: true };
-    }
     // Unknown system command — fall through to null
     return null;
   }
@@ -82,10 +74,10 @@ export function resolve(
 /**
  * Execute a resolved CommandDispatchAction.
  *
- * D-01 four kinds (Phase 7: real implementations, no more console.log placeholders):
- * - SystemSilent: writes goal to `useSessionStore.sessionGoals` (in-memory, no LLM)
+ * D-01 dispatch kinds:
+ * - SystemSilent: no-op (legacy, unreachable from /goal)
  * - SystemLocal:  calls `electronAPI.context.currentSession` for token breakdown
- * - PlanMode:     emits `[plan]` toast + `sendMessage(..., { planOnly: true })`
+ * - GoalLoop:     drives the internal judge agent loop
  * - PluginRewrite: LLM call with NO overrides; args are baked into the
  *   prompt's natural-language text.
  *
@@ -123,24 +115,6 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
         return;
       }
       useContextModalStore.getState().open();
-      return;
-    }
-
-    case 'PlanMode': {
-      // C3-01/C3-05: open the Codex-style Radix Dialog popup. The legacy
-      // toast path is preserved when `popupOpen === false` (escape hatch
-      // for unit tests / Phase 7 callers that don't need the popup UI).
-      const description = plan.args.trim() || '(无描述)';
-      if (plan.popupOpen !== false) {
-        usePlanPopupStore.getState().open(description);
-      } else {
-        toast.info(`[plan] 进入 plan 模式：${description}`, {
-          description: 'LLM 不会调用 write_file / edit_file / bash',
-          duration: 3000,
-        });
-      }
-      // D-12: 透传 planOnly 给 sendMessage → llm.ts → runtime.ts (Gap 1+2+3 chain).
-      await sendMessage(projectId, plan.args, { planOnly: true });
       return;
     }
 

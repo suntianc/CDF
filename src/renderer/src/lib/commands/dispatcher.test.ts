@@ -8,7 +8,6 @@ const mockGetSessionState = vi.fn();
 const mockSetSessionGoal = vi.fn();
 const mockContextCurrentSession = vi.fn();
 const mockReadBody = vi.fn();
-const mockPlanPopupOpen = vi.fn();
 const mockContextModalOpen = vi.fn();
 const mockStartGoalJudgeLoop = vi.fn();
 const mockStopGoalJudgeLoop = vi.fn();
@@ -17,9 +16,6 @@ vi.mock('@/stores/projectStore', () => ({
 }));
 vi.mock('@/stores/sessionStore', () => ({
   useSessionStore: { getState: () => mockGetSessionState() },
-}));
-vi.mock('@/stores/planPopupStore', () => ({
-  usePlanPopupStore: { getState: () => ({ open: mockPlanPopupOpen }) },
 }));
 vi.mock('@/stores/contextModalStore', () => ({
   useContextModalStore: { getState: () => ({ open: mockContextModalOpen }) },
@@ -54,15 +50,6 @@ const contextCmd: SlashCommand = {
   description: '查看 session token 用量',
   source: 'system',
   target: 'context',
-  sourceLabel: 'system',
-  badge: '[system]',
-};
-
-const planCmd: SlashCommand = {
-  name: 'plan',
-  description: '进入 plan 模式',
-  source: 'system',
-  target: 'plan',
   sourceLabel: 'system',
   badge: '[system]',
 };
@@ -107,16 +94,6 @@ describe('dispatcher.resolve', () => {
   it('returns SystemLocal for /context', () => {
     const plan = resolve('/context', [contextCmd]);
     expect(plan).toEqual({ kind: 'SystemLocal', command: contextCmd, args: '' });
-  });
-
-  it('returns PlanMode for /plan', () => {
-    const plan = resolve('/plan', [planCmd]);
-    expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '', popupOpen: true });
-  });
-
-  it('PlanMode args passthrough — /plan --priority=high', () => {
-    const plan = resolve('/plan --priority=high', [planCmd]);
-    expect(plan).toEqual({ kind: 'PlanMode', command: planCmd, args: '--priority=high', popupOpen: true });
   });
 
   it('PluginRewrite for MCP with args (D-18, v1.1 server-dim)', () => {
@@ -171,7 +148,6 @@ describe('dispatcher.dispatch', () => {
     mockSetSessionGoal.mockReset();
     mockContextCurrentSession.mockReset();
     mockReadBody.mockReset();
-    mockPlanPopupOpen.mockReset();
     mockContextModalOpen.mockReset();
     mockStartGoalJudgeLoop.mockReset();
     mockStopGoalJudgeLoop.mockReset();
@@ -198,61 +174,6 @@ describe('dispatcher.dispatch', () => {
     expect(mockSendMessage).toHaveBeenCalledWith('projectId', '请使用 arxiv MCP 服务器上的合适工具处理：foo');
     // CRITICAL: no third argument (D-18 — args go to message.content, not tool schema)
     expect(mockSendMessage.mock.calls[0]).toHaveLength(2);
-  });
-
-  it('PlanMode dispatch passes planOnly override (default popupOpen: false → toast path)', async () => {
-    mockGetProjectState.mockReturnValue({ currentProjectId: 'projectId' });
-    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
-    mockSendMessage.mockResolvedValue(undefined);
-
-    await dispatch({ kind: 'PlanMode', command: planCmd, args: 'write tests' });
-
-    expect(mockSendMessage).toHaveBeenCalledWith('projectId', 'write tests', { planOnly: true });
-  });
-
-  it('PlanMode with popupOpen=true: calls usePlanPopupStore.open(description) + sendMessage(planOnly:true)', async () => {
-    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
-    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
-    mockSendMessage.mockResolvedValue(undefined);
-
-    await dispatch({
-      kind: 'PlanMode',
-      command: planCmd,
-      args: '重构 ChatArea',
-      popupOpen: true,
-    });
-
-    expect(mockPlanPopupOpen).toHaveBeenCalledWith('重构 ChatArea');
-    expect(mockSendMessage).toHaveBeenCalledWith('project-1', '重构 ChatArea', { planOnly: true });
-  });
-
-  it('PlanMode with popupOpen=false: falls back to toast + sendMessage(planOnly:true)', async () => {
-    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
-    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
-    mockSendMessage.mockResolvedValue(undefined);
-
-    await dispatch({
-      kind: 'PlanMode',
-      command: planCmd,
-      args: 'write tests',
-      popupOpen: false,
-    });
-
-    expect(mockPlanPopupOpen).not.toHaveBeenCalled();
-    expect(toast.info).toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith('project-1', 'write tests', { planOnly: true });
-  });
-
-  it('warns and returns when no active project', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockGetProjectState.mockReturnValue({ currentProjectId: null });
-    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
-
-    await dispatch({ kind: 'PlanMode', command: planCmd, args: 'x' });
-
-    expect(warnSpy).toHaveBeenCalledWith('[dispatcher] No active project; cannot dispatch');
-    expect(mockSendMessage).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
   });
 
   // ===== Phase 7 Plan 01: real implementations (replaces 3 console.log placeholders) =====
@@ -323,27 +244,6 @@ describe('dispatcher.dispatch', () => {
     // No toast: the modal is the only feedback surface (UI-SPEC.md §Surface 2)
     expect(toast.info).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it('C. PlanMode: popupOpen=false path emits [plan] toast + calls sendMessage with { planOnly: true } (D-10/D-11/D-12)', async () => {
-    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
-    mockGetSessionState.mockReturnValue({ sendMessage: mockSendMessage });
-    mockSendMessage.mockResolvedValue(undefined);
-
-    await dispatch({
-      kind: 'PlanMode',
-      command: planCmd,
-      args: 'write tests',
-      popupOpen: false,  // explicit legacy toast path
-    });
-
-    // sendMessage called with planOnly override
-    expect(mockSendMessage).toHaveBeenCalledWith('project-1', 'write tests', { planOnly: true });
-    // toast.info called with the [plan] marker (legacy path)
-    expect(toast.info).toHaveBeenCalled();
-    const toastCall = (toast.info as any).mock.calls[0];
-    expect(toastCall[0]).toContain('[plan] 进入 plan 模式');
-    expect(toastCall[0]).toContain('write tests');
   });
 
   // ===== 08.2 P1: PluginRewrite body load + $ARGUMENTS substitution (D-01/D-03) =====

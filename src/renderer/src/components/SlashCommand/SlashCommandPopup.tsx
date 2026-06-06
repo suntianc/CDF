@@ -15,7 +15,6 @@ import type { SlashCommand, CommandSource } from '../../../../shared/types';
 const SYSTEM_COMMANDS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '/goal', label: '/goal' },
   { value: '/context', label: '/context' },
-  { value: '/plan', label: '/plan' },
 ];
 
 // Phase 8 — D-01..D-04: 7-color source badge palette (VS Code Dark+ style).
@@ -164,9 +163,10 @@ export const SlashCommandPopup = forwardRef<
           return true;
         }
         if (e.key === 'Enter') {
-          // Enter: dispatch/send the highlighted command (v1.0 behavior).
+          // Enter: same as Tab — insert the command as a capsule and let the
+          // user type args. handleSend dispatches when Enter is pressed again.
           e.preventDefault();
-          onSelect('/' + selectedValue);
+          (onInsert ?? onSelect)('/' + selectedValue);
           return true;
         }
         if (e.key === 'Tab') {
@@ -256,7 +256,7 @@ export const SlashCommandPopup = forwardRef<
         ))}
         <Command.Empty className="px-2 py-2 text-[12px] text-[var(--color-text-muted)]">
           <div>无匹配命令</div>
-          <div>试试输入 /goal · /context · /plan 查看可用命令</div>
+          <div>试试输入 /goal · /context 查看可用命令</div>
         </Command.Empty>
       </Command.List>
     </Command>
