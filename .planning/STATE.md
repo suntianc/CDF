@@ -4,8 +4,8 @@ milestone: v1.1
 milestone_name: 基本能力完善
 status: milestone_complete
 stopped_at: Milestone complete (Phase 08.2 was final phase)
-last_updated: 2026-06-05T18:43:20.628Z
-last_activity: 2026-06-05 -- Phase 08.2 execution started
+last_updated: 2026-06-06T15:46:46.884Z
+last_activity: 2026-06-06 -- Completed quick task 260606-kiz: code-review max fixes
 progress:
   total_phases: 6
   completed_phases: 5
@@ -31,7 +31,7 @@ See: `.planning/research/SUMMARY.md` (high-confidence synthesis, 2026-06-04)
 Phase: 08.2
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-06-05
+Last activity: 2026-06-06 - Completed quick task 260606-kiz: code-review max fixes
 
 ## Performance Metrics
 
@@ -95,6 +95,12 @@ None yet.
 - **chokidar 跨平台** (LOW confidence) — 需 Phase 2 CI 矩阵覆盖 macOS + Windows + Linux
 - **payload.overrides.planOnly runtime 语义** (LOW confidence) — 需 Phase 3 验证 deepagent 端行为
 - **v1.0 partial deliverable 收尾** (deferred) — draft workflow tests / work history UI polish 推 v1.2
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260606-kiz | code-review max fixes | 2026-06-06 | b018ef3 | [260606-kiz-code-review-max-13-electronapi-commands-](./quick/260606-kiz-code-review-max-13-electronapi-commands-/) |
 
 ## Deferred Items (acknowledged at v1.1 close on 2026-06-04)
 
