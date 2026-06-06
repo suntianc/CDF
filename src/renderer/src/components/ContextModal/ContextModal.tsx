@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, ChevronDown, ChevronUp, Server } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Server, Wrench, FileText, GitBranch, Terminal } from 'lucide-react';
 import { useContextModalStore } from '@/stores/contextModalStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useLLMStore } from '@/stores/llmStore';
@@ -18,6 +18,24 @@ import { cn } from '@/lib/utils';
 interface MCPToolDetail {
   tool: string;
   server: string;
+  tokens: number;
+}
+interface SkillDetail {
+  name: string;
+  scope: 'global' | 'project';
+  tokens: number;
+}
+interface WorkflowDetail {
+  id: string;
+  name: string;
+  tokens: number;
+}
+interface SystemToolDetail {
+  name: string;
+  tokens: number;
+}
+interface ProjectCommandDetail {
+  name: string;
   tokens: number;
 }
 
@@ -35,6 +53,10 @@ interface ContextBreakdown {
   freeSpace: number;
   autocompactBuffer: number;
   mcpPerTool: MCPToolDetail[];
+  skillsPerSkill: SkillDetail[];
+  workflowsPerWorkflow: WorkflowDetail[];
+  systemToolsPerTool: SystemToolDetail[];
+  projectCommandsPerFile: ProjectCommandDetail[];
 }
 
 interface ContextAggregate {
@@ -65,7 +87,8 @@ export function ContextModal() {
   const [data, setData] = useState<ContextAggregate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mcpExpanded, setMcpExpanded] = useState(false);
+  // Per-source expansion state — each breakdown can be toggled independently.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!isOpen) {
@@ -73,7 +96,7 @@ export function ContextModal() {
       setData(null);
       setError(null);
       setLoading(false);
-      setMcpExpanded(false);
+      setExpanded({});
       return;
     }
 
@@ -123,6 +146,67 @@ export function ContextModal() {
         <span className="font-mono text-[var(--color-text-primary)]">
           {(value / 1000).toFixed(1)}k ({(pct).toFixed(1)}%)
         </span>
+      </div>
+    );
+  };
+
+  // 08.2 polish: per-source breakdown section. Renders an expandable list
+  // for any non-empty breakdown array (MCP / Skills / Workflows / System
+  // tools / Project commands). Each section is collapsed by default to keep
+  // the modal compact.
+  const renderDetailSection = (
+    sectionKey: string,
+    label: string,
+    icon: ReactNode,
+    rows: Array<{ key: string; name: string; meta?: string; tokens: number }>,
+    contextLimit: number
+  ) => {
+    if (rows.length === 0) return null;
+    const isOpen = !!expanded[sectionKey];
+    return (
+      <div
+        key={sectionKey}
+        className="border-t border-[var(--color-border)]/40 pt-2"
+        data-testid={`context-modal-detail-${sectionKey}`}
+      >
+        <button
+          type="button"
+          className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          onClick={() => setExpanded((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }))}
+          data-testid={`context-modal-detail-toggle-${sectionKey}`}
+        >
+          {isOpen ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+          {icon}
+          {label} 明细 ({rows.length})
+        </button>
+        {isOpen && (
+          <div className="mt-2 space-y-1 pl-3 border-l border-[var(--color-border)]/40">
+            {rows.map((r, i) => {
+              const pct = contextLimit > 0 ? (r.tokens * 100) / contextLimit : 0;
+              return (
+                <div
+                  key={`${sectionKey}-${r.key}-${i}`}
+                  className="flex items-center justify-between text-xs py-1"
+                  data-testid={`context-modal-detail-row-${sectionKey}`}
+                >
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-mono text-[var(--color-text-secondary)] truncate">
+                      {r.name}
+                    </span>
+                    {r.meta && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {r.meta}
+                      </Badge>
+                    )}
+                  </span>
+                  <span className="font-mono text-[var(--color-text-primary)] ml-2 flex-shrink-0">
+                    {(r.tokens / 1000).toFixed(1)}k ({pct.toFixed(1)}%)
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -212,49 +296,62 @@ export function ContextModal() {
               {renderRow('Autocompact buffer', data.breakdown.autocompactBuffer, data.contextLimit)}
             </div>
 
-            {data.breakdown.mcpPerTool.length > 0 && (
-              <div className="border-t border-[var(--color-border)]/40 pt-2">
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                  onClick={() => setMcpExpanded((v) => !v)}
-                  data-testid="context-modal-mcp-toggle"
-                >
-                  {mcpExpanded ? (
-                    <ChevronUp className="size-3" />
-                  ) : (
-                    <ChevronDown className="size-3" />
-                  )}
-                  MCP tools 明细 ({data.breakdown.mcpPerTool.length})
-                </button>
-                {mcpExpanded && (
-                  <div className="mt-2 space-y-1 pl-3 border-l border-[var(--color-border)]/40">
-                    {data.breakdown.mcpPerTool.map((t, i) => {
-                      const pct = data.contextLimit > 0 ? (t.tokens * 100) / data.contextLimit : 0;
-                      return (
-                        <div
-                          key={`${t.server}-${t.tool}-${i}`}
-                          className="flex items-center justify-between text-xs py-1"
-                          data-testid="context-modal-mcp-tool"
-                        >
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <Server className="size-3 text-[var(--color-text-muted)] flex-shrink-0" />
-                            <span className="font-mono text-[var(--color-text-secondary)] truncate">
-                              mcp__{t.server}__{t.tool}
-                            </span>
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              {t.server}
-                            </Badge>
-                          </span>
-                          <span className="font-mono text-[var(--color-text-primary)] ml-2 flex-shrink-0">
-                            {(t.tokens / 1000).toFixed(1)}k ({pct.toFixed(1)}%)
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+            {renderDetailSection(
+              'mcp',
+              'MCP tools',
+              <Server className="size-3" />,
+              data.breakdown.mcpPerTool.map((t) => ({
+                key: t.tool,
+                name: t.tool,
+                meta: t.server,
+                tokens: t.tokens,
+              })),
+              data.contextLimit
+            )}
+            {renderDetailSection(
+              'skills',
+              'Skills',
+              <FileText className="size-3" />,
+              data.breakdown.skillsPerSkill.map((s) => ({
+                key: s.name,
+                name: s.name,
+                meta: s.scope,
+                tokens: s.tokens,
+              })),
+              data.contextLimit
+            )}
+            {renderDetailSection(
+              'workflows',
+              'Workflows',
+              <GitBranch className="size-3" />,
+              data.breakdown.workflowsPerWorkflow.map((w) => ({
+                key: w.id,
+                name: w.name,
+                tokens: w.tokens,
+              })),
+              data.contextLimit
+            )}
+            {renderDetailSection(
+              'systemTools',
+              'System tools',
+              <Wrench className="size-3" />,
+              data.breakdown.systemToolsPerTool.map((t) => ({
+                key: t.name,
+                name: t.name,
+                tokens: t.tokens,
+              })),
+              data.contextLimit
+            )}
+            {renderDetailSection(
+              'projectCommands',
+              'Project commands',
+              <Terminal className="size-3" />,
+              data.breakdown.projectCommandsPerFile.map((f) => ({
+                key: f.name,
+                name: f.name,
+                tokens: f.tokens,
+              })),
+              data.contextLimit
             )}
 
             {data.breakdown.freeSpace < data.contextLimit * 0.1 && (

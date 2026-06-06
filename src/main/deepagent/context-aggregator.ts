@@ -14,7 +14,6 @@
 // definitions; memory file system is not implemented) — deferred to v1.2+.
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import db from '../database';
 import { listPhysicalSkills, getScopePath } from './skill-manager';
@@ -24,6 +23,29 @@ import type { MCPServer } from '../../shared/types';
 export interface MCPToolDetail {
   tool: string;
   server: string;
+  tokens: number;
+}
+
+// Per-source breakdown rows surfaced in the ContextModal expand sections
+// (08.2 polish — addresses user feedback that only the MCP breakdown
+// was being rendered, leaving Skills / Workflows / System tools /
+// Project commands as opaque totals).
+export interface SkillDetail {
+  name: string;
+  scope: 'global' | 'project';
+  tokens: number;
+}
+export interface WorkflowDetail {
+  id: string;
+  name: string;
+  tokens: number;
+}
+export interface SystemToolDetail {
+  name: string;
+  tokens: number;
+}
+export interface ProjectCommandDetail {
+  name: string;
   tokens: number;
 }
 
@@ -44,6 +66,12 @@ export interface ContextBreakdown {
   freeSpace: number;             // max(0, contextLimit - total - autocompactBuffer)
   autocompactBuffer: number;     // Math.ceil(contextLimit * 0.15)
   mcpPerTool: MCPToolDetail[];   // v1.1 real — per-tool breakdown (expandable in modal)
+  // 08.2 polish — per-source breakdowns so the modal can show more than
+  // the MCP tool list. Each array is empty when its category is 0.
+  skillsPerSkill: SkillDetail[];
+  workflowsPerWorkflow: WorkflowDetail[];
+  systemToolsPerTool: SystemToolDetail[];
+  projectCommandsPerFile: ProjectCommandDetail[];
 }
 
 export interface ContextAggregate {
@@ -71,6 +99,10 @@ const ZERO_BREAKDOWN: ContextBreakdown = {
   freeSpace: 0,
   autocompactBuffer: 0,
   mcpPerTool: [],
+  skillsPerSkill: [],
+  workflowsPerWorkflow: [],
+  systemToolsPerTool: [],
+  projectCommandsPerFile: [],
 };
 
 function safeMath(chars: number): number {
@@ -332,9 +364,10 @@ export async function aggregateCurrentSessionContext(
     console.warn('[context-aggregator] conversation failed:', err);
   }
 
-  // 2. Skills tokens (try-catch #2)
+  // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown
   let skills = 0;
   let projectPath: string | undefined;
+  let skillsPerSkill: SkillDetail[] = [];
   try {
     const project = db
       .prepare(
@@ -350,14 +383,26 @@ export async function aggregateCurrentSessionContext(
       let skillsChars = 0;
       for (const skill of physicalSkills) {
         // skill.scope is 'global' | 'project'
+        const scope = (skill.scope === 'global' ? 'global' : 'project') as
+          | 'global'
+          | 'project';
         const baseDir =
-          skill.scope === 'global'
+          scope === 'global'
             ? getScopePath(projectPath, 'global')
             : getScopePath(projectPath, 'project');
         const skillMdPath = path.join(baseDir, skill.name, 'SKILL.md');
-        skillsChars += safeFileSize(skillMdPath);
+        const size = safeFileSize(skillMdPath);
+        skillsChars += size;
+        // 08.2 polish: per-skill breakdown for the modal
+        skillsPerSkill.push({
+          name: skill.name,
+          scope,
+          tokens: safeMath(size),
+        });
       }
       skills = safeMath(skillsChars);
+      // Sort by tokens desc so the heaviest skills appear first
+      skillsPerSkill.sort((a, b) => b.tokens - a.tokens);
     }
   } catch (err) {
     console.warn('[context-aggregator] skills failed:', err);
@@ -409,35 +454,49 @@ export async function aggregateCurrentSessionContext(
     console.warn('[context-aggregator] mcp failed:', err);
   }
 
-  // 4. Workflows tokens (try-catch #4)
+  // 4. Workflows tokens (try-catch #4) — populates workflowsPerWorkflow breakdown
   let workflows = 0;
+  let workflowsPerWorkflow: WorkflowDetail[] = [];
   try {
-    const row = db
+    const rows = db
       .prepare(
-        `SELECT COALESCE(SUM(LENGTH(graph_data)), 0) AS total
+        `SELECT id, name, LENGTH(graph_data) AS len
          FROM workflows
          WHERE status = 'active' AND project_id = (
            SELECT project_id FROM sessions WHERE id = ?
          )`
       )
-      .get(sessionId) as { total: number } | undefined;
-    workflows = safeMath(row?.total || 0);
+      .all(sessionId) as Array<{ id: string; name: string; len: number }>;
+    let totalChars = 0;
+    for (const r of rows) {
+      const tokens = safeMath(r.len);
+      totalChars += r.len;
+      workflowsPerWorkflow.push({ id: r.id, name: r.name, tokens });
+    }
+    workflows = safeMath(totalChars);
+    // Sort by tokens desc
+    workflowsPerWorkflow.sort((a, b) => b.tokens - a.tokens);
   } catch (err) {
     console.warn('[context-aggregator] workflows failed:', err);
   }
 
   // 5. Project command bodies (08.2 P4 NEW — v1.1 real)
   //     C2-01 11-category spec: sum .cdf/commands/*.md bytes × 0.25.
+  //     08.2 polish: also populate per-file breakdown.
   let projectCommandBodies = 0;
+  let projectCommandsPerFile: ProjectCommandDetail[] = [];
   try {
     if (projectPath) {
       const cmdsDir = path.join(projectPath, '.cdf', 'commands');
       if (fs.existsSync(cmdsDir)) {
         let totalBytes = 0;
         for (const file of fs.readdirSync(cmdsDir).filter((f) => f.endsWith('.md'))) {
-          totalBytes += safeFileSize(path.join(cmdsDir, file));
+          const size = safeFileSize(path.join(cmdsDir, file));
+          totalBytes += size;
+          projectCommandsPerFile.push({ name: file, tokens: safeMath(size) });
         }
         projectCommandBodies = safeMath(totalBytes);
+        projectCommandsPerFile.sort((a, b) => b.tokens - a.tokens);
       }
     }
   } catch (err) {
@@ -467,9 +526,18 @@ export async function aggregateCurrentSessionContext(
   //     We sum the character length of name+description+schema for all 6
   //     (note: plan-mode strips 2, so the live count is 4 for plan sessions —
   //     we report the full 6 here; the delta is negligible).
+  //     08.2 polish: also populate per-tool breakdown.
   let systemTools = 0;
+  let systemToolsPerTool: SystemToolDetail[] = [];
   try {
-    systemTools = safeMath(BUILTIN_TOOL_CHARS);
+    let totalChars = 0;
+    for (const t of BUILTIN_TOOL_BUDGET) {
+      const chars = t.meta.name.length + t.meta.description.length + safeStringifyLen(t.schema);
+      totalChars += chars;
+      systemToolsPerTool.push({ name: t.meta.name, tokens: safeMath(chars) });
+    }
+    systemTools = safeMath(totalChars);
+    systemToolsPerTool.sort((a, b) => b.tokens - a.tokens);
   } catch (err) {
     console.warn('[context-aggregator] systemTools failed:', err);
   }
@@ -518,6 +586,10 @@ export async function aggregateCurrentSessionContext(
       freeSpace,
       autocompactBuffer,
       mcpPerTool,
+      skillsPerSkill,
+      workflowsPerWorkflow,
+      systemToolsPerTool,
+      projectCommandsPerFile,
     },
     total,
     modelName,

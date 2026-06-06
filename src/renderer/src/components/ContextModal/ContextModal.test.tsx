@@ -83,6 +83,18 @@ const fullBreakdown = {
     { tool: 'mcp__arxiv__search', server: 'arxiv', tokens: 150 },
     { tool: 'mcp__arxiv__summarize', server: 'arxiv', tokens: 200 },
   ],
+  // 08.2 polish — per-source breakdowns (each can be expanded in the modal)
+  skillsPerSkill: [
+    { name: 'simplify', scope: 'global' as const, tokens: 100 },
+    { name: 'debug', scope: 'project' as const, tokens: 100 },
+  ],
+  workflowsPerWorkflow: [{ id: 'wf-1', name: 'sample-workflow', tokens: 400 }],
+  systemToolsPerTool: [
+    { name: 'fetch', tokens: 80 },
+    { name: 'bash', tokens: 60 },
+    { name: 'delete_file', tokens: 40 },
+  ],
+  projectCommandsPerFile: [{ name: 'deploy.md', tokens: 500 }],
 };
 
 describe('ContextModal', () => {
@@ -167,12 +179,35 @@ describe('ContextModal', () => {
       mcpPerTool: fullBreakdown.mcpPerTool,
     });
     render(<ContextModal />);
-    await waitFor(() => screen.getByTestId('context-modal-mcp-toggle'));
+    await waitFor(() => screen.getByTestId('context-modal-detail-toggle-mcp'));
     // Initially collapsed — per-tool rows NOT rendered
-    expect(screen.queryAllByTestId('context-modal-mcp-tool')).toHaveLength(0);
+    expect(screen.queryAllByTestId('context-modal-detail-row-mcp')).toHaveLength(0);
     // Click to expand
-    fireEvent.click(screen.getByTestId('context-modal-mcp-toggle'));
-    expect(screen.getAllByTestId('context-modal-mcp-tool')).toHaveLength(2);
+    fireEvent.click(screen.getByTestId('context-modal-detail-toggle-mcp'));
+    expect(screen.getAllByTestId('context-modal-detail-row-mcp')).toHaveLength(2);
+  });
+
+  it('renders all 5 detail sections (MCP / Skills / Workflows / System tools / Project commands)', async () => {
+    mockCurrentSession.mockResolvedValue({
+      breakdown: fullBreakdown,
+      total: 2400,
+      modelName: 'claude-opus',
+      contextLimit: 200_000,
+      used: 2400,
+      usedPct: 1,
+      freePct: 50,
+      mcpPerTool: fullBreakdown.mcpPerTool,
+    });
+    render(<ContextModal />);
+    await waitFor(() => screen.getByTestId('context-modal-detail-toggle-mcp'));
+    // 08.2 polish: all 5 detail sections should be present (MCP / Skills /
+    // Workflows / System tools / Project commands). Each is collapsed by
+    // default; we just verify the toggle buttons exist.
+    expect(screen.getByTestId('context-modal-detail-toggle-mcp')).toBeTruthy();
+    expect(screen.getByTestId('context-modal-detail-toggle-skills')).toBeTruthy();
+    expect(screen.getByTestId('context-modal-detail-toggle-workflows')).toBeTruthy();
+    expect(screen.getByTestId('context-modal-detail-toggle-systemTools')).toBeTruthy();
+    expect(screen.getByTestId('context-modal-detail-toggle-projectCommands')).toBeTruthy();
   });
 
   it('renders near-threshold warning when freeSpace < 10% of limit', async () => {

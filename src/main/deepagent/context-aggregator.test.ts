@@ -162,7 +162,9 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     });
 
     const result = await aggregateCurrentSessionContext('session-1');
-    // 11 scalar fields + 1 array field (mcpPerTool)
+    // 11 scalar fields + 5 array fields (mcpPerTool, skillsPerSkill,
+    // workflowsPerWorkflow, systemToolsPerTool, projectCommandsPerFile) = 16.
+    // (08.2 polish added 4 per-source breakdowns on top of mcpPerTool.)
     const fields = Object.keys(result.breakdown);
     expect(fields).toContain('conversation');
     expect(fields).toContain('skills');
@@ -177,7 +179,11 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(fields).toContain('freeSpace');
     expect(fields).toContain('autocompactBuffer');
     expect(fields).toContain('mcpPerTool');
-    expect(fields).toHaveLength(13);
+    expect(fields).toContain('skillsPerSkill');
+    expect(fields).toContain('workflowsPerWorkflow');
+    expect(fields).toContain('systemToolsPerTool');
+    expect(fields).toContain('projectCommandsPerFile');
+    expect(fields).toHaveLength(17);
   });
 
   it('autocompactBuffer === Math.ceil(contextLimit * 0.15)', async () => {
