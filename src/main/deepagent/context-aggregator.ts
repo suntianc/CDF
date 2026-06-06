@@ -15,6 +15,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import YAML from 'yaml';
 import db from '../database';
 import { listPhysicalSkills, getScopePath } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
@@ -112,6 +113,38 @@ function safeMath(chars: number): number {
 function safeFileSize(filePath: string): number {
   try {
     return fs.statSync(filePath).size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Read the YAML frontmatter `description` field from a SKILL.md file.
+ *
+ * Why this exists: deepagent's progressive-disclosure pattern only injects
+ * `name + description + path` for each skill into the LLM's system
+ * prompt. The full SKILL.md body is only read on demand via read_file.
+ * Aggregator should reflect what the LLM actually sees — the description
+ * field, not the entire file.
+ *
+ * Returns 0 if the file is missing, the frontmatter is unparseable, or
+ * the description field is absent — the caller falls back to a sensible
+ * default in that case (file size for the rough-worst-case number).
+ */
+function readSkillDescriptionChars(skillMdPath: string): number {
+  try {
+    if (!fs.existsSync(skillMdPath)) return 0;
+    const raw = fs.readFileSync(skillMdPath, 'utf-8');
+    // Frontmatter is delimited by `---` lines at the start of the file.
+    if (!raw.startsWith('---')) return 0;
+    const end = raw.indexOf('\n---', 3);
+    if (end < 0) return 0;
+    const fmBlock = raw.slice(3, end);
+    const parsed = YAML.parse(fmBlock);
+    if (!parsed || typeof parsed !== 'object') return 0;
+    const desc = (parsed as Record<string, unknown>).description;
+    if (typeof desc !== 'string') return 0;
+    return desc.length;
   } catch {
     return 0;
   }
@@ -364,7 +397,17 @@ export async function aggregateCurrentSessionContext(
     console.warn('[context-aggregator] conversation failed:', err);
   }
 
-  // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown
+  // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown.
+  //
+  // 08.2 polish: deepagent's design (per the package's progressive-
+  // disclosure pattern) injects only `name + description + path` for
+  // each skill into the LLM's system prompt. The full SKILL.md is
+  // only read on demand via read_file. Previously the aggregator
+  // counted the entire SKILL.md byte size (e.g. skill-creator's
+  // 33KB SKILL.md reported as 8.3k tokens), which overstated the
+  // LLM-visible cost by 30-100x. We now read only the YAML
+  // frontmatter description field, which is what the LLM actually
+  // sees at conversation start.
   let skills = 0;
   let projectPath: string | undefined;
   let skillsPerSkill: SkillDetail[] = [];
@@ -382,7 +425,6 @@ export async function aggregateCurrentSessionContext(
       const physicalSkills = listPhysicalSkills(projectPath);
       let skillsChars = 0;
       for (const skill of physicalSkills) {
-        // skill.scope is 'global' | 'project'
         const scope = (skill.scope === 'global' ? 'global' : 'project') as
           | 'global'
           | 'project';
@@ -391,13 +433,20 @@ export async function aggregateCurrentSessionContext(
             ? getScopePath(projectPath, 'global')
             : getScopePath(projectPath, 'project');
         const skillMdPath = path.join(baseDir, skill.name, 'SKILL.md');
-        const size = safeFileSize(skillMdPath);
-        skillsChars += size;
-        // 08.2 polish: per-skill breakdown for the modal
+        // 08.2 polish: count only the description field (the LLM-visible
+        // portion), not the full file. Fall back to the full file size
+        // only if the file is missing or the frontmatter is unparseable
+        // (defensive — never let aggregator crash on a malformed skill).
+        const descChars = readSkillDescriptionChars(skillMdPath);
+        const chars =
+          descChars > 0
+            ? descChars + skill.name.length + '/skills/'.length
+            : safeFileSize(skillMdPath);
+        skillsChars += chars;
         skillsPerSkill.push({
           name: skill.name,
           scope,
-          tokens: safeMath(size),
+          tokens: safeMath(chars),
         });
       }
       skills = safeMath(skillsChars);
