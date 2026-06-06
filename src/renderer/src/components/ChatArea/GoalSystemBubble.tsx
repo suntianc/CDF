@@ -14,7 +14,6 @@
 // the consumer passes `activeSessionId` (P6 pitfall).
 
 import { useEffect, useState } from 'react';
-import { useSessionStore } from '@/stores/sessionStore';
 import { useGoalJudgeStatus, type JudgeStatus } from '@/hooks/useGoalJudge';
 
 interface GoalSystemBubbleProps {
@@ -105,14 +104,9 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
 
 export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
   const { status, iteration, startedAt, reason, goal } = useGoalJudgeStatus(sessionId);
-  const goalFromStore = useSessionStore((s) => s.sessionGoals.get(sessionId) ?? '');
-  // Use the value from the hook (which is read at hook subscription time and
-  // includes the snapshot read) but also fall back to direct store lookup for
-  // immediate mount-time correctness.
-  const effectiveGoal = goal || goalFromStore;
 
   // No goal, no bubble
-  if (!status || !effectiveGoal) {
+  if (!status || !goal) {
     return null;
   }
 
@@ -146,7 +140,7 @@ export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
   }, []);
 
   const animatePulse = state.pulse && !prefersReducedMotion;
-  const copy = state.copy(effectiveGoal, iteration, tickElapsed, reason);
+  const copy = state.copy(goal, iteration, tickElapsed, reason);
 
   return (
     <div

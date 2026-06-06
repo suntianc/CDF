@@ -23,7 +23,6 @@
 //      iteration >= maxTurns (P7 cap): bubble = ⏸ paused, sonner.warning, stop.
 //      parse error: bubble = ⚠️ failed, stop.
 
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { useProjectStore } from '@/stores/projectStore';
 import {
@@ -317,32 +316,29 @@ export function createGoalJudge(): GoalJudgeInstance {
   }
 
   function useGoalJudgeStatus(sessionId: string | null): GoalJudgeStatus {
-    // Hooks: subscribe via useSyncExternalStore to goalJudgeStatus + sessionGoals slices.
-    // Zustand stores implement useSyncExternalStore semantics through a `subscribe`
-    // method. We use the lower-level `subscribe` API + a snapshot reader to keep
-    // the hook's contract minimal (no `useSessionStore(selector)` shim needed).
-    const subscribe = useMemo(
-      () => (cb: () => void) => useSessionStore.subscribe(cb),
-      []
+    // Subscribe via two independent Zustand selectors. Each selector returns a
+    // stable reference (Object.is): when the goalJudgeStatus Map reference is
+    // unchanged, Map.get(sessionId) returns the same entry, and
+    // Object.is(entry, entry) === true → no re-render. Same for sessionGoals.
+    //
+    // This replaces the previous useSyncExternalStore implementation whose
+    // getSnapshot returned a fresh `{ entry, goal }` object on every call,
+    // triggering React 18's "Maximum update depth exceeded" infinite loop
+    // (Phase 08.2 P3 review warning WR-01 — promoted to runtime Critical
+    // during user testing). Zustand v5 internally uses useSyncExternalStore
+    // with Object.is comparison, giving us the correct behavior out of the box.
+    const entry = useSessionStore((s) =>
+      sessionId ? s.goalJudgeStatus.get(sessionId) : undefined
     );
-    const getSnapshot = () => {
-      if (!sessionId) {
-        return { entry: undefined as GoalJudgeStatusEntry | undefined, goal: '' };
-      }
-      const s = useSessionStore.getState();
-      return { entry: s.goalJudgeStatus.get(sessionId), goal: s.sessionGoals.get(sessionId) ?? '' };
-    };
-    // useSyncExternalStore with a stable subscribe + getSnapshot
-    const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-    useEffect(() => {
-      // Force re-render when sessionId changes (the snapshot above is fresh per render).
-    }, [sessionId]);
+    const goal = useSessionStore((s) =>
+      sessionId ? (s.sessionGoals.get(sessionId) ?? '') : ''
+    );
     return {
-      status: snapshot.entry?.status,
-      iteration: snapshot.entry?.iteration ?? 0,
-      startedAt: snapshot.entry?.startedAt ?? 0,
-      reason: snapshot.entry?.reason,
-      goal: snapshot.goal,
+      status: entry?.status,
+      iteration: entry?.iteration ?? 0,
+      startedAt: entry?.startedAt ?? 0,
+      reason: entry?.reason,
+      goal,
     };
   }
 
