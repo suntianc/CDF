@@ -5,7 +5,7 @@ milestone_name: 基本能力完善
 status: milestone_complete
 stopped_at: Milestone complete (Phase 08.2 was final phase)
 last_updated: 2026-06-06T15:46:46.884Z
-last_activity: 2026-06-06 -- Completed quick task 260606-kiz: code-review max fixes
+last_activity: 2026-06-06 -- Completed quick task 260606-mrt: goal: sessionStore.sendMessage targetSessionId
 progress:
   total_phases: 6
   completed_phases: 5
@@ -31,7 +31,7 @@ See: `.planning/research/SUMMARY.md` (high-confidence synthesis, 2026-06-04)
 Phase: 08.2
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-06-06 - Completed quick task 260606-kiz: code-review max fixes
+Last activity: 2026-06-06 - Completed quick task 260606-mrt: goal: sessionStore.sendMessage targetSessionId
 
 ## Performance Metrics
 
@@ -100,6 +100,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260606-mrt | goal: sessionStore.sendMessage targetSessionId, /goal no longer switches UI session | 2026-06-06 | — | [260606-mrt-goal-sessionstore-sendmessage-targetsess](./quick/260606-mrt-goal-sessionstore-sendmessage-targetsess/) |
 | 260606-kiz | code-review max fixes | 2026-06-06 | b018ef3 | [260606-kiz-code-review-max-13-electronapi-commands-](./quick/260606-kiz-code-review-max-13-electronapi-commands-/) |
 
 ## Deferred Items (acknowledged at v1.1 close on 2026-06-04)

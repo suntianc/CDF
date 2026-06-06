@@ -82,7 +82,7 @@ interface SessionState {
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string) => Promise<void>;
-  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => Promise<void>;
+  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
   setSessionGoal: (sessionId: string, goal: string) => void;
   setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => void;
@@ -418,10 +418,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
 
-  sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides) => {
-    const { activeSessionId, isStreaming, sessions } = get();
-    if (!activeSessionId || isStreaming) return;
-    const sessionId = activeSessionId;
+  sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string) => {
+    const { activeSessionId, sessions } = get();
+    const sessionId = targetSessionId ?? activeSessionId;
+    if (!sessionId) return;
+    const cachedSession = streamingSessionsCache.get(sessionId);
+    const isSessionStreaming = sessionId === activeSessionId ? get().isStreaming : cachedSession?.isStreaming;
+    if (isSessionStreaming) return;
     const activeSession = sessions.find((session) => session.id === sessionId);
 
     // Clear old todos immediately to prevent stale data flashing

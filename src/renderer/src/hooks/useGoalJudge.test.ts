@@ -163,7 +163,7 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
 
     await startFresh('翻译 README 到英文');
     // First turn: sendMessage called with the goal
-    expect(mockState.sendMessage).toHaveBeenCalledWith('project-1', '翻译 README 到英文');
+    expect(mockState.sendMessage).toHaveBeenCalledWith('project-1', '翻译 README 到英文', undefined, 'session-1');
 
     // Simulate main agent finished a turn (isStreaming true → false)
     mockState.isStreaming = true;
@@ -241,7 +241,7 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
 
     // sendMessage called twice total (goal + 继续：...)
     expect(mockState.sendMessage).toHaveBeenCalledTimes(2);
-    expect(mockState.sendMessage).toHaveBeenNthCalledWith(2, 'project-1', '继续：README 还有未翻译段落');
+    expect(mockState.sendMessage).toHaveBeenNthCalledWith(2, 'project-1', '继续：README 还有未翻译段落', undefined, 'session-1');
 
     // setGoalJudgeStatus with iteration 1 + reason
     const unsatisfiedCall = mockState.setGoalJudgeStatus.mock.calls.find(

@@ -211,11 +211,7 @@ export function createGoalJudge(): GoalJudgeInstance {
     // 2) 首轮：把 goal 作为 user message 注入主 agent。
     //    不传 overrides（平等 user message；judge 自己用独立 channel）
     try {
-      const store = useSessionStore.getState();
-      if (store.activeSessionId !== sessionId) {
-        await store.selectSession(sessionId);
-      }
-      await useSessionStore.getState().sendMessage(projectId, goal);
+      await useSessionStore.getState().sendMessage(projectId, goal, undefined, sessionId);
     } catch (err) {
       console.error('[useGoalJudge] initial sendMessage failed:', err);
       useSessionStore.getState().setGoalJudgeStatus(sessionId, {
@@ -295,11 +291,7 @@ export function createGoalJudge(): GoalJudgeInstance {
       reason: decision.reason,
     });
     try {
-      const store = useSessionStore.getState();
-      if (store.activeSessionId !== sessionId) {
-        await store.selectSession(sessionId);
-      }
-      await useSessionStore.getState().sendMessage(projectId, '继续：' + decision.reason);
+      await useSessionStore.getState().sendMessage(projectId, '继续：' + decision.reason, undefined, sessionId);
     } catch (err) {
       console.error('[useGoalJudge] continue sendMessage failed:', err);
       useSessionStore.getState().setGoalJudgeStatus(sessionId, {
