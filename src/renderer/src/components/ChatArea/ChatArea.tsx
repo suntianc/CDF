@@ -91,7 +91,7 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
     <div className="w-full py-1 select-none animate-slide-down">
       <div className="flex flex-col">
         {/* Header */}
-        <div 
+        <div
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
         >
@@ -136,6 +136,19 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
     </div>
   );
 };
+
+// Phase 08.3 (C-02): render an array of <AtToken> pills in a horizontal flex row.
+// Used in BOTH the welcome and composer inline-flex overlay divs so parsedAtTokens
+// can be rendered in place of literal @path strings.
+function AtTokenSequence({ tokens }: { tokens: ReturnType<typeof parseAtTokens> }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 flex-shrink-0" style={{ fontSize: '14px' }} data-testid="at-token-sequence">
+      {tokens.map((t) => (
+        <AtToken key={`${t.start}-${t.path}`} path={t.path} kind={t.kind} />
+      ))}
+    </div>
+  );
+}
 
 export function ChatArea({
   onOpenSettings,
@@ -821,6 +834,17 @@ export function ChatArea({
         return;
       }
     }
+    // Phase 08.3 C-05: atomic Backspace for the last at token in the input.
+    if (e.key === 'Backspace' && parsedAtTokens.length > 0) {
+      const lastAt = parsedAtTokens[parsedAtTokens.length - 1];
+      const cursor = e.currentTarget.selectionStart;
+      if (cursor === lastAt.end + 1 && e.currentTarget.selectionEnd === cursor) {
+        e.preventDefault();
+        setInputVal(value.slice(0, lastAt.start));
+        useAtMentionStore.getState().close();
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       if (justFinishedComposingRef.current) {
         consumeJustFinishedComposing();
@@ -951,6 +975,8 @@ export function ChatArea({
                       <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
                     </div>
                   )}
+                  {/* Phase 08.3 C-02: render <AtTokenSequence> in welcome overlay */}
+                  {parsedAtTokens.length > 0 && <AtTokenSequence tokens={parsedAtTokens} />}
                   <textarea
                     className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5"
                     placeholder={parsedToken?.token ? '' : t('chat.welcomePlaceholder')}
@@ -968,6 +994,21 @@ export function ChatArea({
                       // also triggers when typing `/` in the welcome textarea.
                       const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
                       setSlashOpen(shouldOpen);
+                      // Phase 08.3 A-01: at-mention trigger — only when a project root exists
+                      // and the cursor sits at a standalone `@` followed by 0+ path chars.
+                      if (!isComposingRef.current && currentProjectRoot) {
+                        const cursor = e.target.selectionStart;
+                        const textBeforeCursor = value.slice(0, cursor);
+                        const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
+                        if (atMatch) {
+                          useAtMentionStore.getState().open(cursor);
+                          useAtMentionStore.getState().setQuery(atMatch[1]);
+                        } else {
+                          useAtMentionStore.getState().close();
+                        }
+                      } else {
+                        useAtMentionStore.getState().close();
+                      }
                     }}
                     onCompositionStart={handleCompositionStart}
                     onCompositionEnd={handleCompositionEnd}
@@ -989,6 +1030,17 @@ export function ChatArea({
                           e.preventDefault();
                           setInputVal('');
                           setSlashOpen(false);
+                          return;
+                        }
+                      }
+                      // Phase 08.3 C-05: atomic Backspace for the last at token in the welcome textarea.
+                      if (e.key === 'Backspace' && parsedAtTokens.length > 0) {
+                        const lastAt = parsedAtTokens[parsedAtTokens.length - 1];
+                        const cursor = e.currentTarget.selectionStart;
+                        if (cursor === lastAt.end + 1 && e.currentTarget.selectionEnd === cursor) {
+                          e.preventDefault();
+                          setInputVal(value.slice(0, lastAt.start));
+                          useAtMentionStore.getState().close();
                           return;
                         }
                       }
@@ -1022,6 +1074,40 @@ export function ChatArea({
                   hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
                   mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
                   loading={registry.loading}
+                />
+              </PopoverContent>
+            </Popover>
+            {/* Phase 08.3: at-mention popover (welcome). Sibling of the slash popover.
+                The onSelect callback replaces @query with @relative/path (trailing
+                space) and closes the popup. The @ prefix MUST be preserved so
+                parseAtTokens can re-tokenize on the next render. */}
+            <Popover
+              open={useAtMentionStore((s) => s.isOpen) && !activeSessionId}
+              onOpenChange={(open) => { if (!open) useAtMentionStore.getState().close(); }}
+              modal={false}
+            >
+              <PopoverContent
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                align="start"
+                side="top"
+                sideOffset={8}
+                className="w-[var(--radix-popover-anchor-width)]"
+              >
+                <AtMentionPopup
+                  query={useAtMentionStore((s) => s.query)}
+                  candidates={useAtMentionStore((s) => s.candidates)}
+                  truncated={useAtMentionStore((s) => s.truncated)}
+                  loading={useAtMentionStore((s) => s.loading)}
+                  onSelect={(path) => {
+                    const cursor = useAtMentionStore.getState().cursorPos;
+                    const textBeforeCursor = inputVal.slice(0, cursor);
+                    const atCharIndex = textBeforeCursor.lastIndexOf('@');
+                    if (atCharIndex < 0) return;
+                    const newValue = inputVal.slice(0, atCharIndex) + '@' + path + ' ' + inputVal.slice(cursor);
+                    setInputVal(newValue);
+                    useAtMentionStore.getState().close();
+                  }}
+                  onClose={() => useAtMentionStore.getState().close()}
                 />
               </PopoverContent>
             </Popover>
@@ -1274,6 +1360,8 @@ export function ChatArea({
                         <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
                       </div>
                     )}
+                    {/* Phase 08.3 C-02: render <AtTokenSequence> in composer overlay */}
+                    {parsedAtTokens.length > 0 && <AtTokenSequence tokens={parsedAtTokens} />}
                     <textarea
                       ref={textareaRef}
                       value={parsedToken?.token ? (() => {
@@ -1287,6 +1375,20 @@ export function ChatArea({
                         if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
                         const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
                         setSlashOpen(shouldOpen);
+                        // Phase 08.3 A-01: at-mention trigger (composer) — mirrors welcome onChange.
+                        if (!isComposingRef.current && currentProjectRoot) {
+                          const cursor = e.target.selectionStart;
+                          const textBeforeCursor = value.slice(0, cursor);
+                          const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
+                          if (atMatch) {
+                            useAtMentionStore.getState().open(cursor);
+                            useAtMentionStore.getState().setQuery(atMatch[1]);
+                          } else {
+                            useAtMentionStore.getState().close();
+                          }
+                        } else {
+                          useAtMentionStore.getState().close();
+                        }
                       }}
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
@@ -1394,6 +1496,39 @@ export function ChatArea({
                   hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
                   mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
                   loading={registry.loading}
+                />
+              </PopoverContent>
+            </Popover>
+            {/* Phase 08.3: at-mention popover (composer). Sibling of the slash popover.
+                onSelect replaces @query with @relative/path (trailing space) and closes
+                the popup. The @ prefix MUST be preserved. */}
+            <Popover
+              open={useAtMentionStore((s) => s.isOpen) && !!activeSessionId}
+              onOpenChange={(open) => { if (!open) useAtMentionStore.getState().close(); }}
+              modal={false}
+            >
+              <PopoverContent
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                align="start"
+                side="top"
+                sideOffset={8}
+                className="w-[var(--radix-popover-anchor-width)]"
+              >
+                <AtMentionPopup
+                  query={useAtMentionStore((s) => s.query)}
+                  candidates={useAtMentionStore((s) => s.candidates)}
+                  truncated={useAtMentionStore((s) => s.truncated)}
+                  loading={useAtMentionStore((s) => s.loading)}
+                  onSelect={(path) => {
+                    const cursor = useAtMentionStore.getState().cursorPos;
+                    const textBeforeCursor = inputVal.slice(0, cursor);
+                    const atCharIndex = textBeforeCursor.lastIndexOf('@');
+                    if (atCharIndex < 0) return;
+                    const newValue = inputVal.slice(0, atCharIndex) + '@' + path + ' ' + inputVal.slice(cursor);
+                    setInputVal(newValue);
+                    useAtMentionStore.getState().close();
+                  }}
+                  onClose={() => useAtMentionStore.getState().close()}
                 />
               </PopoverContent>
             </Popover>
