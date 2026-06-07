@@ -6,14 +6,14 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   main: {
     // Phase 08.3 build-fix: jsdom / @mozilla/readability / turndown
-    // are used by fetch-tool.ts at runtime. externalizeDepsPlugin's
-    // default `include` set externalizes ALL production deps — but
-    // electron-builder does NOT copy `node_modules` into the app
-    // bundle, so the runtime `require('jsdom')` fails at app startup
-    // with "Cannot find module 'jsdom'". Excluding these three from
-    // the externalizer makes Vite bundle them directly into the
-    // main chunk, eliminating the runtime require path.
-    plugins: [externalizeDepsPlugin({ exclude: ['jsdom', '@mozilla/readability', 'turndown'] })],
+    // are runtime deps of fetch-tool.ts. Vite externalizes them so
+    // electron-builder picks them up from node_modules/ and copies
+    // their full package contents (incl. sub-resources like jsdom's
+    // ./xhr-sync-worker.js) into app.asar/node_modules. The previous
+    // `exclude` approach inlined jsdom's main entry but missed the
+    // sibling sub-resource files, causing a runtime
+    // "Cannot find module './xhr-sync-worker.js'" at startup.
+    plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
         input: {

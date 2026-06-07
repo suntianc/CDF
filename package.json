@@ -84,7 +84,16 @@
     },
     "files": [
       "out/**/*",
-      "resources/**/*"
+      "resources/**/*",
+      "package.json",
+      "node_modules/jsdom/**/*",
+      "node_modules/@mozilla/readability/**/*",
+      "node_modules/turndown/**/*",
+      "node_modules/ignore/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/jsdom/**/*",
+      "node_modules/@mozilla/readability/**/*"
     ],
     "mac": {
       "target": "dmg",
