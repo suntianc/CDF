@@ -26,6 +26,7 @@ import { collectAllCommands } from './commands/command-registry';
 import { listProjectCommands } from './commands/project-commands';
 import { ensureProjectWatcher } from './commands/chokidar-watcher';
 import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
+import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -794,6 +795,11 @@ export function registerIpcHandlers() {
 
   // ===== Phase 4: Workflow Runtime IPC Handlers =====
   registerWorkflowIpcHandlers();
+
+  // ===== Phase 08.3 Plan 01: @Mention file candidate IPC (E-01..E-05) =====
+  // B-01: enum range = active project root (resolved server-side from projectId).
+  // ASVS V4: cross-project enumeration mitigated by DB-validated projectId lookup.
+  registerAtMentionHandlers();
 
   // ===== Phase 6 Plan 02: Slash Command Registry IPC (D-15 O(1) memory read) =====
   ipcMain.handle('commands:list', async (_evt, projectId: string, agentId: string) => {

@@ -130,6 +130,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
     },
   },
+  // ===== Phase 08.3 Plan 01: @Mention file candidate bridge (E-01, E-05) =====
+  // Returns relative POSIX paths (directories suffixed with `/`). Renderer
+  // infers `kind` from `path.endsWith('/')` (pitfall #4 — minimal payload).
+  project: {
+    listAtMentionCandidates: (projectId: string) =>
+      ipcRenderer.invoke('project:listAtMentionCandidates', projectId),
+  },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   // 08.2 P4: optional contextLimit so renderer can pin the active provider
   // limit (P10 mitigation). Falls back to default 200_000 server-side.

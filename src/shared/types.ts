@@ -214,6 +214,14 @@ export class CommandConflictError extends Error {
   }
 }
 
+// ===== Phase 08.3: @Mention file candidate types (E-01, B-04) =====
+// Minimal payload — renderer infers `kind` from `path.endsWith('/')`.
+// `truncated: true` signals the popup should display a banner.
+export interface AtMentionCandidateList {
+  candidates: string[];
+  truncated: boolean;
+}
+
 export interface ChatRuntimeOverrides {
   providerId?: string;
   model?: string;
@@ -582,6 +590,10 @@ export interface ElectronAPI {
     onFallback: (
       callback: (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => void
     ) => () => void;
+  };
+  // ===== Phase 08.3 Plan 01: @Mention file candidate bridge (E-05) =====
+  project: {
+    listAtMentionCandidates: (projectId: string) => Promise<AtMentionCandidateList>;
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {
