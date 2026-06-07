@@ -13,6 +13,10 @@
 // stores have no meaningful unit surface to exercise.
 
 import { create } from 'zustand';
+// Phase 08.3 fix #8+#9+#14: shared cap constant. Keep in sync with
+// main-side `candidate-lister.ts` `MAX_COUNT` and the banner in
+// `AtMentionPopup.tsx`.
+import { MAX_AT_MENTION_CANDIDATES } from '../../../shared/types';
 
 export interface AtMentionState {
   /** Whether the popup is visible. */
@@ -67,7 +71,10 @@ export const useAtMentionStore = create<AtMentionState>((set) => ({
   setQuery: (q) => set({ query: q }),
   setCandidates: (paths, truncated) =>
     set({
-      candidates: paths.slice(0, 5001),
+      // Phase 08.3 fix #8+#9+#14: cap to the shared constant. The slice
+      // is still defensive — main should never exceed this, but a future
+      // cap raise on the main side won't blow up the renderer.
+      candidates: paths.slice(0, MAX_AT_MENTION_CANDIDATES),
       truncated,
       loading: false,
     }),

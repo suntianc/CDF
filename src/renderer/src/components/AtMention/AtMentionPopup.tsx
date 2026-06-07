@@ -22,11 +22,14 @@
 //     dispatcher / LLM downstream consumes the literal `@relative/path`
 //     text. This component never re-renders untrusted HTML.
 
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { Command } from 'cmdk';
 import { File, Folder } from 'lucide-react';
 import { normForFilter } from '@/lib/commands/pathUtils';
 import { cn } from '@/lib/utils';
+// Phase 08.3 fix #8+#9+#14: shared cap so the banner text can never lie
+// about the truncation limit.
+import { MAX_AT_MENTION_CANDIDATES } from '../../../shared/types';
 
 export interface AtMentionPopupHandle {
   /** Route a KeyboardEvent from the textarea. Returns true if consumed. */
@@ -49,7 +52,7 @@ export interface AtMentionPopupProps {
 }
 
 export const AtMentionPopup = forwardRef<AtMentionPopupHandle, AtMentionPopupProps>(
-  ({ query, candidates, truncated, loading: _loading, onSelect, onClose }, ref) => {
+  ({ query, candidates, truncated, loading, onSelect, onClose }, ref) => {
     // Filter candidates by NFKC-normalized substring match (A-03).
     // KISS: substring match (not fuzzy scoring) — matches Phase 8 D-06's
     // "prefix > contains > fuzzy" decision tree at the "contains" level.
@@ -64,11 +67,18 @@ export const AtMentionPopup = forwardRef<AtMentionPopupHandle, AtMentionPopupPro
     );
 
     // Keep the selected row valid when the filter changes.
-    useMemo(() => {
+    // Phase 08.3 fix #7: useEffect, not useMemo. setState in useMemo runs
+    // during render and is an anti-pattern (React warns / StrictMode
+    // double-fires). useEffect runs after render and the previous render's
+    // computed value is what feeds it.
+    useEffect(() => {
       if (filtered.length > 0 && !filtered.includes(selectedValue)) {
         setSelectedValue(filtered[0]);
       }
-    }, [filtered, selectedValue]);
+      // Intentionally exclude `selectedValue` — we only want to react to the
+      // filter result changing, not to our own updates.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filtered]);
 
     useImperativeHandle(
       ref,
@@ -96,14 +106,12 @@ export const AtMentionPopup = forwardRef<AtMentionPopupHandle, AtMentionPopupPro
             );
             return true;
           }
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            onSelect(selectedValue);
-            return true;
-          }
-          if (e.key === 'Tab') {
-            // 08.3: Tab inserts the highlighted path, same as Enter
-            // (no dispatch concept like slash commands have).
+          if (e.key === 'Enter' || e.key === 'Tab') {
+            // Phase 08.3 fix #10: collapse Enter + Tab into a single
+            // branch — both insert the highlighted path. (08.1 slash
+            // popup distinguishes the two for its dispatch-vs-insert
+            // flow; 08.3 has no dispatch concept so the keys are
+            // interchangeable here.)
             e.preventDefault();
             onSelect(selectedValue);
             return true;
@@ -129,7 +137,23 @@ export const AtMentionPopup = forwardRef<AtMentionPopupHandle, AtMentionPopupPro
       >
         {truncated && (
           <div className="px-2 py-1 text-[10px] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
-            共 5000+ 个文件，已截断显示前 5000 个
+            {/* Phase 08.3 fix #8+#9+#14: derive the displayed limit from
+                the shared constant so the banner never lies when the cap
+                is tuned in the future. */}
+            共 {MAX_AT_MENTION_CANDIDATES}+ 个文件，已截断显示前 {MAX_AT_MENTION_CANDIDATES} 个
+          </div>
+        )}
+        {/* Phase 08.3 fix #15: show a loading skeleton during the IPC
+            roundtrip so the user doesn't see the `未找到匹配文件` empty
+            state for the duration. Without this, the empty state appears
+            on slow projects and the user may type more characters
+            (triggering Finding #4 — the IPC race). */}
+        {loading && candidates.length === 0 && (
+          <div
+            className="px-2 py-2 text-[12px] text-[var(--color-text-muted)]"
+            data-testid="at-mention-loading"
+          >
+            加载中…
           </div>
         )}
         <Command.List className="max-h-64 overflow-y-auto p-0">

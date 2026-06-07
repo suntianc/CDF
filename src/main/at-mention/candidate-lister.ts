@@ -19,6 +19,10 @@ import { loadGitignore, toPosix } from './gitignore-loader';
  * renderer infers `kind` from the trailing '/'.
  */
 
+// Phase 08.3 fix #8+#9+#14: these caps are mirrored in the renderer's
+// `MAX_AT_MENTION_CANDIDATES` constant (see `src/shared/types.ts`) and in
+// the popup's truncated-banner text. Keep all three in lockstep when
+// changing these values.
 const MAX_DEPTH = 6;
 const MAX_COUNT = 5000;
 
@@ -61,6 +65,23 @@ export function listCandidates(projectRoot: string): ListResult {
 
       const abs = path.join(dir, entry.name);
       const relPosix = toPosix(path.relative(projectRoot, abs));
+
+      // Phase 08.3 fix #6: drop any path that escapes the project root.
+      // (a) Symlinks (files or dirs) — follow them would let `path.relative`
+      //     return strings starting with `..` and contradict the
+      //     ASVS-V4 security boundary in at-mention-handler.
+      // (b) Defensive: any relative path that already starts with `..`
+      //     (should not happen after (a) is applied, but guards against
+      //     entry names literally named `..`).
+      let isSymlink = false;
+      try {
+        isSymlink = fs.lstatSync(abs).isSymbolicLink();
+      } catch {
+        // lstat may throw on broken symlinks; treat as a symlink to skip.
+        isSymlink = true;
+      }
+      if (isSymlink) continue;
+      if (relPosix === '..' || relPosix.startsWith('../')) continue;
 
       // B-05: cap at MAX_DEPTH levels of directory nesting. When we
       // are inside a directory at depth === MAX_DEPTH, child entries

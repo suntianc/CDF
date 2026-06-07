@@ -335,7 +335,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       return (
         <div className="flex flex-col gap-3">
           {renderThink()}
-          {renderMain(mainContent)}
+          {renderContentWithAtTokens(mainContent)}
         </div>
       );
     } else {

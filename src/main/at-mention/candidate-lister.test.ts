@@ -122,4 +122,35 @@ describe('candidate-lister', () => {
     expect(result.candidates.length).toBe(5000);
     expect(result.truncated).toBe(true);
   });
+
+  // Phase 08.3 fix #6: symlink-traversal guard.
+  it('drops symlink paths that resolve outside the project root', () => {
+    // Create an external dir and a symlink inside the project pointing to it.
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-external-'));
+    try {
+      fs.writeFileSync(path.join(externalDir, 'secret.txt'), 'shhh');
+      // Symlink at top level of the project.
+      try {
+        fs.symlinkSync(externalDir, path.join(tempDir, 'outside'), 'dir');
+      } catch {
+        // Some CI sandboxes (Windows / restricted macOS) refuse symlinks.
+        // Skip the test in that case — the runtime path is exercised on
+        // macOS / Linux dev where symlinks work normally.
+        return;
+      }
+
+      const result = listCandidates(tempDir);
+      // 1. The symlink directory itself is dropped (it resolves outside
+      //    `projectRoot`, so `path.relative` produces `../<basename>`).
+      // 2. Any file path that starts with `..` (i.e. would have been
+      //    reached through the symlink) is also dropped.
+      expect(result.candidates).not.toContain('outside/');
+      expect(result.candidates).not.toContain('outside/secret.txt');
+      expect(result.candidates.some((c: string) => c.startsWith('..'))).toBe(false);
+    } finally {
+      if (fs.existsSync(externalDir)) {
+        fs.rmSync(externalDir, { recursive: true, force: true });
+      }
+    }
+  });
 });

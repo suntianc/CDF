@@ -184,6 +184,9 @@ export function ChatArea({
   const justFinishedComposingRef = useRef(false);
   const compositionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slashRef = useRef<SlashCommandPopupHandle>(null);
+  // Phase 08.3 fix #3: wire atRef so the AtMentionPopup can claim ↑↓ Enter
+  // Tab Escape keystrokes from the textarea. Mirrors the slashRef pattern.
+  const atRef = useRef<AtMentionPopupHandle>(null);
   // Phase 7 D-14: 5-line slash sniff reads selectionStart from the textarea DOM
   // (Pitfall P7-4 — must be bound to the <textarea> JSX ref attribute).
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -264,6 +267,11 @@ export function ChatArea({
   // Phase 08.3 E-02: subscribe to atMentionStore and fetch candidates on popup open.
   // Only one IPC call per open (false→true transition), not per keystroke.
   // B-01: if no active project, close the popup immediately.
+  // Phase 08.3 fix #4: monotonic request-id guards against out-of-order
+  // IPC resolutions. Without this, an in-flight IPC for a stale `@query`
+  // could resolve AFTER a subsequent close+open, overwriting the fresh
+  // candidates with the old query's results.
+  const atIpcRequestIdRef = useRef(0);
   useEffect(() => {
     const unsubscribe = useAtMentionStore.subscribe((state, prev) => {
       if (state.isOpen && !prev.isOpen) {
@@ -271,13 +279,16 @@ export function ChatArea({
           useAtMentionStore.getState().close();
           return;
         }
+        const requestId = ++atIpcRequestIdRef.current;
         useAtMentionStore.getState().setLoading(true);
         window.electronAPI.project
           .listAtMentionCandidates(currentProjectId)
           .then((result) => {
+            if (atIpcRequestIdRef.current !== requestId) return; // stale
             useAtMentionStore.getState().setCandidates(result.candidates, result.truncated);
           })
           .catch((err) => {
+            if (atIpcRequestIdRef.current !== requestId) return; // stale
             console.error('[at-mention] IPC failed:', err);
             useAtMentionStore.getState().setCandidates([], false);
           });
@@ -808,6 +819,22 @@ export function ChatArea({
     setSlashOpen(false);
   };
 
+  // Phase 08.3 fix #12+#13: shared at-mention onSelect body. Used by
+  // BOTH the welcome and composer popovers so the `@query` →
+  // `@relative/path ` rewrite lives in one place. (Earlier this was
+  // copy-pasted in two PopoverContent bodies; the `value` ReferenceError
+  // fix landed in two places because of that drift.)
+  const handleAtSelect = (path: string) => {
+    const cursor = useAtMentionStore.getState().cursorPos;
+    const textBeforeCursor = inputVal.slice(0, cursor);
+    const atCharIndex = textBeforeCursor.lastIndexOf('@');
+    if (atCharIndex < 0) return;
+    const newValue =
+      inputVal.slice(0, atCharIndex) + '@' + path + ' ' + inputVal.slice(cursor);
+    setInputVal(newValue);
+    useAtMentionStore.getState().close();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
     if (slashOpen) {
@@ -819,6 +846,13 @@ export function ChatArea({
       }
       const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
       if (handled) return;
+    }
+    // Phase 08.3 fix #3: route at-mention popup keys (↑↓ Enter Tab Esc)
+    // through atRef so the popup can claim them from the textarea. Mirrors
+    // the slashRef pattern above. Only fires when the at-popup is open.
+    if (useAtMentionStore.getState().isOpen) {
+      const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+      if (atHandled) return;
     }
     // Phase 08.1 D-04 + SPEC R4: atomic Backspace when a token is rendered.
     // When the user has just inserted a slash command (parsedToken.token is
@@ -840,7 +874,7 @@ export function ChatArea({
       const cursor = e.currentTarget.selectionStart;
       if (cursor === lastAt.end + 1 && e.currentTarget.selectionEnd === cursor) {
         e.preventDefault();
-        setInputVal(value.slice(0, lastAt.start));
+        setInputVal(inputVal.slice(0, lastAt.start));
         useAtMentionStore.getState().close();
         return;
       }
@@ -1024,6 +1058,11 @@ export function ChatArea({
                         const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
                         if (handled) return;
                       }
+                      // Phase 08.3 fix #3: at-mention popup nav (welcome mirror).
+                      if (useAtMentionStore.getState().isOpen) {
+                        const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+                        if (atHandled) return;
+                      }
                       // Phase 08.1 D-04 + SPEC R4: atomic Backspace on welcome (mirrors handleKeyDown).
                       if (e.key === 'Backspace' && parsedToken?.token) {
                         if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
@@ -1039,7 +1078,7 @@ export function ChatArea({
                         const cursor = e.currentTarget.selectionStart;
                         if (cursor === lastAt.end + 1 && e.currentTarget.selectionEnd === cursor) {
                           e.preventDefault();
-                          setInputVal(value.slice(0, lastAt.start));
+                          setInputVal(inputVal.slice(0, lastAt.start));
                           useAtMentionStore.getState().close();
                           return;
                         }
@@ -1094,19 +1133,12 @@ export function ChatArea({
                 className="w-[var(--radix-popover-anchor-width)]"
               >
                 <AtMentionPopup
+                  ref={atRef}
                   query={useAtMentionStore((s) => s.query)}
                   candidates={useAtMentionStore((s) => s.candidates)}
                   truncated={useAtMentionStore((s) => s.truncated)}
                   loading={useAtMentionStore((s) => s.loading)}
-                  onSelect={(path) => {
-                    const cursor = useAtMentionStore.getState().cursorPos;
-                    const textBeforeCursor = inputVal.slice(0, cursor);
-                    const atCharIndex = textBeforeCursor.lastIndexOf('@');
-                    if (atCharIndex < 0) return;
-                    const newValue = inputVal.slice(0, atCharIndex) + '@' + path + ' ' + inputVal.slice(cursor);
-                    setInputVal(newValue);
-                    useAtMentionStore.getState().close();
-                  }}
+                  onSelect={handleAtSelect}
                   onClose={() => useAtMentionStore.getState().close()}
                 />
               </PopoverContent>
@@ -1515,19 +1547,12 @@ export function ChatArea({
                 className="w-[var(--radix-popover-anchor-width)]"
               >
                 <AtMentionPopup
+                  ref={atRef}
                   query={useAtMentionStore((s) => s.query)}
                   candidates={useAtMentionStore((s) => s.candidates)}
                   truncated={useAtMentionStore((s) => s.truncated)}
                   loading={useAtMentionStore((s) => s.loading)}
-                  onSelect={(path) => {
-                    const cursor = useAtMentionStore.getState().cursorPos;
-                    const textBeforeCursor = inputVal.slice(0, cursor);
-                    const atCharIndex = textBeforeCursor.lastIndexOf('@');
-                    if (atCharIndex < 0) return;
-                    const newValue = inputVal.slice(0, atCharIndex) + '@' + path + ' ' + inputVal.slice(cursor);
-                    setInputVal(newValue);
-                    useAtMentionStore.getState().close();
-                  }}
+                  onSelect={handleAtSelect}
                   onClose={() => useAtMentionStore.getState().close()}
                 />
               </PopoverContent>

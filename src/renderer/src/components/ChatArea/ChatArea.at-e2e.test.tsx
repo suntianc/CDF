@@ -55,6 +55,10 @@ beforeEach(() => {
 
 afterEach(() => {
   useAtMentionStore.getState().close();
+  // Phase 08.3 fix #11: remove the stubbed `window.electronAPI` so it
+  // doesn't leak into other test files in the same vitest worker and
+  // shadow the real preload bridge.
+  delete (window as any).electronAPI;
 });
 
 interface E2EHarnessHandle {

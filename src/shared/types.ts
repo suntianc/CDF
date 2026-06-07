@@ -222,6 +222,11 @@ export interface AtMentionCandidateList {
   truncated: boolean;
 }
 
+// Phase 08.3 fix #8+#9+#14: shared constant so the cap is enforced in one
+// place. The main-side BFS caps results at this number; the store's
+// defensive slice and the truncated-banner string both reference it.
+export const MAX_AT_MENTION_CANDIDATES = 5000;
+
 export interface ChatRuntimeOverrides {
   providerId?: string;
   model?: string;
