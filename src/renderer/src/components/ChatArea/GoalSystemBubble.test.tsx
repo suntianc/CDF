@@ -57,11 +57,11 @@ describe('GoalSystemBubble', () => {
     mockGoalJudgeStatus.goal = '帮我把 README 翻译成英文';
     mockSessionGoalsMap.set('s1', '帮我把 README 翻译成英文');
 
-    render(<GoalSystemBubble sessionId="s1" />);
+    const { container } = render(<GoalSystemBubble sessionId="s1" />);
     const bubble = screen.getByTestId('goal-system-bubble');
-    expect(bubble.textContent).toContain('◎');
+    expect(container.querySelector('svg')).not.toBeNull();
     expect(bubble.textContent).toContain('目标：帮我把 README 翻译成英文');
-    expect(bubble.textContent).toContain('状态：工作中');
+    expect(bubble.textContent).toContain('正在进行判定中...');
     expect(bubble.textContent).toMatch(/1m 23s/);
     expect(bubble.textContent).toContain('轮次：2/20');
   });
@@ -73,10 +73,10 @@ describe('GoalSystemBubble', () => {
     mockGoalJudgeStatus.goal = '翻译 README';
     mockSessionGoalsMap.set('s1', '翻译 README');
 
-    render(<GoalSystemBubble sessionId="s1" />);
+    const { container } = render(<GoalSystemBubble sessionId="s1" />);
     const bubble = screen.getByTestId('goal-system-bubble');
-    expect(bubble.textContent).toContain('✅');
-    expect(bubble.textContent).toContain('达成：翻译 README');
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(bubble.textContent).toContain('达成目标：翻译 README');
     expect(bubble.textContent).toMatch(/总耗时/);
   });
 
@@ -87,9 +87,9 @@ describe('GoalSystemBubble', () => {
     mockGoalJudgeStatus.goal = '目标';
     mockSessionGoalsMap.set('s1', '目标');
 
-    render(<GoalSystemBubble sessionId="s1" />);
+    const { container } = render(<GoalSystemBubble sessionId="s1" />);
     const bubble = screen.getByTestId('goal-system-bubble');
-    expect(bubble.textContent).toContain('⏸');
+    expect(container.querySelector('svg')).not.toBeNull();
     expect(bubble.textContent).toContain('已暂停：目标');
     expect(bubble.textContent).toContain('20/20');
     expect(bubble.textContent).toContain('/goal clear');
@@ -102,10 +102,10 @@ describe('GoalSystemBubble', () => {
     mockGoalJudgeStatus.goal = 'g';
     mockSessionGoalsMap.set('s1', 'g');
 
-    render(<GoalSystemBubble sessionId="s1" />);
+    const { container } = render(<GoalSystemBubble sessionId="s1" />);
     const bubble = screen.getByTestId('goal-system-bubble');
-    expect(bubble.textContent).toContain('⚠️');
-    expect(bubble.textContent).toContain('judge 失败：JSON parse 失败');
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(bubble.textContent).toContain('判定失败：judge 失败：JSON parse 失败');
     expect(bubble.textContent).toContain('/goal clear');
   });
 
@@ -121,9 +121,9 @@ describe('GoalSystemBubble', () => {
 
       // Pin Date.now so the initial render computes a known elapsed.
       vi.setSystemTime(baseStartedAt);
-      render(<GoalSystemBubble sessionId="s1" />);
+      const { container } = render(<GoalSystemBubble sessionId="s1" />);
       const bubble = screen.getByTestId('goal-system-bubble');
-      expect(bubble.textContent).toContain('耗时：0s');
+      expect(bubble.textContent).toContain('(0s)');
 
       // Advance 3s — fake-timers' setInterval fires 3 times, each tick reads
       // the new Date.now() (advanced by the same 3s). Each tick overwrites
@@ -131,13 +131,13 @@ describe('GoalSystemBubble', () => {
       act(() => {
         vi.advanceTimersByTime(3_000);
       });
-      expect(bubble.textContent).toMatch(/耗时：3s/);
+      expect(bubble.textContent).toMatch(/\(3s\)/);
 
       // Advance another 60s → elapsed is now 63s → 1m 3s
       act(() => {
         vi.advanceTimersByTime(60_000);
       });
-      expect(bubble.textContent).toMatch(/1m 3s/);
+      expect(bubble.textContent).toMatch(/\(1m 3s\)/);
     } finally {
       vi.useRealTimers();
     }

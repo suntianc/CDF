@@ -77,6 +77,8 @@ interface SessionState {
   // on session switch — goal is sticky per P6 lock. ChatArea/GoalSystemBubble
   // filter by activeSessionId at render time.
   goalJudgeStatus: Map<string, GoalJudgeStatusEntry>;
+  sessionModelOverrides: Record<string, { providerId: string; model: string }>;
+  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => void;
   fetchSessions: (projectId: string) => Promise<void>;
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -128,6 +130,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
+  sessionModelOverrides: {},
+
+  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
+    set((state) => ({
+      sessionModelOverrides: {
+        ...state.sessionModelOverrides,
+        [sessionId]: { providerId, model },
+      },
+    }));
+  },
 
   // D-02/D-03: setSessionGoal synchronously writes to a NEW Map (immutability for
   // Zustand shallow-compare re-render). D-04: selectSession does NOT clear this.

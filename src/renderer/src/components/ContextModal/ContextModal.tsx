@@ -191,7 +191,16 @@ export function ContextModal() {
     setLoading(true);
     setError(null);
 
-    const active = useLLMStore.getState().activeProvider;
+    const sessionModelOverrides = useSessionStore.getState().sessionModelOverrides || {};
+    const override = activeSessionId ? sessionModelOverrides[activeSessionId] : null;
+
+    let active = useLLMStore.getState().activeProvider;
+    if (override?.providerId) {
+      const matched = useLLMStore.getState().providers.find((p) => p.id === override.providerId);
+      if (matched) {
+        active = matched;
+      }
+    }
     const limit = active?.context_limit;
 
     let cancelled = false;

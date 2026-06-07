@@ -137,17 +137,61 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
   );
 };
 
-// Phase 08.3 (C-02): render an array of <AtToken> pills in a horizontal flex row.
-// Used in BOTH the welcome and composer inline-flex overlay divs so parsedAtTokens
-// can be rendered in place of literal @path strings.
-function AtTokenSequence({ tokens }: { tokens: ReturnType<typeof parseAtTokens> }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1 flex-shrink-0" style={{ fontSize: '14px' }} data-testid="at-token-sequence">
-      {tokens.map((t: { start: number; path: string; kind: 'file' | 'dir' }) => (
-        <AtToken key={`${t.start}-${t.path}`} path={t.path} kind={t.kind} />
-      ))}
-    </div>
-  );
+
+interface LeadingToken {
+  type: 'slash' | 'at';
+  name: string;
+  raw: string;
+  source?: 'system' | 'mcp' | 'skill';
+  kind?: 'file' | 'dir';
+}
+
+function parseLeadingTokens(text: string, commands: any[]): { tokens: LeadingToken[]; tail: string } {
+  const tokens: LeadingToken[] = [];
+  let remaining = text;
+
+  // 1. Parse optional leading slash command
+  if (remaining.startsWith('/')) {
+    const match = remaining.match(/^\/([\w-]+)/);
+    if (match) {
+      const name = match[1];
+      const cmd = commands.find((c) => c.name === name);
+      if (cmd) {
+        tokens.push({
+          type: 'slash',
+          name: cmd.name,
+          raw: '/' + cmd.name,
+          source: cmd.source,
+        });
+        remaining = remaining.slice(cmd.name.length + 1);
+        if (remaining.startsWith(' ')) {
+          remaining = remaining.slice(1);
+        }
+      }
+    }
+  }
+
+  // 2. Parse consecutive leading at-tokens
+  while (true) {
+    const match = remaining.match(/^@([\w./-]+)(?=\s)/);
+    if (match) {
+      const pathText = match[1];
+      tokens.push({
+        type: 'at',
+        name: pathText,
+        raw: '@' + pathText,
+        kind: pathText.endsWith('/') ? 'dir' : 'file',
+      });
+      remaining = remaining.slice(pathText.length + 1);
+      if (remaining.startsWith(' ')) {
+        remaining = remaining.slice(1);
+      }
+    } else {
+      break;
+    }
+  }
+
+  return { tokens, tail: remaining };
 }
 
 export function ChatArea({
@@ -191,6 +235,12 @@ export function ChatArea({
   // (Pitfall P7-4 — must be bound to the <textarea> JSX ref attribute).
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousSessionIdRef = useRef<string | null>(null);
+
+  const isAtMentionOpen = useAtMentionStore((s) => s.isOpen);
+  const atMentionQuery = useAtMentionStore((s) => s.query);
+  const atMentionCandidates = useAtMentionStore((s) => s.candidates);
+  const atMentionTruncated = useAtMentionStore((s) => s.truncated);
+  const atMentionLoading = useAtMentionStore((s) => s.loading);
   const previousHasActivePlanRef = useRef(false);
 
   const { handleScroll } = useChatScroll({
@@ -802,6 +852,11 @@ export function ChatArea({
   // Independent of parseInputToTokens (slash parser) so the two can coexist.
   const parsedAtTokens = useMemo(() => parseAtTokens(inputVal), [inputVal]);
 
+  const { tokens: leadingTokens, tail: visibleInputTail } = useMemo(
+    () => parseLeadingTokens(inputVal, registry.commands),
+    [inputVal, registry.commands]
+  );
+
   // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
   // Phase 6: route through dispatcher.resolve when the command resolves to a plan
   // (Enter path). Tab / unknown commands fall back to text-insert.
@@ -864,29 +919,18 @@ export function ChatArea({
       const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
       if (atHandled) return;
     }
-    // Phase 08.1 D-04 + SPEC R4: atomic Backspace when a token is rendered.
-    // When the user has just inserted a slash command (parsedToken.token is
-    // non-null), a single Backspace clears the entire inputVal in one event
-    // - not character-by-character. Gated behind isComposingKeyEvent so IME
-    // composition (Pinyin candidate dismissal) is preserved. Closes any open
-    // slash popup as a side effect (R6 mutual exclusion).
-    if (e.key === 'Backspace' && parsedToken?.token) {
+    if (e.key === 'Backspace') {
       if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
-        e.preventDefault();
-        setInputVal('');
-        setSlashOpen(false);
-        return;
-      }
-    }
-    // Phase 08.3 C-05: atomic Backspace for the last at token in the input.
-    if (e.key === 'Backspace' && parsedAtTokens.length > 0) {
-      const lastAt = parsedAtTokens[parsedAtTokens.length - 1];
-      const cursor = e.currentTarget.selectionStart;
-      if (cursor === lastAt.end + 1 && e.currentTarget.selectionEnd === cursor) {
-        e.preventDefault();
-        setInputVal(inputVal.slice(0, lastAt.start));
-        useAtMentionStore.getState().close();
-        return;
+        if (leadingTokens.length > 0) {
+          e.preventDefault();
+          const newTokens = leadingTokens.slice(0, -1);
+          const newPrefix = newTokens.map((t) => t.raw).join(' ') + (newTokens.length > 0 ? ' ' : '');
+          const newTail = e.currentTarget.value;
+          setInputVal(newPrefix + newTail);
+          useAtMentionStore.getState().close();
+          setSlashOpen(false);
+          return;
+        }
       }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -907,6 +951,19 @@ export function ChatArea({
   const handleWelcomeSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputVal.trim() || isStreaming) return;
+
+    if (
+      inputVal.startsWith('/') ||
+      parsedToken?.token
+    ) {
+      const plan = dispatcherResolve(inputVal, registry.commands);
+      if (plan) {
+        setInputVal('');
+        setSlashOpen(false);
+        dispatcherDispatch(plan).catch((err) => console.error('[handleWelcomeSend/slash] error:', err));
+        return;
+      }
+    }
 
     let projectId = currentProjectId || 'default-project';
     try {
@@ -1011,27 +1068,36 @@ export function ChatArea({
                 both `<Popover open={slashOpen}>` instances would otherwise
                 render simultaneously because the welcome textarea AND the
                 composer textarea are both in the DOM on the welcome screen. */}
-            <Popover open={slashOpen && !activeSessionId} onOpenChange={setSlashOpen} modal={false}>
+            <Popover
+              open={(slashOpen || isAtMentionOpen) && !activeSessionId}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setSlashOpen(false);
+                  useAtMentionStore.getState().close();
+                }
+              }}
+              modal={false}
+            >
               <PopoverAnchor asChild>
-                <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '15px' }}>
-                  {parsedToken?.token && (
-                    <div className="flex-shrink-0 pt-[3px]">
-                      <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
+                <div className="flex flex-wrap items-start gap-1.5 w-full relative z-0" style={{ fontSize: '15px' }}>
+                  {leadingTokens.map((t, idx) => (
+                    <div key={idx} className="flex-shrink-0 pt-[5px]">
+                      {t.type === 'slash' ? (
+                        <SlashToken name={t.name} source={t.source} />
+                      ) : (
+                        <AtToken path={t.name} kind={t.kind!} />
+                      )}
                     </div>
-                  )}
-                  {/* Phase 08.3 C-02: render <AtTokenSequence> in welcome overlay */}
-                  {parsedAtTokens.length > 0 && <AtTokenSequence tokens={parsedAtTokens} />}
+                  ))}
                   <textarea
-                    className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5"
-                    placeholder={parsedToken?.token ? '' : t('chat.welcomePlaceholder')}
+                    className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5 flex-1 min-w-[120px] !w-auto"
+                    placeholder={leadingTokens.length > 0 ? '' : t('chat.welcomePlaceholder')}
                     rows={1}
-                    value={parsedToken?.token ? (() => {
-                      const tail = inputVal.slice(parsedToken.token.name.length + 1);
-                      return tail.startsWith(' ') ? tail.slice(1) : tail;
-                    })() : inputVal}
+                    value={visibleInputTail}
                     onChange={(e) => {
                       const tail = e.target.value;
-                      const value = parsedToken?.token ? '/' + parsedToken.token.name + ' ' + tail.replace(/^ /, '') : tail;
+                      const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
+                      const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
                       setInputVal(value);
                       if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
                       // Mirror the composer's slash-open predicate so the popup
@@ -1041,12 +1107,17 @@ export function ChatArea({
                       // Phase 08.3 A-01: at-mention trigger — only when a project root exists
                       // and the cursor sits at a standalone `@` followed by 0+ path chars.
                       if (!isComposingRef.current && currentProjectRoot) {
-                        const cursor = e.target.selectionStart;
+                        const cursor = e.target.selectionStart + prefix.length;
                         const textBeforeCursor = value.slice(0, cursor);
                         const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
                         if (atMatch) {
-                          useAtMentionStore.getState().open(cursor);
-                          useAtMentionStore.getState().setQuery(atMatch[1]);
+                          const state = useAtMentionStore.getState();
+                          if (!state.isOpen) {
+                            state.open(cursor);
+                          } else {
+                            useAtMentionStore.setState({ cursorPos: cursor });
+                          }
+                          state.setQuery(atMatch[1]);
                         } else {
                           useAtMentionStore.getState().close();
                         }
@@ -1073,26 +1144,23 @@ export function ChatArea({
                         const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
                         if (atHandled) return;
                       }
-                      // Phase 08.1 D-04 + SPEC R4: atomic Backspace on welcome (mirrors handleKeyDown).
-                      if (e.key === 'Backspace' && parsedToken?.token) {
+                      
+                      // Unified Backspace deletion of leading pills
+                      if (e.key === 'Backspace') {
                         if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
-                          e.preventDefault();
-                          setInputVal('');
-                          setSlashOpen(false);
-                          return;
+                          if (leadingTokens.length > 0) {
+                            e.preventDefault();
+                            const newTokens = leadingTokens.slice(0, -1);
+                            const newPrefix = newTokens.map((t) => t.raw).join(' ') + (newTokens.length > 0 ? ' ' : '');
+                            const newTail = e.currentTarget.value;
+                            setInputVal(newPrefix + newTail);
+                            useAtMentionStore.getState().close();
+                            setSlashOpen(false);
+                            return;
+                          }
                         }
                       }
-                      // Phase 08.3 C-05: atomic Backspace for the last at token in the welcome textarea.
-                      if (e.key === 'Backspace' && parsedAtTokens.length > 0) {
-                        const lastAt = parsedAtTokens[parsedAtTokens.length - 1];
-                        const cursor = e.currentTarget.selectionStart;
-                        if (cursor === lastAt.end + 1 && e.currentTarget.selectionEnd === cursor) {
-                          e.preventDefault();
-                          setInputVal(inputVal.slice(0, lastAt.start));
-                          useAtMentionStore.getState().close();
-                          return;
-                        }
-                      }
+
                       if (e.key === 'Enter' && !e.shiftKey) {
                         if (justFinishedComposingRef.current) {
                           consumeJustFinishedComposing();
@@ -1113,44 +1181,29 @@ export function ChatArea({
                 sideOffset={8}
                 className="w-[var(--radix-popover-anchor-width)]"
               >
-                <SlashCommandPopup
-                  ref={slashRef}
-                  query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
-                  onSelect={handleSlashSelect}
-                  onInsert={handleSlashInsert}
-                  onClose={() => setSlashOpen(false)}
-                  commands={registry.commands}
-                  hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
-                  mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
-                  loading={registry.loading}
-                />
-              </PopoverContent>
-            </Popover>
-            {/* Phase 08.3: at-mention popover (welcome). Sibling of the slash popover.
-                The onSelect callback replaces @query with @relative/path (trailing
-                space) and closes the popup. The @ prefix MUST be preserved so
-                parseAtTokens can re-tokenize on the next render. */}
-            <Popover
-              open={useAtMentionStore((s) => s.isOpen) && !activeSessionId}
-              onOpenChange={(open) => { if (!open) useAtMentionStore.getState().close(); }}
-              modal={false}
-            >
-              <PopoverContent
-                onOpenAutoFocus={(e) => e.preventDefault()}
-                align="start"
-                side="top"
-                sideOffset={8}
-                className="w-[var(--radix-popover-anchor-width)]"
-              >
-                <AtMentionPopup
-                  ref={atRef}
-                  query={useAtMentionStore((s) => s.query)}
-                  candidates={useAtMentionStore((s) => s.candidates)}
-                  truncated={useAtMentionStore((s) => s.truncated)}
-                  loading={useAtMentionStore((s) => s.loading)}
-                  onSelect={handleAtSelect}
-                  onClose={() => useAtMentionStore.getState().close()}
-                />
+                {slashOpen ? (
+                  <SlashCommandPopup
+                    ref={slashRef}
+                    query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
+                    onSelect={handleSlashSelect}
+                    onInsert={handleSlashInsert}
+                    onClose={() => setSlashOpen(false)}
+                    commands={registry.commands}
+                    hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
+                    mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
+                    loading={registry.loading}
+                  />
+                ) : (
+                  <AtMentionPopup
+                    ref={atRef}
+                    query={atMentionQuery}
+                    candidates={atMentionCandidates}
+                    truncated={atMentionTruncated}
+                    loading={atMentionLoading}
+                    onSelect={handleAtSelect}
+                    onClose={() => useAtMentionStore.getState().close()}
+                  />
+                )}
               </PopoverContent>
             </Popover>
             <div className="dialog-bottom">
@@ -1386,7 +1439,16 @@ export function ChatArea({
             )}
             {/* Composer popover. Mirrors welcome popover's `!activeSessionId`
                 gate so only one slash popup is open at a time. */}
-            <Popover open={slashOpen && !!activeSessionId} onOpenChange={setSlashOpen} modal={false}>
+            <Popover
+              open={(slashOpen || isAtMentionOpen) && !!activeSessionId}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setSlashOpen(false);
+                  useAtMentionStore.getState().close();
+                }
+              }}
+              modal={false}
+            >
               <PopoverAnchor asChild>
                 <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
@@ -1396,35 +1458,40 @@ export function ChatArea({
                       in SlashToken's `min-width` then matches the textarea's
                       per-character width so the cursor lands at the right
                       edge of the pill, not inside it. */}
-                  <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '14px' }}>
-                    {parsedToken?.token && (
-                      <div className="flex-shrink-0 pt-[2px]">
-                        <SlashToken name={parsedToken.token.name} source={parsedToken.token.source} />
+                  <div className="flex flex-wrap items-start gap-1.5 w-full relative z-0" style={{ fontSize: '14px' }}>
+                    {leadingTokens.map((t, idx) => (
+                      <div key={idx} className="flex-shrink-0 pt-[2px]">
+                        {t.type === 'slash' ? (
+                          <SlashToken name={t.name} source={t.source} />
+                        ) : (
+                          <AtToken path={t.name} kind={t.kind!} />
+                        )}
                       </div>
-                    )}
-                    {/* Phase 08.3 C-02: render <AtTokenSequence> in composer overlay */}
-                    {parsedAtTokens.length > 0 && <AtTokenSequence tokens={parsedAtTokens} />}
+                    ))}
                     <textarea
                       ref={textareaRef}
-                      value={parsedToken?.token ? (() => {
-                        const tail = inputVal.slice(parsedToken.token.name.length + 1);
-                        return tail.startsWith(' ') ? tail.slice(1) : tail;
-                      })() : inputVal}
+                      value={visibleInputTail}
                       onChange={(e) => {
                         const tail = e.target.value;
-                        const value = parsedToken?.token ? '/' + parsedToken.token.name + ' ' + tail.replace(/^ /, '') : tail;
+                        const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
+                        const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
                         setInputVal(value);
                         if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
                         const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
                         setSlashOpen(shouldOpen);
                         // Phase 08.3 A-01: at-mention trigger (composer) — mirrors welcome onChange.
                         if (!isComposingRef.current && currentProjectRoot) {
-                          const cursor = e.target.selectionStart;
+                          const cursor = e.target.selectionStart + prefix.length;
                           const textBeforeCursor = value.slice(0, cursor);
                           const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
                           if (atMatch) {
-                            useAtMentionStore.getState().open(cursor);
-                            useAtMentionStore.getState().setQuery(atMatch[1]);
+                            const state = useAtMentionStore.getState();
+                            if (!state.isOpen) {
+                              state.open(cursor);
+                            } else {
+                              useAtMentionStore.setState({ cursorPos: cursor });
+                            }
+                            state.setQuery(atMatch[1]);
                           } else {
                             useAtMentionStore.getState().close();
                           }
@@ -1435,90 +1502,90 @@ export function ChatArea({
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
-                      placeholder={parsedToken?.token ? '' : t('chat.composerPlaceholder')}
+                      placeholder={leadingTokens.length > 0 ? '' : t('chat.composerPlaceholder')}
                       rows={2}
-                      className="w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
+                      className="flex-1 min-w-[120px] !w-auto bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
                     />
                   </div>
               
-              {/* Lower: Toolbar Row */}
-              <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
-                <div className="flex items-center gap-1.5">
-                  <div 
-                    className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div
-                      onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
-                      className="model-selector-trigger"
-                    >
-                      <span className="model-selector-label truncate max-w-[150px]">
-                        {currentModelLabel}
-                      </span>
-                      <ChevronDown className="model-chevron w-3.5 h-3.5" />
-                    </div>
-                    <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
-                      {providers.length === 0 ? (
-                        <div 
-                          onClick={() => {
-                            setComposerModelSelectorOpen(false);
-                            onOpenSettings?.();
-                          }}
-                          className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
+                  {/* Lower: Toolbar Row */}
+                  <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
+                    <div className="flex items-center gap-1.5">
+                      <div 
+                        className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div
+                          onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
+                          className="model-selector-trigger"
                         >
-                          {t('chat.noProvidersAvailable')}
+                          <span className="model-selector-label truncate max-w-[150px]">
+                            {currentModelLabel}
+                          </span>
+                          <ChevronDown className="model-chevron w-3.5 h-3.5" />
                         </div>
-                      ) : (
-                        providers.map((p) => (
-                          <div key={p.id} className="model-group">
-                            <div className="model-group-name">{p.name}</div>
-                            {getProviderModels(p).map((m) => (
-                              <div
-                                key={m}
-                                className={`model-select-option ${
-                                  (selectedProviderId === p.id && selectedModel === m) ||
-                                  (!selectedProviderId && !selectedModel && masterProvider?.id === p.id && masterProvider?.default_model === m)
-                                    ? 'selected'
-                                    : ''
-                                }`}
-                                onClick={() => handleSelectModel(p.id, m)}
-                              >
-                                {m}
+                        <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
+                          {providers.length === 0 ? (
+                            <div 
+                              onClick={() => {
+                                setComposerModelSelectorOpen(false);
+                                onOpenSettings?.();
+                              }}
+                              className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
+                            >
+                              {t('chat.noProvidersAvailable')}
+                            </div>
+                          ) : (
+                            providers.map((p) => (
+                              <div key={p.id} className="model-group">
+                                <div className="model-group-name">{p.name}</div>
+                                {getProviderModels(p).map((m) => (
+                                  <div
+                                    key={m}
+                                    className={`model-select-option ${
+                                      (selectedProviderId === p.id && selectedModel === m) ||
+                                      (!selectedProviderId && !selectedModel && masterProvider?.id === p.id && masterProvider?.default_model === m)
+                                        ? 'selected'
+                                        : ''
+                                    }`}
+                                    onClick={() => handleSelectModel(p.id, m)}
+                                  >
+                                    {m}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        ))
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <ContextButton />
+                      {isStreaming ? (
+                        <button
+                          type="button"
+                          onClick={stopMessage}
+                          className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
+                          title={t('chat.stopGenerating')}
+                          aria-label={t('chat.stopGenerating')}
+                        >
+                          <Square className="w-4 h-4 fill-current" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSend()}
+                          disabled={!inputVal.trim() || isStreaming}
+                          className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
+                          aria-label={t('chat.sendMessage')}
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <ContextButton />
-                  {isStreaming ? (
-                    <button
-                      type="button"
-                      onClick={stopMessage}
-                      className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
-                      title={t('chat.stopGenerating')}
-                      aria-label={t('chat.stopGenerating')}
-                    >
-                      <Square className="w-4 h-4 fill-current" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleSend()}
-                      disabled={!inputVal.trim() || isStreaming}
-                      className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
-                      aria-label={t('chat.sendMessage')}
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </form>
+                </form>
               </PopoverAnchor>
               {/* IME z-index known issue: see SlashCommandPopup.tsx for full context. macOS IME candidate windows sit above web-layer z-index; press Esc to dismiss. (D-13..D-15, accepted as platform limitation.) */}
               <PopoverContent
@@ -1528,43 +1595,29 @@ export function ChatArea({
                 sideOffset={8}
                 className="w-[var(--radix-popover-anchor-width)]"
               >
-                <SlashCommandPopup
-                  ref={slashRef}
-                  query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
-                  onSelect={handleSlashSelect}
-                  onInsert={handleSlashInsert}
-                  onClose={() => setSlashOpen(false)}
-                  commands={registry.commands}
-                  hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
-                  mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
-                  loading={registry.loading}
-                />
-              </PopoverContent>
-            </Popover>
-            {/* Phase 08.3: at-mention popover (composer). Sibling of the slash popover.
-                onSelect replaces @query with @relative/path (trailing space) and closes
-                the popup. The @ prefix MUST be preserved. */}
-            <Popover
-              open={useAtMentionStore((s) => s.isOpen) && !!activeSessionId}
-              onOpenChange={(open) => { if (!open) useAtMentionStore.getState().close(); }}
-              modal={false}
-            >
-              <PopoverContent
-                onOpenAutoFocus={(e) => e.preventDefault()}
-                align="start"
-                side="top"
-                sideOffset={8}
-                className="w-[var(--radix-popover-anchor-width)]"
-              >
-                <AtMentionPopup
-                  ref={atRef}
-                  query={useAtMentionStore((s) => s.query)}
-                  candidates={useAtMentionStore((s) => s.candidates)}
-                  truncated={useAtMentionStore((s) => s.truncated)}
-                  loading={useAtMentionStore((s) => s.loading)}
-                  onSelect={handleAtSelect}
-                  onClose={() => useAtMentionStore.getState().close()}
-                />
+                {slashOpen ? (
+                  <SlashCommandPopup
+                    ref={slashRef}
+                    query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
+                    onSelect={handleSlashSelect}
+                    onInsert={handleSlashInsert}
+                    onClose={() => setSlashOpen(false)}
+                    commands={registry.commands}
+                    hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
+                    mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
+                    loading={registry.loading}
+                  />
+                ) : (
+                  <AtMentionPopup
+                    ref={atRef}
+                    query={atMentionQuery}
+                    candidates={atMentionCandidates}
+                    truncated={atMentionTruncated}
+                    loading={atMentionLoading}
+                    onSelect={handleAtSelect}
+                    onClose={() => useAtMentionStore.getState().close()}
+                  />
+                )}
               </PopoverContent>
             </Popover>
           </div>

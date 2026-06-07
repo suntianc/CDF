@@ -118,13 +118,6 @@ function TestHarness({
 
   return (
     <div>
-      {parsedAtTokens.length > 0 && (
-        <div data-testid="at-token-sequence" style={{ fontSize: '14px' }}>
-          {parsedAtTokens.map((t: AtTokenSpan) => (
-            <AtToken key={`${t.start}-${t.path}`} path={t.path} kind={t.kind} />
-          ))}
-        </div>
-      )}
       <textarea
         ref={textareaRef}
         value={inputVal}
@@ -138,11 +131,18 @@ function TestHarness({
             const textBeforeCursor = value.slice(0, cursor);
             const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
             if (atMatch) {
-              useAtMentionStore.getState().open(cursor);
-              useAtMentionStore.getState().setQuery(atMatch[1]);
+              const state = useAtMentionStore.getState();
+              if (!state.isOpen) {
+                state.open(cursor);
+              } else {
+                useAtMentionStore.setState({ cursorPos: cursor });
+              }
+              state.setQuery(atMatch[1]);
             } else {
               useAtMentionStore.getState().close();
             }
+          } else {
+            useAtMentionStore.getState().close();
           }
         }}
         onKeyDown={(e) => {

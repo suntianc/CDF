@@ -120,14 +120,6 @@ function TestHarness({
 
   return (
     <div>
-      {/* AtTokenSequence: mirrors the inline-flex overlay */}
-      {parsedAtTokens.length > 0 && (
-        <div data-testid="at-token-sequence" style={{ fontSize: '14px' }}>
-          {parsedAtTokens.map((t: AtTokenSpan) => (
-            <AtToken key={`${t.start}-${t.path}`} path={t.path} kind={t.kind} />
-          ))}
-        </div>
-      )}
       <textarea
         ref={textareaRef}
         value={inputVal}
@@ -141,8 +133,13 @@ function TestHarness({
             const textBeforeCursor = value.slice(0, cursor);
             const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
             if (atMatch) {
-              useAtMentionStore.getState().open(cursor);
-              useAtMentionStore.getState().setQuery(atMatch[1]);
+              const state = useAtMentionStore.getState();
+              if (!state.isOpen) {
+                state.open(cursor);
+              } else {
+                useAtMentionStore.setState({ cursorPos: cursor });
+              }
+              state.setQuery(atMatch[1]);
             } else {
               useAtMentionStore.getState().close();
             }
@@ -266,20 +263,5 @@ describe('ChatArea at-mention trigger (Phase 08.3 — A-01 / A-05 / B-01 / C-02 
     expect(harness!.getInputVal()).toBe('hello ');
     // Popup closes
     expect(useAtMentionStore.getState().isOpen).toBe(false);
-  });
-
-  // C-02: overlay renders <AtTokenSequence>
-  it('C-02: overlay renders <AtTokenSequence> for `@relative/path` substrings', async () => {
-    render(<TestHarness refSetter={() => {}} currentProjectId="proj-1" />);
-    const textarea = screen.getByLabelText('at-test-input') as HTMLTextAreaElement;
-
-    await act(async () => {
-      fireEvent.change(textarea, { target: { value: 'see @src/foo.ts for more' } });
-    });
-
-    // The AtTokenSequence wrapper should be present
-    expect(screen.getByTestId('at-token-sequence')).toBeTruthy();
-    // The individual AtToken pill should be present
-    expect(screen.getByTestId('at-token')).toBeTruthy();
   });
 });
