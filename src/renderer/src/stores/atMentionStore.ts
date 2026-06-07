@@ -16,7 +16,7 @@ import { create } from 'zustand';
 // Phase 08.3 fix #8+#9+#14: shared cap constant. Keep in sync with
 // main-side `candidate-lister.ts` `MAX_COUNT` and the banner in
 // `AtMentionPopup.tsx`.
-import { MAX_AT_MENTION_CANDIDATES } from '../../../shared/types';
+import { MAX_AT_MENTION_CANDIDATES } from '@shared/types';
 
 export interface AtMentionState {
   /** Whether the popup is visible. */

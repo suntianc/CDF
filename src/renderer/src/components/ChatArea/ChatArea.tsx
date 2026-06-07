@@ -274,6 +274,16 @@ export function ChatArea({
   const atIpcRequestIdRef = useRef(0);
   useEffect(() => {
     const unsubscribe = useAtMentionStore.subscribe((state, prev) => {
+      // Phase 08.3 codex P2: on `isOpen` true→false, bump the request id
+      // so any in-flight IPC whose `.then` resolves after the close
+      // becomes stale and is dropped by the guard below. Without this,
+      // closing the popup while IPC is in flight would let the late
+      // `.then` resurrect the 5000-path array in the store — violating
+      // E-02's "close releases candidates" invariant.
+      if (prev.isOpen && !state.isOpen) {
+        atIpcRequestIdRef.current++;
+        return;
+      }
       if (state.isOpen && !prev.isOpen) {
         if (!currentProjectId) {
           useAtMentionStore.getState().close();

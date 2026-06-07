@@ -29,7 +29,7 @@ import { normForFilter } from '@/lib/commands/pathUtils';
 import { cn } from '@/lib/utils';
 // Phase 08.3 fix #8+#9+#14: shared cap so the banner text can never lie
 // about the truncation limit.
-import { MAX_AT_MENTION_CANDIDATES } from '../../../shared/types';
+import { MAX_AT_MENTION_CANDIDATES } from '@shared/types';
 
 export interface AtMentionPopupHandle {
   /** Route a KeyboardEvent from the textarea. Returns true if consumed. */
@@ -180,9 +180,15 @@ export const AtMentionPopup = forwardRef<AtMentionPopupHandle, AtMentionPopupPro
               </Command.Item>
             );
           })}
-          <Command.Empty className="px-2 py-2 text-[12px] text-[var(--color-text-muted)]">
-            未找到匹配文件
-          </Command.Empty>
+          {/* Phase 08.3 codex P2: don't show "未找到匹配文件" while
+              loading — the loading placeholder above already conveys
+              the IPC roundtrip is in flight. Without this guard the
+              user would see both messages at once. */}
+          {!loading && (
+            <Command.Empty className="px-2 py-2 text-[12px] text-[var(--color-text-muted)]">
+              未找到匹配文件
+            </Command.Empty>
+          )}
         </Command.List>
       </Command>
     );

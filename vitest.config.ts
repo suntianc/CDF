@@ -22,6 +22,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/renderer/src'),
+      // Phase 08.3: mirror the Vite renderer alias so vitest can resolve
+      // `@shared/types` from nested renderer files.
+      '@shared': path.resolve(__dirname, './src/shared'),
     },
   },
 });
