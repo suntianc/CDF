@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
@@ -850,7 +850,10 @@ export function ChatArea({
             {currentProjectId && currentProjectId !== 'default-project' ? (
               <>{t('chat.welcomeHeadlineActive')}</>
             ) : (
-              <>{t('chat.welcomeHeadlineIdle')}</>
+              <Trans
+                i18nKey="chat.welcomeHeadlineIdle"
+                components={{ span: <span /> }}
+              />
             )}
           </h1>
           <p className="center-subline">
@@ -1058,7 +1061,10 @@ export function ChatArea({
 
           <div className="dialog-footer">
             <span className="dialog-footer-hint">
-              {t('chat.shortcutHint')}
+              <Trans
+                i18nKey="chat.shortcutHint"
+                components={{ kbd: <kbd /> }}
+              />
             </span>
           </div>
         </div>

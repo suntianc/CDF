@@ -15,6 +15,13 @@ i18next
     interpolation: {
       escapeValue: false,
     },
+    // Allow <span>, <kbd>, etc. in translation strings (used with <Trans>
+    // component which handles markup safely via React elements instead of
+    // dangerouslySetInnerHTML).
+    ...({
+      transSupportBasicHtmlNodes: true,
+      transKeepBasicHtmlNodesFor: ['span', 'kbd', 'br', 'strong', 'em', 'b', 'i', 'u'],
+    } as Record<string, unknown>),
     react: {
       useSuspense: false,
     },
