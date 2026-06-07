@@ -39,12 +39,12 @@
 **Goal:** 在 CDF 聊天输入框中支持 `@` 引用项目内的文件/目录，触发 cmdk + Radix Popover 文件搜索 popup（`.gitignore` 过滤 + 浅层枚举 ≤ 5000），选中后插入 `@relative/path` literal token 视觉包装（与 08.1 slash token 共享 chip 语言），消息发送保持原文不展开文件内容。
 **Requirements**: CONTEXT.md 锁定决策 A-01..G-03（无 REQ-IDs）
 **Depends on:** Phase 8
-**Plans:** 3 plans (3 waves)
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 08.3-01-PLAN.md — main 端基础设施：ignore@5.3.2 + gitignore-loader + candidate-lister (BFS) + at-mention-handler IPC + preload bridge + types (Wave 1, B-01..B-06, E-01..E-05)
-- [ ] 08.3-02-PLAN.md — renderer popup + AtToken 组件 + atMentionStore + pathUtils 工具（Wave 2, 依赖 01, A-02..A-04, B-06, C-01, C-04, C-06, F-02, F-03）
-- [ ] 08.3-03-PLAN.md — ChatArea 集成 + 历史消息渲染 + 端到端测试（Wave 3, 依赖 01+02, A-01, A-05, C-02, C-03, C-05, D-01..D-03, G-01, G-02）
+- [x] 08.3-01-PLAN.md — main 端基础设施：ignore@5.3.2 + gitignore-loader + candidate-lister (BFS) + at-mention-handler IPC + preload bridge + types (Wave 1, B-01..B-06, E-01..E-05)
+- [x] 08.3-02-PLAN.md — renderer popup + AtToken 组件 + atMentionStore + pathUtils 工具（Wave 2, 依赖 01, A-02..A-04, B-06, C-01, C-04, C-06, F-02, F-03）
+- [x] 08.3-03-PLAN.md — ChatArea 集成 + 历史消息渲染 + 端到端测试（Wave 3, 依赖 01+02, A-01, A-05, C-02, C-03, C-05, D-01..D-03, G-01, G-02）
 
 ### Phase 08.1: 斜杠命令输入框内联渲染 (INSERTED)
 
