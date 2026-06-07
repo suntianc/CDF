@@ -143,7 +143,7 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
 function AtTokenSequence({ tokens }: { tokens: ReturnType<typeof parseAtTokens> }) {
   return (
     <div className="flex flex-wrap items-center gap-1 flex-shrink-0" style={{ fontSize: '14px' }} data-testid="at-token-sequence">
-      {tokens.map((t) => (
+      {tokens.map((t: { start: number; path: string; kind: 'file' | 'dir' }) => (
         <AtToken key={`${t.start}-${t.path}`} path={t.path} kind={t.kind} />
       ))}
     </div>
