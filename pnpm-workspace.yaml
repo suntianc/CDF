@@ -1,0 +1,7 @@
+allowBuilds:
+  better-sqlite3: true
+  bufferutil: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  utf-8-validate: true

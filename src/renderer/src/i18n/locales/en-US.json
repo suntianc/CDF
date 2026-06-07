@@ -9,6 +9,8 @@
     "modelConfig": "Model config",
     "settings": {
       "header": "General Settings",
+      "system": "System Settings",
+      "systemDesc": "Configure interface language, appearance theme, and other global configurations",
       "llm": "LLM Management",
       "agents": "Agents",
       "skillsMcp": "Skills & MCP",

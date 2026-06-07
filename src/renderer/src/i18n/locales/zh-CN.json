@@ -9,6 +9,8 @@
     "modelConfig": "模型配置",
     "settings": {
       "header": "通用设置",
+      "system": "系统设置",
+      "systemDesc": "配置系统的语言、主题外观及其他全局性参数",
       "llm": "LLM 管理",
       "agents": "Agents 管理",
       "skillsMcp": "Skills & MCP 管理",
