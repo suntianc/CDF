@@ -20,7 +20,12 @@ import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 import { SlashToken } from '@/components/SlashCommand/SlashToken';
 import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
+import { AtToken } from '@/components/AtMention/AtToken';
+import { AtMentionPopup, AtMentionPopupHandle } from '@/components/AtMention/AtMentionPopup';
+import { useAtMentionStore } from '@/stores/atMentionStore';
+import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { GoalSystemBubble } from './GoalSystemBubble';
+import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ContextButton } from '@/components/Composer/ContextButton';
 
 interface ChatAreaProps {
@@ -148,13 +153,17 @@ export function ChatArea({
   } = useSessionStore();
   const { providers, fetchProviders } = useLLMStore();
   const { agents, fetchAgents } = useAgentStore();
+  const { status: goalStatus, goal: activeGoal } = useGoalJudgeStatus(activeSessionId || '');
+  const hasActiveGoal = !!(activeSessionId && goalStatus && activeGoal);
 
   const [inputVal, setInputVal] = useState('');
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState('');
-  const [selectedModel, setSelectedModel] = useState('');
+  const sessionModelOverrides = useSessionStore((state) => state.sessionModelOverrides) || {};
+  const override = activeSessionId ? sessionModelOverrides[activeSessionId] : (sessionModelOverrides[''] || null);
+  const selectedProviderId = override?.providerId || '';
+  const selectedModel = override?.model || '';
   const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -239,6 +248,31 @@ export function ChatArea({
     fetchProviders();
   }, [fetchProviders]);
 
+  // Phase 08.3 E-02: subscribe to atMentionStore and fetch candidates on popup open.
+  // Only one IPC call per open (false→true transition), not per keystroke.
+  // B-01: if no active project, close the popup immediately.
+  useEffect(() => {
+    const unsubscribe = useAtMentionStore.subscribe((state, prev) => {
+      if (state.isOpen && !prev.isOpen) {
+        if (!currentProjectId) {
+          useAtMentionStore.getState().close();
+          return;
+        }
+        useAtMentionStore.getState().setLoading(true);
+        window.electronAPI.project
+          .listAtMentionCandidates(currentProjectId)
+          .then((result) => {
+            useAtMentionStore.getState().setCandidates(result.candidates, result.truncated);
+          })
+          .catch((err) => {
+            console.error('[at-mention] IPC failed:', err);
+            useAtMentionStore.getState().setCandidates([], false);
+          });
+      }
+    });
+    return unsubscribe;
+  }, [currentProjectId]);
+
   useEffect(() => {
     return () => {
       if (compositionEndTimerRef.current) {
@@ -265,6 +299,13 @@ export function ChatArea({
   const currentProjectName = useMemo(() => {
     return projects.find(p => p.id === currentProjectId)?.name || t('chat.unknownProject');
   }, [currentProjectId, projects]);
+
+  // Phase 08.3 B-01: derive the project root for at-mention enumeration.
+  // Returns null when no project is active — the @ trigger MUST not open the popup in that case.
+  const currentProjectRoot = useMemo(
+    () => projects.find((p) => p.id === currentProjectId)?.path ?? null,
+    [projects, currentProjectId]
+  );
 
   const activeSession = useMemo(() => {
     return sessions.find(s => s.id === activeSessionId) || null;
@@ -630,8 +671,8 @@ export function ChatArea({
     : t('chat.noAgentBound');
 
   const handleSelectModel = (providerId: string, modelName: string) => {
-    setSelectedProviderId(providerId);
-    setSelectedModel(modelName);
+    const targetId = activeSessionId || '';
+    useSessionStore.getState().setSessionModelOverride(targetId, providerId, modelName);
     setWelcomeModelSelectorOpen(false);
     setComposerModelSelectorOpen(false);
   };
@@ -722,6 +763,11 @@ export function ChatArea({
     [inputVal, registry.commands]
   );
 
+  // Phase 08.3 (C-02 + C-03): scan the entire inputVal for @relative/path substrings
+  // so the overlay can render <AtToken> pills in place of literal @path strings.
+  // Independent of parseInputToTokens (slash parser) so the two can coexist.
+  const parsedAtTokens = useMemo(() => parseAtTokens(inputVal), [inputVal]);
+
   // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
   // Phase 6: route through dispatcher.resolve when the command resolves to a plan
   // (Enter path). Tab / unknown commands fall back to text-insert.
@@ -799,6 +845,19 @@ export function ChatArea({
       // Create new session
       const sessionName = inputVal.trim().slice(0, 15) || t('chat.newSessionFallback');
       const newSession = await createSession(projectId, sessionName);
+      
+      // Copy welcome override to new session
+      const welcomeOverride = useSessionStore.getState().sessionModelOverrides[''];
+      if (welcomeOverride) {
+        useSessionStore.getState().setSessionModelOverride(
+          newSession.id,
+          welcomeOverride.providerId,
+          welcomeOverride.model
+        );
+        // Clear welcome override
+        useSessionStore.getState().setSessionModelOverride('', '', '');
+      }
+
       await selectSession(newSession.id);
       await fetchSessions(projectId); // Move before selectSession or await it
 
@@ -1101,19 +1160,17 @@ export function ChatArea({
 
         {/* Messages Viewport */}
         <div className="flex-1 relative overflow-hidden">
+          {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
+
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
             className="messages absolute inset-0 overflow-y-auto"
-            style={{ paddingBottom: '180px' }}
+            style={{ 
+              paddingBottom: '180px',
+              paddingTop: hasActiveGoal ? '64px' : '0px'
+            }}
           >
-            {/* 08.2 P3 C1-04: /goal 状态气泡。Pinned near the top of the
-                messages list so the user sees the active goal the moment
-                they switch sessions. The component returns null when no
-                goal is set for the active session (P6 cross-session
-                isolation). */}
-            {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
-
             {/* Messages List */}
             {processedItems.map((item, idx) => {
               if (item.type === 'pending_approval_block') {
