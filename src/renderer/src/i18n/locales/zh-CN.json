@@ -1,0 +1,24 @@
+{
+  "sidebar": {
+    "newChat": "新对话",
+    "agents": "Agents 管理",
+    "plugins": "插件",
+    "workflows": "工作流",
+    "back": "返回",
+    "collapse": "折叠侧边栏",
+    "modelConfig": "模型配置",
+    "settings": {
+      "header": "通用设置",
+      "llm": "LLM 管理",
+      "agents": "Agents 管理",
+      "skillsMcp": "Skills & MCP 管理",
+      "tools": "工具配置",
+      "workflows": "工作流"
+    },
+    "language": {
+      "label": "界面语言",
+      "zh-CN": "简体中文",
+      "en-US": "English"
+    }
+  }
+}

@@ -10,6 +10,7 @@ import { WorkflowList } from './components/WorkflowEditor/WorkflowList';
 import { WorkflowEditor } from './components/WorkflowEditor/WorkflowEditor';
 import { ContextModal } from './components/ContextModal/ContextModal';
 import { useThemeStore } from './stores/themeStore';
+import { useI18nStore } from './stores/i18nStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
@@ -42,6 +43,10 @@ export default function App() {
     };
     initTheme();
   }, [setTheme]);
+
+  useEffect(() => {
+    useI18nStore.getState().initFromStore();
+  }, []);
 
   useEffect(() => {
     if (pendingApproval && activeView === 'chat') {
