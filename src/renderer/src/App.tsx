@@ -4,6 +4,7 @@ import { ChatArea } from './components/ChatArea/ChatArea';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { ModelSettings } from './components/Settings/ModelSettings';
 import { ToolSettings } from './components/Settings/ToolSettings';
+import { SystemSettings } from './components/Settings/SystemSettings';
 import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { WorkflowList } from './components/WorkflowEditor/WorkflowList';
@@ -72,6 +73,7 @@ export default function App() {
         >
           {activeView === 'settings' && <ModelSettings />}
           {activeView === 'tools' && <ToolSettings />}
+          {activeView === 'system' && <SystemSettings />}
           {activeView === 'agents' && <AgentLibrary />}
           {activeView === 'plugins' && <PluginsPanel />}
           {activeView === 'chat' && (

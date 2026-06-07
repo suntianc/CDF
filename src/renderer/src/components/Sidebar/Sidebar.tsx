@@ -1,20 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PanelLeft, Settings,  GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench } from 'lucide-react';
+import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
-import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
-import { useI18nStore } from '../../stores/i18nStore';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   collapsed: boolean;
   width: number;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows';
+  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system';
   onCollapse: () => void;
   onResize: (width: number) => void;
-  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows') => void;
+  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system') => void;
 }
 
 export function Sidebar({
@@ -28,7 +26,6 @@ export function Sidebar({
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
-  const { currentLanguage, setLanguage } = useI18nStore();
 
   const { currentProjectId } = useProjectStore();
   const { 
@@ -144,25 +141,13 @@ export function Sidebar({
           </div>
 
           <div className={styles.bottomBar}>
-            <ThemeToggle />
-            <button onClick={() => onChangeView('settings')} title={t('sidebar.modelConfig')}>
+            <button onClick={() => onChangeView('system')} title={t('sidebar.settings.system', '系统设置')}>
               <Settings className="w-4 h-4" />
             </button>
           </div>
         </>
       ) : (
         <div className={styles.settingsMenu}>
-          <div className={styles.settingsMenuHeader}>{t('sidebar.language.label')}</div>
-          <div className={styles.settingsMenuItem}>
-            <select
-              value={currentLanguage}
-              onChange={(e) => setLanguage(e.target.value as 'zh-CN' | 'en-US')}
-              className="bg-transparent text-[var(--color-text-primary)] text-sm outline-none w-full cursor-pointer"
-            >
-              <option value="zh-CN">{t('sidebar.language.zh-CN')}</option>
-              <option value="en-US">{t('sidebar.language.en-US')}</option>
-            </select>
-          </div>
           <div className={styles.settingsMenuHeader}>{t('sidebar.settings.header')}</div>
           <div
             className={`${styles.settingsMenuItem} ${activeView === 'settings' ? styles.active : ''}`}
@@ -198,6 +183,13 @@ export function Sidebar({
           >
             <GitFork className="w-4 h-4" />
             {t('sidebar.settings.workflows')}
+          </div>
+          <div
+            className={`${styles.settingsMenuItem} ${activeView === 'system' ? styles.active : ''}`}
+            onClick={() => onChangeView('system')}
+          >
+            <Sliders className="w-4 h-4" />
+            {t('sidebar.settings.system', '系统设置')}
           </div>
         </div>
       )}
