@@ -11,6 +11,7 @@ interface StoreSchema {
     x?: number;
     y?: number;
   };
+  language: 'zh-CN' | 'en-US';
 }
 
 const store = new Store<StoreSchema>({
@@ -20,6 +21,7 @@ const store = new Store<StoreSchema>({
     sidebarWidth: 280,
     sidebarCollapsed: false,
     windowBounds: { width: 1200, height: 800 },
+    language: 'zh-CN',
   },
   schema: {
     theme: { type: 'string', enum: ['light', 'dark', 'system'] },
@@ -36,6 +38,7 @@ const store = new Store<StoreSchema>({
       },
       required: ['width', 'height'],
     },
+    language: { type: 'string', enum: ['zh-CN', 'en-US'] },
   },
   clearInvalidConfig: true,
 });
