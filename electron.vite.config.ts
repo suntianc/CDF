@@ -5,13 +5,21 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ external: ['canvas'] })],
+    // Phase 08.3 build-fix: jsdom / @mozilla/readability / turndown
+    // are used by fetch-tool.ts at runtime. externalizeDepsPlugin's
+    // default `include` set externalizes ALL production deps — but
+    // electron-builder does NOT copy `node_modules` into the app
+    // bundle, so the runtime `require('jsdom')` fails at app startup
+    // with "Cannot find module 'jsdom'". Excluding these three from
+    // the externalizer makes Vite bundle them directly into the
+    // main chunk, eliminating the runtime require path.
+    plugins: [externalizeDepsPlugin({ exclude: ['jsdom', '@mozilla/readability', 'turndown'] })],
     build: {
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts')
         },
-        external: ['jsdom', '@mozilla/readability', 'turndown', 'canvas', '@napi-rs/canvas']
+        external: ['canvas', '@napi-rs/canvas']
       }
     }
   },
