@@ -36,6 +36,7 @@ import {
   START_NODE_ID, END_NODE_ID,
 } from './workflowValidation';
 import { Info } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 
 interface Toast {
@@ -60,6 +61,7 @@ const nodeTypes = {
 } satisfies NodeTypes;
 
 export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
+  const { t } = useTranslation();
   const { saveWorkflow, runWorkflow, stopWorkflow, workflows } = useWorkflowStore();
   const { currentProjectId } = useProjectStore();
   const { theme } = useThemeStore();
@@ -74,7 +76,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
-  const [workflowName, setWorkflowName] = useState(workflow.name || '新建工作流');
+  const [workflowName, setWorkflowName] = useState(workflow.name || t('workflow.editor.newWorkflowName'));
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [executionId, setExecutionId] = useState<string | null>(null);
@@ -146,13 +148,13 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       }
       setNodes(initialNodes);
       setEdges(initialEdges);
-      setWorkflowName(workflow.name || '新建工作流');
+      setWorkflowName(workflow.name || t('workflow.editor.newWorkflowName'));
     } else {
       initialNodes = defaultNodes as Node[];
       initialEdges = [];
       setNodes(initialNodes);
       setEdges(initialEdges);
-      setWorkflowName('新建工作流');
+      setWorkflowName(t('workflow.editor.newWorkflowName'));
     }
     const { clearHistory, pushHistory } = useFlowStore.getState();
     clearHistory();
@@ -212,7 +214,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       const sourceNode = nodes.find((node) => node.id === connection.source);
       const sourceIsReview = sourceNode?.type === 'review' || (sourceNode?.data as Record<string, unknown> | undefined)?.nodeKind === 'review';
       const metadata: WorkflowEdge['metadata'] | undefined = sourceIsReview
-        ? { condition: connection.source || '', operator: 'eq', routeValue: '通过', compareValue: '通过' }
+        ? { condition: connection.source || '', operator: 'eq', routeValue: t('workflow.editor.defaultRoutePass'), compareValue: t('workflow.editor.defaultRoutePass') }
         : undefined;
       const newEdge = {
         ...connection,
@@ -236,7 +238,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       if (change.type !== 'remove') return true;
       const nodeType = getNodeType(currentNodes, change.id);
       if (nodeType === 'start' || nodeType === 'end') {
-        showToast('开始/结束节点不能删除', 'error');
+        showToast(t('workflow.editor.cannotDeleteStartEnd'), 'error');
         return false;
       }
       return true;
@@ -259,7 +261,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         setDrawerOpen(false);
       }
     }
-  }, [onNodesChange, selectedNode, setEdges, showToast, takeSnapshot]);
+  }, [onNodesChange, selectedNode, setEdges, showToast, takeSnapshot, t]);
 
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
     onEdgesChange(changes);
@@ -291,8 +293,8 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       setSelectedEdge(null);
       setEdgeDrawerOpen(false);
     }
-    showToast(`已删除 ${edgeIdSet.size} 条边`, 'success');
-  }, [selectedEdge, setEdges, showToast, takeSnapshot]);
+    showToast(t('workflow.editor.deletedEdges', { count: edgeIdSet.size }), 'success');
+  }, [selectedEdge, setEdges, showToast, takeSnapshot, t]);
 
   const deleteNodesById = useCallback((nodeIds: string[]) => {
     const requestedIds = new Set(nodeIds);
@@ -303,7 +305,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     );
 
     if (deletableIds.size === 0) {
-      if (requestedIds.size > 0) showToast('开始/结束节点不能删除', 'error');
+      if (requestedIds.size > 0) showToast(t('workflow.editor.cannotDeleteStartEnd'), 'error');
       return;
     }
 
@@ -320,8 +322,8 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       setSelectedNode(null);
       setDrawerOpen(false);
     }
-    showToast(`已删除 ${deletableIds.size} 个节点`, 'success');
-  }, [selectedNode, setEdges, setNodes, showToast, takeSnapshot]);
+    showToast(t('workflow.editor.deletedNodes', { count: deletableIds.size }), 'success');
+  }, [selectedNode, setEdges, setNodes, showToast, takeSnapshot, t]);
 
   const handleDeleteSelected = useCallback(() => {
     deleteEdgesById(selectedEdgeIds);
@@ -397,7 +399,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       if (!type || !rfInstance || !reactFlowWrapper.current) return;
       const currentNodes = nodesRef.current;
       if ((type === 'start' && currentNodes.some((node) => node.type === 'start')) || (type === 'end' && currentNodes.some((node) => node.type === 'end'))) {
-        showToast(`${type === 'start' ? '开始' : '结束'}节点只能有一个`, 'error');
+        showToast(t('workflow.editor.singleNodeOnly', { type: type === 'start' ? t('workflow.nodeTypes.start.label') : t('workflow.nodeTypes.end.label') }), 'error');
         return;
       }
 
@@ -427,7 +429,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       setNodes(nextNds);
       takeSnapshot(nextNds, edgesRef.current);
     },
-    [rfInstance, setNodes, showToast, takeSnapshot],
+    [rfInstance, setNodes, showToast, takeSnapshot, t],
   );
 
   const handleSave = useCallback(async (mode: 'save' | 'run' = 'save') => {
@@ -435,7 +437,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
 
     const trimmedName = workflowName.trim();
     if (!trimmedName) {
-      showToast('工作流名称不能为空', 'error');
+      showToast(t('workflow.editor.nameEmpty'), 'error');
       return false;
     }
 
@@ -443,7 +445,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       (w) => w.name.trim().toLowerCase() === trimmedName.toLowerCase() && w.id !== workflowId
     );
     if (nameExists) {
-      showToast(`工作流「${trimmedName}」已存在，请使用其他名称`, 'error');
+      showToast(t('workflow.editor.nameExists', { name: trimmedName }), 'error');
       return false;
     }
 
@@ -499,16 +501,16 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         graph_data: graphData,
         status: workflow.status || 'draft',
       });
-      showToast('✓ 工作流保存成功', 'success');
+      showToast(t('workflow.editor.saveSuccess'), 'success');
       return true;
     } catch (err: unknown) {
       console.error('Failed to save workflow:', err);
-      showToast(err instanceof Error ? err.message : '保存工作流失败', 'error');
+      showToast(err instanceof Error ? err.message : t('workflow.editor.saveFailed'), 'error');
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [currentProjectId, rfInstance, workflow, workflowName, saveWorkflow, workflows, workflowId, showToast, nodes, edges]);
+  }, [currentProjectId, rfInstance, workflow, workflowName, saveWorkflow, workflows, workflowId, showToast, nodes, edges, t]);
 
   const handleRun = useCallback(async () => {
     if (!currentProjectId) return;
@@ -516,7 +518,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     const startNode = nodesRef.current.find((n) => n.type === 'start');
     const trimmedGoal = (startNode?.data?.taskGoal as string || '').trim();
     if (!trimmedGoal) {
-      showToast('请先在开始节点中填写本次执行的任务目标', 'error');
+      showToast(t('workflow.editor.taskGoalRequired'), 'error');
       return;
     }
     const saved = await handleSave('run');
@@ -536,9 +538,9 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       setNodes((nds) => nds.map((node) => isExecutableNodeType(node.type)
         ? { ...node, data: { ...node.data, status: undefined } }
         : node));
-      showToast(err instanceof Error ? err.message : '启动工作流失败', 'error');
+      showToast(err instanceof Error ? err.message : t('workflow.editor.runFailed'), 'error');
     }
-  }, [currentProjectId, workflowId, handleSave, runWorkflow, showToast]);
+  }, [currentProjectId, workflowId, handleSave, runWorkflow, showToast, t]);
 
   const handleStop = useCallback(async () => {
     if (executionId) {
@@ -563,7 +565,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     if (result) {
       setNodes(result.nodes);
       setEdges(result.edges);
-      showToast('已撤销', 'info');
+      showToast(t('workflow.editor.undone'), 'info');
     }
   }, [setNodes, setEdges, showToast]);
 
@@ -573,9 +575,9 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     if (result) {
       setNodes(result.nodes);
       setEdges(result.edges);
-      showToast('已重做', 'info');
+      showToast(t('workflow.editor.redone'), 'info');
     }
-  }, [setNodes, setEdges, showToast]);
+  }, [setNodes, setEdges, showToast, t]);
 
   // Bind Keyboard Shortcuts: Save (Ctrl/Cmd + S), Undo (Ctrl/Cmd + Z), Redo (Ctrl/Cmd + Y)
   useEffect(() => {

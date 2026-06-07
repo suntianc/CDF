@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
 interface AgentNodeData extends Record<string, unknown> {
@@ -32,16 +33,17 @@ const TASK_ICON = <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" /
 const FOREACH_ICON = <Layers className="w-3.5 h-3.5 text-[var(--color-success)]" />;
 
 export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
+  const { t } = useTranslation();
   const status = data.status || 'pending';
   const style = statusStyles[status] || statusStyles.pending;
   const kind = data.nodeKind || 'task';
   const config = kind === 'loop'
-    ? { title: data.label || 'Loop 节点', badge: 'Loop', icon: LOOP_ICON, bg: 'var(--color-info-dim)' }
+    ? { title: data.label || t('workflow.nodeTypes.loop.label'), badge: 'Loop', icon: LOOP_ICON, bg: 'var(--color-info-dim)' }
     : kind === 'review'
-      ? { title: data.label || '审查节点', badge: 'Review', icon: REVIEW_ICON, bg: 'var(--color-warning-dim)' }
+      ? { title: data.label || t('workflow.nodeTypes.review.label'), badge: 'Review', icon: REVIEW_ICON, bg: 'var(--color-warning-dim)' }
       : kind === 'foreach'
-        ? { title: data.label || 'For-Each 节点', badge: 'For-Each', icon: FOREACH_ICON, bg: 'var(--color-success-dim)' }
-        : { title: data.label || '普通任务节点', badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
+        ? { title: data.label || t('workflow.nodeTypes.foreach.label'), badge: 'For-Each', icon: FOREACH_ICON, bg: 'var(--color-success-dim)' }
+        : { title: data.label || t('workflow.nodeTypes.task.label'), badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
   const rawSummary = kind === 'review'
     ? data.reviewSpec
     : data.taskDescription || data.description;

@@ -1,4 +1,5 @@
 import { BarChart3 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils';
  * the user has visual feedback that the modal is up.
  */
 export function ContextButton() {
+  const { t } = useTranslation();
   const isOpen = useContextModalStore((s) => s.isOpen);
   const open = useContextModalStore.getState().open;
 
@@ -28,7 +30,7 @@ export function ContextButton() {
           variant={isOpen ? 'default' : 'ghost'}
           size="sm"
           onClick={open}
-          aria-label="查看 context"
+          aria-label={t('context.viewContext')}
           className={cn(
             'min-h-[32px] gap-2 text-[var(--color-info)] border border-[var(--color-info-dim)]/20 bg-[var(--color-info-dim)]/5 hover:bg-[var(--color-info-dim)]/15 transition-all duration-300 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shadow-sm rounded-lg',
             isOpen && 'bg-[var(--color-info)] text-white hover:bg-[var(--color-info)]/90 border-transparent hover:-translate-y-0 shadow-inner'
@@ -42,7 +44,7 @@ export function ContextButton() {
           )} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>显示当前 context token 占用明细</TooltipContent>
+      <TooltipContent>{t('context.tooltipDetail')}</TooltipContent>
     </Tooltip>
   );
 }

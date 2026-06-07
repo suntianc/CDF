@@ -1,8 +1,11 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { useTranslation } from 'react-i18next';
 
 type EndFlowNode = Node<{ label: string; bgColor?: string }, 'end'>;
 
 export function EndNode({ data, selected }: NodeProps<EndFlowNode>) {
+  const { t } = useTranslation();
+
   return (
     <div
       className="rounded-xl border-2 px-6 py-3 w-[150px] text-center shadow-md relative transition-[border-color,box-shadow,background-color] duration-150"
@@ -30,7 +33,7 @@ export function EndNode({ data, selected }: NodeProps<EndFlowNode>) {
         className="cursor-crosshair"
       />
       <div className="text-sm font-semibold text-[var(--color-text-primary)]">
-        {data.label || '结束'}
+        {data.label || t('workflow.nodeTypes.end.label')}
       </div>
     </div>
   );

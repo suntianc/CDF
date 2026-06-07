@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLLMStore } from '../../stores/llmStore';
 import { LLMProvider } from '../../../../shared/types';
-import { 
+import {
   Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -81,9 +82,10 @@ interface Toast {
 }
 
 export function ModelSettings() {
-  const { 
-    providers, isLoading, error, 
-    fetchProviders, saveProvider, deleteProvider, setActiveProvider 
+  const { t } = useTranslation();
+  const {
+    providers, isLoading, error,
+    fetchProviders, saveProvider, deleteProvider, setActiveProvider
   } = useLLMStore();
 
   // Toast State
@@ -127,11 +129,11 @@ export function ModelSettings() {
   // Connection Test logic
   const testConnection = async (p: LLMProvider) => {
     setTestingId(p.id);
-    showToast(`正在测试 ${p.name} 的连接…`, 'info');
+    showToast(t('settings.model.testingConnection', { name: p.name }), 'info');
     try {
       let success = false;
       let details = '';
-      
+
       if (p.provider_type === 'ollama') {
         const result = await window.electronAPI.llm.testProvider(p.id);
         success = result.ok;
@@ -141,14 +143,14 @@ export function ModelSettings() {
         success = result.ok;
         details = result.message;
       }
-      
+
       if (success) {
-        showToast(`✓ ${p.name} 连接成功: ${details}`, 'success');
+        showToast(t('settings.model.testSuccess', { name: p.name, details }), 'success');
       } else {
-        showToast(`✗ ${p.name} 连接失败: ${details}`, 'error');
+        showToast(t('settings.model.testFailed', { name: p.name, details }), 'error');
       }
     } catch (err: any) {
-      showToast(`✗ ${p.name} 连接失败: 无法访问接口，请检查服务状态或网络地址`, 'error');
+      showToast(t('settings.model.testFailedNetwork', { name: p.name }), 'error');
     } finally {
       setTestingId(null);
     }
@@ -157,7 +159,7 @@ export function ModelSettings() {
   // Fetch Models list and save to provider
   const fetchModelsList = async (p: LLMProvider) => {
     setFetchingModelsId(p.id);
-    showToast(`正在从 ${p.name} 获取可用模型列表…`, 'info');
+    showToast(t('settings.model.fetchingModels', { name: p.name }), 'info');
     try {
       let fetchedModels: string[] = [];
       fetchedModels = await window.electronAPI.llm.fetchProviderModels(p.id);
@@ -171,12 +173,12 @@ export function ModelSettings() {
           default_model: p.default_model || fetchedModels[0]
         };
         await saveProvider(updatedProvider);
-        showToast(`✓ 已成功获取并同步 ${fetchedModels.length} 个模型`, 'success');
+        showToast(t('settings.model.fetchModelsSuccess', { count: fetchedModels.length }), 'success');
       } else {
-        showToast('未检测到有效模型，请检查后端模型配置是否为空', 'error');
+        showToast(t('settings.model.noValidModels'), 'error');
       }
     } catch (err: any) {
-      showToast(`✗ 获取模型失败: ${err.message || '请检查 Endpoint 和 API Key'}`, 'error');
+      showToast(t('settings.model.fetchModelsFailed', { error: err.message || t('settings.model.checkEndpointAndKey') }), 'error');
     } finally {
       setFetchingModelsId(null);
     }
@@ -186,11 +188,11 @@ export function ModelSettings() {
   const handleAddModelInline = async (p: LLMProvider, modelId: string) => {
     const trimmed = modelId.trim();
     if (!trimmed) return;
-    
+
     const existing = p.models || [];
     const isDuplicate = existing.some(m => m.trim().toLowerCase() === trimmed.toLowerCase());
     if (isDuplicate) {
-      showToast('该模型 ID 已存在', 'error');
+      showToast(t('settings.model.modelIdExists'), 'error');
       return;
     }
 
@@ -202,9 +204,9 @@ export function ModelSettings() {
 
     try {
       await saveProvider(updated);
-      showToast(`✓ 模型 ${trimmed} 已添加`, 'success');
+      showToast(t('settings.model.modelAdded', { name: trimmed }), 'success');
     } catch (err) {
-      showToast('添加模型失败', 'error');
+      showToast(t('settings.model.addModelFailed'), 'error');
     }
   };
 
@@ -212,7 +214,7 @@ export function ModelSettings() {
   const handleRemoveModelInline = async (p: LLMProvider, modelId: string) => {
     const existing = p.models || [];
     const filtered = existing.filter(m => m !== modelId);
-    
+
     // Fallback default_model if we removed the active default
     let defaultModel = p.default_model;
     if (defaultModel === modelId) {
@@ -227,9 +229,9 @@ export function ModelSettings() {
 
     try {
       await saveProvider(updated);
-      showToast(`✓ 模型 ${modelId} 已移除`, 'success');
+      showToast(t('settings.model.modelRemoved', { name: modelId }), 'success');
     } catch (err) {
-      showToast('移除模型失败', 'error');
+      showToast(t('settings.model.removeModelFailed'), 'error');
     }
   };
 
@@ -276,10 +278,10 @@ export function ModelSettings() {
       if (models.length > 0 && !formModel) {
         setFormModel(models[0]);
       }
-      showToast(`✓ 获取到 ${models.length} 个 Ollama 模型`, 'success');
+      showToast(t('settings.model.ollamaModelsFetched', { count: models.length }), 'success');
     } catch (err: any) {
-      setOllamaError(err.message || '获取本地模型失败，请确认 Ollama 已启动。');
-      showToast('获取 Ollama 模型失败', 'error');
+      setOllamaError(err.message || t('settings.model.ollamaFetchError'));
+      showToast(t('settings.model.ollamaFetchFailed'), 'error');
     } finally {
       setFetchingOllama(false);
     }
@@ -317,21 +319,21 @@ export function ModelSettings() {
 
     try {
       await saveProvider(providerPayload);
-      showToast(`✓ 供应商 ${formName} 保存成功`, 'success');
+      showToast(t('settings.model.providerSaved', { name: formName }), 'success');
       setIsModalOpen(false);
     } catch (err) {
-      showToast('保存供应商失败', 'error');
+      showToast(t('settings.model.saveProviderFailed'), 'error');
     }
   };
 
   // Delete provider
   const handleDeleteProvider = async (id: string, name: string) => {
-    if (confirm(`确定要删除供应商「${name}」吗？此操作将清除所有相关模型配置！`)) {
+    if (confirm(t('settings.model.confirmDeleteProvider', { name }))) {
       try {
         await deleteProvider(id);
-        showToast(`✓ 供应商 ${name} 已成功删除`, 'success');
+        showToast(t('settings.model.providerDeleted', { name }), 'success');
       } catch (err) {
-        showToast('删除供应商失败', 'error');
+        showToast(t('settings.model.deleteProviderFailed'), 'error');
       }
     }
   };
@@ -346,11 +348,11 @@ export function ModelSettings() {
         {/* 内置的操作 Toolbar 面板 */}
         <div className="flex items-center justify-between gap-4 mb-4 shrink-0">
           <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
-            模型供应商列表 ({providers.length})
+            {t('settings.model.providersList', { count: providers.length })}
           </div>
           <button className="btn btn-primary flex items-center gap-1.5 cursor-pointer text-xs py-1.5" onClick={openCreateModal}>
             <Plus className="w-4 h-4" />
-            <span>添加供应商</span>
+            <span>{t('settings.model.addProvider')}</span>
           </button>
         </div>
 
@@ -374,119 +376,119 @@ export function ModelSettings() {
                       <span>{p.name}</span>
                       {p.is_active === 1 && (
                         <span className="px-1.5 py-0.5 rounded text-xs bg-[var(--color-success-dim)] text-[var(--color-success)] font-semibold uppercase">
-                          已激活
+                          {t('settings.model.active')}
                         </span>
                       )}
                     </div>
                     <div className="provider-type capitalize">
-                      {p.provider_type} · {p.api_url || '官方 API 接口'}
+                      {p.provider_type} · {p.api_url || t('settings.model.officialApi')}
                     </div>
                   </div>
                 </div>
 
                 <div className="provider-actions">
-                  <span 
-                    className={`status-dot ${p.is_active === 1 ? '' : 'offline'}`} 
-                    title={p.is_active === 1 ? '默认使用中' : '闲置中'}
+                  <span
+                    className={`status-dot ${p.is_active === 1 ? '' : 'offline'}`}
+                    title={p.is_active === 1 ? t('settings.model.inUse') : t('settings.model.idle')}
                   />
-                  
+
                   {/* Test Connection Button */}
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={() => testConnection(p)}
                     disabled={testingId === p.id}
-                    title="测试接口连接"
-                    aria-label="测试接口连接"
+                    title={t('settings.model.testConnectionTitle')}
+                    aria-label={t('settings.model.testConnectionTitle')}
                   >
                     {testingId === p.id ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <Play className="w-3.5 h-3.5" />
                     )}
-                    测试
+                    {t('settings.model.test')}
                   </button>
 
                   {/* Fetch Models Button */}
                   {p.provider_type !== 'anthropic' && (
-                    <button 
-                      className="btn btn-secondary btn-sm" 
+                    <button
+                      className="btn btn-secondary btn-sm"
                       onClick={() => fetchModelsList(p)}
                       disabled={fetchingModelsId === p.id}
-                      title="自动拉取可用模型列表"
+                      title={t('settings.model.fetchModelsTitle')}
                     >
                       {fetchingModelsId === p.id ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <RefreshCw className="w-3.5 h-3.5" />
                       )}
-                      获取模型
+                      {t('settings.model.fetchModels')}
                     </button>
                   )}
 
                   {/* Set Active Button */}
                   {p.is_active !== 1 && (
-                    <button 
+                    <button
                       className="btn btn-secondary btn-sm text-[var(--color-success)] border-[var(--color-success)]/30 hover:bg-[var(--color-success-dim)]"
                       onClick={() => {
                         setActiveProvider(p.id);
-                        showToast(`✓ 已激活默认提供商: ${p.name}`, 'success');
+                        showToast(t('settings.model.activated', { name: p.name }), 'success');
                       }}
                     >
-                      激活
+                      {t('settings.model.activate')}
                     </button>
                   )}
 
                   {/* Edit Button */}
-                  <button 
-                    className="btn btn-secondary btn-sm" 
+                  <button
+                    className="btn btn-secondary btn-sm"
                     onClick={() => openEditModal(p)}
-                    title="编辑基础配置"
+                    title={t('settings.model.editConfigTitle')}
                   >
                     <Edit2 className="w-3.5 h-3.5" />
-                    编辑
+                    {t('settings.model.edit')}
                   </button>
 
                   {/* Delete Button */}
                   <button
                     className="btn btn-danger btn-sm"
                     onClick={() => handleDeleteProvider(p.id, p.name)}
-                    title="删除供应商"
-                    aria-label="删除供应商"
+                    title={t('settings.model.deleteProviderTitle')}
+                    aria-label={t('settings.model.deleteProviderTitle')}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    删除
+                    {t('settings.model.delete')}
                   </button>
                 </div>
               </div>
 
               {/* Models Tags & Adding Section */}
               <div className="provider-models">
-                <div className="models-label">已配置模型标签（{p.models?.length || 0}）</div>
-                
+                <div className="models-label">{t('settings.model.configuredModels', { count: p.models?.length || 0 })}</div>
+
                 <div className="model-tags">
                   {p.models && p.models.map((modelName) => (
                     <span key={modelName} className={`model-tag ${p.default_model === modelName ? 'border-[var(--color-accent)] text-[var(--color-accent-hover)] font-medium bg-[var(--color-accent-dim)]' : ''}`}>
                       {modelName}
-                      {p.default_model === modelName && <span className="text-xs text-[var(--color-accent-hover)]">(默认)</span>}
-                      <button 
-                        className="remove-model" 
-                        onClick={() => handleRemoveModelInline(p, modelName)} 
-                        title="移除此模型"
-                        aria-label="移除此模型"
+                      {p.default_model === modelName && <span className="text-xs text-[var(--color-accent-hover)]">({t('settings.model.default')})</span>}
+                      <button
+                        className="remove-model"
+                        onClick={() => handleRemoveModelInline(p, modelName)}
+                        title={t('settings.model.removeModelTitle')}
+                        aria-label={t('settings.model.removeModelTitle')}
                       >
                         ×
                       </button>
                     </span>
                   ))}
                   {(!p.models || p.models.length === 0) && (
-                    <span className="text-xs text-[var(--color-text-muted)] italic">暂未配置模型，可在下方手动输入或点击“获取模型”</span>
+                    <span className="text-xs text-[var(--color-text-muted)] italic">{t('settings.model.noModelsHint')}</span>
                   )}
                 </div>
 
                 <div className="add-model-row">
-                  <input 
-                    id={`newModel-${p.id}`} 
-                    placeholder="手动输入模型 ID，回车或点击右侧添加 (如: gpt-4o)" 
+                  <input
+                    id={`newModel-${p.id}`}
+                    placeholder={t('settings.model.addModelPlaceholder')}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         const target = e.target as HTMLInputElement;
@@ -495,7 +497,7 @@ export function ModelSettings() {
                       }
                     }}
                   />
-                  <button 
+                  <button
                     className="btn btn-secondary btn-sm"
                     onClick={() => {
                       const input = document.getElementById(`newModel-${p.id}`) as HTMLInputElement;
@@ -505,7 +507,7 @@ export function ModelSettings() {
                       }
                     }}
                   >
-                    添加
+                    {t('settings.model.add')}
                   </button>
                 </div>
               </div>
@@ -514,7 +516,7 @@ export function ModelSettings() {
 
           {providers.length === 0 && (
             <div className="text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-xl text-sm text-[var(--color-text-muted)]">
-              暂无配置好的模型供应商，点击右上角「添加供应商」按钮开始！
+              {t('settings.model.emptyProviders')}
             </div>
           )}
         </div>
@@ -526,12 +528,12 @@ export function ModelSettings() {
           <div className="modal animate-fade-in w-[480px] p-6">
             <div className="flex justify-between items-center modal-title border-b border-[var(--color-border)] pb-3 mb-4">
               <span className="font-semibold text-base">
-                {editingProviderId ? `编辑供应商 · ${formName}` : '添加供应商'}
+                {editingProviderId ? t('settings.model.editProviderTitle', { name: formName }) : t('settings.model.addProvider')}
               </span>
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all"
-                aria-label="关闭弹窗"
+                aria-label={t('common.close')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -541,18 +543,18 @@ export function ModelSettings() {
               {/* Name & Type */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group">
-                  <label className="form-label">供应商名称 <span className="text-[var(--color-danger)]">*</span></label>
-                  <input 
-                    className="form-input" 
+                  <label className="form-label">{t('settings.model.providerName')} <span className="text-[var(--color-danger)]">*</span></label>
+                  <input
+                    className="form-input"
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
-                    placeholder="例如：OpenAI / Anthropic / 硅基流动"
+                    placeholder={t('settings.model.providerNamePlaceholder')}
                     required
                     disabled={formType !== 'custom'}
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">服务类型</label>
+                  <label className="form-label">{t('settings.model.serviceType')}</label>
                   <CustomSelect
                     value={formType}
                     onChange={(val) => {
@@ -619,13 +621,13 @@ export function ModelSettings() {
               {/* Endpoint API URL */}
               <div className="form-group">
                 <label className="form-label">API Endpoint</label>
-                <input 
-                  className="form-input" 
+                <input
+                  className="form-input"
                   value={formUrl}
                   onChange={(e) => setFormUrl(e.target.value)}
                   placeholder={formType === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'}
                 />
-                <div className="form-hint">接口请求的基础 Base URL 地址，末尾不需要带斜杠</div>
+                <div className="form-hint">{t('settings.model.endpointHint')}</div>
               </div>
 
               {/* API Key (Show unless type is Ollama) */}
@@ -633,7 +635,7 @@ export function ModelSettings() {
                 <div className="form-group">
                   <label className="form-label">API Key <span className="text-[var(--color-danger)]">*</span></label>
                   <div className="relative flex items-center">
-                    <input 
+                    <input
                       type={showKey ? 'text' : 'password'}
                       className="form-input pr-10"
                       value={formKey}
@@ -641,11 +643,11 @@ export function ModelSettings() {
                       placeholder={formKey === '••••••••' ? '••••••••' : 'sk-...'}
                       required={!editingProviderId || !providers.find(p => p.id === editingProviderId)?.hasKey}
                     />
-                    <button 
+                    <button
                       type="button"
                       onClick={() => setShowKey(!showKey)}
                       className="absolute right-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all"
-                      aria-label={showKey ? '隐藏 API Key' : '显示 API Key'}
+                      aria-label={showKey ? t('settings.model.hideApiKey') : t('settings.model.showApiKey')}
                     >
                       {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -656,8 +658,8 @@ export function ModelSettings() {
               {/* Default Model & Context Limit */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group">
-                  <label className="form-label">默认模型名称</label>
-                  
+                  <label className="form-label">{t('settings.model.defaultModelName')}</label>
+
                   {formType === 'ollama' && (
                     <div className="flex gap-2 mb-2">
                       <button
@@ -669,15 +671,15 @@ export function ModelSettings() {
                         {fetchingOllama ? (
                           <>
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            获取中...
+                            {t('settings.model.fetching')}
                           </>
                         ) : (
-                          '获取本地模型列表'
+                          t('settings.model.fetchLocalModels')
                         )}
                       </button>
                       {ollamaError && (
                         <span className="text-xs text-[var(--color-danger)] self-center truncate max-w-[120px]" title={ollamaError}>
-                          拉取失败
+                          {t('settings.model.fetchFailed')}
                         </span>
                       )}
                     </div>
@@ -701,10 +703,10 @@ export function ModelSettings() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">上下文限额 (Tokens)</label>
-                  <input 
+                  <label className="form-label">{t('settings.model.contextLimit')}</label>
+                  <input
                     type="number"
-                    className="form-input" 
+                    className="form-input"
                     value={formLimit}
                     onChange={(e) => setFormLimit(parseInt(e.target.value) || 8192)}
                     min="512"
@@ -724,24 +726,24 @@ export function ModelSettings() {
                   className="w-4 h-4 rounded text-[var(--color-accent)] focus:ring-[var(--color-accent)] border-[var(--color-border)] accent-[var(--color-accent)] cursor-pointer"
                 />
                 <label htmlFor="modal_is_active" className="text-xs font-semibold text-[var(--color-text-secondary)] select-none cursor-pointer">
-                  将此提供商设为激活的模型（默认聊天使用）
+                  {t('settings.model.setActiveHint')}
                 </label>
               </div>
 
               {/* Actions */}
               <div className="modal-actions border-t border-[var(--color-border)] pt-4 mt-6">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsModalOpen(false)}
                   className="btn btn-secondary"
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="btn btn-primary"
                 >
-                  保存配置
+                  {t('settings.model.saveConfig')}
                 </button>
               </div>
             </form>

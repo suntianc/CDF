@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
-import { 
-  Terminal, FileCode, Wrench, Search, Loader2 
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import {
+  Terminal, FileCode, Wrench, Search, Loader2
 } from 'lucide-react';
 
 interface ToolInfo {
@@ -13,47 +15,47 @@ interface ToolInfo {
 }
 
 // Translate tool action parameters to readable text
-export const translateToolAction = (toolName: string, toolInput: any): string => {
-  if (!toolInput) return `调用 ${toolName}`;
+export const translateToolAction = (toolName: string, toolInput: any, t: TFunction): string => {
+  if (!toolInput) return t('toolMessage.callTool', { name: toolName });
   try {
     const args = typeof toolInput === 'string' ? JSON.parse(toolInput) : toolInput;
     switch (toolName) {
       case 'view_file': {
         const pathVal = args.AbsolutePath || args.TargetFile || '';
         const filename = pathVal.split('/').pop() || pathVal;
-        return `Read ${filename}`;
+        return t('toolMessage.readFile', { filename });
       }
       case 'write_to_file': {
         const pathVal = args.TargetFile || '';
         const filename = pathVal.split('/').pop() || pathVal;
-        return `Write ${filename}`;
+        return t('toolMessage.writeFile', { filename });
       }
       case 'replace_file_content':
       case 'multi_replace_file_content': {
         const pathVal = args.TargetFile || '';
         const filename = pathVal.split('/').pop() || pathVal;
-        return `Edit ${filename}`;
+        return t('toolMessage.editFile', { filename });
       }
       case 'grep_search': {
         const query = args.Query || '';
-        return `Search for "${query}"`;
+        return t('toolMessage.searchFor', { query });
       }
       case 'run_command': {
         const cmd = args.CommandLine || '';
-        return cmd.length > 50 ? `Run: ${cmd.slice(0, 50)}...` : `Run: ${cmd}`;
+        return cmd.length > 50 ? t('toolMessage.runCommandTruncated', { cmd: cmd.slice(0, 50) }) : t('toolMessage.runCommand', { cmd });
       }
       default: {
-        return `调用 ${toolName}`;
+        return t('toolMessage.callTool', { name: toolName });
       }
     }
   } catch (e) {
     // JSON parse error fallback
   }
-  return `调用 ${toolName}`;
+  return t('toolMessage.callTool', { name: toolName });
 };
 
 // Translate multi-tools group action description
-export const translateToolGroup = (tools: any[]): string => {
+export const translateToolGroup = (tools: any[], t: TFunction): string => {
   const count = tools.length;
   let viewCount = 0;
   let editCount = 0;
@@ -72,27 +74,28 @@ export const translateToolGroup = (tools: any[]): string => {
   });
 
   if (editCount > 0) {
-    return `已修改 ${editCount} 个文件`;
+    return t('toolMessage.modifiedFiles', { count: editCount });
   }
   if (viewCount > 0) {
-    return `已探索 ${viewCount} 个文件`;
+    return t('toolMessage.exploredFiles', { count: viewCount });
   }
   if (cmdCount > 0) {
-    return `已运行 ${cmdCount} 个命令`;
+    return t('toolMessage.ranCommands', { count: cmdCount });
   }
-  return `已执行 ${count} 个操作步骤`;
+  return t('toolMessage.executedSteps', { count });
 };
 
 // Single tool message item component
-export function ToolMessageCard({ 
-  toolInfo, 
-  createdAt, 
-  isSubRow = false 
-}: { 
-  toolInfo: ToolInfo; 
-  createdAt: number; 
-  isSubRow?: boolean; 
+export function ToolMessageCard({
+  toolInfo,
+  createdAt,
+  isSubRow = false
+}: {
+  toolInfo: ToolInfo;
+  createdAt: number;
+  isSubRow?: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const { name, status, input, output, error } = toolInfo;
 
@@ -118,7 +121,7 @@ export function ToolMessageCard({
     }
   };
 
-  const actionText = translateToolAction(name, input);
+  const actionText = translateToolAction(name, input, t);
 
   const cardContent = (
     <div className="flex flex-col">
@@ -200,6 +203,7 @@ export function ToolMessageCard({
 
 // Collapsible aggregation card for consecutive tool invocations
 export function ToolGroupCard({ tools }: { tools: any[] }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   // Parse list of consecutive tools in group
@@ -215,7 +219,7 @@ export function ToolGroupCard({ tools }: { tools: any[] }) {
         return {
           id: msg.id,
           createdAt: msg.created_at,
-          info: { type: 'tool', name: 'unknown', status: 'error', error: '解析错误' } as ToolInfo
+          info: { type: 'tool', name: 'unknown', status: 'error', error: t('toolMessage.parseError') } as ToolInfo
         };
       }
     });
@@ -231,22 +235,24 @@ export function ToolGroupCard({ tools }: { tools: any[] }) {
   const groupLabel = useMemo(() => {
     if (groupStatus === 'running') {
       const runningIdx = parsedTools.findIndex(t => t.info.status === 'running');
-      const currentName = parsedTools[runningIdx]?.info.name || '工具';
-      return `正在执行 ${currentName} (${runningIdx + 1}/${parsedTools.length})...`;
+      const currentName = parsedTools[runningIdx]?.info.name || t('toolMessage.toolFallback');
+      return t('toolMessage.executingTool', { name: currentName, current: runningIdx + 1, total: parsedTools.length });
     }
-    return translateToolGroup(tools);
-  }, [groupStatus, parsedTools, tools]);
+    return translateToolGroup(tools, t);
+  }, [groupStatus, parsedTools, tools, t]);
 
   const getGroupIcon = () => {
     if (groupStatus === 'running') {
       return <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-accent)]" />;
     }
-    // Match icon based on semantic label
-    const label = translateToolGroup(tools);
-    if (label.includes('修改')) {
+    // Match icon based on tool names (locale-independent)
+    const toolNames = parsedTools.map(t => t.info.name);
+    const hasEdit = toolNames.some(n => n === 'write_to_file' || n === 'replace_file_content' || n === 'multi_replace_file_content');
+    const hasView = toolNames.some(n => n === 'view_file' || n === 'grep_search');
+    if (hasEdit) {
       return <FileCode className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />;
     }
-    if (label.includes('探索') || label.includes('搜索')) {
+    if (hasView) {
       return <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />;
     }
     return <Terminal className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />;

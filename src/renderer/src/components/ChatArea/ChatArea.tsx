@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useLLMStore } from '../../stores/llmStore';
@@ -31,8 +32,9 @@ interface ChatAreaProps {
 }
 
 const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const headerText = `已处理（用时 ${formatHMSTime(duration)}）`;
+  const headerText = t('chat.processedDuration', { duration: formatHMSTime(duration) });
 
   return (
     <div className="mb-2.5 flex flex-col transition-all duration-200 w-full animate-slide-down">
@@ -76,6 +78,7 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
 };
 
 const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; onToggleTaskPanel?: () => void }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const actions = approval.actions || [];
 
@@ -92,7 +95,7 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
           </span>
 
           <span className="font-semibold tracking-wide">
-            正在等待审批：{actions.map((act: any) => translateToolAction(act.name, act.args)).join(', ')}
+            {t('chat.awaitingApproval')}{actions.map((act: any) => translateToolAction(act.name, act.args, t)).join(', ')}
           </span>
 
           <span className="text-[9px] opacity-60 font-mono ml-0.5">
@@ -106,7 +109,7 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
             {actions.map((action: any, idx: number) => (
               <div key={idx} className="flex flex-col gap-1">
                 <span className="text-[9px] font-bold text-[var(--color-warning)] uppercase tracking-wider">
-                  等待执行 {action.name}
+                  {t('chat.pendingExecute', { name: action.name })}
                 </span>
                 {action.args && (
                   <pre className="p-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-warning)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
@@ -119,7 +122,7 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
               onClick={onToggleTaskPanel}
               className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-white rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
             >
-              <span>立即去审批</span>
+              <span>{t('chat.goApproveNow')}</span>
               <span>➔</span>
             </button>
           </div>
@@ -129,13 +132,14 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
   );
 };
 
-export function ChatArea({ 
-  onOpenSettings, 
-  sidebarCollapsed, 
+export function ChatArea({
+  onOpenSettings,
+  sidebarCollapsed,
   onToggleSidebar,
   taskPanelOpen,
-  onToggleTaskPanel 
+  onToggleTaskPanel
 }: ChatAreaProps) {
+  const { t } = useTranslation();
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
     sessions, activeSessionId, messages, isStreaming, streamingMessageId, activeRunId, error, todos,
@@ -217,8 +221,12 @@ export function ChatArea({
   }, [allTodosCompleted, todos]);
 
   // Defensive mount-time isStreaming reset to prevent stuck loading states
+  // Only reset if we are not actively streaming or waiting for approval to avoid breaking state when switching views
   useEffect(() => {
-    useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
+    const { isStreaming, pendingApproval } = useSessionStore.getState();
+    if (!isStreaming && !pendingApproval) {
+      useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
+    }
   }, []);
 
   // Clear input when active session changes to prevent drafts/capsules from being carried over
@@ -255,7 +263,7 @@ export function ChatArea({
 
   // Find active project name & active session
   const currentProjectName = useMemo(() => {
-    return projects.find(p => p.id === currentProjectId)?.name || '未知项目';
+    return projects.find(p => p.id === currentProjectId)?.name || t('chat.unknownProject');
   }, [currentProjectId, projects]);
 
   const activeSession = useMemo(() => {
@@ -616,10 +624,10 @@ export function ChatArea({
   const currentModel = selectedModel || masterProvider?.default_model || '';
   const currentModelLabel = currentProvider
     ? `${currentProvider.name} • ${currentModel || currentProvider.default_model}`
-    : '选择模型';
+    : t('chat.selectModel');
   const activeAgentLabel = activeSessionAgent
     ? `${activeSessionAgent.name} · ${activeSessionAgent.mcpServerIds?.length || 0} MCP · ${activeSessionAgent.skillNames?.length || 0} Skills`
-    : '未绑定 Agent';
+    : t('chat.noAgentBound');
 
   const handleSelectModel = (providerId: string, modelName: string) => {
     setSelectedProviderId(providerId);
@@ -789,7 +797,7 @@ export function ChatArea({
     let projectId = currentProjectId || 'default-project';
     try {
       // Create new session
-      const sessionName = inputVal.trim().slice(0, 15) || '新会话';
+      const sessionName = inputVal.trim().slice(0, 15) || t('chat.newSessionFallback');
       const newSession = await createSession(projectId, sessionName);
       await selectSession(newSession.id);
       await fetchSessions(projectId); // Move before selectSession or await it
@@ -811,7 +819,7 @@ export function ChatArea({
     try {
       const path = await window.electronAPI.db.selectDirectory();
       if (path) {
-        const name = path.split('/').pop() || '新项目';
+        const name = path.split('/').pop() || t('chat.newProjectFallback');
         const project = await window.electronAPI.db.createProject(name, path);
         setProjects([...projects, project]);
         setCurrentProject(project.id);
@@ -840,17 +848,17 @@ export function ChatArea({
         <div className="max-w-[640px] w-full flex flex-col items-center gap-6 z-10">
           <h1 className="center-headline">
             {currentProjectId && currentProjectId !== 'default-project' ? (
-              <>现在让它们<span>动起来</span>？</>
+              <>{t('chat.welcomeHeadlineActive')}</>
             ) : (
-              <>我们现在做些<span>什么</span>？</>
+              <>{t('chat.welcomeHeadlineIdle')}</>
             )}
           </h1>
           <p className="center-subline">
-            {currentProjectId 
+            {currentProjectId
               ? (currentProjectId === 'default-project'
-                  ? '临时会话模式 · 请输入以开启对话'
-                  : `项目已加载：${currentProjectName} · 请输入以开启对话`)
-              : '选择左侧的项目或开始一个新对话，CDF 已经准备就绪'}
+                  ? t('chat.welcomeSublineTempSession')
+                  : t('chat.welcomeSublineProjectLoaded', { name: currentProjectName }))
+              : t('chat.welcomeSublineNoProject')}
           </p>
 
           {/* Error Banner on Welcome Page */}
@@ -860,7 +868,7 @@ export function ChatArea({
               <button
                 onClick={clearError}
                 className="p-1 rounded hover:bg-black/10 text-[var(--color-danger)] shrink-0 transition-colors cursor-pointer"
-                aria-label="关闭错误提示"
+                aria-label={t('chat.dismissError')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -883,7 +891,7 @@ export function ChatArea({
                   )}
                   <textarea
                     className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5"
-                    placeholder={parsedToken?.token ? '' : '给 CDF 下达指令，或者问点什么……'}
+                    placeholder={parsedToken?.token ? '' : t('chat.welcomePlaceholder')}
                     rows={1}
                     value={parsedToken?.token ? (() => {
                       const tail = inputVal.slice(parsedToken.token.name.length + 1);
@@ -957,7 +965,7 @@ export function ChatArea({
             </Popover>
             <div className="dialog-bottom">
               <div className="dialog-bottom-left">
-                <button type="button" className="dialog-btn" title="添加附件" aria-label="添加附件">
+                <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
                   <Paperclip className="w-4 h-4" />
                 </button>
                 <div 
@@ -982,7 +990,7 @@ export function ChatArea({
                         }}
                         className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
                       >
-                        暂无可用提供商，点击去配置
+                        {t('chat.noProvidersAvailable')}
                       </div>
                     ) : (
                       providers.map((p) => (
@@ -1013,12 +1021,12 @@ export function ChatArea({
                 onClick={() => handleWelcomeSend()}
                 disabled={!inputVal.trim() || isStreaming}
                 className="dialog-btn send"
-                title="发送"
-                aria-label="发送消息"
+                title={t('chat.send')}
+                aria-label={t('chat.sendMessage')}
               >
                 <ArrowUp className="w-4.5 h-4.5" />
               </button>
-              <span className="sr-only">发送消息</span>
+              <span className="sr-only">{t('chat.sendMessage')}</span>
             </div>
           </div>
 
@@ -1027,30 +1035,30 @@ export function ChatArea({
               <div className="feature-card-icon">
                 <Plus className="w-4 h-4" />
               </div>
-              <div className="feature-card-title">创建项目</div>
-              <div className="feature-card-desc">导入代码仓库或新建空白项目</div>
+              <div className="feature-card-title">{t('chat.createProjectTitle')}</div>
+              <div className="feature-card-desc">{t('chat.createProjectDesc')}</div>
             </div>
             
             <div className="feature-card" onClick={() => onOpenSettings?.()}>
               <div className="feature-card-icon">
                 <Sliders className="w-4 h-4" />
               </div>
-              <div className="feature-card-title">配置 Skills</div>
-              <div className="feature-card-desc">安装和启用智能体能力模块</div>
+              <div className="feature-card-title">{t('chat.configureSkillsTitle')}</div>
+              <div className="feature-card-desc">{t('chat.configureSkillsDesc')}</div>
             </div>
 
             <div className="feature-card" onClick={() => onOpenSettings?.()}>
               <div className="feature-card-icon">
                 <Layers className="w-4 h-4" />
               </div>
-              <div className="feature-card-title">连接 MCP</div>
-              <div className="feature-card-desc">配置数据源和外部工具集成</div>
+              <div className="feature-card-title">{t('chat.connectMcpTitle')}</div>
+              <div className="feature-card-desc">{t('chat.connectMcpDesc')}</div>
             </div>
           </div>
 
           <div className="dialog-footer">
             <span className="dialog-footer-hint">
-              按下 <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行
+              {t('chat.shortcutHint')}
             </span>
           </div>
         </div>
@@ -1078,7 +1086,7 @@ export function ChatArea({
                   ? 'text-[var(--color-accent)]' 
                   : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
               }`}
-              title={taskPanelOpen ? "隐藏任务展板" : "显示任务展板"}
+              title={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
             >
               <Info className="w-3.5 h-3.5" />
             </button>
@@ -1162,7 +1170,7 @@ export function ChatArea({
                 <button 
                   onClick={clearError}
                   className="p-0.5 rounded hover:bg-white/10 text-[var(--color-danger)]"
-                  aria-label="关闭错误提示"
+                  aria-label={t('chat.dismissError')}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1220,7 +1228,7 @@ export function ChatArea({
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
-                      placeholder={parsedToken?.token ? '' : '给 Master Agent 发送消息...'}
+                      placeholder={parsedToken?.token ? '' : t('chat.composerPlaceholder')}
                       rows={2}
                       className="w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
                     />
@@ -1251,7 +1259,7 @@ export function ChatArea({
                           }}
                           className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
                         >
-                          暂无可用提供商，点击去配置
+                          {t('chat.noProvidersAvailable')}
                         </div>
                       ) : (
                         providers.map((p) => (
@@ -1285,8 +1293,8 @@ export function ChatArea({
                       type="button"
                       onClick={stopMessage}
                       className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
-                      title="停止生成"
-                      aria-label="停止生成"
+                      title={t('chat.stopGenerating')}
+                      aria-label={t('chat.stopGenerating')}
                     >
                       <Square className="w-4 h-4 fill-current" />
                     </button>
@@ -1296,7 +1304,7 @@ export function ChatArea({
                       onClick={() => handleSend()}
                       disabled={!inputVal.trim() || isStreaming}
                       className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
-                      aria-label="发送消息"
+                      aria-label={t('chat.sendMessage')}
                     >
                       <ArrowUp className="w-4 h-4" />
                     </button>

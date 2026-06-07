@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { 
+import { useTranslation } from 'react-i18next';
+import {
   Folder, Plus, ChevronDown, ChevronRight, FolderPlus, FolderGit2,
   MessageSquare, GitFork, Trash2, MoreHorizontal
 } from 'lucide-react';
@@ -19,6 +20,7 @@ interface ProjectFolderProps {
 }
 
 function ProjectFolder({ project, isActive }: ProjectFolderProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const [sessions, setSessions] = useState<any[]>([]);
   const { currentProjectId, setCurrentProject, setProjects } = useProjectStore();
@@ -167,7 +169,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
               setMenuOpen(!menuOpen);
             }}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-            title="项目操作"
+            title={t('projectTree.projectActions')}
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
@@ -175,7 +177,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
             type="button"
             onClick={handleNewChat}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-            title="新建对话"
+            title={t('projectTree.newChat')}
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -205,7 +207,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
                   }}
                   className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] cursor-pointer"
                 >
-                  项目重命名
+                  {t('projectTree.renameProject')}
                 </button>
                 {project.id !== 'default-project' && (
                   <button
@@ -216,7 +218,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
                     }}
                     className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-danger-dim)] text-[var(--color-danger)] cursor-pointer border-t border-[var(--color-border)]/50"
                   >
-                    移除项目
+                    {t('projectTree.removeProject')}
                   </button>
                 )}
               </div>
@@ -257,7 +259,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
                 type="button"
                 onClick={(e) => handleDeleteSession(e, session.id)}
                 className="opacity-0 group-hover/session:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-all shrink-0 ml-1.5 cursor-pointer"
-                title="删除会话"
+                title={t('projectTree.deleteSession')}
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -266,7 +268,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
 
           {sessions.length === 0 && (
             <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-muted)] select-none italic">
-              无项目对话
+              {t('projectTree.noProjectSessions')}
             </div>
           )}
         </div>
@@ -276,6 +278,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
 }
 
 export function ProjectTree() {
+  const { t } = useTranslation();
   const { projects, currentProjectId, setProjects, setCurrentProject } = useProjectStore();
   const { activeSessionId, selectSession, deleteSession, sessions: activeSessions } = useSessionStore();
   
@@ -322,7 +325,7 @@ export function ProjectTree() {
     try {
       const path = await window.electronAPI.db.selectDirectory();
       if (path) {
-        const name = path.split('/').pop() || '新项目';
+        const name = path.split('/').pop() || t('projectTree.newProject');
         const project = await window.electronAPI.db.createProject(name, path);
         setProjects([...projects, project]);
         // Auto select newly created project
@@ -368,7 +371,7 @@ export function ProjectTree() {
             onClick={() => setListExpanded(!listExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"
           >
-            <span className="text-xs">项目列表</span>
+            <span className="text-xs">{t('projectTree.projectList')}</span>
             {listExpanded ? (
               <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
             ) : (
@@ -379,7 +382,7 @@ export function ProjectTree() {
             <button 
               onClick={handleCreateProject}
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
-              title="新建项目"
+              title={t('projectTree.newProjectBtn')}
             >
               <FolderPlus className="w-3.5 h-3.5" />
             </button>
@@ -399,13 +402,13 @@ export function ProjectTree() {
 
             {customProjects.length === 0 && (
               <div className="p-4 text-center">
-                <p className="text-[var(--color-text-muted)] text-[11px] italic">暂无自定义项目</p>
+                <p className="text-[var(--color-text-muted)] text-[11px] italic">{t('projectTree.noCustomProjects')}</p>
                 <button
                   onClick={handleCreateProject}
                   className="mt-2 px-2 py-1 text-xs border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
                 >
                   <Plus className="w-3 h-3 inline mr-1" />
-                  新建项目
+                  {t('projectTree.newProjectBtn')}
                 </button>
               </div>
             )}
@@ -420,7 +423,7 @@ export function ProjectTree() {
             onClick={() => setSessionsExpanded(!sessionsExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"
           >
-            <span className="text-xs">临时会话</span>
+            <span className="text-xs">{t('projectTree.tempSessions')}</span>
             {sessionsExpanded ? (
               <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
             ) : (
@@ -431,7 +434,7 @@ export function ProjectTree() {
             <button 
               onClick={handleNewChat}
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
-              title="新建临时会话"
+              title={t('projectTree.newTempSession')}
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -470,7 +473,7 @@ export function ProjectTree() {
                   type="button"
                   onClick={(e) => handleDeleteSession(e, session.id)}
                   className="opacity-0 group-hover/session:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-all shrink-0 ml-1.5 cursor-pointer"
-                  title="删除会话"
+                  title={t('projectTree.deleteSession')}
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -479,7 +482,7 @@ export function ProjectTree() {
 
             {defaultSessions.length === 0 && (
               <div className="px-3 py-2 text-[11px] text-[var(--color-text-muted)] select-none italic text-center border border-dashed border-[var(--color-border)]/50 rounded-lg">
-                无历史自由会话
+                {t('projectTree.noHistorySessions')}
               </div>
             )}
           </div>

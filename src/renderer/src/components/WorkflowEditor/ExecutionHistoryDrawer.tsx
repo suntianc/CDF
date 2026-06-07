@@ -1,22 +1,23 @@
 import { useEffect, useState } from 'react';
 import { X, History, Download, Trash2, Clock, CheckCircle2, XCircle, Square, Loader2, FileJson } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../../stores/workflowStore';
 
 // 复用 ExecutionPanel 的状态样式（避免循环依赖）
-const statusConfig: Record<string, { icon: typeof Clock; color: string; label: string }> = {
-  pending: { icon: Clock, color: 'text-[var(--color-text-muted)]', label: '等待中' },
-  running: { icon: Loader2, color: 'text-[var(--color-info)]', label: '运行中' },
-  completed: { icon: CheckCircle2, color: 'text-[var(--color-success)]', label: '已完成' },
-  failed: { icon: XCircle, color: 'text-[var(--color-danger)]', label: '失败' },
-  stopped: { icon: Square, color: 'text-[var(--color-text-muted)]', label: '已停止' },
+const statusConfig: Record<string, { icon: typeof Clock; color: string }> = {
+  pending: { icon: Clock, color: 'text-[var(--color-text-muted)]' },
+  running: { icon: Loader2, color: 'text-[var(--color-info)]' },
+  completed: { icon: CheckCircle2, color: 'text-[var(--color-success)]' },
+  failed: { icon: XCircle, color: 'text-[var(--color-danger)]' },
+  stopped: { icon: Square, color: 'text-[var(--color-text-muted)]' },
 };
 
-function formatRelativeTime(ts: number): string {
+function formatRelativeTime(ts: number, t: (key: string, options?: Record<string, unknown>) => string): string {
   const diff = Date.now() - ts;
-  if (diff < 60000) return '刚刚';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
-  return `${Math.floor(diff / 86400000)} 天前`;
+  if (diff < 60000) return t('workflow.history.justNow');
+  if (diff < 3600000) return t('workflow.history.minutesAgo', { count: Math.floor(diff / 60000) });
+  if (diff < 86400000) return t('workflow.history.hoursAgo', { count: Math.floor(diff / 3600000) });
+  return t('workflow.history.daysAgo', { count: Math.floor(diff / 86400000) });
 }
 
 function formatDuration(start: number, end?: number): string {
@@ -26,17 +27,29 @@ function formatDuration(start: number, end?: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-const triggerLabel: Record<string, string> = { editor: '编辑器', chat: '对话', schedule: '定时' };
-
 interface Props {
   workflowId: string;
   onClose: () => void;
 }
 
 export function ExecutionHistoryDrawer({ workflowId, onClose }: Props) {
+  const { t } = useTranslation();
   const { historyExecutions, fetchHistoryExecutions, deleteHistoryExecution, exportHistoryExecution } = useWorkflowStore();
   const currentExecutionStatus = useWorkflowStore((s) => s.currentExecution?.status);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  const statusLabelMap: Record<string, string> = {
+    pending: t('workflow.execution.statusPending'),
+    running: t('workflow.execution.statusRunning'),
+    completed: t('workflow.execution.statusCompleted'),
+    failed: t('workflow.execution.statusFailed'),
+    stopped: t('workflow.execution.statusStopped'),
+  };
+  const triggerLabelMap: Record<string, string> = {
+    editor: t('workflow.history.triggerEditor'),
+    chat: t('workflow.history.triggerChat'),
+    schedule: t('workflow.history.triggerSchedule'),
+  };
 
   useEffect(() => {
     fetchHistoryExecutions(workflowId);
@@ -67,7 +80,7 @@ export function ExecutionHistoryDrawer({ workflowId, onClose }: Props) {
   const handleExport = async (executionId: string) => {
     const result = await exportHistoryExecution(executionId);
     if (result.error) {
-      alert(`导出失败: ${result.error}`);
+      alert(t('workflow.history.exportFailed', { error: result.error }));
     }
   };
 
@@ -76,7 +89,7 @@ export function ExecutionHistoryDrawer({ workflowId, onClose }: Props) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]/50">
         <div className="flex items-center gap-2">
           <History className="w-4 h-4 text-[var(--color-accent)]" />
-          <span className="text-sm font-semibold text-[var(--color-text-primary)]">历史执行记录</span>
+          <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('workflow.history.title')}</span>
         </div>
         <button
           onClick={onClose}
@@ -90,8 +103,8 @@ export function ExecutionHistoryDrawer({ workflowId, onClose }: Props) {
         {historyExecutions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-[var(--color-text-muted)] text-xs gap-2">
             <FileJson className="w-8 h-8 opacity-40" />
-            <span>暂无历史执行记录</span>
-            <span className="text-[10px]">运行工作流后将在此显示</span>
+            <span>{t('workflow.history.empty')}</span>
+            <span className="text-[10px]">{t('workflow.history.emptyHint')}</span>
           </div>
         ) : (
           historyExecutions.map((exec) => {
@@ -104,29 +117,29 @@ export function ExecutionHistoryDrawer({ workflowId, onClose }: Props) {
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <StatusIcon className={`w-3.5 h-3.5 ${config.color} ${isRunning ? 'animate-spin' : ''} shrink-0`} />
-                    <span className={`text-xs font-medium ${config.color}`}>{config.label}</span>
+                    <span className={`text-xs font-medium ${config.color}`}>{statusLabelMap[exec.status] || exec.status}</span>
                     <span className="text-[10px] text-[var(--color-text-muted)]">·</span>
-                    <span className="text-[10px] text-[var(--color-text-muted)]">{triggerLabel[exec.trigger_source] || exec.trigger_source}</span>
+                    <span className="text-[10px] text-[var(--color-text-muted)]">{triggerLabelMap[exec.trigger_source] || exec.trigger_source}</span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => handleExport(exec.id)}
                       className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-                      title="下载 JSON"
+                      title={t('workflow.history.downloadJson')}
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => handleDelete(exec.id)}
                       className={`p-1 rounded transition-all cursor-pointer ${isConfirming ? 'bg-[var(--color-danger)]/20 text-[var(--color-danger)]' : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-danger)]'}`}
-                      title={isConfirming ? '再次点击确认删除' : '删除'}
+                      title={isConfirming ? t('workflow.history.confirmDeleteAgain') : t('workflow.history.delete')}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-[var(--color-text-muted)]">
-                  <span title={new Date(exec.started_at).toLocaleString()}>{formatRelativeTime(exec.started_at)}</span>
+                  <span title={new Date(exec.started_at).toLocaleString()}>{formatRelativeTime(exec.started_at, t)}</span>
                   <span>{formatDuration(exec.started_at, exec.ended_at)}</span>
                 </div>
               </div>

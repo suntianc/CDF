@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
@@ -20,6 +21,7 @@ import { PanelLeft } from 'lucide-react';
 import { Toaster } from 'sonner';
 
 export default function App() {
+  const { t } = useTranslation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
@@ -120,7 +122,7 @@ export default function App() {
         <button
           onClick={() => setSidebarCollapsed(false)}
           className="absolute top-[5px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag after:absolute after:inset-[-8px] after:content-['']"
-          title="展开侧边栏"
+          title={t('app.expandSidebar')}
         >
           <PanelLeft className="w-4 h-4" />
         </button>

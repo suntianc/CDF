@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { TodoItem } from '../../../../shared/types';
 
@@ -9,6 +10,7 @@ interface TodoListProps {
 }
 
 export function TodoList({ todos, isExpanded, onToggleExpanded }: TodoListProps) {
+  const { t } = useTranslation();
   const completedCount = useMemo(() => {
     return todos.filter((t) => t.status === 'completed').length;
   }, [todos]);
@@ -60,13 +62,13 @@ export function TodoList({ todos, isExpanded, onToggleExpanded }: TodoListProps)
             Todo List
           </span>
           <span className="rounded bg-[var(--color-bg-active)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]">
-            {completedCount}/{todos.length} 已完成
+            {t('todo.completedCount', { completed: completedCount, total: todos.length })}
           </span>
         </div>
         <button 
           type="button" 
           className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-          aria-label={isExpanded ? '折叠规划' : '展开规划'}
+          aria-label={isExpanded ? t('todo.collapse') : t('todo.expand')}
         >
           {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
         </button>

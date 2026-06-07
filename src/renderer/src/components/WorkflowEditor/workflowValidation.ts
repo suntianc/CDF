@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import type { Node, Edge } from '@xyflow/react';
 import type { WorkflowNode, WorkflowDefinition, WorkflowEdge } from '../../../../shared/types';
 
@@ -16,12 +17,13 @@ export const END_NODE_ID = 'end';
 export const DELETE_KEY_CODE: string[] = ['Delete', 'Backspace'];
 
 export function getDefaultNodeData(type: string): Record<string, unknown> {
-  if (type === 'start') return { label: '开始', workspace: '', workArea: '' };
-  if (type === 'end') return { label: '结束' };
-  if (type === 'loop') return { label: 'Loop 节点', nodeKind: 'loop', taskDescription: '', loopCount: 3, failureStrategy: 'stop', retryCount: 3 };
-  if (type === 'review') return { label: '审查节点', nodeKind: 'review', reviewSpec: '', reviewRules: '', failureStrategy: 'stop', retryCount: 3 };
-  if (type === 'foreach') return { label: 'For-Each 节点', nodeKind: 'foreach', taskDescription: '', dataSource: '', itemPrompt: '', failureStrategy: 'stop', retryCount: 3 };
-  return { label: '普通任务节点', nodeKind: 'task', taskDescription: '', failureStrategy: 'stop', retryCount: 3 };
+  const t = (key: string) => i18next.t(key);
+  if (type === 'start') return { label: t('workflow.nodeTypes.start.label'), workspace: '', workArea: '' };
+  if (type === 'end') return { label: t('workflow.nodeTypes.end.label') };
+  if (type === 'loop') return { label: t('workflow.nodeTypes.loop.label'), nodeKind: 'loop', taskDescription: '', loopCount: 3, failureStrategy: 'stop', retryCount: 3 };
+  if (type === 'review') return { label: t('workflow.nodeTypes.review.label'), nodeKind: 'review', reviewSpec: '', reviewRules: '', failureStrategy: 'stop', retryCount: 3 };
+  if (type === 'foreach') return { label: t('workflow.nodeTypes.foreach.label'), nodeKind: 'foreach', taskDescription: '', dataSource: '', itemPrompt: '', failureStrategy: 'stop', retryCount: 3 };
+  return { label: t('workflow.nodeTypes.task.label'), nodeKind: 'task', taskDescription: '', failureStrategy: 'stop', retryCount: 3 };
 }
 
 export function getEdgeLabel(metadata?: WorkflowEdge['metadata']): string | undefined {
@@ -41,7 +43,7 @@ export function edgeMetadata(edge: Edge): WorkflowEdge['metadata'] | undefined {
 
 export const defaultNodes: Node[] = [
   { id: START_NODE_ID, type: 'start', position: { x: 250, y: 50 }, data: getDefaultNodeData('start'), deletable: false, width: 150, height: 50 },
-  { id: END_NODE_ID, type: 'end', position: { x: 250, y: 400 }, data: { label: '结束' }, deletable: false, width: 150, height: 50 },
+  { id: END_NODE_ID, type: 'end', position: { x: 250, y: 400 }, data: { label: i18next.t('workflow.nodeTypes.end.label') }, deletable: false, width: 150, height: 50 },
 ] as Node[];
 
 export function normalizeWorkflowDefinition(def: WorkflowDefinition): WorkflowDefinition {
@@ -53,12 +55,12 @@ export function normalizeWorkflowDefinition(def: WorkflowDefinition): WorkflowDe
     if (node.type === 'start' && !startSeen) {
       startSeen = true;
       idMap.set(node.id, START_NODE_ID);
-      return { ...node, id: START_NODE_ID, data: { ...getDefaultNodeData('start'), ...node.data, label: node.data.label || '开始' } };
+      return { ...node, id: START_NODE_ID, data: { ...getDefaultNodeData('start'), ...node.data, label: node.data.label || i18next.t('workflow.nodeTypes.start.label') } };
     }
     if (node.type === 'end' && !endSeen) {
       endSeen = true;
       idMap.set(node.id, END_NODE_ID);
-      return { ...node, id: END_NODE_ID, data: { ...node.data, label: node.data.label || '结束' } };
+      return { ...node, id: END_NODE_ID, data: { ...node.data, label: node.data.label || i18next.t('workflow.nodeTypes.end.label') } };
     }
     if (node.type === 'agent') {
       return { ...node, data: { ...getDefaultNodeData('task'), ...node.data, nodeKind: node.data.nodeKind || 'task' } };
@@ -80,12 +82,13 @@ export function normalizeWorkflowDefinition(def: WorkflowDefinition): WorkflowDe
 
 export function validateWorkflowGraph(nodes: Node[], edges: Edge[], mode: 'save' | 'run'): string[] {
   const errors: string[] = [];
+  const t = (key: string, options?: Record<string, unknown>) => i18next.t(key, options);
   const startNodes = nodes.filter((node) => node.type === 'start');
   const endNodes = nodes.filter((node) => node.type === 'end');
   const agentNodes = nodes.filter((node) => isExecutableNodeType(node.type));
 
-  if (startNodes.length !== 1) errors.push('工作流必须且只能有一个开始节点');
-  if (endNodes.length !== 1) errors.push('工作流必须且只能有一个结束节点');
+  if (startNodes.length !== 1) errors.push(t('workflow.validation.startNodeCount'));
+  if (endNodes.length !== 1) errors.push(t('workflow.validation.endNodeCount'));
 
   // 检查重复节点标签
   const labelCounts = new Map<string, string[]>();
@@ -98,20 +101,20 @@ export function validateWorkflowGraph(nodes: Node[], edges: Edge[], mode: 'save'
   }
   for (const [label, ids] of labelCounts) {
     if (ids.length > 1) {
-      errors.push(`节点标签「${label}」重复（${ids.length} 个节点），可能引起混淆`);
+      errors.push(t('workflow.validation.duplicateLabel', { label, count: ids.length }));
     }
   }
 
   const nodeIds = new Set(nodes.map((node) => node.id));
   for (const edge of edges) {
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
-      errors.push(`边 ${edge.id} 指向了不存在的节点`);
+      errors.push(t('workflow.validation.edgeMissingNode', { id: edge.id }));
     }
     if (getNodeType(nodes, edge.source) === 'end') {
-      errors.push('结束节点不能有出边');
+      errors.push(t('workflow.validation.endNodeOutEdge'));
     }
     if (getNodeType(nodes, edge.target) === 'start') {
-      errors.push('开始节点不能有入边');
+      errors.push(t('workflow.validation.startNodeInEdge'));
     }
   }
 
@@ -119,12 +122,12 @@ export function validateWorkflowGraph(nodes: Node[], edges: Edge[], mode: 'save'
   const endId = endNodes[0]?.id;
 
   if (mode === 'run') {
-    if (agentNodes.length === 0) errors.push('至少需要一个可执行任务节点');
+    if (agentNodes.length === 0) errors.push(t('workflow.validation.noExecutableNode'));
     if (startId && !edges.some((edge) => edge.source === startId)) {
-      errors.push('开始节点必须连接到后续节点');
+      errors.push(t('workflow.validation.startNotConnected'));
     }
     if (endId && !edges.some((edge) => edge.target === endId)) {
-      errors.push('结束节点必须有上游节点');
+      errors.push(t('workflow.validation.endNoUpstream'));
     }
 
     const outgoing = new Map<string, string[]>();
@@ -148,28 +151,28 @@ export function validateWorkflowGraph(nodes: Node[], edges: Edge[], mode: 'save'
     const canReachEnd = collect(endId, incoming);
     for (const node of agentNodes) {
       if (!reachableFromStart.has(node.id)) {
-        errors.push(`任务节点「${(node.data as Record<string, unknown>).label || node.id}」无法从开始节点到达`);
+        errors.push(t('workflow.validation.taskNotReachableFromStart', { label: (node.data as Record<string, unknown>).label || node.id }));
       }
       if (!canReachEnd.has(node.id)) {
-        errors.push(`任务节点「${(node.data as Record<string, unknown>).label || node.id}」无法到达结束节点`);
+        errors.push(t('workflow.validation.taskCannotReachEnd', { label: (node.data as Record<string, unknown>).label || node.id }));
       }
     }
 
     for (const node of agentNodes) {
       if (!(node.data as Record<string, unknown>).agentId) {
-        errors.push(`任务节点「${(node.data as Record<string, unknown>).label || node.id}」未绑定 Agent`);
+        errors.push(t('workflow.validation.taskNoAgent', { label: (node.data as Record<string, unknown>).label || node.id }));
       }
       if ((node.type === 'task' || node.type === 'loop' || node.type === 'agent') && !String((node.data as Record<string, unknown>).taskDescription || (node.data as Record<string, unknown>).description || '').trim()) {
-        errors.push(`任务节点「${(node.data as Record<string, unknown>).label || node.id}」缺少任务描述`);
+        errors.push(t('workflow.validation.taskMissingDescription', { label: (node.data as Record<string, unknown>).label || node.id }));
       }
       if (node.type === 'review' && !String((node.data as Record<string, unknown>).reviewSpec || '').trim()) {
-        errors.push(`审查节点「${(node.data as Record<string, unknown>).label || node.id}」缺少规范`);
+        errors.push(t('workflow.validation.reviewMissingSpec', { label: (node.data as Record<string, unknown>).label || node.id }));
       }
     }
     for (const edge of edges) {
       const metadata = edgeMetadata(edge);
       if (metadata?.condition && !metadata.routeValue && !metadata.compareValue && !metadata.targets) {
-        errors.push(`条件边 ${edge.id} 缺少匹配值`);
+        errors.push(t('workflow.validation.conditionalEdgeMissingValue', { id: edge.id }));
       }
     }
   }

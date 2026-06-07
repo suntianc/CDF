@@ -14,6 +14,7 @@
 // the consumer passes `activeSessionId` (P6 pitfall).
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useGoalJudgeStatus, type JudgeStatus } from '@/hooks/useGoalJudge';
 
 interface GoalSystemBubbleProps {
@@ -50,7 +51,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
     icon: '◎',
     colorVar: 'var(--color-accent)',
     borderColor: 'var(--color-accent)',
-    label: '工作中',
+    label: 'working',
     copy: (goal, iteration, elapsed) =>
       `◎ 目标：${goal}  状态：工作中  耗时：${formatHMSTime(elapsed)}  轮次：${iteration}/20`,
     pulse: true,
@@ -59,7 +60,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
     icon: '◎',
     colorVar: 'var(--color-accent)',
     borderColor: 'var(--color-accent)',
-    label: '工作中',
+    label: 'working',
     copy: (goal, iteration, elapsed) =>
       `◎ 目标：${goal}  状态：工作中  耗时：${formatHMSTime(elapsed)}  轮次：${iteration}/20`,
     pulse: true,
@@ -68,7 +69,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
     icon: '◎',
     colorVar: 'var(--color-accent)',
     borderColor: 'var(--color-accent)',
-    label: '工作中',
+    label: 'working',
     copy: (goal, iteration, elapsed) =>
       `◎ 目标：${goal}  状态：工作中  耗时：${formatHMSTime(elapsed)}  轮次：${iteration}/20`,
     pulse: true,
@@ -77,7 +78,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
     icon: '✅',
     colorVar: 'var(--color-success)',
     borderColor: 'var(--color-success)',
-    label: '达成',
+    label: 'satisfied',
     copy: (goal, _iteration, elapsed) =>
       `✅ 达成：${goal}  (总耗时 ${formatHMSTime(elapsed)})`,
     pulse: false,
@@ -86,7 +87,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
     icon: '⏸',
     colorVar: 'var(--color-warning)',
     borderColor: 'var(--color-warning)',
-    label: '已暂停',
+    label: 'paused',
     copy: (goal) =>
       `⏸ 已暂停：${goal}  轮次已用尽 (20/20)。输入「/goal clear」或继续对话清除目标。`,
     pulse: false,
@@ -95,7 +96,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
     icon: '⚠️',
     colorVar: 'var(--color-danger)',
     borderColor: 'var(--color-danger)',
-    label: 'judge 失败',
+    label: 'failed',
     copy: (goal, _iteration, _elapsed, reason) =>
       `⚠️ judge 失败：${reason ?? 'unknown'}  (目标: ${goal})。可输入「/goal clear」清除并重试。`,
     pulse: false,
@@ -103,6 +104,7 @@ const BUBBLE_STATES: Record<Exclude<JudgeStatus, undefined>, BubbleState> = {
 };
 
 export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
+  const { t } = useTranslation();
   const { status, iteration, startedAt, reason, goal } = useGoalJudgeStatus(sessionId);
 
   const state = status ? BUBBLE_STATES[status] : null;
@@ -140,6 +142,7 @@ export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
 
   const animatePulse = state.pulse && !prefersReducedMotion;
   const copy = state.copy(goal, iteration, tickElapsed, reason);
+  const labelText = t(`goal.label.${state.label}`);
 
   return (
     <div
@@ -171,7 +174,7 @@ export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
             backgroundColor: 'color-mix(in srgb, ' + state.colorVar + ' 15%, transparent)',
           }}
         >
-          {state.label}
+          {labelText}
         </span>
       </div>
     </div>

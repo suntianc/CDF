@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { 
+import {
   X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -17,6 +18,7 @@ interface AgentEditDialogProps {
 }
 
 export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEditDialogProps) {
+  const { t } = useTranslation();
   const { agents, saveAgent } = useAgentStore();
   const { providers } = useLLMStore();
   const { skills } = useSkillStore();
@@ -95,18 +97,18 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
-      showToast('Agent 名称不能为空', 'error');
+      showToast(t('agent.nameRequired'), 'error');
       return;
     }
 
     const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
     if (!ENGLISH_NAME_REGEX.test(formName.trim())) {
-      showToast('Agent 名称只能用英文（可以包含数字、空格、横线或下划线）', 'error');
+      showToast(t('agent.nameEnglishOnly'), 'error');
       return;
     }
 
     if (!formProviderId) {
-      showToast('请先去“模型配置”页面添加并激活一个 LLM 大脑！', 'error');
+      showToast(t('agent.providerRequired'), 'error');
       return;
     }
 
@@ -131,21 +133,21 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
     try {
       await saveAgent(payload);
-      showToast(`✓ Agent「${formName}」保存成功`, 'success');
+      showToast(t('agent.savedSuccess', { name: formName }), 'success');
       onClose();
     } catch (err) {
-      showToast('保存 Agent 失败', 'error');
+      showToast(t('agent.saveError'), 'error');
     }
   };
 
   const toggleMcpBinding = (mcpId: string) => {
-    setFormMcpIds(prev => 
+    setFormMcpIds(prev =>
       prev.includes(mcpId) ? prev.filter(id => id !== mcpId) : [...prev, mcpId]
     );
   };
 
   const toggleSkillBinding = (skillId: string) => {
-    setFormSkillIds(prev => 
+    setFormSkillIds(prev =>
       prev.includes(skillId) ? prev.filter(id => id !== skillId) : [...prev, skillId]
     );
   };
@@ -159,12 +161,12 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         <div className="flex justify-between items-center px-6 py-4 border-b border-[var(--color-border)] shrink-0">
           <span className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
             <Bot className="w-5 h-5 text-[var(--color-accent)]" />
-            <span>{agentId ? `配置 Agent · ${formName}` : '创建新 Agent 角色'}</span>
+            <span>{agentId ? t('agent.editTitle', { name: formName }) : t('agent.createTitle')}</span>
           </span>
-          <button 
+          <button
             onClick={onClose}
             className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-            aria-label="关闭弹窗"
+            aria-label={t('common.closeModal')}
           >
             <X className="w-4 h-4" />
           </button>
@@ -175,32 +177,32 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
           {/* Left Column - Core Configuration (40%) */}
           <div className="w-[40%] border-r border-[var(--color-border)] p-6 overflow-y-auto space-y-4">
             <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span>基础配置</span>
+              <span>{t('agent.sectionBasic')}</span>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Agent 名称 <span className="text-[var(--color-danger)]">*</span></label>
-              <input 
-                className="form-input" 
+              <label className="form-label">{t('agent.nameLabel')} <span className="text-[var(--color-danger)]">*</span></label>
+              <input
+                className="form-input"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                placeholder="如：全栈重构助理 / 质量审计专家"
+                placeholder={t('agent.namePlaceholder')}
                 required
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Agent 描述</label>
-              <textarea 
-                className="form-input min-h-[80px] resize-none py-2" 
+              <label className="form-label">{t('agent.descLabel')}</label>
+              <textarea
+                className="form-input min-h-[80px] resize-none py-2"
                 value={formDesc}
                 onChange={(e) => setFormDesc(e.target.value)}
-                placeholder="简述该 Agent 在工作流中的定位与专属功能..."
+                placeholder={t('agent.descPlaceholder')}
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label">选择 LLM <span className="text-[var(--color-danger)]">*</span></label>
+              <label className="form-label">{t('agent.providerLabel')} <span className="text-[var(--color-danger)]">*</span></label>
               <CustomSelect
                 value={formProviderId}
                 onChange={(val) => setFormProviderId(val)}
@@ -208,7 +210,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                   value: p.id,
                   label: `${p.name} (${p.default_model})`
                 }))}
-                placeholder={providers.length === 0 ? '暂无可用大脑，请去设置页配置' : '请选择 LLM 大脑'}
+                placeholder={providers.length === 0 ? t('agent.providerEmptyPlaceholder') : t('agent.providerPlaceholder')}
                 disabled={providers.length === 0}
               />
             </div>
@@ -217,32 +219,32 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
           {/* Right Column - Ability & Prompt Config (60%) */}
           <div className="w-[60%] p-6 overflow-y-auto flex flex-col min-h-0">
             <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <span>能力绑定与系统设定</span>
+              <span>{t('agent.sectionAbilities')}</span>
             </div>
 
             <div className="mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
                 <ShieldCheck className="w-4 h-4 text-[var(--color-success)]" />
-                运行安全配置
+                {t('agent.safetyConfig')}
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-[var(--color-text-secondary)]">
                 <div className="rounded border border-[var(--color-border)]/50 p-2">
-                  文件权限：项目内读写，保护 .env/.git/node_modules/out/dist
+                  {t('agent.safetyFilePerms')}
                 </div>
                 <div className="rounded border border-[var(--color-border)]/50 p-2">
-                  人工审批：写文件、编辑文件、删除、命令类工具默认确认
+                  {t('agent.safetyApproval')}
                 </div>
               </div>
             </div>
 
             {/* System Prompt Textarea */}
             <div className="form-group flex-1 flex flex-col mb-4 min-h-[160px]">
-              <label className="form-label">System Prompt</label>
-              <textarea 
+              <label className="form-label">{t('agent.systemPromptLabel')}</label>
+              <textarea
                 className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
                 value={formSystemPrompt}
                 onChange={(e) => setFormSystemPrompt(e.target.value)}
-                placeholder="输入详细的系统预设词，规定该 Agent 的人设、工作风格和指令规范。建议使用 Markdown 格式..."
+                placeholder={t('agent.systemPromptPlaceholder')}
               />
             </div>
 
@@ -251,21 +253,21 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               {/* MCP Servers */}
               <div className="form-group relative" ref={mcpContainerRef}>
                 <label className="form-label flex items-center justify-between">
-                  <span>绑定 MCP 服务工具 ({formMcpIds.length})</span>
-                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">支持多选</span>
+                  <span>{t('agent.bindMcpLabel', { count: formMcpIds.length })}</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.multiSelectHint')}</span>
                 </label>
-                
+
                 <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
                   {formMcpIds.map(id => {
                     const s = mcpServers.find(m => m.id === id);
                     return s ? (
                       <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-accent-dim)] text-[var(--color-accent)] text-[11px] select-none border border-[var(--color-accent)]/10 animate-fade-in scale-95 origin-left">
                         <span>{s.name}</span>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={() => toggleMcpBinding(id)}
                           className="text-[var(--color-accent)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
-                          title="解除绑定"
+                          title={t('agent.unbind')}
                         >
                           ×
                         </button>
@@ -273,11 +275,11 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     ) : null;
                   })}
                   {formMcpIds.length === 0 && (
-                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">未绑定任何工具</span>
+                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">{t('agent.noToolsBound')}</span>
                   )}
                 </div>
-                
-                <button 
+
+                <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -287,16 +289,16 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                   className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>添加/解绑 MCP 工具</span>
+                  <span>{t('agent.addOrUnbindMcp')}</span>
                 </button>
 
                 {mcpDropdownOpen && (
                   <div className="absolute left-0 bottom-[36px] w-full max-h-[220px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-xl rounded-lg z-50 p-2 animate-fade-in select-none flex flex-col gap-1">
                     <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[var(--color-border)]/50 mb-1">
-                      <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
+                      <Search className="w-3.5 w-3.5 text-[var(--color-text-muted)] shrink-0" />
                       <input
                         type="text"
-                        placeholder="搜索工具..."
+                        placeholder={t('agent.searchToolPlaceholder')}
                         value={mcpSearchQuery}
                         onChange={(e) => setMcpSearchQuery(e.target.value)}
                         className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
@@ -309,12 +311,12 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                         .map(s => {
                           const isBound = formMcpIds.includes(s.id);
                           return (
-                            <div 
-                              key={s.id} 
+                            <div
+                              key={s.id}
                               onClick={() => toggleMcpBinding(s.id)}
                               className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
-                                isBound 
-                                  ? 'bg-[var(--color-accent-dim)]/50 text-[var(--color-accent)] font-medium' 
+                                isBound
+                                  ? 'bg-[var(--color-accent-dim)]/50 text-[var(--color-accent)] font-medium'
                                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
                               }`}
                             >
@@ -334,7 +336,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                           );
                         })}
                       {mcpServers.filter(s => s.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())).length === 0 && (
-                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">没有找到匹配的工具</div>
+                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noToolMatch')}</div>
                       )}
                     </div>
                   </div>
@@ -344,21 +346,21 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               {/* Skills */}
               <div className="form-group relative" ref={skillContainerRef}>
                 <label className="form-label flex items-center justify-between">
-                  <span>绑定 Skills 技能 ({formSkillIds.length})</span>
-                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">支持多选</span>
+                  <span>{t('agent.bindSkillLabel', { count: formSkillIds.length })}</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.multiSelectHint')}</span>
                 </label>
-                
+
                 <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
                   {formSkillIds.map(id => {
                     const sk = skills.find(s => s.id === id);
                     return sk ? (
                       <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-success-dim)]/40 text-[var(--color-success)] text-[11px] select-none border border-[var(--color-success)]/15 animate-fade-in scale-95 origin-left">
                         <span>{sk.name}</span>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={() => toggleSkillBinding(id)}
                           className="text-[var(--color-success)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
-                          title="解除绑定"
+                          title={t('agent.unbind')}
                         >
                           ×
                         </button>
@@ -366,11 +368,11 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     ) : null;
                   })}
                   {formSkillIds.length === 0 && (
-                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">未绑定任何技能</span>
+                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">{t('agent.noSkillsBound')}</span>
                   )}
                 </div>
 
-                <button 
+                <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -380,7 +382,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                   className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>添加/解绑 Skills 技能</span>
+                  <span>{t('agent.addOrUnbindSkill')}</span>
                 </button>
 
                 {skillDropdownOpen && (
@@ -389,7 +391,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                       <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
                       <input
                         type="text"
-                        placeholder="搜索技能..."
+                        placeholder={t('agent.searchSkillPlaceholder')}
                         value={skillSearchQuery}
                         onChange={(e) => setSkillSearchQuery(e.target.value)}
                         className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
@@ -403,12 +405,12 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                         .map(sk => {
                           const isBound = formSkillIds.includes(sk.id);
                           return (
-                            <div 
-                              key={sk.id} 
+                            <div
+                              key={sk.id}
                               onClick={() => toggleSkillBinding(sk.id)}
                               className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
-                                isBound 
-                                  ? 'bg-[var(--color-success-dim)]/20 text-[var(--color-success)] font-medium' 
+                                isBound
+                                  ? 'bg-[var(--color-success-dim)]/20 text-[var(--color-success)] font-medium'
                                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
                               }`}
                             >
@@ -425,7 +427,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                           );
                         })}
                       {skills.filter(sk => sk.name.toLowerCase().includes(skillSearchQuery.toLowerCase())).length === 0 && (
-                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">没有找到匹配的技能</div>
+                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noSkillMatch')}</div>
                       )}
                     </div>
                   </div>
@@ -435,18 +437,18 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
             {/* Submit actions inside columns */}
             <div className="border-t border-[var(--color-border)]/50 pt-4 mt-6 flex justify-end gap-2 shrink-0">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={onClose}
                 className="btn btn-secondary cursor-pointer"
               >
-                取消
+                {t('common.cancel')}
               </button>
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="btn btn-primary cursor-pointer"
               >
-                保存配置
+                {t('common.save')}
               </button>
             </div>
           </div>

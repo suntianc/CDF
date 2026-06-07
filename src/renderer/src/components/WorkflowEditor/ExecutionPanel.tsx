@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { ExecutionStep, WorkflowExecution, WorkflowExecutionStatus } from '../../../../shared/types';
 import {
@@ -26,22 +27,13 @@ interface ExecutionPanelProps {
   onClose: () => void;
 }
 
-const statusConfig: Record<string, { icon: typeof Loader2; color: string; label: string }> = {
-  pending: { icon: Clock, color: 'text-[var(--color-text-muted)]', label: '等待中' },
-  running: { icon: Loader2, color: 'text-[var(--color-info)]', label: '运行中' },
-  completed: { icon: CheckCircle2, color: 'text-[var(--color-success)]', label: '已完成' },
-  failed: { icon: XCircle, color: 'text-[var(--color-danger)]', label: '失败' },
-  stopped: { icon: Square, color: 'text-[var(--color-text-muted)]', label: '已停止' },
-  skipped: { icon: AlertTriangle, color: 'text-[var(--color-warning)]', label: '已跳过' },
-};
-
-const ERROR_TYPE_LABELS: Record<string, string> = {
-  timeout: '执行超时',
-  tool_error: '工具调用失败',
-  llm_error: '模型 API 错误',
-  no_routing: '未输出路由信号',
-  aborted: '用户中止',
-  unknown: '其它错误',
+const statusConfig: Record<string, { icon: typeof Loader2; color: string }> = {
+  pending: { icon: Clock, color: 'text-[var(--color-text-muted)]' },
+  running: { icon: Loader2, color: 'text-[var(--color-info)]' },
+  completed: { icon: CheckCircle2, color: 'text-[var(--color-success)]' },
+  failed: { icon: XCircle, color: 'text-[var(--color-danger)]' },
+  stopped: { icon: Square, color: 'text-[var(--color-text-muted)]' },
+  skipped: { icon: AlertTriangle, color: 'text-[var(--color-warning)]' },
 };
 
 function formatJson(value: unknown): string {
@@ -70,7 +62,7 @@ function formatTs(ts: number): string {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
-function RenderStep({ step, isLatest, isNodeRunning }: { step: ExecutionStep; isLatest: boolean; isNodeRunning: boolean }) {
+function RenderStep({ step, isLatest, isNodeRunning, t }: { step: ExecutionStep; isLatest: boolean; isNodeRunning: boolean; t: (key: string) => string }) {
   switch (step.type) {
     case 'thinking': {
       const showSpinner = isLatest && isNodeRunning;
@@ -87,7 +79,7 @@ function RenderStep({ step, isLatest, isNodeRunning }: { step: ExecutionStep; is
       return (
         <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-info-dim)]/30 border border-[var(--color-info)]/10 mb-1">
           <div className="flex items-center gap-1.5">
-            <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)]">调用</span>
+            <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)]">{t('workflow.execution.stepCall')}</span>
             <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
             <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{formatTs(step.ts)}</span>
           </div>
@@ -105,7 +97,7 @@ function RenderStep({ step, isLatest, isNodeRunning }: { step: ExecutionStep; is
         <div className={`flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-${color}-dim)]/30 border border-[var(--color-${color})]/10 mb-1`}>
           <div className="flex items-center gap-1.5">
             <span className={`text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-${color})]/20 text-[var(--color-${color})]`}>
-              {isSuccess ? '返回' : '失败'}
+              {isSuccess ? t('workflow.execution.stepResult') : t('workflow.execution.stepFailed')}
             </span>
             <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
             {step.duration_ms !== undefined && (
@@ -176,7 +168,7 @@ function detectFilesFromOutput(output: unknown): string[] {
   });
 }
 
-function FileCard({ filePath, projectId }: { filePath: string; projectId?: string }) {
+function FileCard({ filePath, projectId, t }: { filePath: string; projectId?: string; t: (key: string) => string }) {
   const isCode = /\.(json|css|html|js|ts|py|go|rs|sh|yml|yaml)$/i.test(filePath);
   const isDoc = /\.(md|txt|pdf|docx|doc)$/i.test(filePath);
   const Icon = isCode ? FileCode : isDoc ? FileText : File;
@@ -185,14 +177,14 @@ function FileCard({ filePath, projectId }: { filePath: string; projectId?: strin
   const handleOpen = async () => {
     const res = await window.electronAPI.db.openFile(filePath, projectId);
     if (!res.success) {
-      alert(res.error || '无法打开文件');
+      alert(res.error || t('workflow.execution.cannotOpenFile'));
     }
   };
 
   const handleReveal = async () => {
     const res = await window.electronAPI.db.revealFile(filePath, projectId);
     if (!res.success) {
-      alert(res.error || '无法定位文件');
+      alert(res.error || t('workflow.execution.cannotRevealFile'));
     }
   };
 
@@ -208,18 +200,18 @@ function FileCard({ filePath, projectId }: { filePath: string; projectId?: strin
         <button
           onClick={handleOpen}
           className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer flex items-center gap-0.5"
-          title="打开文件"
+          title={t('workflow.execution.openFile')}
         >
           <ExternalLink className="w-3 h-3" />
-          <span>打开</span>
+          <span>{t('workflow.execution.open')}</span>
         </button>
         <button
           onClick={handleReveal}
           className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer flex items-center gap-0.5"
-          title="定位文件"
+          title={t('workflow.execution.revealFile')}
         >
           <FolderOpen className="w-3 h-3" />
-          <span>定位</span>
+          <span>{t('workflow.execution.reveal')}</span>
         </button>
       </div>
     </div>
@@ -227,6 +219,7 @@ function FileCard({ filePath, projectId }: { filePath: string; projectId?: strin
 }
 
 export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPanelProps) {
+  const { t } = useTranslation();
   const { subscribeToExecution, nodeRuns, fetchNodeRuns, stopWorkflow, currentExecution, nodeTrace } = useWorkflowStore();
   const [executionStatus, setExecutionStatus] = useState<WorkflowExecutionStatus>('running');
   const [execution, setExecution] = useState<WorkflowExecution | null>(null);
@@ -305,7 +298,23 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
   const isRunning = executionStatus === 'running';
   const StatusIcon = statusConfig[executionStatus]?.icon || Clock;
   const statusColor = statusConfig[executionStatus]?.color || 'text-[var(--color-text-muted)]';
-  const statusLabel = statusConfig[executionStatus]?.label || executionStatus;
+  const statusLabelMap: Record<string, string> = {
+    pending: t('workflow.execution.statusPending'),
+    running: t('workflow.execution.statusRunning'),
+    completed: t('workflow.execution.statusCompleted'),
+    failed: t('workflow.execution.statusFailed'),
+    stopped: t('workflow.execution.statusStopped'),
+    skipped: t('workflow.execution.statusSkipped'),
+  };
+  const errorTypeLabelMap: Record<string, string> = {
+    timeout: t('workflow.execution.errorTimeout'),
+    tool_error: t('workflow.execution.errorToolError'),
+    llm_error: t('workflow.execution.errorLlmError'),
+    no_routing: t('workflow.execution.errorNoRouting'),
+    aborted: t('workflow.execution.errorAborted'),
+    unknown: t('workflow.execution.errorUnknown'),
+  };
+  const statusLabel = statusLabelMap[executionStatus] || executionStatus;
 
   return (
     <div className="w-[380px] bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]/50 flex flex-col shrink-0 execution-panel-container">
@@ -313,7 +322,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]/50">
         <div className="flex items-center gap-2">
           <StatusIcon className={`w-4 h-4 ${statusColor} ${isRunning ? 'animate-spin' : ''}`} />
-          <span className="text-sm font-semibold text-[var(--color-text-primary)]">执行状态</span>
+          <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('workflow.execution.title')}</span>
         </div>
         <button
           onClick={onClose}
@@ -336,7 +345,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
           <div className="rounded-lg border border-[var(--color-border)]/50 bg-[var(--color-bg-surface)] p-3">
             <div className="flex items-center gap-2 mb-2">
               <Target className="w-3.5 h-3.5 text-[var(--color-accent)]" />
-              <span className="text-xs font-semibold text-[var(--color-text-primary)]">任务目标</span>
+              <span className="text-xs font-semibold text-[var(--color-text-primary)]">{t('workflow.execution.taskGoal')}</span>
             </div>
             <div className="text-[11px] leading-relaxed text-[var(--color-text-secondary)] whitespace-pre-wrap">
               {String(taskGoal || execution?.input?.taskGoal)}
@@ -346,12 +355,13 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
 
         {nodeRuns.length === 0 ? (
           <div className="text-xs text-[var(--color-text-muted)] text-center py-8">
-            {isRunning ? '等待节点执行...' : '暂无执行记录'}
+            {isRunning ? t('workflow.execution.waitingNodes') : t('workflow.execution.noRecords')}
           </div>
         ) : (
           <div className="space-y-2">
             {nodeRuns.map((run) => {
               const config = statusConfig[run.status] || statusConfig.pending;
+              const runStatusLabel = statusLabelMap[run.status] || run.status;
               const RunIcon = config.icon;
               // 纵深防御:即使 IPC handler 漏 parse,这里也守住数组类型,避免 .map 在字符串上崩溃
               const liveTrace = nodeTrace[run.node_id];
@@ -403,7 +413,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                       )}
                       {run.error_type && (
                         <div className="text-[10px] text-[var(--color-text-muted)]">
-                          失败类型: {ERROR_TYPE_LABELS[run.error_type] || run.error_type}
+                          {t('workflow.execution.failureTypePrefix')} {errorTypeLabelMap[run.error_type] || run.error_type}
                         </div>
                       )}
 
@@ -411,7 +421,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                       {steps && steps.length > 0 && (
                         <div>
                           <div className="text-[9px] font-semibold text-[var(--color-text-muted)] mb-1">
-                            运行轨迹
+                            {t('workflow.execution.executionTrace')}
                           </div>
                           <div className="max-h-[240px] overflow-y-auto rounded bg-black/15 p-2 leading-relaxed space-y-1">
                             {steps.map((s, idx) => (
@@ -420,6 +430,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                                 step={s}
                                 isLatest={idx === steps.length - 1}
                                 isNodeRunning={run.status === 'running'}
+                                t={t}
                               />
                             ))}
                           </div>
@@ -430,11 +441,11 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                       {files.length > 0 && (
                         <div>
                           <div className="text-[9px] font-semibold text-[var(--color-text-muted)] mb-1">
-                            生成文件
+                            {t('workflow.execution.generatedFiles')}
                           </div>
                           <div className="space-y-1.5">
                             {files.map((file, idx) => (
-                              <FileCard key={idx} filePath={file} projectId={execution?.project_id} />
+                              <FileCard key={idx} filePath={file} projectId={execution?.project_id} t={t} />
                             ))}
                           </div>
                         </div>
@@ -444,7 +455,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                       {run.output && (
                         <details className="group">
                           <summary className="cursor-pointer text-[10px] font-medium text-[var(--color-accent)] select-none">
-                            查看原始产物数据
+                            {t('workflow.execution.viewRawData')}
                           </summary>
                           <pre className="mt-2 max-h-[160px] overflow-auto whitespace-pre-wrap rounded bg-black/20 p-2 text-[9px] leading-relaxed text-[var(--color-text-secondary)] font-mono">
                             {extractNodeArtifact(run.output)}
@@ -463,7 +474,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
           <div className="rounded-lg border border-[var(--color-success)]/20 bg-[var(--color-success-dim)]/30 p-3">
             <div className="flex items-center gap-2 mb-2">
               <PackageOpen className="w-3.5 h-3.5 text-[var(--color-success)]" />
-              <span className="text-xs font-semibold text-[var(--color-text-primary)]">工作流最终产物</span>
+              <span className="text-xs font-semibold text-[var(--color-text-primary)]">{t('workflow.execution.finalArtifact')}</span>
             </div>
             {(() => {
               const files = detectFilesFromOutput(execution.output);
@@ -471,7 +482,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                 return (
                   <div className="space-y-1.5 mb-2">
                     {files.map((file, idx) => (
-                      <FileCard key={idx} filePath={file} projectId={execution?.project_id} />
+                      <FileCard key={idx} filePath={file} projectId={execution?.project_id} t={t} />
                     ))}
                   </div>
                 );
@@ -480,7 +491,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
             })()}
             <details className="group">
               <summary className="cursor-pointer text-[10px] font-medium text-[var(--color-text-secondary)] select-none">
-                查看原始数据
+                {t('workflow.execution.viewRawOutput')}
               </summary>
               <pre className="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap rounded bg-black/20 p-2 text-[10px] leading-relaxed text-[var(--color-text-secondary)]">
                 {formatJson(execution.output)}

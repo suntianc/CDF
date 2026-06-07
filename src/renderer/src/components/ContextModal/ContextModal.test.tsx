@@ -224,7 +224,7 @@ describe('ContextModal', () => {
     render(<ContextModal />);
     await waitFor(() => screen.getByTestId('context-modal-near-threshold'));
     const warning = screen.getByTestId('context-modal-near-threshold');
-    expect(warning.textContent).toContain('距离自动压缩仅剩');
+    expect(warning.textContent).toContain('context.compressWarning');
   });
 
   it('shows error message when IPC fetch fails', async () => {
@@ -232,7 +232,6 @@ describe('ContextModal', () => {
     render(<ContextModal />);
     await waitFor(() => screen.getByTestId('context-modal-error'));
     const err = screen.getByTestId('context-modal-error');
-    expect(err.textContent).toContain('Context 数据加载失败');
-    expect(err.textContent).toContain('network down');
+    expect(err.textContent).toContain('context.dataLoadFailed');
   });
 });

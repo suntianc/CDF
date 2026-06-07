@@ -1,10 +1,13 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { useTranslation } from 'react-i18next';
 
 type StartFlowNode = Node<{ label: string; workspace?: string; workArea?: string; bgColor?: string }, 'start'>;
 
 import { getFolderName } from './utils';
 
 export function StartNode({ data, selected }: NodeProps<StartFlowNode>) {
+  const { t } = useTranslation();
+
   const folderName = getFolderName(data.workspace);
   return (
     <div
@@ -18,7 +21,7 @@ export function StartNode({ data, selected }: NodeProps<StartFlowNode>) {
       }}
     >
       <div className="text-sm font-semibold text-[var(--color-text-primary)]">
-        {data.label || '开始'}
+        {data.label || t('workflow.nodeTypes.start.label')}
       </div>
       {folderName && (
         <div className="mt-1 max-w-[180px] truncate text-[10px] text-[var(--color-text-muted)]" title={data.workspace}>

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -164,6 +165,7 @@ const categoryConfigs: Record<string, { icon: ReactNode; colorClass: string; bor
 };
 
 export function ContextModal() {
+  const { t } = useTranslation();
   const isOpen = useContextModalStore((s: ReturnType<typeof useContextModalStore.getState>) => s.isOpen);
   const close = useContextModalStore((s: ReturnType<typeof useContextModalStore.getState>) => s.close);
   const [data, setData] = useState<ContextAggregate | null>(null);
@@ -182,7 +184,7 @@ export function ContextModal() {
 
     const activeSessionId = useSessionStore.getState().activeSessionId;
     if (!activeSessionId) {
-      setError('当前没有活跃 session，无法读取 context 占用。');
+      setError(t('context.noActiveSession'));
       return;
     }
 
@@ -226,6 +228,7 @@ export function ContextModal() {
       iconColor: 'text-[var(--color-accent)]'
     };
     const pct = contextLimit > 0 ? (value * 100) / contextLimit : 0;
+    const displayLabel = t(`context.category.${label}`);
     return (
       <div
         key={label}
@@ -241,7 +244,7 @@ export function ContextModal() {
               {config.icon}
             </div>
             <span className="text-[var(--color-text-secondary)] font-medium group-hover:text-[var(--color-text-primary)] transition-colors truncate">
-              {label}
+              {displayLabel}
             </span>
           </div>
           <span className="font-mono text-[var(--color-text-primary)] font-medium shrink-0 ml-1">
@@ -267,6 +270,7 @@ export function ContextModal() {
   ) => {
     if (rows.length === 0) return null;
     const isOpen = !!expanded[sectionKey];
+    const displayLabel = t(`context.category.${label}`);
     return (
       <div
         key={sectionKey}
@@ -283,7 +287,7 @@ export function ContextModal() {
             <div className="p-1.5 rounded-lg bg-[var(--color-accent-dim)] text-[var(--color-accent)]">
               {icon}
             </div>
-            <span className="font-semibold text-[var(--color-text-primary)]">{label} 明细</span>
+            <span className="font-semibold text-[var(--color-text-primary)]">{t('context.detailsOf', { label: displayLabel })}</span>
             <Badge variant="secondary" className="font-mono font-semibold text-[10px] px-2 py-0.5 rounded-md bg-[var(--color-bg-active)]/60 text-[var(--color-text-primary)] border-none">
               {rows.length}
             </Badge>
@@ -357,10 +361,10 @@ export function ContextModal() {
             </div>
             <div className="flex flex-col text-left">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-[var(--color-text-primary)]">Context 资源占用监控</span>
+                <span className="font-semibold text-[var(--color-text-primary)]">{t('context.resourceMonitor')}</span>
                 <span className={cn("w-2 h-2 rounded-full animate-pulse shrink-0", progressBarColor)} />
               </div>
-              <span className="text-[11px] text-[var(--color-text-muted)] font-normal">实时分析与统计当前会话的 Token 消耗情况</span>
+              <span className="text-[11px] text-[var(--color-text-muted)] font-normal">{t('context.tokenAnalysisSubtitle')}</span>
             </div>
           </DialogTitle>
         </DialogHeader>
@@ -370,7 +374,7 @@ export function ContextModal() {
             className="text-sm text-[var(--color-danger)] py-3 px-3 rounded-md bg-[var(--color-danger)]/10 my-4 shrink-0 animate-in fade-in slide-in-from-top-2 duration-300"
             data-testid="context-modal-error"
           >
-            Context 数据加载失败。{error}. 关闭后重试或检查 IPC 通道 commands:readBody 健康。
+            {t('context.dataLoadFailed', { error: typeof error === 'string' ? error : (error as Error)?.message ?? String(error) })}
           </div>
         )}
 
@@ -384,11 +388,11 @@ export function ContextModal() {
 
         {data && (() => {
           const segments = [
-            { label: '系统提示词', value: data.breakdown.systemPrompt, color: 'bg-gradient-to-r from-sky-500 to-cyan-400', dotColor: 'bg-sky-500' },
-            { label: '内置与 MCP 工具', value: data.breakdown.systemTools + data.breakdown.mcp, color: 'bg-gradient-to-r from-indigo-500 to-violet-500', dotColor: 'bg-indigo-500' },
-            { label: '技能与工作流', value: data.breakdown.skills + data.breakdown.workflows + data.breakdown.projectCommandBodies, color: 'bg-gradient-to-r from-purple-500 to-fuchsia-500', dotColor: 'bg-purple-500' },
-            { label: '会话消息', value: data.breakdown.messages, color: 'bg-gradient-to-r from-pink-500 to-rose-500', dotColor: 'bg-pink-500' },
-            { label: '内存与缓存', value: data.breakdown.memoryFiles + data.breakdown.customAgents, color: 'bg-gradient-to-r from-amber-500 to-orange-400', dotColor: 'bg-amber-500' },
+            { label: t('context.segment.systemPrompt'), value: data.breakdown.systemPrompt, color: 'bg-gradient-to-r from-sky-500 to-cyan-400', dotColor: 'bg-sky-500' },
+            { label: t('context.segment.builtInMcp'), value: data.breakdown.systemTools + data.breakdown.mcp, color: 'bg-gradient-to-r from-indigo-500 to-violet-500', dotColor: 'bg-indigo-500' },
+            { label: t('context.segment.skillsWorkflows'), value: data.breakdown.skills + data.breakdown.workflows + data.breakdown.projectCommandBodies, color: 'bg-gradient-to-r from-purple-500 to-fuchsia-500', dotColor: 'bg-purple-500' },
+            { label: t('context.segment.sessionMessages'), value: data.breakdown.messages, color: 'bg-gradient-to-r from-pink-500 to-rose-500', dotColor: 'bg-pink-500' },
+            { label: t('context.segment.memoryCache'), value: data.breakdown.memoryFiles + data.breakdown.customAgents, color: 'bg-gradient-to-r from-amber-500 to-orange-400', dotColor: 'bg-amber-500' },
           ];
           return (
             <div data-testid="context-modal-body" className="space-y-5 pt-4 flex-1 overflow-y-auto pr-1 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
@@ -400,14 +404,14 @@ export function ContextModal() {
                     <BarChart3 className="size-12" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">已使用 Context</span>
+                    <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">{t('context.usedContext')}</span>
                     <div className="mt-2 flex items-baseline gap-1.5">
                       <span className="text-2xl font-bold font-mono text-[var(--color-text-primary)]">{(data.used / 1000).toFixed(1)}k</span>
                       <span className="text-xs text-[var(--color-text-muted)]">/ {(data.contextLimit / 1000).toFixed(0)}k</span>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between text-[10px] text-[var(--color-text-secondary)] border-t border-[var(--color-border)]/15 pt-2">
-                    <span>使用占比</span>
+                    <span>{t('context.usagePct')}</span>
                     <span className="font-bold font-mono text-[var(--color-accent)] text-xs">{data.usedPct}%</span>
                   </div>
                 </div>
@@ -418,14 +422,14 @@ export function ContextModal() {
                     <Activity className="size-12" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">剩余可用</span>
+                    <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">{t('context.freeAvailable')}</span>
                     <div className="mt-2 flex items-baseline gap-1">
                       <span className="text-2xl font-bold font-mono text-[var(--color-text-primary)]">{(data.breakdown.freeSpace / 1000).toFixed(1)}k</span>
                       <span className="text-xs text-[var(--color-text-muted)] font-mono">tokens</span>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between text-[10px] text-[var(--color-text-secondary)] border-t border-[var(--color-border)]/15 pt-2">
-                    <span>剩余占比</span>
+                    <span>{t('context.freePct')}</span>
                     <span className="font-bold font-mono text-[var(--color-success)] text-xs">{(data.breakdown.freeSpace * 100 / data.contextLimit).toFixed(1)}%</span>
                   </div>
                 </div>
@@ -436,18 +440,18 @@ export function ContextModal() {
                     <Cpu className="size-12" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">当前模型</span>
+                    <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">{t('context.currentModel')}</span>
                     <div className="mt-2 truncate">
                       <span className="text-base font-bold font-mono text-[var(--color-text-primary)] truncate block" title={data.modelName}>
-                        {data.modelName || '(未知)'}
+                        {data.modelName || t('context.unknownModel')}
                       </span>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between text-[10px] text-[var(--color-text-secondary)] border-t border-[var(--color-border)]/15 pt-2">
-                    <span>运行状态</span>
+                    <span>{t('context.runtimeStatus')}</span>
                     <span className="flex items-center gap-1 font-medium text-[var(--color-success)] text-xs">
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
-                      正常
+                      {t('context.normal')}
                     </span>
                   </div>
                 </div>
@@ -456,8 +460,8 @@ export function ContextModal() {
               {/* Stacked Progress Bar */}
               <div className="border border-[var(--color-border)]/30 rounded-xl p-4 bg-[var(--color-bg-sidebar)]/10 shadow-sm relative overflow-hidden">
                 <div className="flex justify-between items-center text-xs text-[var(--color-text-secondary)] mb-3">
-                  <span className="font-semibold text-[var(--color-text-primary)]">Context 占用分配堆叠图</span>
-                  <span className="font-mono text-[var(--color-text-muted)] text-[10px]">分类比例统计</span>
+                  <span className="font-semibold text-[var(--color-text-primary)]">{t('context.stackedChart')}</span>
+                  <span className="font-mono text-[var(--color-text-muted)] text-[10px]">{t('context.categoryStats')}</span>
                 </div>
                 <div
                   className="h-3 w-full rounded-full bg-[var(--color-bg-active)]/40 overflow-hidden flex shadow-inner border border-[var(--color-border)]/10"
@@ -465,7 +469,7 @@ export function ContextModal() {
                   aria-valuenow={data.usedPct}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-label={`已用 ${data.usedPct}%`}
+                  aria-label={t('context.ariaUsedPct', { pct: data.usedPct })}
                   data-testid="context-modal-progress"
                 >
                   {segments.map((seg, idx) => {
@@ -503,7 +507,7 @@ export function ContextModal() {
               {/* Grid breakdown */}
               <div>
                 <div className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2.5 px-1">
-                  按类别细分统计
+                  {t('context.byCategory')}
                 </div>
                 <div className="grid grid-cols-2 gap-2 border border-[var(--color-border)]/30 rounded-xl p-3 bg-[var(--color-bg-sidebar)]/10 shadow-sm">
                   {renderRow('System prompt', data.breakdown.systemPrompt, data.contextLimit)}
@@ -589,7 +593,7 @@ export function ContextModal() {
                   <div className="p-1 rounded-md bg-[var(--color-danger)]/15 text-[var(--color-danger)] shrink-0">
                     <AlertCircle className="size-4" />
                   </div>
-                  <span className="font-medium">距离自动压缩仅剩 <span className="font-bold font-mono text-sm">{data.breakdown.freeSpace}</span> tokens</span>
+                  <span className="font-medium">{t('context.compressWarning', { tokens: data.breakdown.freeSpace })}</span>
                 </div>
               )}
             </div>

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, Check } from 'lucide-react';
 
 interface Option {
@@ -15,7 +16,9 @@ interface CustomSelectProps {
   disabled?: boolean;
 }
 
-export function CustomSelect({ value, onChange, options, placeholder = '请选择...', className = '', disabled = false }: CustomSelectProps) {
+export function CustomSelect({ value, onChange, options, placeholder, className = '', disabled = false }: CustomSelectProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('common.pleaseSelect', '请选择...');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -41,7 +44,7 @@ export function CustomSelect({ value, onChange, options, placeholder = '请选�
           disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
         }`}
       >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
+        <span className="truncate">{selectedOption ? selectedOption.label : resolvedPlaceholder}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
@@ -65,7 +68,7 @@ export function CustomSelect({ value, onChange, options, placeholder = '请选�
             </div>
           ))}
           {options.length === 0 && (
-            <div className="text-center py-3 text-xs text-[var(--color-text-muted)] italic">没有可用选项</div>
+            <div className="text-center py-3 text-xs text-[var(--color-text-muted)] italic">{t('common.noOptions', '没有可用选项')}</div>
           )}
         </div>
       )}

@@ -141,7 +141,7 @@ export function Sidebar({
           </div>
 
           <div className={styles.bottomBar}>
-            <button onClick={() => onChangeView('system')} title={t('sidebar.settings.system', '系统设置')}>
+            <button onClick={() => onChangeView('system')} title={t('sidebar.settings.system')}>
               <Settings className="w-4 h-4" />
             </button>
           </div>
@@ -189,7 +189,7 @@ export function Sidebar({
             onClick={() => onChangeView('system')}
           >
             <Sliders className="w-4 h-4" />
-            {t('sidebar.settings.system', '系统设置')}
+            {t('sidebar.settings.system')}
           </div>
         </div>
       )}

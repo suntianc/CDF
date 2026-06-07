@@ -1,18 +1,20 @@
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
-
-const themes = [
-  { value: 'light' as const, icon: Sun, label: '白天' },
-  { value: 'dark' as const, icon: Moon, label: '黑夜' },
-  { value: 'system' as const, icon: Monitor, label: '系统' },
-];
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
-  const current = themes.find((t) => t.value === theme) || themes[2];
+  const themes = [
+    { value: 'light' as const, icon: Sun, label: t('theme.light', '浅色模式') },
+    { value: 'dark' as const, icon: Moon, label: t('theme.dark', '深色模式') },
+    { value: 'system' as const, icon: Monitor, label: t('theme.system', '跟随系统') },
+  ];
+
+  const current = themes.find((th) => th.value === theme) || themes[2];
 
   return (
     <div className="relative">
@@ -35,15 +37,15 @@ export function ThemeToggle() {
           />
           {/* Dropup options content */}
           <div className="absolute left-0 bottom-full mb-2 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-md shadow-lg py-1 z-50 min-w-[120px] text-xs">
-            {themes.map((t) => {
-              const Icon = t.icon;
-              const isSelected = t.value === theme;
+            {themes.map((th) => {
+              const Icon = th.icon;
+              const isSelected = th.value === theme;
               return (
                 <button
-                  key={t.value}
+                  key={th.value}
                   type="button"
                   onClick={() => {
-                    setTheme(t.value);
+                    setTheme(th.value);
                     setIsOpen(false);
                   }}
                   className={`w-full flex items-center gap-2 text-left px-3 py-2 transition-colors cursor-pointer
@@ -51,7 +53,7 @@ export function ThemeToggle() {
                   `}
                 >
                   <Icon className="w-3.5 h-3.5" />
-                  <span>{t.label}</span>
+                  <span>{th.label}</span>
                 </button>
               );
             })}

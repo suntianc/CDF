@@ -90,13 +90,13 @@ describe('ContextButton — TooltipProvider integration (regression)', () => {
     expect(mockOpen).toHaveBeenCalledTimes(1);
   });
 
-  it('aria-label="查看 context" is accessible (verify it renders after fix)', () => {
+  it('aria-label uses i18n key (verify it renders after fix)', () => {
     render(
       <TooltipProvider delayDuration={300}>
         <ContextButton />
       </TooltipProvider>
     );
     const btn = screen.getByTestId('context-button');
-    expect(btn.getAttribute('aria-label')).toBe('查看 context');
+    expect(btn.getAttribute('aria-label')).toBe('context.viewContext');
   });
 });

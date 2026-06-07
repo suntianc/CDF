@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -15,6 +16,7 @@ interface Toast {
 }
 
 export function PluginsPanel() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'skills' | 'mcp'>('skills');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -34,25 +36,25 @@ export function PluginsPanel() {
       {/* 内置二级 Tab 导航栏 */}
       <div className="px-6 py-2 flex items-center justify-start bg-[var(--color-bg-sidebar)]/20 shrink-0">
         <div className="flex items-center bg-[var(--color-bg-sidebar)] border border-[var(--color-border)] p-0.5 rounded-lg select-none">
-          <button 
+          <button
             className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-              activeTab === 'skills' 
-                ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]' 
+              activeTab === 'skills'
+                ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
             onClick={() => setActiveTab('skills')}
           >
-            Skills 技能管理
+            {t('plugins.skillsTab')}
           </button>
-          <button 
+          <button
             className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-              activeTab === 'mcp' 
-                ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]' 
+              activeTab === 'mcp'
+                ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
             onClick={() => setActiveTab('mcp')}
           >
-            MCP 服务器配置
+            {t('plugins.mcpTab')}
           </button>
         </div>
       </div>
@@ -87,6 +89,7 @@ export function PluginsPanel() {
 
 // ==================== SKILLS TAB ====================
 function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
+  const { t } = useTranslation();
   const { skills, fetchSkills, deleteSkill } = useSkillStore();
   const { currentProjectId } = useProjectStore();
 
@@ -103,19 +106,19 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
       if (!dirPath) return;
       await window.electronAPI.db.importSkillDirectory(dirPath);
       if (currentProjectId) await fetchSkills(currentProjectId);
-      showToast('Skill 目录导入成功', 'success');
+      showToast(t('plugins.skillImportSuccess'), 'success');
     } catch (e: any) {
-      showToast(e.message || '导入 Skill 目录失败', 'error');
+      showToast(e.message || t('plugins.skillImportError'), 'error');
     }
   };
 
   const handleDeleteSkill = async (id: string, name: string) => {
-    if (confirm(`确定要删除 Skill 「${name}」吗？`)) {
+    if (confirm(t('plugins.skillDeleteConfirm', { name }))) {
       try {
         await deleteSkill(currentProjectId || 'default-project', id);
-        showToast(`✓ Skill ${name} 已成功删除`, 'success');
+        showToast(t('plugins.skillDeleted', { name }), 'success');
       } catch (err) {
-        showToast('删除 Skill 失败', 'error');
+        showToast(t('plugins.skillDeleteError'), 'error');
       }
     }
   };
@@ -131,14 +134,14 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
         <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
-          Skills 技能列表 ({skills.length})
+          {t('plugins.skillsListTitle', { count: skills.length })}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-[var(--color-bg-sidebar)]/80 border border-[var(--color-border)]/50 px-2.5 py-1.5 rounded-lg w-[200px] no-drag">
             <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
             <input
               type="text"
-              placeholder="搜索 Skill 名称..."
+              placeholder={t('plugins.skillSearchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full"
@@ -151,7 +154,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
           </div>
           <button className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer" onClick={handleImportSkillDirectory}>
             <FolderInput className="w-3.5 h-3.5" />
-            <span>导入 Skill 目录</span>
+            <span>{t('plugins.importSkillDir')}</span>
           </button>
         </div>
       </div>
@@ -165,7 +168,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
                 <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate flex-1" title={skill.name}>{skill.name}</div>
               </div>
               <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 line-clamp-2" title={skill.description}>
-                {skill.description || '暂无说明'}
+                {skill.description || t('plugins.skillNoDescription')}
               </p>
             </div>
 
@@ -175,7 +178,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
                 onClick={() => handleDeleteSkill(skill.id, skill.name)}
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>删除</span>
+                <span>{t('common.delete')}</span>
               </button>
             </div>
           </div>
@@ -183,7 +186,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
 
         {filteredSkills.length === 0 && (
           <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-            {searchQuery ? '没有找到符合搜索条件的 Skill' : '暂无 Skills，请点击「导入 Skill 目录」或手动将 Skill 目录放置到 .cdf/skills/ 目录下'}
+            {searchQuery ? t('plugins.skillEmptySearch') : t('plugins.skillEmpty')}
           </div>
         )}
       </div>
@@ -193,6 +196,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
 
 // ==================== MCP TAB ====================
 function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
+  const { t } = useTranslation();
   const { mcpServers, fetchMcpServers, saveMcpServer, deleteMcpServer, checkMcpHealth, toggleMcpConnection } = useMcpServerStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -249,7 +253,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
   const handleSaveMcp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
-      showToast('服务器标识名称不能为空', 'error');
+      showToast(t('plugins.mcpNameRequired'), 'error');
       return;
     }
 
@@ -258,13 +262,13 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
 
     if (formType === 'http') {
       if (!formUrl.trim()) {
-        showToast('HTTP URL 地址不能为空', 'error');
+        showToast(t('plugins.mcpUrlRequired'), 'error');
         return;
       }
       configPayload = { url: formUrl };
     } else {
       if (!formCommand.trim()) {
-        showToast('启动命令 (Command) 不能为空', 'error');
+        showToast(t('plugins.mcpCommandRequired'), 'error');
         return;
       }
       const args = formArgsInput
@@ -283,36 +287,36 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
 
     try {
       await saveMcpServer(payload);
-      showToast(`✓ MCP 服务器「${formName}」已保存`, 'success');
+      showToast(t('plugins.mcpSaved', { name: formName }), 'success');
       setIsModalOpen(false);
     } catch (err) {
-      showToast('保存 MCP 服务器失败', 'error');
+      showToast(t('plugins.mcpSaveError'), 'error');
     }
   };
 
   const handleDeleteMcp = async (id: string, name: string) => {
-    if (confirm(`确定要删除 MCP 服务器「${name}」吗？`)) {
+    if (confirm(t('plugins.mcpDeleteConfirm', { name }))) {
       try {
         await deleteMcpServer(id);
-        showToast(`✓ MCP 服务器 ${name} 已成功删除`, 'success');
+        showToast(t('plugins.mcpDeleted', { name }), 'success');
       } catch (err) {
-        showToast('删除 MCP 失败', 'error');
+        showToast(t('plugins.mcpDeleteError'), 'error');
       }
     }
   };
 
   const testHealth = async (id: string, name: string) => {
     setTestingId(id);
-    showToast(`正在对 ${name} 执行健康状态探测...`, 'info');
+    showToast(t('plugins.mcpHealthCheckStart', { name }), 'info');
     try {
       const res = await checkMcpHealth(id);
       if (res.ok) {
-        showToast(`✓ MCP 服务器 ${name} 连接正常，检查通过！`, 'success');
+        showToast(t('plugins.mcpHealthCheckOk', { name }), 'success');
       } else {
-        showToast(`✗ MCP 服务器 ${name} 连通失败：${res.message || '超时或无响应'}`, 'error');
+        showToast(t('plugins.mcpHealthCheckFail', { name, message: res.message || t('plugins.mcpHealthTimeout') }), 'error');
       }
     } catch (err: any) {
-      showToast(`✗ 健康检查请求异常: ${err.message}`, 'error');
+      showToast(t('plugins.mcpHealthCheckException', { message: err.message }), 'error');
     } finally {
       setTestingId(null);
     }
@@ -322,9 +326,9 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
     const nextState = !server.is_connected;
     try {
       await toggleMcpConnection(server.id, nextState);
-      showToast(`✓ 已${nextState ? '连接启用' : '断开卸载'} MCP「${server.name}」`, 'success');
+      showToast(t('plugins.mcpConnectionToggled', { name: server.name, state: nextState ? t('plugins.mcpConnected') : t('plugins.mcpDisconnected') }), 'success');
     } catch (err) {
-      showToast('切换连接状态失败', 'error');
+      showToast(t('plugins.mcpConnectionToggleError'), 'error');
     }
   };
 
@@ -332,15 +336,15 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
         <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
-          MCP 注册服务器列表 ({mcpServers.length})
+          {t('plugins.mcpListTitle', { count: mcpServers.length })}
         </div>
         <div className="flex items-center gap-2">
           {/* Search box */}
           <div className="flex items-center gap-2 bg-[var(--color-bg-sidebar)]/80 border border-[var(--color-border)]/50 px-2.5 py-1.5 rounded-lg w-[200px] no-drag">
             <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
-            <input 
-              type="text" 
-              placeholder="搜索 MCP 服务器..." 
+            <input
+              type="text"
+              placeholder={t('plugins.mcpSearchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full"
@@ -353,13 +357,13 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
           </div>
           <button className="btn btn-primary btn-sm flex items-center gap-1.5 cursor-pointer" onClick={openCreateModal}>
             <Plus className="w-3.5 h-3.5" />
-            <span>添加 MCP 服务器</span>
+            <span>{t('plugins.addMcpServer')}</span>
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {mcpServers.filter(s => 
+        {mcpServers.filter(s =>
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.server_type || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).map((server) => {
@@ -391,17 +395,17 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
 
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-[11px] text-[var(--color-text-muted)]">
-                    检测时间：{server.last_health_check ? new Date(server.last_health_check).toLocaleTimeString() : '无记录'}
+                    {t('plugins.mcpLastCheck')}{server.last_health_check ? new Date(server.last_health_check).toLocaleTimeString() : t('plugins.mcpNoRecord')}
                   </span>
-                  
+
                   {/* Status Indicator Badge */}
                   <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 border ${
-                    server.is_connected 
-                      ? 'bg-[var(--color-success-dim)] text-[var(--color-success)] border-[var(--color-success)]/10' 
+                    server.is_connected
+                      ? 'bg-[var(--color-success-dim)] text-[var(--color-success)] border-[var(--color-success)]/10'
                       : 'bg-[var(--color-danger-dim)] text-[var(--color-danger)] border-[var(--color-danger)]/10'
                   }`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${server.is_connected ? 'bg-[var(--color-success)] animate-pulse' : 'bg-[var(--color-danger)]'}`} />
-                    <span>{server.is_connected ? '在线/活跃' : '离线/断开'}</span>
+                    <span>{server.is_connected ? t('plugins.mcpOnline') : t('plugins.mcpOffline')}</span>
                   </span>
                 </div>
               </div>
@@ -410,12 +414,12 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                 <button
                   onClick={() => toggleConnectionState(server)}
                   className={`btn btn-sm cursor-pointer hover:scale-105 active:scale-95 transition-all ${
-                    server.is_connected 
-                      ? 'btn-secondary text-[var(--color-text-muted)]' 
+                    server.is_connected
+                      ? 'btn-secondary text-[var(--color-text-muted)]'
                       : 'btn-secondary text-[var(--color-success)] border-[var(--color-success)]/30 hover:bg-[var(--color-success-dim)]'
                   }`}
                 >
-                  {server.is_connected ? '断开' : '激活'}
+                  {server.is_connected ? t('plugins.mcpDisconnect') : t('plugins.mcpActivate')}
                 </button>
 
                 <div className="flex gap-1.5 ml-auto">
@@ -424,7 +428,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                     className="btn btn-secondary btn-sm p-1.5 hover:scale-105 active:scale-95 transition-all"
                     onClick={() => testHealth(server.id, server.name)}
                     disabled={testingId === server.id}
-                    title="探针健康检测"
+                    title={t('plugins.mcpHealthProbe')}
                   >
                     {testingId === server.id ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -433,18 +437,18 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                     )}
                   </button>
 
-                  <button 
+                  <button
                     className="btn btn-secondary btn-sm p-1.5 hover:scale-105 active:scale-95 transition-all"
                     onClick={() => openEditModal(server)}
-                    title="编辑配置"
+                    title={t('plugins.mcpEditConfig')}
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
 
-                  <button 
+                  <button
                     className="btn btn-danger btn-sm p-1.5 hover:scale-105 active:scale-95 transition-all"
                     onClick={() => handleDeleteMcp(server.id, server.name)}
-                    title="删除服务"
+                    title={t('plugins.mcpDeleteService')}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -454,12 +458,12 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
           );
         })}
 
-        {mcpServers.filter(s => 
+        {mcpServers.filter(s =>
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.server_type || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).length === 0 && (
           <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-            {searchQuery ? '没有找到符合搜索条件的 MCP 服务器' : '暂无已配置的 MCP 服务器，点击上方「添加 MCP 服务器」增加扩展服务连接！'}
+            {searchQuery ? t('plugins.mcpEmptySearch') : t('plugins.mcpEmpty')}
           </div>
         )}
       </div>
@@ -471,12 +475,12 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
             <div className="flex justify-between items-center modal-title border-b border-[var(--color-border)] pb-3 mb-4">
               <span className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
                 <Layers className="w-5 h-5 text-[var(--color-accent)]" />
-                <span>{editingServerId ? `配置 MCP · ${formName}` : '添加 MCP 工具服务器'}</span>
+                <span>{editingServerId ? t('plugins.mcpEditTitle', { name: formName }) : t('plugins.mcpAddTitle')}</span>
               </span>
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
-                aria-label="关闭弹窗"
+                aria-label={t('common.closeModal')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -485,23 +489,23 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
             <form onSubmit={handleSaveMcp} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group">
-                  <label className="form-label">标识名称 <span className="text-[var(--color-danger)]">*</span></label>
-                  <input 
-                    className="form-input" 
+                  <label className="form-label">{t('plugins.mcpFormNameLabel')} <span className="text-[var(--color-danger)]">*</span></label>
+                  <input
+                    className="form-input"
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
-                    placeholder="如：filesystem / postgres"
+                    placeholder={t('plugins.mcpFormNamePlaceholder')}
                     required
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">连接协议类型</label>
+                  <label className="form-label">{t('plugins.mcpFormProtocolLabel')}</label>
                   <CustomSelect
                     value={formType}
                     onChange={(val) => setFormType(val as 'stdio' | 'http')}
                     options={[
-                      { value: 'stdio', label: 'Stdio (本地命令行)' },
-                      { value: 'http', label: 'HTTP (远程 Streamable HTTP)' }
+                      { value: 'stdio', label: t('plugins.mcpFormProtocolStdio') },
+                      { value: 'http', label: t('plugins.mcpFormProtocolHttp') }
                     ]}
                   />
                 </div>
@@ -509,56 +513,56 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
 
               {formType === 'http' ? (
                 <div className="form-group">
-                  <label className="form-label">HTTP URL <span className="text-[var(--color-danger)]">*</span></label>
+                  <label className="form-label">{t('plugins.mcpUrlLabel')} <span className="text-[var(--color-danger)]">*</span></label>
                   <input
                     className="form-input"
                     value={formUrl}
                     onChange={(e) => setFormUrl(e.target.value)}
-                    placeholder="http://localhost:3000/mcp"
+                    placeholder={t('plugins.mcpUrlPlaceholder')}
                     required
                   />
-                  <div className="form-hint">远程 MCP 服务器暴露的 Streamable HTTP 连接端点（兼容 SSE 回退）</div>
+                  <div className="form-hint">{t('plugins.mcpUrlHint')}</div>
                 </div>
               ) : (
                 <>
                   <div className="form-group">
-                    <label className="form-label">启动可执行命令 (Command) <span className="text-[var(--color-danger)]">*</span></label>
-                    <input 
-                      className="form-input" 
+                    <label className="form-label">{t('plugins.mcpCommandLabel')} <span className="text-[var(--color-danger)]">*</span></label>
+                    <input
+                      className="form-input"
                       value={formCommand}
                       onChange={(e) => setFormCommand(e.target.value)}
-                      placeholder="如：node / python3 / npx"
+                      placeholder={t('plugins.mcpCommandPlaceholder')}
                       required
                     />
-                    <div className="form-hint">本地运行 MCP 服务程序时启动的可执行文件名或全局命令</div>
+                    <div className="form-hint">{t('plugins.mcpCommandHint')}</div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">启动附加参数 (Arguments) - 按行拆分</label>
-                    <textarea 
-                      className="form-input min-h-[90px] font-mono text-xs resize-none py-2" 
+                    <label className="form-label">{t('plugins.mcpArgsLabel')}</label>
+                    <textarea
+                      className="form-input min-h-[90px] font-mono text-xs resize-none py-2"
                       value={formArgsInput}
                       onChange={(e) => setFormArgsInput(e.target.value)}
-                      placeholder="例如输入两行：&#10;/path/to/mcp/index.js&#10;--writable"
+                      placeholder={t('plugins.mcpArgsPlaceholder')}
                     />
-                    <div className="form-hint">传入命令的参数，每行为一个独立参数，能够自动安全保留空格。</div>
+                    <div className="form-hint">{t('plugins.mcpArgsHint')}</div>
                   </div>
                 </>
               )}
 
               <div className="modal-actions border-t border-[var(--color-border)] pt-4 mt-6">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsModalOpen(false)}
                   className="btn btn-secondary cursor-pointer"
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="btn btn-primary cursor-pointer"
                 >
-                  保存配置
+                  {t('common.save')}
                 </button>
               </div>
             </form>

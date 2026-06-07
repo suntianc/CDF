@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import type { WorkflowNodeType, WorkflowNodeCategory, WorkflowNodeConfig } from '../../../../shared/types';
 
 /**
@@ -11,13 +12,13 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
   start: {
     category: 'flow',
     inputs: [],
-    outputs: [{ id: 'out', label: '输出', type: 'any' }],
+    outputs: [{ id: 'out', label: i18next.t('workflow.nodeTypes.ports.output'), type: 'any' }],
     icon: 'Play',
     color: '#22c55e',
   },
   end: {
     category: 'flow',
-    inputs: [{ id: 'in', label: '输入', type: 'any' }],
+    inputs: [{ id: 'in', label: i18next.t('workflow.nodeTypes.ports.input'), type: 'any' }],
     outputs: [],
     icon: 'Square',
     color: '#ef4444',
@@ -25,12 +26,12 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
   task: {
     category: 'agent',
     inputs: [
-      { id: 'context', label: '上下文', type: 'string' },
-      { id: 'task', label: '任务描述', type: 'string' },
+      { id: 'context', label: i18next.t('workflow.nodeTypes.ports.context'), type: 'string' },
+      { id: 'task', label: i18next.t('workflow.nodeTypes.ports.taskDescription'), type: 'string' },
     ],
     outputs: [
-      { id: 'result', label: '执行结果', type: 'string' },
-      { id: 'routing', label: '路由决策', type: 'object' },
+      { id: 'result', label: i18next.t('workflow.nodeTypes.ports.executionResult'), type: 'string' },
+      { id: 'routing', label: i18next.t('workflow.nodeTypes.ports.routingDecision'), type: 'object' },
     ],
     icon: 'ListTodo',
     color: '#7c3aed',
@@ -38,12 +39,12 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
   loop: {
     category: 'agent',
     inputs: [
-      { id: 'context', label: '上下文', type: 'string' },
-      { id: 'task', label: '任务描述', type: 'string' },
+      { id: 'context', label: i18next.t('workflow.nodeTypes.ports.context'), type: 'string' },
+      { id: 'task', label: i18next.t('workflow.nodeTypes.ports.taskDescription'), type: 'string' },
     ],
     outputs: [
-      { id: 'result', label: '最终结果', type: 'string' },
-      { id: 'iterations', label: '迭代次数', type: 'number' },
+      { id: 'result', label: i18next.t('workflow.nodeTypes.ports.finalResult'), type: 'string' },
+      { id: 'iterations', label: i18next.t('workflow.nodeTypes.ports.iterationCount'), type: 'number' },
     ],
     icon: 'Repeat2',
     color: '#0ea5e9',
@@ -51,12 +52,12 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
   review: {
     category: 'agent',
     inputs: [
-      { id: 'content', label: '审查内容', type: 'string' },
+      { id: 'content', label: i18next.t('workflow.nodeTypes.ports.reviewContent'), type: 'string' },
     ],
     outputs: [
-      { id: 'result', label: '审查结果', type: 'string' },
-      { id: 'score', label: '评分', type: 'number' },
-      { id: 'routing', label: '路由决策', type: 'object' },
+      { id: 'result', label: i18next.t('workflow.nodeTypes.ports.reviewResult'), type: 'string' },
+      { id: 'score', label: i18next.t('workflow.nodeTypes.ports.score'), type: 'number' },
+      { id: 'routing', label: i18next.t('workflow.nodeTypes.ports.routingDecision'), type: 'object' },
     ],
     icon: 'ShieldCheck',
     color: '#f59e0b',
@@ -64,10 +65,10 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
   agent: {
     category: 'agent',
     inputs: [
-      { id: 'context', label: '上下文', type: 'string' },
+      { id: 'context', label: i18next.t('workflow.nodeTypes.ports.context'), type: 'string' },
     ],
     outputs: [
-      { id: 'result', label: '执行结果', type: 'string' },
+      { id: 'result', label: i18next.t('workflow.nodeTypes.ports.executionResult'), type: 'string' },
     ],
     icon: 'Bot',
     color: '#7c3aed',
@@ -75,11 +76,11 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
   foreach: {
     category: 'agent',
     inputs: [
-      { id: 'context', label: '上下文', type: 'string' },
-      { id: 'task', label: '任务描述', type: 'string' },
+      { id: 'context', label: i18next.t('workflow.nodeTypes.ports.context'), type: 'string' },
+      { id: 'task', label: i18next.t('workflow.nodeTypes.ports.taskDescription'), type: 'string' },
     ],
     outputs: [
-      { id: 'result', label: '执行结果', type: 'string' },
+      { id: 'result', label: i18next.t('workflow.nodeTypes.ports.executionResult'), type: 'string' },
     ],
     icon: 'Layers',
     color: '#22c55e',
@@ -105,6 +106,6 @@ export function isExecutableNodeType(type?: string | null): boolean {
 
 /** Category display names */
 export const CATEGORY_LABELS: Record<WorkflowNodeCategory, string> = {
-  flow: '流程控制',
-  agent: 'Agent 节点',
+  flow: i18next.t('workflow.nodeTypes.categories.flow'),
+  agent: i18next.t('workflow.nodeTypes.categories.agent'),
 };
