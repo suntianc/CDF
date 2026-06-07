@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { ToolMessageCard } from './ToolMessageCard';
 import { CodeBlock, MarkdownRenderer } from './MarkdownRenderer';
+import { AtToken } from '@/components/AtMention/AtToken';
+import { parseAtTokens } from '@/lib/commands/pathUtils';
 
 const formatDuration = (seconds: number): string => {
   if (seconds < 60) {
@@ -196,6 +198,65 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       }
     }
 
+    // Phase 08.3 C-03: scan cleanContent for @relative/path substrings and render
+    // each match as an <AtToken> pill. Code blocks (triple-backticks + single
+    // backticks) are NOT scanned — markdown code should render literally.
+    // Mirrors the at-trigger regex in pathUtils.parseAtTokens (lookbehind for ^ or \s).
+    const renderAtSegment = (segment: string, baseKey: number): React.ReactNode[] => {
+      const atTokens = parseAtTokens(segment);
+      if (atTokens.length === 0) {
+        const rendered = renderMain(segment);
+        return rendered ? [<span key={`seg-${baseKey}`}>{rendered}</span>] : [];
+      }
+      const parts: React.ReactNode[] = [];
+      let cursor = 0;
+      for (const t of atTokens) {
+        if (t.start > cursor) {
+          const pre = segment.slice(cursor, t.start);
+          const preRender = renderMain(pre);
+          if (preRender) parts.push(<span key={`pre-${baseKey}-${cursor}`}>{preRender}</span>);
+        }
+        parts.push(
+          <AtToken
+            key={`at-${baseKey}-${t.start}`}
+            path={t.path}
+            kind={t.kind}
+            data-testid="history-at-token"
+          />
+        );
+        cursor = t.end;
+      }
+      if (cursor < segment.length) {
+        const post = segment.slice(cursor);
+        const postRender = renderMain(post);
+        if (postRender) parts.push(<span key={`post-${baseKey}-${cursor}`}>{postRender}</span>);
+      }
+      return parts;
+    };
+
+    function renderContentWithAtTokens(text: string): React.ReactNode {
+      if (!text.includes('@')) return renderMain(text);
+      // Split text on code blocks first; only non-code segments get at-tokenized.
+      const codeBlockRegex = /(```[\s\S]*?```|`[^`]+`)/g;
+      const segments: React.ReactNode[] = [];
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
+      let key = 0;
+      while ((match = codeBlockRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          segments.push(...renderAtSegment(text.slice(lastIndex, match.index), key++));
+        }
+        // Code block — render via renderMain (which will treat it as code/markdown)
+        const codeRender = renderMain(match[0]);
+        if (codeRender) segments.push(<span key={`code-${key++}`}>{codeRender}</span>);
+        lastIndex = match.index + match[0].length;
+      }
+      if (lastIndex < text.length) {
+        segments.push(...renderAtSegment(text.slice(lastIndex), key++));
+      }
+      return <>{segments}</>;
+    }
+
     const isOutputting = isStreaming && isLast;
 
     if (isOutputting) {
@@ -282,7 +343,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       if (firstThink === -1) {
         return (
           <div className="flex flex-col gap-3">
-            {renderMain(cleanContent)}
+            {renderContentWithAtTokens(cleanContent)}
           </div>
         );
       }
