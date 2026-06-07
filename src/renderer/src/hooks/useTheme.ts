@@ -10,14 +10,18 @@ export function useTheme() {
     };
 
     if (theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      applyTheme(mediaQuery.matches ? 'dark' : 'light');
+      if (typeof window.matchMedia === 'function') {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        applyTheme(mediaQuery.matches ? 'dark' : 'light');
 
-      const handler = (e: MediaQueryListEvent) => {
-        applyTheme(e.matches ? 'dark' : 'light');
-      };
-      mediaQuery.addEventListener('change', handler);
-      return () => mediaQuery.removeEventListener('change', handler);
+        const handler = (e: MediaQueryListEvent) => {
+          applyTheme(e.matches ? 'dark' : 'light');
+        };
+        mediaQuery.addEventListener('change', handler);
+        return () => mediaQuery.removeEventListener('change', handler);
+      } else {
+        applyTheme('dark');
+      }
     } else {
       applyTheme(theme);
     }

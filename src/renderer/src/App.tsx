@@ -11,7 +11,7 @@ import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
 import { WorkflowList } from './components/WorkflowEditor/WorkflowList';
 import { WorkflowEditor } from './components/WorkflowEditor/WorkflowEditor';
 import { ContextModal } from './components/ContextModal/ContextModal';
-import { useThemeStore } from './stores/themeStore';
+import { useTheme } from './hooks/useTheme';
 import { useI18nStore } from './stores/i18nStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
@@ -25,7 +25,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
-  const { setTheme } = useThemeStore();
+  const { setTheme } = useTheme();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);

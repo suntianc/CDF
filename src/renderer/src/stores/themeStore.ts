@@ -12,7 +12,18 @@ export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
       theme: 'system',
-      setTheme: (theme) => set({ theme }),
+      setTheme: (theme) => {
+        set({ theme });
+        try {
+          if (window.electronAPI?.store?.set) {
+            window.electronAPI.store.set('theme', theme).catch((err) => {
+              console.error('Failed to save theme to store:', err);
+            });
+          }
+        } catch (err) {
+          console.error('Failed to save theme to store:', err);
+        }
+      },
     }),
     {
       name: 'theme-storage',
