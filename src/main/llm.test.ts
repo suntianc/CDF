@@ -400,6 +400,59 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-lifecycle-complete', { type: 'message_done' });
   });
 
+  it('should finish immediately after tool streams end when completed lifecycle output is pending', async () => {
+    vi.useFakeTimers();
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              text: (async function* () {
+                yield '开始执行';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {
+            yield {
+              callId: 'tool-completed-output-pending',
+              name: 'write_file',
+              input: { file_path: '/computer.js', content: 'large content' },
+              output: Promise.resolve('ok'),
+            };
+          })(),
+          lifecycle: (async function* () {
+            yield { namespace: [], event: 'completed' };
+          })(),
+          output: new Promise(() => {}),
+          interrupts: [],
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '写文件' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-tool-completed-output-pending', {
+      projectId: 'project-1',
+      sessionId: 'session-tool-completed-output-pending',
+      message: {
+        id: 'message-tool-completed-output-pending',
+        content: '写文件',
+      },
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-tool-completed-output-pending',
+      expect.objectContaining({ type: 'tool_end', id: 'tool-completed-output-pending' })
+    );
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-tool-completed-output-pending',
+      expect.objectContaining({ type: 'run_updated', status: 'completed' })
+    );
+    expect(send).toHaveBeenLastCalledWith('llm:chunk-req-tool-completed-output-pending', { type: 'message_done' });
+  });
+
   it('should abort a run while waiting for pending output', async () => {
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {

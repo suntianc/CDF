@@ -82,8 +82,9 @@ interface SessionState {
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string) => Promise<void>;
-  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string) => Promise<void>;
+  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
+  getIsSessionStreaming: (sessionId: string) => boolean;
   setSessionGoal: (sessionId: string, goal: string) => void;
   setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => void;
   getGoalJudgeStatus: (sessionId: string) => GoalJudgeStatusEntry | undefined;
@@ -107,6 +108,10 @@ interface StreamingSessionState {
 }
 
 const streamingSessionsCache = new Map<string, StreamingSessionState>();
+
+interface SendMessageOptions {
+  hiddenUserMessage?: boolean;
+}
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
@@ -417,8 +422,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return streamingSessionsCache.get(sessionId)?.messages ?? [];
   },
 
+  getIsSessionStreaming: (sessionId: string) => {
+    if (get().activeSessionId === sessionId) return get().isStreaming;
+    return streamingSessionsCache.get(sessionId)?.isStreaming ?? false;
+  },
 
-  sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string) => {
+
+  sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => {
     const { activeSessionId, sessions } = get();
     const sessionId = targetSessionId ?? activeSessionId;
     if (!sessionId) return;
@@ -442,8 +452,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     };
 
     try {
-      // Save User Message to SQLite
-      await window.electronAPI.db.saveMessage(userMsg);
+      if (!options?.hiddenUserMessage) {
+        await window.electronAPI.db.saveMessage(userMsg);
+      }
 
       // Append User message and placeholder Assistant message
       const assistantMsgId = window.crypto.randomUUID();
@@ -458,7 +469,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       const baseMessages = get().getMessagesForSession(sessionId);
       const initialState: StreamingSessionState = {
-        messages: [...baseMessages, userMsg, assistantMsgPlaceholder],
+        messages: [
+          ...baseMessages,
+          ...(options?.hiddenUserMessage ? [] : [userMsg]),
+          assistantMsgPlaceholder,
+        ],
         todos: [],
         delegatedTasks: [],
         agentRuns: [],

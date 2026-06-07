@@ -10,11 +10,11 @@ interface ProjectState {
   projects: Project[];
   currentProjectId: string | null;
   taskPanelOpen: boolean;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows';
+  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system';
   setProjects: (projects: Project[]) => void;
   setCurrentProject: (id: string) => void;
   setTaskPanelOpen: (open: boolean) => void;
-  setActiveView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows') => void;
+  setActiveView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system') => void;
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({

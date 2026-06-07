@@ -2,7 +2,7 @@ import { ipcMain, dialog, app } from 'electron';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
-import { runLLMChat, fetchOllamaModels, stopLLMChat, resolveLLMApproval } from './llm';
+import { runLLMChat, runLLMJudge, fetchOllamaModels, stopLLMChat, resolveLLMApproval } from './llm';
 import {
   buildAnthropicModelsUrl,
   buildOpenAIModelsUrl,
@@ -298,6 +298,10 @@ export function registerIpcHandlers() {
       console.error('LLM chat task failed:', error);
     });
     return { ok: true };
+  });
+
+  ipcMain.handle('llm:judge', async (_, payload: any) => {
+    return runLLMJudge(payload);
   });
 
   ipcMain.handle('llm:stopChat', async (_, requestId: string) => {

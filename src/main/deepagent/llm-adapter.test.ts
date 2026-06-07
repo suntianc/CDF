@@ -33,12 +33,13 @@ describe('createLangChainModel', () => {
       apiUrl: 'https://api.minimaxi.com/anthropic/v1',
       defaultModel: 'MiniMax-M3',
       providerType: 'minimax',
+      contextLimit: 1_000_000,
     }) as any;
 
     expect(model).toBeInstanceOf(ChatAnthropic);
     expect(model.model).toBe('MiniMax-M3');
     expect(model.apiUrl).toBe('https://api.minimaxi.com/anthropic');
-    expect(model.maxTokens).toBe(4096);
+    expect(model.maxTokens).toBe(65536);
   });
 
   it('should use ChatAnthropic for MiniMax-overseas', () => {
@@ -164,9 +165,10 @@ describe('getOllamaBaseUrl', () => {
 // output. The actual `<think>` emission is verified in the patch-package layer
 // (src/main/deepagent/llm.ts streamEvents), which is not unit-testable in isolation.
 describe('LLM adapter streaming / thinking chain', () => {
-  it('anthropic adapter enables streaming + maxTokens', () => {
+  it('anthropic adapter enables streaming without forcing the old 4096 token cap', () => {
     // The chain dispatcher → IPC → runLLMChat → runtime → chat model requires
-    // streaming + maxTokens to be set on the chat model.
+    // streaming to be set on the chat model. The adapter should not impose the
+    // old CDF 4096 output cap on native Anthropic models.
     const model = createLangChainModel({
       apiKey: 'test-key',
       apiUrl: 'https://api.anthropic.com/v1',
@@ -175,7 +177,7 @@ describe('LLM adapter streaming / thinking chain', () => {
     }) as any;
 
     expect(model.streaming).toBe(true);
-    expect(model.maxTokens).toBe(4096);
+    expect(model.maxTokens).not.toBe(4096);
   });
 
   it('minimax adapter sets thinking=adaptive (M3 thinking baseline)', () => {
@@ -186,9 +188,11 @@ describe('LLM adapter streaming / thinking chain', () => {
       apiUrl: 'https://api.minimaxi.com/v1',
       defaultModel: 'abab6.5g-chat',
       providerType: 'minimax',
+      contextLimit: 1_000_000,
     }) as any;
 
     expect(model.thinking).toEqual({ type: 'adaptive' });
+    expect(model.maxTokens).toBe(65536);
   });
 
   it('patch-package layer imports (load-bearing 6-hunk patch guard)', () => {

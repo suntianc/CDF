@@ -59,6 +59,7 @@ describe('sessionStore sendMessage', () => {
           await chunkListener?.(null, { type: 'message_chunk', text: '世界' });
           await chunkListener?.(null, { type: 'message_done' });
         }),
+        judge: vi.fn(),
         stopChat: vi.fn(),
         testProvider: vi.fn(),
         fetchProviderModels: vi.fn(),
@@ -112,6 +113,69 @@ describe('sessionStore sendMessage', () => {
     // Second Assistant message segment ("世界")
     expect(state.messages[3].role).toBe('assistant');
     expect(state.messages[3].content).toBe('世界');
+  });
+
+  it('hides internal user messages from persistence and visible chat state', async () => {
+    const saveMessage = vi.fn(async (message) => message);
+    let chunkListener: ((event: unknown, data: any) => void) | null = null;
+
+    window.electronAPI = {
+      store: {
+        get: vi.fn(),
+        set: vi.fn(),
+      },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(),
+        createSession: vi.fn(),
+        deleteSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage,
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+      },
+      llm: {
+        chat: vi.fn(async () => {
+          await chunkListener?.(null, { type: 'message_chunk', text: '继续执行中' });
+          await chunkListener?.(null, { type: 'message_done' });
+        }),
+        judge: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn((_requestId, callback) => {
+          chunkListener = callback;
+          return () => {
+            chunkListener = null;
+          };
+        }),
+      },
+      platform: 'darwin',
+    };
+
+    await useSessionStore.getState().sendMessage(
+      'project-1',
+      '内部继续指令',
+      undefined,
+      'session-1',
+      { hiddenUserMessage: true }
+    );
+
+    const state = useSessionStore.getState();
+    expect(saveMessage).toHaveBeenCalledTimes(1);
+    expect(saveMessage).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'assistant',
+      content: '继续执行中',
+    }));
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].role).toBe('assistant');
+    expect(state.messages[0].content).toBe('继续执行中');
   });
 });
 

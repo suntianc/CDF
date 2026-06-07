@@ -215,6 +215,20 @@ describe('dispatcher.dispatch', () => {
     expect(mockStartGoalJudgeLoop).not.toHaveBeenCalled();
   });
 
+  it('A2b. GoalLoop with literal clear: stop loop + clear goal, no start', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: 'session-1',
+      setSessionGoal: mockSetSessionGoal,
+    });
+
+    await dispatch({ kind: 'GoalLoop', command: goalCmd, args: 'clear', goal: 'clear' });
+
+    expect(mockStopGoalJudgeLoop).toHaveBeenCalledWith('session-1');
+    expect(mockSetSessionGoal).toHaveBeenCalledWith('session-1', '');
+    expect(mockStartGoalJudgeLoop).not.toHaveBeenCalled();
+  });
+
   it('A3. GoalLoop with no active session: logs warn, does NOT start judge loop', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });

@@ -54,8 +54,18 @@ export interface RuntimeProviderModelConfig {
   defaultModel: string;
   providerType: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'zhipu' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'moonshot' | 'qwen' | 'xiaomimimo';
   model?: string;
+  contextLimit?: number;
   /** 节点级 LLM temperature 覆盖,undefined 时维持 provider 默认 */
   temperature?: number;
+}
+
+const LARGE_CODE_OUTPUT_TOKEN_LIMIT = 65_536;
+
+function getLargeOutputTokenLimit(contextLimit?: number): number {
+  if (!contextLimit || contextLimit <= 0) {
+    return LARGE_CODE_OUTPUT_TOKEN_LIMIT;
+  }
+  return Math.min(contextLimit, LARGE_CODE_OUTPUT_TOKEN_LIMIT);
 }
 
 function cleanOllamaUrl(url: string): string {
@@ -531,7 +541,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         model: modelName,
         temperature: 0,
         streaming: true,
-        maxTokens: 4096,
       };
       if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
       const useAuthToken = shouldUseAnthropicAuthToken(normalizedApiUrl, config.apiKey);
@@ -549,6 +558,7 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
       }
       if (config.providerType === 'minimax' || config.providerType === 'minimax-overseas') {
         modelConfig.thinking = { type: 'adaptive' };
+        modelConfig.maxTokens = getLargeOutputTokenLimit(config.contextLimit);
         delete modelConfig.temperature;
       }
       model = new ChatAnthropic(modelConfig);
@@ -562,7 +572,6 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         model: modelName,
         temperature: 0,
         streaming: true,
-        maxTokens: 4096,
       };
       if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
       const useAuthToken = shouldUseAnthropicAuthToken(normalizedApiUrl, config.apiKey);

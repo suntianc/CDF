@@ -2,7 +2,7 @@ import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
-import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime } from './deepagent/runtime';
+import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel } from './deepagent/runtime';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
@@ -38,6 +38,13 @@ export interface ChatPayload {
     id: string;
     content: string;
   };
+  overrides?: ChatRuntimeOverrides;
+}
+
+export interface JudgePayload {
+  projectId: string;
+  agentId?: string | null;
+  prompt: string;
   overrides?: ChatRuntimeOverrides;
 }
 
@@ -163,7 +170,10 @@ function waitForAbort(signal: AbortSignal): Promise<never> {
   });
 }
 
-async function waitForRunOutputOrTerminal(run: any, signal: AbortSignal): Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }> {
+async function waitForRunOutputOrTerminal(
+  run: any,
+  signal: AbortSignal
+): Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }> {
   const outputPromise = Promise.resolve(run.output).then((output) => ({ output, terminal: null }));
   const waits: Array<Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }>> = [
     outputPromise,
@@ -265,6 +275,33 @@ export function stopLLMChat(requestId: string): void {
     controller.abort();
     activeRequests.delete(requestId);
   }
+}
+
+function extractModelText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+
+  const content = (value as { content?: unknown }).content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (!part || typeof part !== 'object') return '';
+        const typed = part as { type?: string; text?: unknown; content?: unknown };
+        if (typeof typed.text === 'string') return typed.text;
+        if (typeof typed.content === 'string') return typed.content;
+        return '';
+      })
+      .join('');
+  }
+  return '';
+}
+
+export async function runLLMJudge(payload: JudgePayload): Promise<{ text: string }> {
+  const model = createRuntimeModel(payload.projectId, payload.agentId, payload.overrides);
+  const response = await model.invoke(payload.prompt);
+  return { text: extractModelText(response) };
 }
 
 async function checkAndSendTodos(

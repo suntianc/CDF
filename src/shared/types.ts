@@ -544,6 +544,7 @@ export interface ElectronAPI {
   };
   llm: {
     chat: (requestId: string, payload: { projectId: string; sessionId: string; agentId?: string | null; message: { id: string; content: string }; overrides?: ChatRuntimeOverrides }) => Promise<void>;
+    judge: (payload: { projectId: string; agentId?: string | null; prompt: string; overrides?: ChatRuntimeOverrides }) => Promise<{ text: string }>;
     stopChat: (requestId: string) => Promise<void>;
     resolveApproval: (requestId: string, resolution: AgentApprovalResolution) => Promise<void>;
     testProvider: (providerId: string) => Promise<{ ok: boolean; message: string }>;

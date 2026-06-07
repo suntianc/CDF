@@ -11,6 +11,7 @@ export function normalizeOpenAICompatibleChunk(chunk: ChatGenerationChunk): Norm
   const reasoningDelta = extractReasoning(chunk);
   const rawText = extractText(chunk);
   const textDelta = rawText ? normalizeThinkingTags(rawText) : undefined;
+  const hasToolPayload = hasToolCallPayload(chunk);
   const chunks: ChatGenerationChunk[] = [];
   if (reasoningDelta) {
     chunks.push(createReasoningChunk(reasoningDelta, chunk.generationInfo));
@@ -21,6 +22,9 @@ export function normalizeOpenAICompatibleChunk(chunk: ChatGenerationChunk): Norm
       clearReasoningFields(chunk);
     }
     chunks.push(setChunkText(chunk, textDelta));
+  } else if (reasoningDelta && hasToolPayload) {
+    clearReasoningFields(chunk);
+    chunks.push(chunk);
   } else if (!reasoningDelta) {
     chunks.push(chunk);
   }
@@ -30,6 +34,17 @@ export function normalizeOpenAICompatibleChunk(chunk: ChatGenerationChunk): Norm
     textDelta,
     chunks,
   };
+}
+
+function hasToolCallPayload(chunk: any): boolean {
+  const message = chunk?.message;
+  if (!message) return false;
+  return (
+    (Array.isArray(message.tool_call_chunks) && message.tool_call_chunks.length > 0) ||
+    (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) ||
+    (Array.isArray(message.invalid_tool_calls) && message.invalid_tool_calls.length > 0) ||
+    (Array.isArray(message.additional_kwargs?.tool_calls) && message.additional_kwargs.tool_calls.length > 0)
+  );
 }
 
 export function extractReasoning(chunk: any): string | undefined {

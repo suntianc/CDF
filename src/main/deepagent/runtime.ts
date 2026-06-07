@@ -467,6 +467,7 @@ export async function createDeepAgentRuntime(
     defaultModel: provider.default_model,
     providerType: provider.provider_type,
     model: modelName,
+    contextLimit: provider.context_limit,
   });
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
@@ -572,6 +573,7 @@ export async function createDeepAgentRuntime(
         apiUrl: providerRow.api_url,
         defaultModel: providerRow.default_model,
         providerType: providerRow.provider_type,
+        contextLimit: providerRow.context_limit,
       });
 
       console.log(`[runtime] Subagent ${agentSlug}: provider_id=${agentRow.provider_id}, default_model=${providerRow?.default_model}, provider_type=${providerRow?.provider_type}`);
@@ -612,4 +614,23 @@ export async function createDeepAgentRuntime(
       // MCP 连接由 mcpCache 管理，此处不关闭
     },
   };
+}
+
+export function createRuntimeModel(
+  projectId: string,
+  agentId?: string | null,
+  overrides?: RuntimeModelOverrides
+) {
+  const agentRow = getRuntimeAgent(projectId, agentId);
+  const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
+  const modelName = overrides?.model || provider.default_model;
+  registerCdfHarnessProfile(provider.provider_type, modelName);
+  return createLangChainModel({
+    apiKey: provider.api_key,
+    apiUrl: provider.api_url,
+    defaultModel: provider.default_model,
+    providerType: provider.provider_type,
+    model: modelName,
+    contextLimit: provider.context_limit,
+  });
 }

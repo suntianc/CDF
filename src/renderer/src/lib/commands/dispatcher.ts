@@ -120,7 +120,7 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
 
     case 'GoalLoop': {
       // 08.2 P3 C1-05 + D-04: /goal drives an internal judge agent loop.
-      // Empty args / goal → "clear" semantics (per CONTEXT.md D-04):
+      // Empty args, or literal "clear", → clear semantics:
       //   stop the loop, clear the stored goal. No toast (bubble is the UI;
       //   per UI-SPEC.md §Surface 1 the bubble is the only feedback surface).
       // Non-empty goal → stop any prior loop (防重入), set session goal,
@@ -131,7 +131,7 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
         return;
       }
       const goal = (plan.goal || '').trim();
-      if (!goal) {
+      if (!goal || goal.toLowerCase() === 'clear') {
         await stopGoalJudgeLoop(activeSessionId);
         setSessionGoal(activeSessionId, '');
         return;

@@ -321,6 +321,7 @@ export function createAgentNodeExecutor(
         apiUrl: provider.api_url ?? undefined,
         defaultModel: provider.default_model,
         providerType: provider.provider_type as any,
+        contextLimit: provider.context_limit,
       });
 
       const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?')

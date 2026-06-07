@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   llm: {
     chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
+    judge: (payload: any) => ipcRenderer.invoke('llm:judge', payload),
     stopChat: (requestId: string) => ipcRenderer.invoke('llm:stopChat', requestId),
     resolveApproval: (requestId: string, resolution: any) => ipcRenderer.invoke('llm:resolveApproval', requestId, resolution),
     testProvider: (providerId: string) => ipcRenderer.invoke('llm:testProvider', providerId),

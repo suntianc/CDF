@@ -10,7 +10,7 @@
 // Loop flow (per plan §useGoalJudge.ts):
 //   1. startGoalJudgeLoop writes goalJudgeStatus = { idle, iteration 0 }.
 //   2. First turn: sendMessage(projectId, goal) — goal becomes a user msg.
-//   3. Subscribe to sessionStore.isStreaming transitions (proxy for
+//   3. Subscribe to the target session's streaming transitions (proxy for
 //      "main agent finished a turn"). On true→false flip, call judgeOnce.
 //   4. judgeOnce is a self-contained LLM call (unique judgeRequestId → its
 //      own `llm:chunk-${id}` channel) so the judge's chunks do NOT enter
@@ -69,6 +69,15 @@ export interface GoalJudgeInstance {
 const DEFAULT_MAX_TURNS = 20;
 const JUDGE_CONTEXT_TURNS = 8;
 
+function buildContinueInstruction(reason: string): string {
+  return [
+    '继续完成原始任务。',
+    '不要评估目标，不要输出 JSON，不要只说“将要做”或“现在开始”。',
+    '立即执行下一步可观察动作：需要改文件就调用文件工具，需要查证就调用读取/搜索工具；若确实无法执行，给出具体阻塞原因。',
+    `当前未完成原因：${reason}`,
+  ].join('\n');
+}
+
 // === Judge prompt template (final; per plan §"judge call 实现细节") ===
 function buildJudgePrompt(goal: string, recentTurns: string): string {
   return [
@@ -90,6 +99,38 @@ function stripThinkBlocks(raw: string): string {
     .replace(/<think>[\s\S]*?<\/think>/g, '')
     .replace(/<think>[\s\S]*$/g, '')
     .trim();
+}
+
+function extractFirstJsonObject(raw: string): string {
+  const cleaned = stripThinkBlocks(raw);
+  const start = cleaned.indexOf('{');
+  if (start === -1) return cleaned;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < cleaned.length; i++) {
+    const char = cleaned[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return cleaned.slice(start, i + 1);
+    }
+  }
+  return cleaned.slice(start);
 }
 
 function truncateForJudge(value: unknown, maxLength = 300): string {
@@ -145,6 +186,16 @@ function renderRecentTurns(messages: ReadonlyArray<{ role: string; content: stri
   return transcript || '(no prior turns)';
 }
 
+function isSessionReadyForJudge(state: ReturnType<typeof useSessionStore.getState>, sessionId: string): boolean {
+  if (state.activeSessionId !== sessionId) {
+    return true;
+  }
+  if (state.pendingApproval) {
+    return false;
+  }
+  return !state.agentToolCalls.some((call) => call.status === 'running');
+}
+
 /** Make a single judge LLM call and parse the {satisfied, reason} JSON. */
 async function callJudgeOnce(opts: {
   projectId: string;
@@ -153,66 +204,42 @@ async function callJudgeOnce(opts: {
   recentTurns: string;
   model?: string;
 }): Promise<JudgeDecision> {
-  const judgeRequestId = `judge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const api = window.electronAPI?.llm;
-  if (!api?.chat || !api?.onChunk) {
-    throw new Error('judge: electronAPI.llm.chat / onChunk 不可用');
+  if (!api?.judge) {
+    throw new Error('judge: electronAPI.llm.judge 不可用');
   }
   const prompt = buildJudgePrompt(opts.goal, opts.recentTurns);
 
-  return new Promise<JudgeDecision>((resolve, reject) => {
-    let accumulated = '';
-    let resolved = false;
-    const cleanup = api.onChunk(judgeRequestId, (_event: unknown, data: any) => {
-      if (resolved) return;
-      if (data?.type === 'message_chunk' && typeof data.text === 'string') {
-        accumulated += data.text;
-      } else if (data?.type === 'message_done') {
-        resolved = true;
-        cleanup();
-        try {
-          const cleaned = stripThinkBlocks(accumulated);
-          const parsed = JSON.parse(cleaned);
-          if (
-            parsed &&
-            typeof parsed === 'object' &&
-            typeof parsed.satisfied === 'boolean' &&
-            typeof parsed.reason === 'string'
-          ) {
-            resolve({ satisfied: parsed.satisfied, reason: parsed.reason });
-          } else {
-            reject(new Error('judge: JSON schema 不合法（缺少 satisfied/reason）'));
-          }
-        } catch (err: any) {
-          reject(new Error('judge: JSON parse 失败: ' + (err?.message || 'unknown')));
-        }
-      } else if (data?.type === 'runtime_error') {
-        resolved = true;
-        cleanup();
-        reject(new Error('judge: runtime_error: ' + (data?.error || 'unknown')));
-      }
-    });
-
-    api
-      .chat(judgeRequestId, {
-        projectId: opts.projectId,
-        sessionId: opts.sessionId,
-        message: { id: judgeRequestId, content: prompt },
-        overrides: opts.model ? { model: opts.model } : undefined,
-      })
-      .catch((err: any) => {
-        if (resolved) return;
-        resolved = true;
-        cleanup();
-        reject(err instanceof Error ? err : new Error(String(err)));
-      });
+  const response = await api.judge({
+    projectId: opts.projectId,
+    prompt,
+    overrides: opts.model ? { model: opts.model } : undefined,
   });
+
+  try {
+    const parsed = JSON.parse(extractFirstJsonObject(response?.text ?? ''));
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.satisfied === 'boolean' &&
+      typeof parsed.reason === 'string'
+    ) {
+      return { satisfied: parsed.satisfied, reason: parsed.reason };
+    }
+    throw new Error('judge: JSON schema 不合法（缺少 satisfied/reason）');
+  } catch (err: any) {
+    throw new Error('judge: JSON parse 失败: ' + (err?.message || 'unknown'));
+  }
 }
 
 // ===== Factory =====
 export function createGoalJudge(): GoalJudgeInstance {
   // Closure-private subscriptions map (Issue 8 fix — factory isolation).
   const subs = new Map<string, { unsubscribe: () => void }>();
+  // Track active judge iterations per session. If the main agent finishes while
+  // a judge iteration is awaiting sendMessage(), queue one follow-up judge run.
+  const judgingSessions = new Set<string>();
+  const queuedCompletions = new Set<string>();
 
   async function startGoalJudgeLoop(
     sessionId: string,
@@ -239,12 +266,22 @@ export function createGoalJudge(): GoalJudgeInstance {
       return;
     }
 
-    // 1) 先订阅 sessionStore.isStreaming 转换。true→false 翻转 = 主 agent 一轮结束。
-    let prevStreaming = useSessionStore.getState().isStreaming;
-    const unsubscribe = useSessionStore.subscribe((s: { isStreaming: boolean }) => {
-      const nowStreaming = s.isStreaming;
+    // 1) 先订阅目标 session 的 streaming 转换。true→false 翻转 = 主 agent 一轮结束。
+    let prevStreaming = useSessionStore.getState().getIsSessionStreaming?.(sessionId)
+      ?? useSessionStore.getState().isStreaming;
+    const unsubscribe = useSessionStore.subscribe(() => {
+      const state = useSessionStore.getState();
+      const nowStreaming = state.getIsSessionStreaming?.(sessionId) ?? state.isStreaming;
       if (prevStreaming && !nowStreaming) {
-        void runJudgeIteration(sessionId, goal, maxTurns, projectId, options.model);
+        if (!isSessionReadyForJudge(state, sessionId)) {
+          prevStreaming = nowStreaming;
+          return;
+        }
+        if (judgingSessions.has(sessionId)) {
+          queuedCompletions.add(sessionId);
+        } else {
+          void runJudgeIteration(sessionId, goal, maxTurns, projectId, options.model);
+        }
       }
       prevStreaming = nowStreaming;
     });
@@ -274,73 +311,90 @@ export function createGoalJudge(): GoalJudgeInstance {
     // 若已被外部 stopGoalJudgeLoop 清掉，直接返回
     if (!subs.has(sessionId)) return;
 
-    useSessionStore.getState().setGoalJudgeStatus(sessionId, { status: 'judging' });
-
-    const store = useSessionStore.getState();
-    const messages = typeof store.getMessagesForSession === 'function'
-      ? store.getMessagesForSession(sessionId)
-      : store.messages;
-    const recentTurns = renderRecentTurns(messages);
-
-    let decision: JudgeDecision;
-    try {
-      decision = await callJudgeOnce({
-        projectId,
-        sessionId,
-        goal,
-        recentTurns,
-        model,
-      });
-    } catch (err: any) {
-      useSessionStore.getState().setGoalJudgeStatus(sessionId, {
-        status: 'failed',
-        reason: 'judge 失败：' + ((err && err.message) || 'unknown'),
-      });
-      // 失败：停掉 loop（不再进 sendMessage 死循环）
-      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
+    // Guard against overlapping judge runs for the same session. The queued
+    // completion is drained in finally so the loop still advances one turn.
+    if (judgingSessions.has(sessionId)) {
+      queuedCompletions.add(sessionId);
       return;
     }
+    judgingSessions.add(sessionId);
+    try {
+      useSessionStore.getState().setGoalJudgeStatus(sessionId, { status: 'judging' });
 
-    if (decision.satisfied) {
+      const store = useSessionStore.getState();
+      const messages = typeof store.getMessagesForSession === 'function'
+        ? store.getMessagesForSession(sessionId)
+        : store.messages;
+      const recentTurns = renderRecentTurns(messages);
+
+      let decision: JudgeDecision;
+      try {
+        decision = await callJudgeOnce({
+          projectId,
+          sessionId,
+          goal,
+          recentTurns,
+          model,
+        });
+      } catch (err: any) {
+        useSessionStore.getState().setGoalJudgeStatus(sessionId, {
+          status: 'failed',
+          reason: 'judge 失败：' + ((err && err.message) || 'unknown'),
+        });
+        await stopGoalJudgeLoop(sessionId, { clearStatus: false });
+        return;
+      }
+
+      if (decision.satisfied) {
+        useSessionStore.getState().setGoalJudgeStatus(sessionId, {
+          status: 'satisfied',
+          reason: decision.reason,
+        });
+        await stopGoalJudgeLoop(sessionId, { clearStatus: false });
+        return;
+      }
+
+      const current = useSessionStore.getState().getGoalJudgeStatus(sessionId);
+      const nextIteration = (current?.iteration ?? 0) + 1;
+      if (nextIteration >= maxTurns) {
+        useSessionStore.getState().setGoalJudgeStatus(sessionId, {
+          status: 'paused',
+          iteration: nextIteration,
+          reason: `已达 ${maxTurns} 轮上限`,
+        });
+        toast.warning('/goal 暂停', {
+          description: `已达 ${maxTurns} 轮上限。输入 /goal 清空。`,
+        });
+        await stopGoalJudgeLoop(sessionId, { clearStatus: false });
+        return;
+      }
+
       useSessionStore.getState().setGoalJudgeStatus(sessionId, {
-        status: 'satisfied',
+        status: 'unsatisfied',
+        iteration: nextIteration,
         reason: decision.reason,
       });
-      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
-      return;
-    }
-
-    // 未满足：检查 20-turn cap（P7）
-    const current = useSessionStore.getState().getGoalJudgeStatus(sessionId);
-    const nextIteration = (current?.iteration ?? 0) + 1;
-    if (nextIteration >= maxTurns) {
-      useSessionStore.getState().setGoalJudgeStatus(sessionId, {
-        status: 'paused',
-        iteration: nextIteration,
-        reason: `已达 ${maxTurns} 轮上限`,
-      });
-      toast.warning('/goal 暂停', {
-        description: `已达 ${maxTurns} 轮上限。输入 /goal 清空。`,
-      });
-      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
-      return;
-    }
-
-    // 注入下一轮 user message
-    useSessionStore.getState().setGoalJudgeStatus(sessionId, {
-      status: 'unsatisfied',
-      iteration: nextIteration,
-      reason: decision.reason,
-    });
-    try {
-      await useSessionStore.getState().sendMessage(projectId, '继续：' + decision.reason, undefined, sessionId);
-    } catch (err) {
-      console.error('[useGoalJudge] continue sendMessage failed:', err);
-      useSessionStore.getState().setGoalJudgeStatus(sessionId, {
-        status: 'failed',
-        reason: 'continue 注入失败：' + ((err as any)?.message || 'unknown'),
-      });
-      await stopGoalJudgeLoop(sessionId, { clearStatus: false });
+      try {
+        await useSessionStore.getState().sendMessage(
+          projectId,
+          buildContinueInstruction(decision.reason),
+          undefined,
+          sessionId,
+          { hiddenUserMessage: true }
+        );
+      } catch (err) {
+        console.error('[useGoalJudge] continue sendMessage failed:', err);
+        useSessionStore.getState().setGoalJudgeStatus(sessionId, {
+          status: 'failed',
+          reason: 'continue 注入失败：' + ((err as any)?.message || 'unknown'),
+        });
+        await stopGoalJudgeLoop(sessionId, { clearStatus: false });
+      }
+    } finally {
+      judgingSessions.delete(sessionId);
+      if (queuedCompletions.delete(sessionId) && subs.has(sessionId)) {
+        void runJudgeIteration(sessionId, goal, maxTurns, projectId, model);
+      }
     }
   }
 
