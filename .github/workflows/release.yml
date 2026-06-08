@@ -29,8 +29,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS Intel
-          - os: macos-13
+          # macOS Intel (cross-compiled on macos-14 — both arches on the same
+          # macOS-14 runner avoids the macos-13 / arm64 runner queue, which
+          # is consistently slow / unavailable on the GH free tier).
+          - os: macos-14
             target:
               name: mac-x64
               ebPlatform: mac
@@ -84,8 +86,10 @@ jobs:
               dist/*.AppImage.zsync
               dist/latest*.yml
             rename: true
-          # Linux arm64
-          - os: ubuntu-22.04-arm64
+          # Linux arm64 (cross-compiled on ubuntu-latest — avoids the
+          # ubuntu-22.04-arm64 runner queue; electron-builder supports
+          # x64→arm64 cross-build for AppImage with no extra config).
+          - os: ubuntu-latest
             target:
               name: linux-arm64
               ebPlatform: linux
