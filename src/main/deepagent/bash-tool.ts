@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import { promisify } from 'util';
 import { tool } from '@langchain/core/tools';
 
@@ -18,6 +19,7 @@ interface BashToolOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   workingDir?: string;
+  shell?: string;
 }
 
 const DANGEROUS_PATTERNS: RegExp[] = [
@@ -34,8 +36,9 @@ const DANGEROUS_PATTERNS: RegExp[] = [
 export function createBashTool(options: BashToolOptions = {}) {
   const timeoutMs = options.timeoutMs ?? 30_000;
   const maxOutputBytes = options.maxOutputBytes ?? 100 * 1024;
-  const workingDir = options.workingDir ?? '/tmp';
+  const workingDir = options.workingDir ?? os.tmpdir();
   const allowedCommands = options.allowedCommands;
+  const shell = options.shell ?? process.env.SHELL ?? (process.platform === 'win32' ? 'bash.exe' : '/bin/bash');
 
   async function executeCommand(command: string): Promise<BashResult> {
     if (!command.trim()) {
@@ -90,6 +93,7 @@ export function createBashTool(options: BashToolOptions = {}) {
         maxBuffer: maxOutputBytes,
         cwd: workingDir,
         env: process.env,
+        shell,
       } as any);
 
       let truncatedStdout = stdout;
