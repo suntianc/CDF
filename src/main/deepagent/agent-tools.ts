@@ -25,6 +25,7 @@ interface AgentRow {
   id: string;
   project_id: string;
   name: string;
+  slug: string | null;
   description: string | null;
   provider_id: string | null;
   system_prompt: string | null;
@@ -32,6 +33,19 @@ interface AgentRow {
   is_default: number;
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * Stable task key for delegated subagent calls (runtime.ts:573 pattern).
+ * If the persisted slug is null, fall back to a slugified version of
+ * the display name. Matches `createDeepAgentRuntime`'s lookup so the
+ * master can use this directly in `task(name: ...)` calls.
+ */
+function resolveAgentSlug(row: AgentRow): string {
+  return row.slug || row.name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
 }
 
 function parseConfig(raw: string | null): Record<string, unknown> {
@@ -48,6 +62,8 @@ function serializeAgent(row: AgentRow) {
     id: row.id,
     project_id: row.project_id,
     name: row.name,
+    slug: row.slug,                // raw DB value (may be null)
+    effective_slug: resolveAgentSlug(row),  // the actual task key
     description: row.description,
     provider_id: row.provider_id,
     system_prompt: row.system_prompt,
@@ -177,14 +193,27 @@ export function createAgentTools(
               'UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ?',
             ).run(now, projectId);
           }
+          // Codex P2 #14: persist slug on INSERT so the master can
+          // immediately use the returned `effective_slug` in `task(name:)`
+          // delegated calls. Without persisting, the slug is null until
+          // the runtime's generateSlug fallback kicks in at lookup
+          // time — which leaves the model guessing what task key to
+          // pass. Use the same slugify rules as runtime.ts:573.
+          const newSlug = input.name
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 50);
           db.prepare(
             `INSERT INTO agents
-              (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           ).run(
             id,
             projectId,
             input.name.trim(),
+            newSlug,
             input.description ?? null,
             effectiveProviderId,
             input.system_prompt ?? null,

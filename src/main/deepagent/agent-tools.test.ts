@@ -54,10 +54,10 @@ function makePrepared(state: typeof dbState) {
       let m = s.match(/^INSERT INTO agents \((.+)\) VALUES \((.+)\)$/i);
       if (m) {
         const [
-          id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at,
+          id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at,
         ] = params;
         dbState.agents.set(id, {
-          id, project_id, name,
+          id, project_id, name, slug: slug ?? null,
           description: description ?? null,
           provider_id: provider_id ?? null,
           system_prompt: system_prompt ?? null,
@@ -476,6 +476,21 @@ describe('createAgentTools', () => {
       });
       // Auto-promoted to default since project had no default
       expect(result.is_default).toBe(true);
+    });
+
+    it('returns slug + effective_slug in tool results (P2 #14)', async () => {
+      // Codex P2 #14: when the master delegates work to a newly
+      // created subagent via `task(name: ...)`, the actual task key
+      // is the agent's slug (or a slugified version of name), NOT
+      // the raw display name. Without returning slug from the tool,
+      // the master has to guess what key to pass.
+      seedProvider('p-default');
+      const result = await invoke('create_agent', { name: 'Code Reviewer' });
+      // effective_slug is the resolved task key the master should use
+      expect(result.effective_slug).toBe('code-reviewer');
+      // raw slug is also persisted in DB
+      expect(result.slug).toBe('code-reviewer');
+      expect(dbState.agents.get(result.id)?.slug).toBe('code-reviewer');
     });
 
     it('accepts valid special characters in name (space, hyphen, underscore)', async () => {

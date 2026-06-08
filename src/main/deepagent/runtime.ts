@@ -491,13 +491,11 @@ export async function createDeepAgentRuntime(
     createBashTool({ workingDir: project.path }),
   ];
 
-  // 暴露给主对话,让 Master Agent 能增删改查当前项目的 agent。
-  // 注入 active agent id(若指定),让 delete_agent 拒绝删除 in-flight 跑的 agent。
-  // 注:必须传 agentRow.id(经 getRuntimeAgent resolve 后的),不是 raw 的 agentId —
-  // 若用户没传或传了失效的 id,getRuntimeAgent 会回退到 default agent,
-  // 此时 in-flight 跑的是 default,工具 guard 拿 default id 才能正确拦截。
-  // 传 agentId 的话,default-agent 路径会被绕过,fix 失效。
-  builtInTools.push(...createAgentTools(projectId, { activeAgentId: agentRow.id }));
+  // Codex P2 #13: agent CRUD 工具只能给 MASTER,不能 spread 给 subagent。
+  // 否则 delegated subagent 能调 create/update/delete agent,
+  // 包括 delete 自己(parent agent) / 改 active agent / 污染 agent 库。
+  // subagents 收到的 tools 列表(下 line 594)不应该包含这些。
+  const masterAgentTools = createAgentTools(projectId, { activeAgentId: agentRow.id });
 
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [
@@ -606,7 +604,9 @@ export async function createDeepAgentRuntime(
     systemPrompt: systemPrompt || undefined,
     skills: skillsSources,
     permissions,
-    tools: [...mcpRuntime.tools, ...builtInTools],
+    // master 独享 agent CRUD 工具(create_agent / update_agent / delete_agent /
+    // list_agents) — P2 #13 修复:不让这些工具 leak 到 subagent。
+    tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     middleware: [createRecoverableToolErrorMiddleware()],
     interruptOn: DEFAULT_INTERRUPT_ON,
