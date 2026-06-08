@@ -125,11 +125,24 @@ export function createAgentTools(projectId: string) {
           });
         }
 
-        // 校验 provider 是否存在
-        if (input.provider_id) {
+        // provider 必填语义:workflow 后续 getProvider(null) 会抛错,
+        // 工具兜底:省略时回退到第一个可用 provider;没有 provider 则拒绝。
+        let effectiveProviderId = input.provider_id ?? null;
+        if (!effectiveProviderId) {
+          const firstProvider = db
+            .prepare('SELECT id FROM llm_providers ORDER BY id LIMIT 1')
+            .get() as { id: string } | undefined;
+          if (!firstProvider) {
+            return JSON.stringify({
+              error:
+                'No LLM provider configured. The user must add one in Settings before creating agents, or pass provider_id explicitly.',
+            });
+          }
+          effectiveProviderId = firstProvider.id;
+        } else {
           const provider = db
             .prepare('SELECT id FROM llm_providers WHERE id = ?')
-            .get(input.provider_id);
+            .get(effectiveProviderId);
           if (!provider) {
             return JSON.stringify({
               error: `Provider not found: ${input.provider_id}. Use list_agents or settings to find valid provider IDs.`,
@@ -156,7 +169,7 @@ export function createAgentTools(projectId: string) {
             projectId,
             input.name.trim(),
             input.description ?? null,
-            input.provider_id ?? null,
+            effectiveProviderId,
             input.system_prompt ?? null,
             configStr,
             input.is_default ? 1 : 0,
@@ -389,17 +402,29 @@ export function createAgentTools(projectId: string) {
         const runTx = db.transaction(() => {
           db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
           db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
+          // agent_runs.agent_id 设为 NULL 而非依赖 FK CASCADE 删行,
+          // 这样 run/tool-call 历史保留,只是不再归属被删的 agent。
+          db.prepare('UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?').run(id);
+          // 同理:任何 session.agent_id 引用也置 NULL(detach 而非删会话)
+          db.prepare('UPDATE sessions SET agent_id = NULL WHERE agent_id = ?').run(id);
+          db.prepare('UPDATE messages SET agent_id = NULL WHERE agent_id = ?').run(id);
           db.prepare('DELETE FROM agents WHERE id = ?').run(id);
         });
         runTx();
 
-        return JSON.stringify({ deleted: true, id, name: existing.name });
+        return JSON.stringify({
+          deleted: true,
+          id,
+          name: existing.name,
+          note: 'agent_runs / messages / sessions 引用已 detach(agent_id 置 NULL),历史保留可查',
+        });
       },
       {
         name: 'delete_agent',
         description:
-          '删除 agent(级联删除 agent_mcp_servers / agent_skills 关联)。' +
-          '注意:这不会删除 agent 已经生成的 agent_runs / 消息历史(那些仍可通过会话查询)。',
+          '删除 agent(清掉 agent_mcp_servers / agent_skills 关联)。' +
+          '注意:agent_runs / messages / sessions 中对该 agent 的引用会被 detach(agent_id 置 NULL),' +
+          '所以运行历史与消息历史仍保留可查(只不再归属此 agent)。',
         schema: z.object({
           id: z.string().describe('要删除的 agent ID'),
         }),

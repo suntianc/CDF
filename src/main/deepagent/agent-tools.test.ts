@@ -31,6 +31,11 @@ const dbState = {
   agentSkills: new Map<string, string[]>(),
   providers: new Map<string, { id: string }>(),
   mcpServers: new Map<string, { id: string; project_id: string }>(),
+  // agent_runs / sessions / messages 仅跟踪 agent_id 引用是否被 detach,
+  // 简化测试 — 实际 schema 里这些表还有更多列。
+  agentRuns: new Map<string, { id: string; agent_id: string | null }>(),
+  sessions: new Map<string, { id: string; agent_id: string | null }>(),
+  messages: new Map<string, { id: string; agent_id: string | null }>(),
 };
 
 function resetState() {
@@ -39,6 +44,9 @@ function resetState() {
   dbState.agentSkills.clear();
   dbState.providers.clear();
   dbState.mcpServers.clear();
+  dbState.agentRuns.clear();
+  dbState.sessions.clear();
+  dbState.messages.clear();
 }
 
 function makePrepared(state: typeof dbState) {
@@ -132,6 +140,30 @@ function makePrepared(state: typeof dbState) {
         dbState.agentSkills.get(aid as string)!.push(name as string);
         return { changes: 1 };
       }
+      // UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?
+      if (s === 'UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?') {
+        const [id] = params;
+        for (const run of dbState.agentRuns.values()) {
+          if (run.agent_id === id) run.agent_id = null;
+        }
+        return { changes: dbState.agentRuns.size };
+      }
+      // UPDATE sessions SET agent_id = NULL WHERE agent_id = ?
+      if (s === 'UPDATE sessions SET agent_id = NULL WHERE agent_id = ?') {
+        const [id] = params;
+        for (const s of dbState.sessions.values()) {
+          if (s.agent_id === id) s.agent_id = null;
+        }
+        return { changes: dbState.sessions.size };
+      }
+      // UPDATE messages SET agent_id = NULL WHERE agent_id = ?
+      if (s === 'UPDATE messages SET agent_id = NULL WHERE agent_id = ?') {
+        const [id] = params;
+        for (const m of dbState.messages.values()) {
+          if (m.agent_id === id) m.agent_id = null;
+        }
+        return { changes: dbState.messages.size };
+      }
       return { changes: 0 };
     };
 
@@ -140,6 +172,11 @@ function makePrepared(state: typeof dbState) {
       if (s === 'SELECT id FROM llm_providers WHERE id = ?') {
         const [id] = params;
         return dbState.providers.get(id as string);
+      }
+      // SELECT id FROM llm_providers ORDER BY id LIMIT 1  (provider fallback)
+      if (s === 'SELECT id FROM llm_providers ORDER BY id LIMIT 1') {
+        const first = [...dbState.providers.values()][0];
+        return first;
       }
       // SELECT id FROM mcp_servers WHERE id = ?
       if (s === 'SELECT id FROM mcp_servers WHERE id = ?') {
@@ -279,13 +316,30 @@ describe('createAgentTools', () => {
 
   describe('create_agent', () => {
     it('creates an agent with required name only', async () => {
+      // Pre-seed a provider so the fallback path can succeed.
+      seedProvider('p-default');
       const result = await invoke('create_agent', { name: 'reviewer' });
       expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(result.name).toBe('reviewer');
       expect(result.project_id).toBe(PROJECT_ID);
       expect(result.is_default).toBe(false);
+      // provider_id is auto-set via fallback (P2 #3 fix)
+      expect(result.provider_id).toBe('p-default');
       // Verify persisted
       expect(dbState.agents.get(result.id)?.name).toBe('reviewer');
+    });
+
+    it('rejects when no provider configured and no provider_id given (P2 #3)', async () => {
+      const result = await invoke('create_agent', { name: 'orphan' });
+      expect(result.error).toMatch(/No LLM provider configured/);
+      expect(dbState.agents.size).toBe(0);
+    });
+
+    it('falls back to first provider when provider_id omitted (P2 #3)', async () => {
+      seedProvider('p-first');
+      seedProvider('p-second');
+      const result = await invoke('create_agent', { name: 'fallback' });
+      expect(result.provider_id).toBe('p-first');
     });
 
     it('rejects names with non-English characters', async () => {
@@ -300,6 +354,7 @@ describe('createAgentTools', () => {
     });
 
     it('accepts valid special characters in name (space, hyphen, underscore)', async () => {
+      seedProvider('p-default');
       const result = await invoke('create_agent', { name: 'Code Reviewer-v2_final' });
       expect(result.id).toBeDefined();
     });
@@ -322,6 +377,7 @@ describe('createAgentTools', () => {
     });
 
     it('attaches MCP servers and skills (only global-scoped skills)', async () => {
+      seedProvider('p-default');
       dbState.mcpServers.set('m1', { id: 'm1', project_id: PROJECT_ID });
       const result = await invoke('create_agent', {
         name: 'attached',
@@ -335,6 +391,7 @@ describe('createAgentTools', () => {
     });
 
     it('first agent becomes default; setting is_default on second resets first', async () => {
+      seedProvider('p-default');
       const a = await invoke('create_agent', { name: 'A', is_default: true });
       const b = await invoke('create_agent', { name: 'B' });
       expect(a.is_default).toBe(true);
@@ -407,6 +464,23 @@ describe('createAgentTools', () => {
     it('returns error for missing id', async () => {
       const result = await invoke('delete_agent', { id: '' });
       expect(result.error).toMatch(/id is required/);
+    });
+
+    it('orphans agent_runs / sessions / messages instead of CASCADE deleting (P2 #2)', async () => {
+      const a = seedAgent({});
+      // Pre-seed history rows pointing at the agent
+      dbState.agentRuns.set('run-1', { id: 'run-1', agent_id: a.id });
+      dbState.sessions.set('sess-1', { id: 'sess-1', agent_id: a.id });
+      dbState.messages.set('msg-1', { id: 'msg-1', agent_id: a.id });
+
+      await invoke('delete_agent', { id: a.id });
+
+      // Agent row gone
+      expect(dbState.agents.has(a.id)).toBe(false);
+      // History rows PRESERVED, just with agent_id = null
+      expect(dbState.agentRuns.get('run-1')?.agent_id).toBeNull();
+      expect(dbState.sessions.get('sess-1')?.agent_id).toBeNull();
+      expect(dbState.messages.get('msg-1')?.agent_id).toBeNull();
     });
   });
 
