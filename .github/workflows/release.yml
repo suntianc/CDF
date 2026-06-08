@@ -243,9 +243,7 @@ jobs:
             artifacts/cdf-win-arm64/*.exe
             artifacts/cdf-win-arm64/*.exe.blockmap
             artifacts/cdf-linux-x64/*.AppImage
-            artifacts/cdf-linux-x64/*.AppImage.zsync
             artifacts/cdf-linux-arm64/*.AppImage
-            artifacts/cdf-linux-arm64/*.AppImage.zsync
             artifacts/cdf-mac-x64/latest-mac.yml
             artifacts/cdf-mac-arm64/latest-mac.yml
             artifacts/cdf-win-x64/latest.yml
