@@ -201,6 +201,26 @@ function makePrepared(state: typeof dbState) {
         if (r && r.project_id === pid) return { id: r.id, name: r.name };
         return undefined;
       }
+      // SELECT id, name, is_default FROM agents WHERE id = ? AND project_id = ?
+      if (s === 'SELECT id, name, is_default FROM agents WHERE id = ? AND project_id = ?') {
+        const [id, pid] = params;
+        const r = dbState.agents.get(id as string);
+        if (r && r.project_id === pid) {
+          return { id: r.id, name: r.name, is_default: r.is_default };
+        }
+        return undefined;
+      }
+      // SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?
+      // (P2 #11 / P2 #12: "any other default agent?" check)
+      if (s === 'SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?') {
+        const [pid, exceptId] = params;
+        for (const a of dbState.agents.values()) {
+          if (a.project_id === pid && a.is_default === 1 && a.id !== exceptId) {
+            return { id: a.id };
+          }
+        }
+        return undefined;
+      }
       // SELECT id, session_id, status FROM agent_runs
       //   WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1
       if (
@@ -613,6 +633,37 @@ describe('createAgentTools', () => {
       expect(dbState.agents.has(a.id)).toBe(true);
       // Paused run row preserved
       expect(dbState.agentRuns.has('run-paused')).toBe(true);
+    });
+
+    it('rejects deletion of the only default agent (P2 #12)', async () => {
+      // Codex P2 #12: same invariant as P2 #11, but on delete_agent.
+      // The P2 #11 fix added the guard only to update_agent; delete_agent
+      // was missed and has the same bug. Deleting the sole default agent
+      // also leaves the project without a default, triggering
+      // ensureDefaultAgent's auto-create 'Master Agent' path.
+      const sole = seedAgent({ is_default: 1 });
+      const result = await invoke('delete_agent', { id: sole.id });
+      expect(result.error).toMatch(/only default agent/);
+      expect(result.error).toMatch(/auto-create a new/);
+      // Agent row NOT deleted
+      expect(dbState.agents.has(sole.id)).toBe(true);
+    });
+
+    it('allows deletion of default agent when other defaults exist (P2 #12)', async () => {
+      const a = seedAgent({ is_default: 1 });
+      const b = seedAgent({ is_default: 1 });
+      const result = await invoke('delete_agent', { id: a.id });
+      expect(result.deleted).toBe(true);
+      // b is still default
+      expect(dbState.agents.get(b.id)!.is_default).toBe(1);
+    });
+
+    it('allows deletion of a non-default agent even when it is the only one (P2 #12)', async () => {
+      // Sanity check: the guard only fires when the target IS default.
+      // Deleting a non-default agent doesn't violate the "≥1 default" invariant.
+      const a = seedAgent({ is_default: 0 });
+      const result = await invoke('delete_agent', { id: a.id });
+      expect(result.deleted).toBe(true);
     });
 
     it('deletes agent and cascades mcp/skill rows', async () => {

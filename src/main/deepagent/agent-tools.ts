@@ -445,8 +445,8 @@ export function createAgentTools(
           });
         }
         const existing = db
-          .prepare('SELECT id, name FROM agents WHERE id = ? AND project_id = ?')
-          .get(id, projectId) as { id: string; name: string } | undefined;
+          .prepare('SELECT id, name, is_default FROM agents WHERE id = ? AND project_id = ?')
+          .get(id, projectId) as { id: string; name: string; is_default: number } | undefined;
         if (!existing) {
           return JSON.stringify({ error: `Agent not found: ${id}` });
         }
@@ -478,6 +478,31 @@ export function createAgentTools(
               `then retry the deletion. Deleting now would cascade-delete the in-flight agent_runs row, ` +
               `breaking its tool-call log writes and final updateRun.`,
           });
+        }
+
+        // Codex P2 #12: 同 P2 #11 的 invariant 护栏 — 项目必须至少有 1 个 default agent。
+        // delete_agent 的 active-agent guard 只保护 running 的 agent,in-flight query
+        // 只保护 active runs,但项目 invariant("至少 1 个 default")是被另外两个
+        // 护栏间接覆盖不到的不变量。删唯一 default 同样会触发 ensureDefaultAgent
+        // 自动插 Master Agent 的污染路径。
+        //
+        // 注:本会话 P2 #11 给 update_agent 加了同款护栏但漏了 delete_agent —
+        // codex 用 P2 #12 揭示这个疏漏。教训见 codex-review-checklist §20 强化:
+        // 加 invariant 护栏时,**审计所有 destructive 操作**,不只是当前在写的那个。
+        if (existing.is_default === 1) {
+          const otherDefaults = db
+            .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?')
+            .get(projectId, id) as { id: string } | undefined;
+          if (!otherDefaults) {
+            return JSON.stringify({
+              error:
+                `Cannot delete the project's only default agent (id=${id}). ` +
+                `The project would have no default agent, and the next chat that omits an ` +
+                `explicit agent id would auto-create a new "Master Agent" row, silently ` +
+                `changing the default and cluttering the library. First use update_agent to ` +
+                `promote another agent as default (set its is_default: true), then retry.`,
+            });
+          }
         }
 
         // 与现有 db:deleteAgent IPC (ipc-handlers.ts:486-488) 行为一致:
