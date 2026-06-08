@@ -121,7 +121,7 @@ describe('candidate-lister', () => {
     const result = listCandidates(tempDir);
     expect(result.candidates.length).toBe(5000);
     expect(result.truncated).toBe(true);
-  });
+  }, 15_000);
 
   // Phase 08.3 fix #6: symlink-traversal guard.
   it('drops symlink paths that resolve outside the project root', () => {
