@@ -1,0 +1,240 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.0). Leave empty to use latest pushed tag.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  build:
+    name: Build ${{ matrix.target.name }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Intel
+          - os: macos-13
+            target:
+              name: mac-x64
+              electronPlatformName: darwin
+              electronArch: x64
+            artifact_glob: |
+              dist/*.dmg
+              dist/*.dmg.blockmap
+              dist/mac*/*
+            rename: true
+          # macOS Apple Silicon
+          - os: macos-14
+            target:
+              name: mac-arm64
+              electronPlatformName: darwin
+              electronArch: arm64
+            artifact_glob: |
+              dist/*.dmg
+              dist/*.dmg.blockmap
+              dist/mac*/*
+            rename: true
+          # Windows x64
+          - os: windows-latest
+            target:
+              name: win-x64
+              electronPlatformName: win32
+              electronArch: x64
+            artifact_glob: |
+              dist/*.exe
+              dist/*.exe.blockmap
+              dist/latest*.yml
+            rename: true
+          # Windows arm64
+          - os: windows-latest
+            target:
+              name: win-arm64
+              electronPlatformName: win32
+              electronArch: arm64
+            artifact_glob: |
+              dist/*.exe
+              dist/*.exe.blockmap
+              dist/latest*.yml
+            rename: true
+          # Linux x64
+          - os: ubuntu-latest
+            target:
+              name: linux-x64
+              electronPlatformName: linux
+              electronArch: x64
+            artifact_glob: |
+              dist/*.AppImage
+              dist/*.AppImage.zsync
+              dist/latest*.yml
+            rename: true
+          # Linux arm64
+          - os: ubuntu-22.04-arm64
+            target:
+              name: linux-arm64
+              electronPlatformName: linux
+              electronArch: arm64
+            artifact_glob: |
+              dist/*.AppImage
+              dist/*.AppImage.zsync
+              dist/latest*.yml
+            rename: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild native modules for Electron
+        run: pnpm exec electron-builder install-app-deps
+
+      - name: Apply patches
+        run: pnpm exec patch-package || true
+
+      - name: Build renderer & main (vite)
+        run: pnpm build
+
+      - name: Package with electron-builder
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # macOS code signing & notarization (optional, set secrets to enable)
+          # CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          # CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          pnpm exec electron-builder \
+            --${{ matrix.target.electronPlatformName }} \
+            --${{ matrix.target.electronArch }} \
+            --publish never
+
+      - name: List dist contents
+        shell: bash
+        run: ls -la dist/ || dir dist\
+
+      - name: Rename artifacts with arch suffix
+        if: ${{ matrix.rename }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in *.dmg *.exe *.AppImage *.AppImage.zsync *.dmg.blockmap *.exe.blockmap; do
+            [ -e "$f" ] || continue
+            base="${f%.*}"
+            ext="${f##*.}"
+            # For blockmap the ext is the last segment; for AppImage the inner ext is AppImage
+            # Use a more robust approach
+            case "$f" in
+              *.dmg.blockmap)
+                new="${base%.dmg}-${{ matrix.target.name }}.dmg.blockmap"
+                ;;
+              *.exe.blockmap)
+                new="${base%.exe}-${{ matrix.target.name }}.exe.blockmap"
+                ;;
+              *.AppImage.zsync)
+                base_no_ext="${f%.AppImage.zsync}"
+                new="${base_no_ext}-${{ matrix.target.name }}.AppImage.zsync"
+                ;;
+              *.AppImage)
+                base_no_ext="${f%.AppImage}"
+                new="${base_no_ext}-${{ matrix.target.name }}.AppImage"
+                ;;
+              *.dmg)
+                base_no_ext="${f%.dmg}"
+                new="${base_no_ext}-${{ matrix.target.name }}.dmg"
+                ;;
+              *.exe)
+                base_no_ext="${f%.exe}"
+                new="${base_no_ext}-${{ matrix.target.name }}.exe"
+                ;;
+              *)
+                continue
+                ;;
+            esac
+            if [ "$f" != "$new" ]; then
+              mv -v "$f" "$new"
+            fi
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdf-${{ matrix.target.name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -laR artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/cdf-mac-x64/**
+            artifacts/cdf-mac-arm64/**
+            artifacts/cdf-win-x64/**
+            artifacts/cdf-win-arm64/**
+            artifacts/cdf-linux-x64/**
+            artifacts/cdf-linux-arm64/**
