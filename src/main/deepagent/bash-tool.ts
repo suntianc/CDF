@@ -1,4 +1,5 @@
 import { exec } from 'child_process';
+import fs from 'fs';
 import { promisify } from 'util';
 import { tool } from '@langchain/core/tools';
 
@@ -72,12 +73,23 @@ export function createBashTool(options: BashToolOptions = {}) {
       }
     }
 
+    if (!fs.existsSync(workingDir) || !fs.statSync(workingDir).isDirectory()) {
+      const msg = `Working directory does not exist: ${workingDir}`;
+      return {
+        stdout: '',
+        stderr: msg,
+        exitCode: -4,
+        success: false,
+        error: msg,
+      };
+    }
+
     try {
       const { stdout, stderr } = await execAsync(command, {
         timeout: timeoutMs,
         maxBuffer: maxOutputBytes,
         cwd: workingDir,
-        env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' },
+        env: process.env,
       } as any);
 
       let truncatedStdout = stdout;

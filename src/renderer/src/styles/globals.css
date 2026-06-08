@@ -297,7 +297,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 .model-dropdown {
   position: absolute;
-  bottom: calc(100% + 6px);
   left: 0;
   width: min(320px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
@@ -312,6 +311,14 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   max-height: min(320px, calc(100vh - 160px));
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+.model-selector--welcome .model-dropdown {
+  top: calc(100% + 6px);
+}
+
+.model-selector--composer .model-dropdown {
+  bottom: calc(100% + 6px);
 }
 
 .model-selector.open .model-dropdown {
@@ -1072,4 +1079,3 @@ html[data-theme="light"] .toast {
 .animate-node-running {
   animation: node-running-pulse 2s infinite ease-in-out;
 }
-

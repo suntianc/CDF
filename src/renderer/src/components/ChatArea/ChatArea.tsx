@@ -1235,7 +1235,7 @@ export function ChatArea({
                   <Paperclip className="w-4 h-4" />
                 </button>
                 <div 
-                  className={`model-selector ${welcomeModelSelectorOpen ? 'open' : ''}`}
+                  className={`model-selector model-selector--welcome ${welcomeModelSelectorOpen ? 'open' : ''}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div
@@ -1536,7 +1536,7 @@ export function ChatArea({
                   <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
                     <div className="flex items-center gap-1.5">
                       <div 
-                        className={`model-selector ${composerModelSelectorOpen ? 'open' : ''}`}
+                        className={`model-selector model-selector--composer ${composerModelSelectorOpen ? 'open' : ''}`}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div
