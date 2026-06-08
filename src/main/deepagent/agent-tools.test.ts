@@ -201,14 +201,21 @@ function makePrepared(state: typeof dbState) {
         if (r && r.project_id === pid) return { id: r.id, name: r.name };
         return undefined;
       }
-      // SELECT id, session_id FROM agent_runs WHERE agent_id = ? AND status = 'running' LIMIT 1
+      // SELECT id, session_id, status FROM agent_runs
+      //   WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1
       if (
         s ===
-        "SELECT id, session_id FROM agent_runs WHERE agent_id = ? AND status = 'running' LIMIT 1"
+        "SELECT id, session_id, status FROM agent_runs " +
+          "WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1"
       ) {
         const [aid] = params;
         for (const run of dbState.agentRuns.values()) {
-          if (run.agent_id === aid && run.status === 'running') return run;
+          if (
+            run.agent_id === aid &&
+            (run.status === 'running' || run.status === 'waiting_approval')
+          ) {
+            return run;
+          }
         }
         return undefined;
       }
@@ -527,7 +534,7 @@ describe('createAgentTools', () => {
 
       const result = await invoke('delete_agent', { id: a.id });
 
-      expect(result.error).toMatch(/another chat session is currently running/);
+      expect(result.error).toMatch(/in-flight run with this agent/);
       expect(result.error).toMatch(/status='running'/);
       // Agent row NOT deleted
       expect(dbState.agents.has(a.id)).toBe(true);
@@ -537,8 +544,8 @@ describe('createAgentTools', () => {
 
     it('allows deletion when agent_runs has only completed/failed/aborted rows (P2 #9)', async () => {
       // Sanity check: if all agent_runs for this agent are in a terminal
-      // state (status NOT 'running'), the cross-runtime guard does NOT
-      // fire and the normal CASCADE delete proceeds.
+      // state (status NOT 'running' or 'waiting_approval'), the cross-runtime
+      // guard does NOT fire and the normal CASCADE delete proceeds.
       const a = seedAgent({});
       dbState.agentRuns.set('run-done', { id: 'run-done', agent_id: a.id, status: 'completed' });
       dbState.agentRuns.set('run-failed', { id: 'run-failed', agent_id: a.id, status: 'failed' });
@@ -547,6 +554,30 @@ describe('createAgentTools', () => {
       const result = await invoke('delete_agent', { id: a.id });
 
       expect(result.deleted).toBe(true);
+    });
+
+    it('rejects deletion when another session is waiting for approval (P2 #10)', async () => {
+      // Codex P2 #10: llm.ts:764 calls updateRun(runId, 'waiting_approval')
+      // when a tool execution needs human approval. The agent_runs row is
+      // still in-flight (the chat will resume after approval), so deleting
+      // the agent during the approval window breaks the resume path:
+      // approving/rejecting later updates a missing run_id row, silently
+      // losing history. The P2 #9 fix only checked 'running' and missed
+      // this state; expand to include 'waiting_approval'.
+      const a = seedAgent({});
+      dbState.agentRuns.set('run-paused', {
+        id: 'run-paused',
+        agent_id: a.id,
+        status: 'waiting_approval',
+      });
+
+      const result = await invoke('delete_agent', { id: a.id });
+
+      expect(result.error).toMatch(/in-flight run with this agent/);
+      expect(result.error).toMatch(/waiting_approval/);
+      expect(dbState.agents.has(a.id)).toBe(true);
+      // Paused run row preserved
+      expect(dbState.agentRuns.has('run-paused')).toBe(true);
     });
 
     it('deletes agent and cascades mcp/skill rows', async () => {

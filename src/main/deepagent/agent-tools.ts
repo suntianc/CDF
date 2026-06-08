@@ -429,24 +429,31 @@ export function createAgentTools(
           return JSON.stringify({ error: `Agent not found: ${id}` });
         }
 
-        // Codex P2 #9: 防御深度 — 即使本 runtime 的 activeAgentId 跟目标 id 不匹配,
+        // Codex P2 #9 + P2 #10: 防御深度 — 即使本 runtime 的 activeAgentId 跟目标 id 不匹配,
         // 其他 session / runtime 可能正在用这个 agent 跑 in-flight run。
         // runLLMChat 路径 (src/main/llm.ts:createRun) 在 streaming 期间会 insert 一行
-        // status='running' 的 agent_runs,后续 tool-call 写 log / updateRun 都引用这行
-        // 的 run_id。FK ON DELETE CASCADE 会把该行也删,那个 chat 的 run/tool-call
-        // 记录就崩了。所以查 agent_runs 看有没有 status='running' 的行,有就拒。
-        const runningRun = db
+        // status='running' 的 agent_runs,工具调用需要用户 approve 时
+        // (llm.ts:764 updateRun(runId, 'waiting_approval')) 也会改 status。
+        // 后续 tool-call 写 log / updateRun 都引用这行的 run_id。FK ON DELETE CASCADE
+        // 会把该行也删,那个 chat 的 run/tool-call 记录就崩了。
+        //
+        // in-flight 状态集对应 src/shared/types.ts:298 AgentRunStatus 联合类型:
+        //   'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted'
+        // in-flight = 头 2 个(还没结束的),terminal = 后 3 个。
+        // 若以后加新的 in-flight 状态(例如 'paused'),需同步更新此列表。
+        const inFlightRun = db
           .prepare(
-            "SELECT id, session_id FROM agent_runs WHERE agent_id = ? AND status = 'running' LIMIT 1",
+            "SELECT id, session_id, status FROM agent_runs " +
+              "WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1",
           )
-          .get(id) as { id: string; session_id: string } | undefined;
-        if (runningRun) {
+          .get(id) as { id: string; session_id: string; status: string } | undefined;
+        if (inFlightRun) {
           return JSON.stringify({
             error:
-              `Cannot delete agent: another chat session is currently running with this agent ` +
-              `(agent_runs id=${runningRun.id} status='running' session_id=${runningRun.session_id}). ` +
-              `Wait for the in-flight run to finish, then retry the deletion. ` +
-              `Deleting now would cascade-delete that other run's agent_runs row, ` +
+              `Cannot delete agent: another chat session has an in-flight run with this agent ` +
+              `(agent_runs id=${inFlightRun.id} status='${inFlightRun.status}' session_id=${inFlightRun.session_id}). ` +
+              `Wait for the run to finish (status transitions to 'completed' / 'failed' / 'aborted'), ` +
+              `then retry the deletion. Deleting now would cascade-delete the in-flight agent_runs row, ` +
               `breaking its tool-call log writes and final updateRun.`,
           });
         }
