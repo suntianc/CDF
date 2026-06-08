@@ -478,6 +478,25 @@ describe('createAgentTools', () => {
       expect(dbState.agents.has(active.id)).toBe(true);
     });
 
+    it('mimics runtime P1 #8 fix: getRuntimeAgent resolves default agent and guard fires', async () => {
+      // The runtime at runtime.ts:497 passes `agentRow.id` (the resolved
+      // agent id from getRuntimeAgent), not the raw `agentId` parameter.
+      // getRuntimeAgent falls back to ensureDefaultAgent when agentId is
+      // null/missing/stale, so the in-flight chat's actual agent is
+      // whatever default agent the project has. This test simulates
+      // that exact path: caller omits agentId → factory gets default id →
+      // delete of default agent is rejected.
+      const defaultAgent = seedAgent({ id: 'project-default-agent' });
+      const result = await invoke(
+        'delete_agent',
+        { id: defaultAgent.id },
+        // No agentId from caller; factory receives the resolved default id.
+        { activeAgentId: defaultAgent.id },
+      );
+      expect(result.error).toMatch(/currently running this chat session/);
+      expect(dbState.agents.has(defaultAgent.id)).toBe(true);
+    });
+
     it('deletes agent and cascades mcp/skill rows', async () => {
       const a = seedAgent({});
       dbState.agentMcp.set(a.id, ['m1']);

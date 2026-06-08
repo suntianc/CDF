@@ -493,8 +493,11 @@ export async function createDeepAgentRuntime(
 
   // 暴露给主对话,让 Master Agent 能增删改查当前项目的 agent。
   // 注入 active agent id(若指定),让 delete_agent 拒绝删除 in-flight 跑的 agent。
-  const effectiveAgentId = agentId ?? null;
-  builtInTools.push(...createAgentTools(projectId, { activeAgentId: effectiveAgentId }));
+  // 注:必须传 agentRow.id(经 getRuntimeAgent resolve 后的),不是 raw 的 agentId —
+  // 若用户没传或传了失效的 id,getRuntimeAgent 会回退到 default agent,
+  // 此时 in-flight 跑的是 default,工具 guard 拿 default id 才能正确拦截。
+  // 传 agentId 的话,default-agent 路径会被绕过,fix 失效。
+  builtInTools.push(...createAgentTools(projectId, { activeAgentId: agentRow.id }));
 
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [
