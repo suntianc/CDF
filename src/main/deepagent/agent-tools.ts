@@ -399,16 +399,16 @@ export function createAgentTools(projectId: string) {
           return JSON.stringify({ error: `Agent not found: ${id}` });
         }
 
+        // 与现有 db:deleteAgent IPC (ipc-handlers.ts:486-488) 行为一致:
+        // 单条 DELETE FROM agents,FK CASCADE 负责清理 mcp/skill/run/tool-call 关联。
+        // sessions.agent_id 由 FK ON DELETE SET NULL (database.ts:87) 自动 orphan。
+        // messages 表无 agent_id 列,引用经 session_id 间接保留。
+        //
+        // 注:曾尝试 UPDATE agent_runs SET agent_id = NULL 以保留 run 历史,
+        // 但 database.ts:168 声明 agent_runs.agent_id TEXT NOT NULL,SQLite 拒收
+        // NULL 赋值,所以保留 run 历史需要 schema 变更(migration 把列改为 NULL),
+        // 已超出本 PR 范围。
         const runTx = db.transaction(() => {
-          db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
-          db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
-          // agent_runs.agent_id 显式置 NULL — 否则 FK ON DELETE CASCADE
-          // (database.ts:176) 会把该 agent 的所有 run 记录连带 agent_tool_calls
-          // (database.ts:190) 一起删,run 历史就丢了。
-          db.prepare('UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?').run(id);
-          // 注: sessions.agent_id 引用靠 FK ON DELETE SET NULL(database.ts:87)
-          // 自动 orphan,无需手动 UPDATE。messages 表无 agent_id 列,引用经
-          // session_id 间接保留 — 不要加 UPDATE messages。
           db.prepare('DELETE FROM agents WHERE id = ?').run(id);
         });
         runTx();
@@ -417,17 +417,17 @@ export function createAgentTools(projectId: string) {
           deleted: true,
           id,
           name: existing.name,
-          note: 'agent_runs 引用已 detach(agent_id 置 NULL,run / tool-call 历史保留);' +
-                'sessions.agent_id 由 FK ON DELETE SET NULL 自动 orphan;messages 经 session_id 间接保留',
+          note: 'agent_mcp_servers / agent_skills / agent_runs / agent_tool_calls 已通过 FK CASCADE 清理;' +
+                'sessions.agent_id 由 SET NULL FK 自动 orphan;messages 经 session_id 间接保留',
         });
       },
       {
         name: 'delete_agent',
         description:
-          '删除 agent(清掉 agent_mcp_servers / agent_skills 关联)。' +
-          '注意:agent_runs 中对该 agent 的引用被显式 detach(agent_id 置 NULL),' +
-          '所以运行历史与 tool-call 历史仍保留可查(只不再归属此 agent)。' +
-          'sessions.agent_id 引用由 FK ON DELETE SET NULL 自动 orphan,消息历史经 session_id 间接保留。',
+          '删除 agent。**该操作会通过 FK CASCADE 一并清掉该 agent 的** agent_mcp_servers / agent_skills /' +
+          ' agent_runs / agent_tool_calls 记录(因为 agent_runs.agent_id 是 NOT NULL,无法 detach)。' +
+          'sessions.agent_id 由 SET NULL FK 自动 orphan,会话与消息历史仍可查(经 session_id)。' +
+          '等同于 UI 中"删除"按钮的 db:deleteAgent IPC 行为 (ipc-handlers.ts:486-488)。',
         schema: z.object({
           id: z.string().describe('要删除的 agent ID'),
         }),

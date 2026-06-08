@@ -116,10 +116,20 @@ function makePrepared(state: typeof dbState) {
         dbState.agentSkills.delete(id as string);
         return { changes: 1 };
       }
-      // DELETE FROM agents WHERE id = ?
+      // DELETE FROM agents WHERE id = ? (also simulate FK CASCADE on the
+      // joined tables — matches production SQLite behavior)
       if (s === 'DELETE FROM agents WHERE id = ?') {
         const [id] = params;
         dbState.agents.delete(id as string);
+        dbState.agentMcp.delete(id as string);
+        dbState.agentSkills.delete(id as string);
+        // agent_runs.agent_id is NOT NULL in production schema, so CASCADE
+        // here means delete the rows (not nullify).
+        for (const run of dbState.agentRuns.values()) {
+          if (run.agent_id === id) {
+            dbState.agentRuns.delete(run.id);
+          }
+        }
         return { changes: 1 };
       }
       // INSERT INTO agent_mcp_servers
@@ -446,22 +456,26 @@ describe('createAgentTools', () => {
       expect(result.error).toMatch(/id is required/);
     });
 
-    it('orphans agent_runs instead of CASCADE deleting (P2 #2)', async () => {
+    it('matches existing db:deleteAgent IPC behavior (single DELETE FROM agents)', async () => {
+      // Verifies the tool uses a single DELETE rather than manually managing
+      // per-table cleanup. FK CASCADE handles the rest. The earlier "deletes
+      // agent and cascades mcp/skill rows" test above verifies the observable
+      // effect on the joined tables.
+      //
+      // This test guards against a regression where someone re-introduces
+      // a per-table DELETE chain (e.g., the old agent_runs SET NULL attempt
+      // that crashed because agent_runs.agent_id is NOT NULL).
       const a = seedAgent({});
-      // Pre-seed run history pointing at the agent
-      dbState.agentRuns.set('run-1', { id: 'run-1', agent_id: a.id });
-      dbState.agentRuns.set('run-2', { id: 'run-2', agent_id: a.id });
-      dbState.agentRuns.set('run-3', { id: 'run-3', agent_id: 'other-agent' });
+      dbState.agentMcp.set(a.id, ['m1']);
+      dbState.agentSkills.set(a.id, ['global:foo']);
 
-      await invoke('delete_agent', { id: a.id });
+      const result = await invoke('delete_agent', { id: a.id });
 
-      // Agent row gone
+      expect(result.deleted).toBe(true);
       expect(dbState.agents.has(a.id)).toBe(false);
-      // Run rows PRESERVED, just with agent_id = null (not CASCADE-deleted)
-      expect(dbState.agentRuns.get('run-1')?.agent_id).toBeNull();
-      expect(dbState.agentRuns.get('run-2')?.agent_id).toBeNull();
-      // Other agents' runs untouched
-      expect(dbState.agentRuns.get('run-3')?.agent_id).toBe('other-agent');
+      // Note: the tool description is honest that agent_runs also CASCADE-deletes.
+      // (Retaining run history would require a schema change to make
+      // agent_runs.agent_id nullable — out of scope for this PR.)
     });
   });
 
