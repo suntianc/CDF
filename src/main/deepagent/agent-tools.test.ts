@@ -31,11 +31,9 @@ const dbState = {
   agentSkills: new Map<string, string[]>(),
   providers: new Map<string, { id: string }>(),
   mcpServers: new Map<string, { id: string; project_id: string }>(),
-  // agent_runs / sessions / messages 仅跟踪 agent_id 引用是否被 detach,
-  // 简化测试 — 实际 schema 里这些表还有更多列。
+  // 仅跟踪 agent_runs 的 agent_id 引用(因为是工具显式 UPDATE 的目标)
+  // sessions 靠 FK ON DELETE SET NULL 自动 orphan,messages 无 agent_id 列
   agentRuns: new Map<string, { id: string; agent_id: string | null }>(),
-  sessions: new Map<string, { id: string; agent_id: string | null }>(),
-  messages: new Map<string, { id: string; agent_id: string | null }>(),
 };
 
 function resetState() {
@@ -45,8 +43,6 @@ function resetState() {
   dbState.providers.clear();
   dbState.mcpServers.clear();
   dbState.agentRuns.clear();
-  dbState.sessions.clear();
-  dbState.messages.clear();
 }
 
 function makePrepared(state: typeof dbState) {
@@ -147,22 +143,6 @@ function makePrepared(state: typeof dbState) {
           if (run.agent_id === id) run.agent_id = null;
         }
         return { changes: dbState.agentRuns.size };
-      }
-      // UPDATE sessions SET agent_id = NULL WHERE agent_id = ?
-      if (s === 'UPDATE sessions SET agent_id = NULL WHERE agent_id = ?') {
-        const [id] = params;
-        for (const s of dbState.sessions.values()) {
-          if (s.agent_id === id) s.agent_id = null;
-        }
-        return { changes: dbState.sessions.size };
-      }
-      // UPDATE messages SET agent_id = NULL WHERE agent_id = ?
-      if (s === 'UPDATE messages SET agent_id = NULL WHERE agent_id = ?') {
-        const [id] = params;
-        for (const m of dbState.messages.values()) {
-          if (m.agent_id === id) m.agent_id = null;
-        }
-        return { changes: dbState.messages.size };
       }
       return { changes: 0 };
     };
@@ -466,21 +446,22 @@ describe('createAgentTools', () => {
       expect(result.error).toMatch(/id is required/);
     });
 
-    it('orphans agent_runs / sessions / messages instead of CASCADE deleting (P2 #2)', async () => {
+    it('orphans agent_runs instead of CASCADE deleting (P2 #2)', async () => {
       const a = seedAgent({});
-      // Pre-seed history rows pointing at the agent
+      // Pre-seed run history pointing at the agent
       dbState.agentRuns.set('run-1', { id: 'run-1', agent_id: a.id });
-      dbState.sessions.set('sess-1', { id: 'sess-1', agent_id: a.id });
-      dbState.messages.set('msg-1', { id: 'msg-1', agent_id: a.id });
+      dbState.agentRuns.set('run-2', { id: 'run-2', agent_id: a.id });
+      dbState.agentRuns.set('run-3', { id: 'run-3', agent_id: 'other-agent' });
 
       await invoke('delete_agent', { id: a.id });
 
       // Agent row gone
       expect(dbState.agents.has(a.id)).toBe(false);
-      // History rows PRESERVED, just with agent_id = null
+      // Run rows PRESERVED, just with agent_id = null (not CASCADE-deleted)
       expect(dbState.agentRuns.get('run-1')?.agent_id).toBeNull();
-      expect(dbState.sessions.get('sess-1')?.agent_id).toBeNull();
-      expect(dbState.messages.get('msg-1')?.agent_id).toBeNull();
+      expect(dbState.agentRuns.get('run-2')?.agent_id).toBeNull();
+      // Other agents' runs untouched
+      expect(dbState.agentRuns.get('run-3')?.agent_id).toBe('other-agent');
     });
   });
 

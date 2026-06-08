@@ -402,12 +402,13 @@ export function createAgentTools(projectId: string) {
         const runTx = db.transaction(() => {
           db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
           db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
-          // agent_runs.agent_id 设为 NULL 而非依赖 FK CASCADE 删行,
-          // 这样 run/tool-call 历史保留,只是不再归属被删的 agent。
+          // agent_runs.agent_id 显式置 NULL — 否则 FK ON DELETE CASCADE
+          // (database.ts:176) 会把该 agent 的所有 run 记录连带 agent_tool_calls
+          // (database.ts:190) 一起删,run 历史就丢了。
           db.prepare('UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?').run(id);
-          // 同理:任何 session.agent_id 引用也置 NULL(detach 而非删会话)
-          db.prepare('UPDATE sessions SET agent_id = NULL WHERE agent_id = ?').run(id);
-          db.prepare('UPDATE messages SET agent_id = NULL WHERE agent_id = ?').run(id);
+          // 注: sessions.agent_id 引用靠 FK ON DELETE SET NULL(database.ts:87)
+          // 自动 orphan,无需手动 UPDATE。messages 表无 agent_id 列,引用经
+          // session_id 间接保留 — 不要加 UPDATE messages。
           db.prepare('DELETE FROM agents WHERE id = ?').run(id);
         });
         runTx();
@@ -416,15 +417,17 @@ export function createAgentTools(projectId: string) {
           deleted: true,
           id,
           name: existing.name,
-          note: 'agent_runs / messages / sessions 引用已 detach(agent_id 置 NULL),历史保留可查',
+          note: 'agent_runs 引用已 detach(agent_id 置 NULL,run / tool-call 历史保留);' +
+                'sessions.agent_id 由 FK ON DELETE SET NULL 自动 orphan;messages 经 session_id 间接保留',
         });
       },
       {
         name: 'delete_agent',
         description:
           '删除 agent(清掉 agent_mcp_servers / agent_skills 关联)。' +
-          '注意:agent_runs / messages / sessions 中对该 agent 的引用会被 detach(agent_id 置 NULL),' +
-          '所以运行历史与消息历史仍保留可查(只不再归属此 agent)。',
+          '注意:agent_runs 中对该 agent 的引用被显式 detach(agent_id 置 NULL),' +
+          '所以运行历史与 tool-call 历史仍保留可查(只不再归属此 agent)。' +
+          'sessions.agent_id 引用由 FK ON DELETE SET NULL 自动 orphan,消息历史经 session_id 间接保留。',
         schema: z.object({
           id: z.string().describe('要删除的 agent ID'),
         }),
