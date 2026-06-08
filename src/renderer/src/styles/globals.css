@@ -252,12 +252,14 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .model-selector {
   position: relative;
   cursor: pointer;
+  min-width: 0;
 }
 
 .model-selector-trigger {
   display: flex;
   align-items: center;
   gap: 6px;
+  max-width: min(260px, calc(100vw - 32px));
   padding: 5px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
@@ -266,6 +268,13 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   transition: all 0.15s;
   background: transparent;
   user-select: none;
+}
+
+.model-selector-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-selector-trigger:hover {
@@ -279,6 +288,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   height: 12px;
   color: var(--text-muted);
   transition: transform 0.2s;
+  flex-shrink: 0;
 }
 
 .model-selector.open .model-chevron {
@@ -289,7 +299,8 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
-  width: 220px;
+  width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
@@ -298,8 +309,9 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   z-index: 100;
   display: none;
   animation: fadeUp 0.18s ease-out;
-  max-h: 240px;
-  overflow-y: auto;
+  max-height: min(320px, calc(100vh - 160px));
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .model-selector.open .model-dropdown {
@@ -328,9 +340,11 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   font-size: 12px;
   color: var(--text-secondary);
   transition: all 0.12s;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-select-option:hover {
@@ -1058,5 +1072,4 @@ html[data-theme="light"] .toast {
 .animate-node-running {
   animation: node-running-pulse 2s infinite ease-in-out;
 }
-
 

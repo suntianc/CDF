@@ -29,6 +29,11 @@ CDF 是一个离线优先的桌面端 Agent 开发工作站。它基于 Electron
 
 - Node.js 22 或更高版本
 - npm
+- 原生模块构建工具链：本项目依赖 `better-sqlite3@^12.10.0`，安装依赖或执行 `npm run postinstall` 时会通过 `electron-builder install-app-deps` 触发 native module rebuild。首次安装前请确保本机具备 C/C++ 构建环境：
+  - Debian / Ubuntu：`sudo apt install build-essential python3`
+  - Fedora / RHEL：`sudo dnf install gcc-c++ python3`
+  - macOS：`xcode-select --install`
+  - Windows：安装 Visual Studio Build Tools，并勾选“使用 C++ 的桌面开发”
 
 ### 安装依赖
 

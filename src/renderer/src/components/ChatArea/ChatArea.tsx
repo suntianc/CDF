@@ -723,11 +723,27 @@ export function ChatArea({
     return providers.find((provider) => provider.id === selectedProviderId) || null;
   }, [providers, selectedProviderId]);
 
+  const getProviderModels = (provider: { id?: string; default_model: string; models?: string[] }) => {
+    const models = [provider.default_model, ...(provider.models || [])].filter(Boolean);
+    if (provider.id === selectedProviderId && selectedModel) {
+      models.push(selectedModel);
+    }
+    return Array.from(new Set(models));
+  };
+
   const selectedProviderModels = useMemo(() => {
     if (!selectedProvider) return [];
-    const models = [selectedProvider.default_model, ...(selectedProvider.models || [])].filter(Boolean);
-    return Array.from(new Set(models));
-  }, [selectedProvider]);
+    return getProviderModels(selectedProvider);
+  }, [selectedProvider, selectedProviderId, selectedModel]);
+
+  const setSelectedModel = (modelName: string) => {
+    const targetId = activeSessionId || '';
+    if (!modelName || !selectedProviderId) {
+      useSessionStore.getState().setSessionModelOverride(targetId, '', '');
+      return;
+    }
+    useSessionStore.getState().setSessionModelOverride(targetId, selectedProviderId, modelName);
+  };
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -739,11 +755,6 @@ export function ChatArea({
       setSelectedModel(selectedProviderModels[0] || '');
     }
   }, [selectedModel, selectedProvider, selectedProviderModels]);
-
-  const getProviderModels = (provider: { default_model: string; models?: string[] }) => {
-    const models = [provider.default_model, ...(provider.models || [])].filter(Boolean);
-    return Array.from(new Set(models));
-  };
 
   const currentProvider = selectedProvider || masterProvider;
   const currentModel = selectedModel || masterProvider?.default_model || '';
@@ -760,6 +771,18 @@ export function ChatArea({
     setWelcomeModelSelectorOpen(false);
     setComposerModelSelectorOpen(false);
   };
+
+  useEffect(() => {
+    if (!welcomeModelSelectorOpen && !composerModelSelectorOpen) return;
+
+    const timer = setTimeout(() => {
+      document
+        .querySelector('.model-selector.open .model-select-option.selected')
+        ?.scrollIntoView({ block: 'nearest' });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [welcomeModelSelectorOpen, composerModelSelectorOpen, selectedProviderId, selectedModel, providers]);
 
 
 
@@ -1219,7 +1242,7 @@ export function ChatArea({
                     onClick={() => setWelcomeModelSelectorOpen(!welcomeModelSelectorOpen)}
                     className="model-selector-trigger"
                   >
-                    <span className="model-selector-label">
+                    <span className="model-selector-label" title={currentModelLabel}>
                       {currentModelLabel}
                     </span>
                     <ChevronDown className="model-chevron w-3.5 h-3.5" />
@@ -1248,6 +1271,7 @@ export function ChatArea({
                                   ? 'selected'
                                   : ''
                               }`}
+                              title={`${p.name} • ${m}`}
                               onClick={() => handleSelectModel(p.id, m)}
                             >
                               {m}
@@ -1519,12 +1543,12 @@ export function ChatArea({
                           onClick={() => setComposerModelSelectorOpen(!composerModelSelectorOpen)}
                           className="model-selector-trigger"
                         >
-                          <span className="model-selector-label truncate max-w-[150px]">
+                          <span className="model-selector-label truncate max-w-[150px]" title={currentModelLabel}>
                             {currentModelLabel}
                           </span>
                           <ChevronDown className="model-chevron w-3.5 h-3.5" />
                         </div>
-                        <div className="model-dropdown" style={{ left: 0, bottom: 'calc(100% + 8px)' }}>
+                        <div className="model-dropdown">
                           {providers.length === 0 ? (
                             <div 
                               onClick={() => {
@@ -1548,6 +1572,7 @@ export function ChatArea({
                                         ? 'selected'
                                         : ''
                                     }`}
+                                    title={`${p.name} • ${m}`}
                                     onClick={() => handleSelectModel(p.id, m)}
                                   >
                                     {m}
