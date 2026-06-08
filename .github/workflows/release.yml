@@ -40,6 +40,7 @@ jobs:
             artifact_glob: |
               dist/*.dmg
               dist/*.dmg.blockmap
+              dist/latest-mac.yml
               dist/mac*/*
             rename: true
           # macOS Apple Silicon
@@ -51,6 +52,7 @@ jobs:
             artifact_glob: |
               dist/*.dmg
               dist/*.dmg.blockmap
+              dist/latest-mac.yml
               dist/mac*/*
             rename: true
           # Windows x64
@@ -62,7 +64,7 @@ jobs:
             artifact_glob: |
               dist/*.exe
               dist/*.exe.blockmap
-              dist/latest*.yml
+              dist/latest.yml
             rename: true
           # Windows arm64
           - os: windows-latest
@@ -73,7 +75,7 @@ jobs:
             artifact_glob: |
               dist/*.exe
               dist/*.exe.blockmap
-              dist/latest*.yml
+              dist/latest.yml
             rename: true
           # Linux x64
           - os: ubuntu-latest
@@ -83,8 +85,7 @@ jobs:
               ebArch: x64
             artifact_glob: |
               dist/*.AppImage
-              dist/*.AppImage.zsync
-              dist/latest*.yml
+              dist/latest-linux.yml
             rename: true
           # Linux arm64 (cross-compiled on ubuntu-latest — avoids the
           # ubuntu-22.04-arm64 runner queue; electron-builder supports
@@ -96,7 +97,7 @@ jobs:
               ebArch: arm64
             artifact_glob: |
               dist/*.AppImage
-              dist/*.AppImage.zsync
+              dist/latest-linux-arm64.yml
               dist/latest*.yml
             rename: true
     steps:
