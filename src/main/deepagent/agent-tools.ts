@@ -168,10 +168,12 @@ export function createAgentTools(projectId: string) {
             const insertMcp = db.prepare(
               'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)',
             );
+            // mcp_servers is a global table (no project_id column per
+            // database.ts:139-148), so we only validate the server exists.
             for (const mcpId of input.mcpServerIds) {
               const exists = db
-                .prepare('SELECT id FROM mcp_servers WHERE id = ? AND project_id = ?')
-                .get(mcpId, projectId);
+                .prepare('SELECT id FROM mcp_servers WHERE id = ?')
+                .get(mcpId);
               if (exists) insertMcp.run(id, mcpId);
             }
           }
@@ -314,10 +316,12 @@ export function createAgentTools(projectId: string) {
             const insertMcp = db.prepare(
               'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)',
             );
+            // mcp_servers is a global table (no project_id column per
+            // database.ts:139-148), so we only validate the server exists.
             for (const mcpId of input.mcpServerIds) {
               const exists = db
-                .prepare('SELECT id FROM mcp_servers WHERE id = ? AND project_id = ?')
-                .get(mcpId, projectId);
+                .prepare('SELECT id FROM mcp_servers WHERE id = ?')
+                .get(mcpId);
               if (exists) insertMcp.run(input.id, mcpId);
             }
           }

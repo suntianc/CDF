@@ -141,12 +141,10 @@ function makePrepared(state: typeof dbState) {
         const [id] = params;
         return dbState.providers.get(id as string);
       }
-      // SELECT id FROM mcp_servers WHERE id = ? AND project_id = ?
-      if (s === 'SELECT id FROM mcp_servers WHERE id = ? AND project_id = ?') {
-        const [id, pid] = params;
-        const r = dbState.mcpServers.get(id as string);
-        if (r && r.project_id === pid) return r;
-        return undefined;
+      // SELECT id FROM mcp_servers WHERE id = ?
+      if (s === 'SELECT id FROM mcp_servers WHERE id = ?') {
+        const [id] = params;
+        return dbState.mcpServers.get(id as string);
       }
       // SELECT * FROM agents WHERE id = ?
       if (s === 'SELECT * FROM agents WHERE id = ?') {
