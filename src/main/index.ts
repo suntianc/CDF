@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { registerIpcHandlers } from './ipc-handlers';
 import { disconnectAllMcpServers } from './deepagent/mcp-connector';
 import { watchSystemCommandsDir, stopAllWatchers } from './commands/chokidar-watcher';
+import { configureNetworkProxy } from './network-proxy';
 import store from './store';
 import log from './logger';
 import path from 'path';
@@ -68,6 +69,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   log.info('App is ready');
+  configureNetworkProxy();
   registerIpcHandlers();
 
   // Phase 6 Plan 02: start system-scoped chokidar watcher for `~/.cdf/commands/*.md`.
