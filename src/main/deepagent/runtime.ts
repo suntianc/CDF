@@ -15,6 +15,7 @@ import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from
 import { createBashTool } from './bash-tool';
 import { createFetchTool } from './fetch-tool';
 import { createArxivTool } from './arxiv-tool';
+import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
@@ -489,6 +490,9 @@ export async function createDeepAgentRuntime(
     createDeleteFileTool(project.path),
     createBashTool({ workingDir: project.path }),
   ];
+
+  // 暴露给主对话,让 Master Agent 能增删改查当前项目的 agent
+  builtInTools.push(...createAgentTools(projectId));
 
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [
