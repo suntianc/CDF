@@ -298,20 +298,20 @@ export function ProjectTree() {
 
   useEffect(() => {
     // Load projects from database
-    window.electronAPI.db.getProjects().then((data) => {
+    window.electronAPI.db.getProjects().then((data: any) => {
       setProjects(data);
       setLoading(false);
 
       // If currentProjectId is not set, set it to the default project or first project
       if (!currentProjectId && data.length > 0) {
-        const hasDefault = data.some(p => p.id === 'default-project');
+        const hasDefault = data.some((p: { id: string }) => p.id === 'default-project');
         if (hasDefault) {
           setCurrentProject('default-project');
         } else {
           setCurrentProject(data[0].id);
         }
       }
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       console.error('Failed to load projects:', err);
       setLoading(false);
     });

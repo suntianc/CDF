@@ -52,6 +52,7 @@ interface ProviderRow {
   api_key?: string | null;
   api_url?: string | null;
   default_model: string;
+  context_limit?: number;
 }
 
 interface ProjectRow {
@@ -321,7 +322,7 @@ export function createAgentNodeExecutor(
         apiUrl: provider.api_url ?? undefined,
         defaultModel: provider.default_model,
         providerType: provider.provider_type as any,
-        contextLimit: provider.context_limit,
+        contextLimit: provider.context_limit ?? undefined,
       });
 
       const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?')

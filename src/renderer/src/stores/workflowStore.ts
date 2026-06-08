@@ -116,7 +116,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const dbRuns = await window.electronAPI.db.getWorkflowNodeRuns(executionId);
       // 保留状态中正在运行、且尚未写入数据库的临时节点执行记录
       const currentRunning = get().nodeRuns.filter(
-        (r) => r.execution_id === executionId && r.status === 'running' && !dbRuns.some((d) => d.node_id === r.node_id)
+        (r) => r.execution_id === executionId && r.status === 'running' && !dbRuns.some((d: any) => d.node_id === r.node_id)
       );
       set({ nodeRuns: [...dbRuns, ...currentRunning], isLoading: false });
     } catch (err: unknown) {
@@ -247,10 +247,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // 1. 获取主进程中可能已积压的历史事件（防止网络/订阅时机竞争导致丢失 start 等关键事件）
     if (window.electronAPI.workflow.getWorkflowEvents) {
       window.electronAPI.workflow.getWorkflowEvents(executionId)
-        .then((events) => {
+        .then((events: any[]) => {
           events.forEach(processEvent);
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.warn('[workflowStore] Failed to fetch historical workflow events:', err);
         });
     }

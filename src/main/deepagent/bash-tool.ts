@@ -80,13 +80,13 @@ export function createBashTool(options: BashToolOptions = {}) {
         env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' },
       } as any);
 
-      let truncatedStdout = stdout;
-      let truncatedStderr = stderr;
-      if (stdout.length > maxOutputBytes) {
-        truncatedStdout = stdout.slice(0, maxOutputBytes) + '\n... output truncated (size limit)';
+      let truncatedStdout = String(stdout);
+      let truncatedStderr = String(stderr);
+      if (truncatedStdout.length > maxOutputBytes) {
+        truncatedStdout = truncatedStdout.slice(0, maxOutputBytes) + '\n... output truncated (size limit)';
       }
-      if (stderr.length > maxOutputBytes) {
-        truncatedStderr = stderr.slice(0, maxOutputBytes) + '\n... error truncated (size limit)';
+      if (truncatedStderr.length > maxOutputBytes) {
+        truncatedStderr = truncatedStderr.slice(0, maxOutputBytes) + '\n... error truncated (size limit)';
       }
 
       return {

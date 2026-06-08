@@ -22,7 +22,7 @@ const {
   const path = require('path');
   const os = require('os');
   return {
-    listPhysicalSkillsMock: vi.fn(() => []),
+    listPhysicalSkillsMock: vi.fn<() => any[]>(() => []),
     getScopePathMock: vi.fn((_p: string, scope: string) =>
       scope === 'global'
         ? path.join(os.homedir(), '.cdf', 'skills')

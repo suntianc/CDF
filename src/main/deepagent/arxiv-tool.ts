@@ -132,8 +132,9 @@ function buildSearchQuery(input: Pick<ArxivSearchOptions, 'query' | 'searchQuery
 }
 
 function clampInteger(value: number | undefined, defaultValue: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return defaultValue;
-  return Math.min(max, Math.max(min, Math.floor(value)));
+  const v = value ?? defaultValue;
+  if (!Number.isFinite(v)) return defaultValue;
+  return Math.min(max, Math.max(min, Math.floor(v)));
 }
 
 function normalizeIds(ids: string[] | undefined): string[] {

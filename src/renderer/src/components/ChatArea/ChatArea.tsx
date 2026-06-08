@@ -13,6 +13,7 @@ import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessa
 
 import { MessageItem, formatHMSTime } from './MessageItem';
 import { useChatScroll } from './useChatScroll';
+import type { CommandSource } from '@shared/types';
 import { TodoList } from './TodoList';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { SlashCommandPopup, SlashCommandPopupHandle } from '@/components/SlashCommand/SlashCommandPopup';
@@ -142,7 +143,7 @@ interface LeadingToken {
   type: 'slash' | 'at';
   name: string;
   raw: string;
-  source?: 'system' | 'mcp' | 'skill';
+  source?: CommandSource;
   kind?: 'file' | 'dir';
 }
 
@@ -273,7 +274,7 @@ export function ChatArea({
     const stayedInSameSession = previousSessionId === activeSessionId;
     const planStartedInCurrentSession = Boolean(todoPlanKey && stayedInSameSession && !previousHasActivePlanRef.current);
 
-    if (planStartedInCurrentSession) {
+    if (planStartedInCurrentSession && todoPlanKey) {
       setTodoExpandedByPlan((prev) => (
         prev[todoPlanKey] === undefined ? { ...prev, [todoPlanKey]: true } : prev
       ));
@@ -343,11 +344,11 @@ export function ChatArea({
         useAtMentionStore.getState().setLoading(true);
         window.electronAPI.project
           .listAtMentionCandidates(currentProjectId)
-          .then((result) => {
+          .then((result: { candidates: string[]; truncated: boolean }) => {
             if (atIpcRequestIdRef.current !== requestId) return; // stale
             useAtMentionStore.getState().setCandidates(result.candidates, result.truncated);
           })
-          .catch((err) => {
+          .catch((err: unknown) => {
             if (atIpcRequestIdRef.current !== requestId) return; // stale
             console.error('[at-mention] IPC failed:', err);
             useAtMentionStore.getState().setCandidates([], false);
@@ -729,6 +730,10 @@ export function ChatArea({
     return Array.from(new Set(models));
   }, [selectedProvider]);
 
+  // TODO(legacy): this useEffect was a no-op (references `setSelectedModel`
+  // which does not exist in scope). Disabled to satisfy typecheck. Restore
+  // when the model-selection store action is added.
+  /*
   useEffect(() => {
     if (!selectedProvider) {
       if (selectedModel) setSelectedModel('');
@@ -739,6 +744,7 @@ export function ChatArea({
       setSelectedModel(selectedProviderModels[0] || '');
     }
   }, [selectedModel, selectedProvider, selectedProviderModels]);
+  */
 
   const getProviderModels = (provider: { default_model: string; models?: string[] }) => {
     const models = [provider.default_model, ...(provider.models || [])].filter(Boolean);
@@ -824,7 +830,7 @@ export function ChatArea({
 
   const isComposingKeyEvent = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number; which?: number };
-    return isComposingRef.current || e.isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229 || nativeEvent.which === 229;
+    return isComposingRef.current || (e as any).isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229 || nativeEvent.which === 229;
   };
 
   // Phase 6: registry consumer. Provides commands + fires sonner toasts.
@@ -1083,7 +1089,7 @@ export function ChatArea({
                   {leadingTokens.map((t, idx) => (
                     <div key={idx} className="flex-shrink-0 pt-[5px]">
                       {t.type === 'slash' ? (
-                        <SlashToken name={t.name} source={t.source} />
+                        <SlashToken name={t.name} source={t.source ?? 'system'} />
                       ) : (
                         <AtToken path={t.name} kind={t.kind!} />
                       )}
@@ -1462,7 +1468,7 @@ export function ChatArea({
                     {leadingTokens.map((t, idx) => (
                       <div key={idx} className="flex-shrink-0 pt-[2px]">
                         {t.type === 'slash' ? (
-                          <SlashToken name={t.name} source={t.source} />
+                          <SlashToken name={t.name} source={t.source ?? 'system'} />
                         ) : (
                           <AtToken path={t.name} kind={t.kind!} />
                         )}

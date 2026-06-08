@@ -200,7 +200,7 @@ function TestHarness({
 describe('SlashCommandPopup', () => {
   it('keeps textarea focus when popup opens', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       textarea.focus();
@@ -245,7 +245,7 @@ describe('SlashCommandPopup', () => {
 
   it('inserts command text and closes popup on Enter', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });
@@ -257,13 +257,13 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/context ');
+    expect((harness as any)?.getInputVal()).toBe('/context ');
     expect(screen.queryByText('/goal')).toBeNull();
   });
 
   it('Tab inserts command text into textarea via onInsert (v1.1 polish — does NOT dispatch)', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });
@@ -272,7 +272,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Tab' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as any)?.getInputVal()).toBe('/goal ');
     expect(screen.queryByText('/context')).toBeNull();
     // v1.1 polish: Tab must NOT fire the Enter-only onSelect (dispatch) path.
     expect(handleSlashSelectMock).not.toHaveBeenCalled();
@@ -281,7 +281,7 @@ describe('SlashCommandPopup', () => {
 
   it('Enter fires onInsert (insert path) for known commands', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });
@@ -289,7 +289,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as any)?.getInputVal()).toBe('/goal ');
     // v1.1 polish: Enter calls onInsert (not onSelect) per component behavior
     // at SlashCommandPopup.tsx:169 — (onInsert ?? onSelect)('/' + selectedValue)
     expect(handleSlashInsertMock).toHaveBeenCalledWith('/goal');
@@ -330,7 +330,7 @@ describe('SlashCommandPopup', () => {
   // 5-02-01 / SLASH-01
   it('closes on esc and returns focus to textarea', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       textarea.focus();
@@ -459,7 +459,7 @@ describe('SlashCommandPopup', () => {
   // 5-02-09 / PITFALLS P13
   it('ime safe — composition does not open popup', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     // Mid-composition: onChange gate bails early, popup does NOT open
     act(() => {
@@ -486,7 +486,7 @@ describe('SlashCommandPopup', () => {
   it('ime safe — 200ms justFinishedComposingRef window suppresses next keystroke', () => {
     vi.useFakeTimers();
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     // Simulate IME composition end via the real handleCompositionEnd flow —
     // this sets justFinishedComposingRef.current = true AND registers a
@@ -517,7 +517,7 @@ describe('SlashCommandPopup', () => {
   // 5-02-11 / PITFALLS P5
   it('shift enter inserts newline and does not trigger insert flow', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       textarea.focus();
@@ -534,7 +534,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     });
-    expect(harness?.getInputVal()).toBe('/goal');
+    expect((harness as any)?.getInputVal()).toBe('/goal');
     expect(screen.getAllByText('/goal').length).toBeGreaterThanOrEqual(1);
     expect(document.activeElement).toBe(textarea);
     // Regular Enter: slashRef.handleKeyDown consumes it, inserts /goal + ' '
@@ -544,14 +544,14 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as any)?.getInputVal()).toBe('/goal ');
     expect(document.querySelector('[cmdk-item]')).toBeNull();
   });
 
   // 5-02-12 / D-04
   it('reopening popup highlights the top row (D-04)', () => {
     let harness: TestHarnessHandle | null = null;
-    render(<TestHarness refSetter={(h) => (harness = h)} />);
+    render(<TestHarness refSetter={(h: TestHarnessHandle) => { harness = h as TestHarnessHandle | null; }} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });

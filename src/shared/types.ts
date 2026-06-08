@@ -84,6 +84,7 @@ export interface Skill {
 export interface MCPServer {
   id: string;
   name: string;
+  description?: string;
   server_type: 'stdio' | 'sse' | 'http';
   config: Record<string, unknown>;
   is_connected: boolean;

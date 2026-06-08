@@ -379,7 +379,7 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
         expect(judgeMock).toHaveBeenCalledTimes(1);
 
         await new Promise<void>((resolve) => {
-          releaseContinueSend = resolve;
+          releaseContinueSend = resolve as any;
         });
       }
     });
@@ -404,7 +404,7 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
 
     expect(judgeMock).toHaveBeenCalledTimes(1);
     expect(releaseContinueSend).toBeTruthy();
-    releaseContinueSend?.();
+    (releaseContinueSend as any)?.();
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));

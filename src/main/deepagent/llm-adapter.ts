@@ -189,7 +189,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
         return originalInvoke.call(this, input, options);
       }
       console.log(`[ADAPTER] 实例 invoke 被拦截并转换为流式执行`);
-      const messages = BaseChatModel._convertInputToPromptValue(input).toChatMessages();
+      const messages = (BaseChatModel as any)._convertInputToPromptValue(input).toChatMessages();
       const [, callOptions] = typeof this._separateRunnableConfigFromCallOptionsCompat === 'function'
         ? this._separateRunnableConfigFromCallOptionsCompat(options)
         : [{}, options];
@@ -293,7 +293,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
       const withStreamRunId = (event: Record<string, unknown>): ChatModelStreamEvent => ({
         ...event,
         run_id: streamRunId,
-      } as ChatModelStreamEvent);
+      } as unknown as ChatModelStreamEvent);
 
       let started = false;
       let nextIndex = 0;

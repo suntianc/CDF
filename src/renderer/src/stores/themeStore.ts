@@ -16,7 +16,7 @@ export const useThemeStore = create<ThemeState>()(
         set({ theme });
         try {
           if (window.electronAPI?.store?.set) {
-            window.electronAPI.store.set('theme', theme).catch((err) => {
+            window.electronAPI.store.set('theme', theme).catch((err: unknown) => {
               console.error('Failed to save theme to store:', err);
             });
           }

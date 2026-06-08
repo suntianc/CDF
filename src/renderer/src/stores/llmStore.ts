@@ -22,7 +22,7 @@ export const useLLMStore = create<LLMState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const providers = await window.electronAPI.db.getProviders();
-      const active = providers.find((p) => p.is_active === 1) || null;
+      const active = providers.find((p: any) => p.is_active === 1) || null;
       set({ providers, activeProvider: active, isLoading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch providers', isLoading: false });

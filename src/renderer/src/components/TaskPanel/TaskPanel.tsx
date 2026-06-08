@@ -145,7 +145,7 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
   };
 
   const getAgentName = (task: DelegatedTask) => {
-    const matched = agents.find((a) => a.slug === task.agentSlug || a.name === task.agentSlug);
+    const matched = agents.find((a) => a.name === task.agentSlug);
     return matched ? matched.name : (task.agentName || task.agentSlug);
   };
 

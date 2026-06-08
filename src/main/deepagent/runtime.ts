@@ -599,7 +599,7 @@ export async function createDeepAgentRuntime(
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
-    middleware: [createRecoverableToolErrorMiddleware()],
+    middleware: [createRecoverableToolErrorMiddleware() as any],
     interruptOn: DEFAULT_INTERRUPT_ON,
     checkpointer,
     memory: memory.length ? memory : undefined,

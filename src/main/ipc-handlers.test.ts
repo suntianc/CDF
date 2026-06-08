@@ -111,6 +111,7 @@ describe('IPC handlers', () => {
 
     // Valid names should not throw name validation error
     dbPrepareMock.mockReturnValue({
+      all: vi.fn(() => []),
       get: vi.fn(() => null),
       run: vi.fn(),
     });

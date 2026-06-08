@@ -39,7 +39,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
 
   const handleDelete = async (id: string, name: string) => {
     try {
-      await deleteWorkflow(id, currentProjectId);
+      await deleteWorkflow(id, currentProjectId ?? undefined);
       showToast(t('workflow.list.deleteSuccess'), 'success');
       setDeleteConfirmId(null);
     } catch (err: any) {
@@ -72,7 +72,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
 
     try {
       showToast(t('workflow.list.startingWorkflow'), 'info');
-      await runWorkflow(workflow.id, currentProjectId, 'editor', {
+      await runWorkflow(workflow.id, currentProjectId ?? '', 'editor', {
         taskGoal,
       });
       showToast(t('workflow.list.workflowStarted'), 'success');

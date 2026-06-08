@@ -232,7 +232,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
     fetchNodeRuns(executionId);
     const unsubscribe = subscribeToExecution(executionId);
     window.electronAPI.db.getWorkflowExecution(executionId)
-      .then((value) => setExecution(value || null))
+      .then((value: any) => setExecution(value || null))
       .catch(() => {});
 
     return () => {
@@ -245,7 +245,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
       setExecutionStatus(currentExecution.status);
       if (currentExecution.status !== 'running') {
         window.electronAPI.db.getWorkflowExecution(executionId)
-          .then((value) => setExecution(value || null))
+          .then((value: any) => setExecution(value || null))
           .catch(() => {});
       }
     }

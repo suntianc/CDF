@@ -120,7 +120,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       project_id: currentProjectId || 'default-project',
       name: formName,
       description: formDesc,
-      provider_id: formProviderId || null,
+      provider_id: formProviderId || undefined,
       system_prompt: formSystemPrompt,
       config: {
         permissionsPreset: 'project-safe',

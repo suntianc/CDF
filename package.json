@@ -12,7 +12,9 @@
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps && patch-package",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "lint": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.14.5",
