@@ -113,7 +113,7 @@ describe('candidate-lister', () => {
     expect(result.candidates).not.toContain('d1/d2/d3/d4/d5/d6/d7/d8/leaf.txt');
   });
 
-  it('enforces MAX_COUNT = 5000 and sets truncated = true (B-05/E-03)', () => {
+  it('enforces MAX_COUNT = 5000 and sets truncated = true (B-05/E-03)', { timeout: 30_000 }, () => {
     // Create 5001 files
     for (let i = 0; i < 5001; i++) {
       fs.writeFileSync(path.join(tempDir, `f${i}.txt`), '');

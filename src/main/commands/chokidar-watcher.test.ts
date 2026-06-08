@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import path from 'path';
 
 // All hoisted variables for vi.mock factories must be declared via vi.hoisted.
 // Note: FakeFSWatcher is a plain class (not extending EventEmitter) to avoid
@@ -110,8 +111,11 @@ describe('chokidar-watcher', () => {
   it('passes awaitWriteFinish options to chokidar.watch (stabilityThreshold 200)', () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
     const stop = watchSystemCommandsDir(onChange);
+    // path.join produces OS-correct separators ('.cdf/commands' on POSIX,
+    // '.cdf\\commands' on Windows). Match either form by splitting on the
+    // path components — both contain '.cdf' followed by 'commands'.
     expect(mocks.chokidarMock.watch).toHaveBeenCalledWith(
-      expect.stringContaining('.cdf/commands'),
+      expect.stringMatching(/[\\/]\.cdf[\\/]commands$/),
       expect.objectContaining({
         awaitWriteFinish: expect.objectContaining({ stabilityThreshold: 200 }),
         depth: 0,
@@ -177,8 +181,10 @@ describe('chokidar-watcher', () => {
   it('watchProjectCommandsDir watches project .cdf/commands', async () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
     const stop = watchProjectCommandsDir('/my/project', onChange);
+    // Use path.join so the expected path is OS-correct on Windows runners
+    // (path.join emits '\' separators, '/my/project/.cdf/commands' on POSIX).
     expect(mocks.chokidarMock.watch).toHaveBeenCalledWith(
-      expect.stringContaining('/my/project/.cdf/commands'),
+      expect.stringContaining(path.join('/my/project', '.cdf', 'commands')),
       expect.any(Object)
     );
     mocks.fakeWatchInstances[mocks.fakeWatchInstances.length - 1].emit('add', '/my/project/.cdf/commands/x.md');
