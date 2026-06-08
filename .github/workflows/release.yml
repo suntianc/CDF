@@ -153,39 +153,30 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for f in *.dmg *.exe *.AppImage *.AppImage.zsync *.dmg.blockmap *.exe.blockmap; do
+          # Rename any installable artifact (dmg / exe / AppImage, plus their
+          # .blockmap / .zsync sidecars) by stripping electron-builder's
+          # built-in arch suffix (-x64 / -arm64) and replacing it with our
+          # matrix target name (e.g. "mac-x64" → "mac-arm64").
+          #
+          # The "single source of truth" is matrix.target.name, so users
+          # can grep e.g. `*-mac-arm64.dmg` to find only Apple Silicon builds.
+          for f in *.dmg *.exe *.AppImage *.dmg.blockmap *.exe.blockmap *.AppImage.zsync; do
             [ -e "$f" ] || continue
-            base="${f%.*}"
-            ext="${f##*.}"
-            # For blockmap the ext is the last segment; for AppImage the inner ext is AppImage
-            # Use a more robust approach
             case "$f" in
-              *.dmg.blockmap)
-                new="${base%.dmg}-${{ matrix.target.name }}.dmg.blockmap"
-                ;;
-              *.exe.blockmap)
-                new="${base%.exe}-${{ matrix.target.name }}.exe.blockmap"
-                ;;
-              *.AppImage.zsync)
-                base_no_ext="${f%.AppImage.zsync}"
-                new="${base_no_ext}-${{ matrix.target.name }}.AppImage.zsync"
-                ;;
-              *.AppImage)
-                base_no_ext="${f%.AppImage}"
-                new="${base_no_ext}-${{ matrix.target.name }}.AppImage"
-                ;;
-              *.dmg)
-                base_no_ext="${f%.dmg}"
-                new="${base_no_ext}-${{ matrix.target.name }}.dmg"
-                ;;
-              *.exe)
-                base_no_ext="${f%.exe}"
-                new="${base_no_ext}-${{ matrix.target.name }}.exe"
-                ;;
-              *)
-                continue
-                ;;
+              *.dmg.blockmap)       base="${f%.dmg.blockmap}";          suffix=".dmg.blockmap" ;;
+              *.exe.blockmap)       base="${f%.exe.blockmap}";          suffix=".exe.blockmap" ;;
+              *.AppImage.zsync)     base="${f%.AppImage.zsync}";        suffix=".AppImage.zsync" ;;
+              *.AppImage)           base="${f%.AppImage}";              suffix=".AppImage" ;;
+              *.dmg)                base="${f%.dmg}";                   suffix=".dmg" ;;
+              *.exe)                base="${f%.exe}";                   suffix=".exe" ;;
+              *)                    continue ;;
             esac
+            # Strip electron-builder's arch marker (e.g. "-x64", "-arm64",
+            # "-arm64-linux-arm64", etc.) by anchoring at the version tag
+            # (anything between the version and the first arch-like token).
+            # CDF-<version>-<anything>.<ext> → keep only the version+productName
+            stripped=$(echo "$base" | sed -E 's/^(CDF(-[0-9]+\.[0-9]+\.[0-9]+)?)-.*$/\1/')
+            new="${stripped}-${{ matrix.target.name }}${suffix}"
             if [ "$f" != "$new" ]; then
               mv -v "$f" "$new"
             fi
