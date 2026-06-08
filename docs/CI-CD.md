@@ -8,7 +8,6 @@
 |------|---------|------|
 | `ci.yml` | push / PR 到 `master` 或 `main` | 跨平台 lint + typecheck + test |
 | `release.yml` | 推送 `v*` 标签 / 手动触发 | 构建全平台全架构安装包并发布到 GitHub Releases |
-| `phase-6-commands.yml` | push / PR | 遗留：Phase 6 slash command 单测 |
 
 ## CI（`ci.yml`）
 
