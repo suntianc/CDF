@@ -33,8 +33,8 @@ jobs:
           - os: macos-13
             target:
               name: mac-x64
-              electronPlatformName: darwin
-              electronArch: x64
+              ebPlatform: mac
+              ebArch: x64
             artifact_glob: |
               dist/*.dmg
               dist/*.dmg.blockmap
@@ -44,8 +44,8 @@ jobs:
           - os: macos-14
             target:
               name: mac-arm64
-              electronPlatformName: darwin
-              electronArch: arm64
+              ebPlatform: mac
+              ebArch: arm64
             artifact_glob: |
               dist/*.dmg
               dist/*.dmg.blockmap
@@ -55,8 +55,8 @@ jobs:
           - os: windows-latest
             target:
               name: win-x64
-              electronPlatformName: win32
-              electronArch: x64
+              ebPlatform: win
+              ebArch: x64
             artifact_glob: |
               dist/*.exe
               dist/*.exe.blockmap
@@ -66,8 +66,8 @@ jobs:
           - os: windows-latest
             target:
               name: win-arm64
-              electronPlatformName: win32
-              electronArch: arm64
+              ebPlatform: win
+              ebArch: arm64
             artifact_glob: |
               dist/*.exe
               dist/*.exe.blockmap
@@ -77,8 +77,8 @@ jobs:
           - os: ubuntu-latest
             target:
               name: linux-x64
-              electronPlatformName: linux
-              electronArch: x64
+              ebPlatform: linux
+              ebArch: x64
             artifact_glob: |
               dist/*.AppImage
               dist/*.AppImage.zsync
@@ -88,8 +88,8 @@ jobs:
           - os: ubuntu-22.04-arm64
             target:
               name: linux-arm64
-              electronPlatformName: linux
-              electronArch: arm64
+              ebPlatform: linux
+              ebArch: arm64
             artifact_glob: |
               dist/*.AppImage
               dist/*.AppImage.zsync
@@ -136,8 +136,8 @@ jobs:
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           pnpm exec electron-builder \
-            --${{ matrix.target.electronPlatformName }} \
-            --${{ matrix.target.electronArch }} \
+            --${{ matrix.target.ebPlatform }} \
+            --${{ matrix.target.ebArch }} \
             --publish never
 
       - name: List dist contents
