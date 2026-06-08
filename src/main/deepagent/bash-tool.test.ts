@@ -45,8 +45,9 @@ describe('createBashTool', () => {
     expect(result).toMatchObject({
       success: true,
       exitCode: 0,
-      stdout: process.env.HOME,
     });
+    expect(result.stdout).toContain(path.basename(workingDir));
+    expect(path.basename(result.stdout)).toBe('home');
   });
 
   it('uses the parent PATH instead of a hard-coded minimal PATH', async () => {
