@@ -125,6 +125,7 @@ jobs:
         run: pnpm build
 
       - name: Package with electron-builder
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -135,10 +136,7 @@ jobs:
           # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          pnpm exec electron-builder \
-            --${{ matrix.target.ebPlatform }} \
-            --${{ matrix.target.ebArch }} \
-            --publish never
+          pnpm exec electron-builder --${{ matrix.target.ebPlatform }} --${{ matrix.target.ebArch }} --publish never
 
       - name: List dist contents
         shell: bash
