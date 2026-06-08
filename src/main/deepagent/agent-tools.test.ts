@@ -265,15 +265,15 @@ function seedAgent(overrides: Partial<AgentRow> = {}): AgentRow {
   return row;
 }
 
-function findTool(name: string) {
-  const tools = createAgentTools(PROJECT_ID);
+function findTool(name: string, options: { activeAgentId?: string | null } = {}) {
+  const tools = createAgentTools(PROJECT_ID, options);
   const t = tools.find((x) => x.name === name);
   if (!t) throw new Error(`Tool not found: ${name}`);
   return t;
 }
 
-async function invoke(name: string, input: any) {
-  const t: any = findTool(name);
+async function invoke(name: string, input: any, options: { activeAgentId?: string | null } = {}) {
+  const t: any = findTool(name, options);
   const raw = await t.invoke(input);
   return JSON.parse(raw);
 }
@@ -456,6 +456,28 @@ describe('createAgentTools', () => {
   });
 
   describe('delete_agent', () => {
+    it('rejects deleting the currently running agent (P1 #7)', async () => {
+      const a = seedAgent({});
+      const result = await invoke('delete_agent', { id: a.id }, { activeAgentId: a.id });
+      expect(result.error).toMatch(/currently running this chat session/);
+      expect(result.error).toMatch(/Switch to a different agent/);
+      // Agent row NOT deleted
+      expect(dbState.agents.has(a.id)).toBe(true);
+    });
+
+    it('allows deleting a different agent even when activeAgentId is set', async () => {
+      const active = seedAgent({ id: 'active-agent' });
+      const other = seedAgent({ id: 'other-agent' });
+      const result = await invoke(
+        'delete_agent',
+        { id: other.id },
+        { activeAgentId: active.id },
+      );
+      expect(result.deleted).toBe(true);
+      // Active agent untouched
+      expect(dbState.agents.has(active.id)).toBe(true);
+    });
+
     it('deletes agent and cascades mcp/skill rows', async () => {
       const a = seedAgent({});
       dbState.agentMcp.set(a.id, ['m1']);

@@ -76,8 +76,16 @@ function getSkillNamesForAgent(agentId: string): string[] {
 
 /**
  * 创建一个 Master Agent 工具集(4 个工具),闭包注入 projectId。
+ *
+ * @param projectId - 当前项目 ID
+ * @param activeAgentId - 当前 chat session 正在用的 agent ID(用于在
+ *   delete_agent 时拒绝删除正在跑的 agent,避免 CASCADE 删掉 in-flight
+ *   agent_runs 行,导致后续 agent_tool_calls FK 错误 / updateRun 0 行)
  */
-export function createAgentTools(projectId: string) {
+export function createAgentTools(
+  projectId: string,
+  options: { activeAgentId?: string | null } = {},
+) {
   return [
     // ---------- 1. 列出当前项目的 agent ----------
     tool(
@@ -401,6 +409,19 @@ export function createAgentTools(projectId: string) {
         if (!id) {
           return JSON.stringify({ error: 'id is required' });
         }
+        // Codex P1 #7: 拒绝删除当前 chat session 正在跑的 agent。
+        // 否则 FK CASCADE 会删掉 in-flight agent_runs 行,后续 agent_tool_calls
+        // insert 引用已不存在的 run_id(报 FK 错) / updateRun 静默 0 行,
+        // 整个当前对话的 run 记录全丢。模型应当选别的 agent 切换后再删。
+        if (options.activeAgentId && id === options.activeAgentId) {
+          return JSON.stringify({
+            error:
+              `Cannot delete the agent currently running this chat session (id=${id}). ` +
+              `Switch to a different agent first, then retry the deletion. ` +
+              `Deleting it now would cascade-delete the in-flight agent_runs row, ` +
+              `leaving subsequent tool-call log inserts to fail with FK errors.`,
+          });
+        }
         const existing = db
           .prepare('SELECT id, name FROM agents WHERE id = ? AND project_id = ?')
           .get(id, projectId) as { id: string; name: string } | undefined;
@@ -436,7 +457,8 @@ export function createAgentTools(projectId: string) {
           '删除 agent。**该操作会通过 FK CASCADE 一并清掉该 agent 的** agent_mcp_servers / agent_skills /' +
           ' agent_runs / agent_tool_calls 记录(因为 agent_runs.agent_id 是 NOT NULL,无法 detach)。' +
           'sessions.agent_id 由 SET NULL FK 自动 orphan,会话与消息历史仍可查(经 session_id)。' +
-          '等同于 UI 中"删除"按钮的 db:deleteAgent IPC 行为 (ipc-handlers.ts:486-488)。',
+          '等同于 UI 中"删除"按钮的 db:deleteAgent IPC 行为 (ipc-handlers.ts:486-488)。' +
+          '**禁止删除当前 chat 正在用的 agent**(会破坏 in-flight run):请先 list_agents 看当前用的是哪个,然后先切换到别的 agent 再删。',
         schema: z.object({
           id: z.string().describe('要删除的 agent ID'),
         }),

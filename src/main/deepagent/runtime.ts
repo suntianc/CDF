@@ -491,8 +491,10 @@ export async function createDeepAgentRuntime(
     createBashTool({ workingDir: project.path }),
   ];
 
-  // 暴露给主对话,让 Master Agent 能增删改查当前项目的 agent
-  builtInTools.push(...createAgentTools(projectId));
+  // 暴露给主对话,让 Master Agent 能增删改查当前项目的 agent。
+  // 注入 active agent id(若指定),让 delete_agent 拒绝删除 in-flight 跑的 agent。
+  const effectiveAgentId = agentId ?? null;
+  builtInTools.push(...createAgentTools(projectId, { activeAgentId: effectiveAgentId }));
 
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [
