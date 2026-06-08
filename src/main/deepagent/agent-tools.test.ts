@@ -31,9 +31,9 @@ const dbState = {
   agentSkills: new Map<string, string[]>(),
   providers: new Map<string, { id: string; is_active?: number; updated_at?: number }>(),
   mcpServers: new Map<string, { id: string; project_id: string }>(),
-  // 仅跟踪 agent_runs 的 agent_id 引用(因为是工具显式 UPDATE 的目标)
+  // 仅跟踪 agent_runs 的 agent_id 引用 + status(P2 #9 检查需要)
   // sessions 靠 FK ON DELETE SET NULL 自动 orphan,messages 无 agent_id 列
-  agentRuns: new Map<string, { id: string; agent_id: string | null }>(),
+  agentRuns: new Map<string, { id: string; agent_id: string | null; status?: string }>(),
 };
 
 function resetState() {
@@ -199,6 +199,17 @@ function makePrepared(state: typeof dbState) {
         const [id, pid] = params;
         const r = dbState.agents.get(id as string);
         if (r && r.project_id === pid) return { id: r.id, name: r.name };
+        return undefined;
+      }
+      // SELECT id, session_id FROM agent_runs WHERE agent_id = ? AND status = 'running' LIMIT 1
+      if (
+        s ===
+        "SELECT id, session_id FROM agent_runs WHERE agent_id = ? AND status = 'running' LIMIT 1"
+      ) {
+        const [aid] = params;
+        for (const run of dbState.agentRuns.values()) {
+          if (run.agent_id === aid && run.status === 'running') return run;
+        }
         return undefined;
       }
       return undefined;
@@ -495,6 +506,47 @@ describe('createAgentTools', () => {
       );
       expect(result.error).toMatch(/currently running this chat session/);
       expect(dbState.agents.has(defaultAgent.id)).toBe(true);
+    });
+
+    it('rejects deletion when another session has a running agent_runs row (P2 #9)', async () => {
+      // Codex P2 #9: defense in depth. Even if the *current* runtime's
+      // activeAgentId doesn't match the target, another concurrent
+      // session's runtime may be streaming with this agent. The
+      // agent_runs row that runLLMChat inserts with status='running'
+      // is the proof of that in-flight work. Deleting would CASCADE
+      // it and break the other session's tool-call log writes +
+      // final updateRun.
+      const a = seedAgent({});
+      // Pre-seed a running run from a *different* session
+      dbState.agentRuns.set('run-other-session', {
+        id: 'run-other-session',
+        agent_id: a.id,
+        status: 'running',
+      });
+      // No activeAgentId from this caller (different runtime, different session)
+
+      const result = await invoke('delete_agent', { id: a.id });
+
+      expect(result.error).toMatch(/another chat session is currently running/);
+      expect(result.error).toMatch(/status='running'/);
+      // Agent row NOT deleted
+      expect(dbState.agents.has(a.id)).toBe(true);
+      // Other session's run row preserved
+      expect(dbState.agentRuns.has('run-other-session')).toBe(true);
+    });
+
+    it('allows deletion when agent_runs has only completed/failed/aborted rows (P2 #9)', async () => {
+      // Sanity check: if all agent_runs for this agent are in a terminal
+      // state (status NOT 'running'), the cross-runtime guard does NOT
+      // fire and the normal CASCADE delete proceeds.
+      const a = seedAgent({});
+      dbState.agentRuns.set('run-done', { id: 'run-done', agent_id: a.id, status: 'completed' });
+      dbState.agentRuns.set('run-failed', { id: 'run-failed', agent_id: a.id, status: 'failed' });
+      dbState.agentRuns.set('run-aborted', { id: 'run-aborted', agent_id: a.id, status: 'aborted' });
+
+      const result = await invoke('delete_agent', { id: a.id });
+
+      expect(result.deleted).toBe(true);
     });
 
     it('deletes agent and cascades mcp/skill rows', async () => {

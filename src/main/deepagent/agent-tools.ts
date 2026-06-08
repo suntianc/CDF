@@ -429,6 +429,28 @@ export function createAgentTools(
           return JSON.stringify({ error: `Agent not found: ${id}` });
         }
 
+        // Codex P2 #9: 防御深度 — 即使本 runtime 的 activeAgentId 跟目标 id 不匹配,
+        // 其他 session / runtime 可能正在用这个 agent 跑 in-flight run。
+        // runLLMChat 路径 (src/main/llm.ts:createRun) 在 streaming 期间会 insert 一行
+        // status='running' 的 agent_runs,后续 tool-call 写 log / updateRun 都引用这行
+        // 的 run_id。FK ON DELETE CASCADE 会把该行也删,那个 chat 的 run/tool-call
+        // 记录就崩了。所以查 agent_runs 看有没有 status='running' 的行,有就拒。
+        const runningRun = db
+          .prepare(
+            "SELECT id, session_id FROM agent_runs WHERE agent_id = ? AND status = 'running' LIMIT 1",
+          )
+          .get(id) as { id: string; session_id: string } | undefined;
+        if (runningRun) {
+          return JSON.stringify({
+            error:
+              `Cannot delete agent: another chat session is currently running with this agent ` +
+              `(agent_runs id=${runningRun.id} status='running' session_id=${runningRun.session_id}). ` +
+              `Wait for the in-flight run to finish, then retry the deletion. ` +
+              `Deleting now would cascade-delete that other run's agent_runs row, ` +
+              `breaking its tool-call log writes and final updateRun.`,
+          });
+        }
+
         // 与现有 db:deleteAgent IPC (ipc-handlers.ts:486-488) 行为一致:
         // 单条 DELETE FROM agents,FK CASCADE 负责清理 mcp/skill/run/tool-call 关联。
         // sessions.agent_id 由 FK ON DELETE SET NULL (database.ts:87) 自动 orphan。
