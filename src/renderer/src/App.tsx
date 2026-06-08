@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
+import { Suspense, lazy, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatArea } from './components/ChatArea/ChatArea';
-import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { ModelSettings } from './components/Settings/ModelSettings';
 import { ToolSettings } from './components/Settings/ToolSettings';
 import { SystemSettings } from './components/Settings/SystemSettings';
@@ -19,6 +18,8 @@ import { useWorkflowStore } from './stores/workflowStore';
 import { Workflow } from '../shared/types';
 import { PanelLeft } from 'lucide-react';
 import { Toaster } from 'sonner';
+
+const TaskPanel = lazy(() => import('./components/TaskPanel/TaskPanel').then((mod) => ({ default: mod.TaskPanel })));
 
 export default function App() {
   const { t } = useTranslation();
@@ -111,13 +112,6 @@ export default function App() {
         </div>
       </main>
 
-      <TaskPanel 
-        isOpen={activeView === 'chat' && taskPanelOpen} 
-        onClose={() => setTaskPanelOpen(false)} 
-        width={taskPanelWidth}
-        onResize={(w) => setTaskPanelWidth(w)}
-      />
-
       {sidebarCollapsed && !isEditingWorkflow && (
         <button
           onClick={() => setSidebarCollapsed(false)}
@@ -129,6 +123,17 @@ export default function App() {
       )}
       <Toaster richColors position="bottom-right" theme="dark" />
       <ContextModal />
+
+      {activeView === 'chat' && taskPanelOpen && (
+        <Suspense fallback={null}>
+          <TaskPanel
+            isOpen
+            onClose={() => setTaskPanelOpen(false)}
+            width={taskPanelWidth}
+            onResize={(w) => setTaskPanelWidth(w)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
