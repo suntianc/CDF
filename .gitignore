@@ -41,6 +41,12 @@ electron-log-*
 *.swo
 *~
 
+# Local assistant and project planning state
+.antigravitycli/
+.claude/
+.pi/
+.planning/
+
 # TypeScript cache
 *.tsbuildinfo
 
