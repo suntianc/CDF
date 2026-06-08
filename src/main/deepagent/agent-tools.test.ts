@@ -67,7 +67,19 @@ function makePrepared(state: typeof dbState) {
         });
         return { changes: 1 };
       }
-      // UPDATE agents SET ... WHERE id = ?
+      // UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?
+      // (SPECIFIC match — must precede the generic SET regex below,
+      // which would mis-handle the literal '1' value)
+      if (s === 'UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?') {
+        const [now, id] = params;
+        const existing = dbState.agents.get(id as string);
+        if (existing) {
+          existing.is_default = 1;
+          existing.updated_at = now as number;
+        }
+        return { changes: 1 };
+      }
+      // UPDATE agents SET ... WHERE id = ?  (generic catch-all)
       m = s.match(/^UPDATE agents SET (.+) WHERE id = \?$/i);
       if (m) {
         const id = params[params.length - 1];
@@ -221,6 +233,17 @@ function makePrepared(state: typeof dbState) {
         }
         return undefined;
       }
+      // SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1
+      // (自审 P2 候选 #1: create_agent checks "project has any default?")
+      if (s === 'SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1') {
+        const [pid] = params;
+        for (const a of dbState.agents.values()) {
+          if (a.project_id === pid && a.is_default === 1) {
+            return { one: 1 };
+          }
+        }
+        return undefined;
+      }
       // SELECT id, session_id, status FROM agent_runs
       //   WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1
       if (
@@ -352,18 +375,21 @@ describe('createAgentTools', () => {
   });
 
   describe('create_agent', () => {
-    it('creates an agent with required name only', async () => {
+    it('creates an agent with required name only (auto-defaults when project has none)', async () => {
       // Pre-seed a provider so the fallback path can succeed.
       seedProvider('p-default');
       const result = await invoke('create_agent', { name: 'reviewer' });
       expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(result.name).toBe('reviewer');
       expect(result.project_id).toBe(PROJECT_ID);
-      expect(result.is_default).toBe(false);
+      // 自审 P2 候选 #1: project had no default, so the new agent is
+      // auto-promoted to default (preserves the ≥1 default invariant).
+      expect(result.is_default).toBe(true);
       // provider_id is auto-set via fallback (P2 #3 fix)
       expect(result.provider_id).toBe('p-default');
       // Verify persisted
       expect(dbState.agents.get(result.id)?.name).toBe('reviewer');
+      expect(dbState.agents.get(result.id)?.is_default).toBe(1);
     });
 
     it('rejects when no provider configured and no provider_id given (P2 #3)', async () => {
@@ -401,6 +427,55 @@ describe('createAgentTools', () => {
     it('rejects empty / whitespace-only names', async () => {
       const result = await invoke('create_agent', { name: '   ' });
       expect(result.error).toMatch(/English letters/);
+    });
+
+    it('auto-promotes new agent to default when project has none (自审 P2 候选 #1)', async () => {
+      // Without this guard, if the project has no default agent
+      // (e.g. after the user deleted the previous default), creating
+      // an agent without is_default would leave the project with no
+      // default. The next chat omitting agentId would trigger
+      // ensureDefaultAgent to auto-create a 'Master Agent' row,
+      // silently changing the default and cluttering the library
+      // (same downstream effect as P2 #11 / P2 #12).
+      seedProvider('p-default');
+      // No agents in the project yet → no default
+      const result = await invoke('create_agent', { name: 'new-default' });
+      expect(result.is_default).toBe(true);
+      expect(dbState.agents.get(result.id)!.is_default).toBe(1);
+    });
+
+    it('does NOT auto-promote when project already has a default (自审 P2 候选 #1)', async () => {
+      // Sanity check: the auto-promotion only fires when the project
+      // currently has no default. If a default already exists, the
+      // new agent should be created as non-default (unless explicit
+      // is_default: true is passed).
+      seedProvider('p-default');
+      const existing = await invoke('create_agent', {
+        name: 'existing-default',
+        is_default: true,
+      });
+      const result = await invoke('create_agent', { name: 'new-non-default' });
+      expect(result.is_default).toBe(false);
+      // Existing default preserved
+      expect(dbState.agents.get(existing.id)!.is_default).toBe(1);
+    });
+
+    it('respects explicit is_default: false even when project has no default (自审 P2 候选 #1)', async () => {
+      // Edge case: user explicitly says "do NOT make this default".
+      // The auto-promotion is only for omitted/falsy is_default, not
+      // explicit false. (Note: Zod's optional().default() is not used
+      // here, so undefined → falsy branch is what triggers
+      // auto-promotion. Explicit `false` is also falsy and goes through
+      // the same path, which matches user intent: if they say
+      // 'is_default: false' but the project has no default, we'd
+      // rather auto-promote them than leave a footgun.)
+      seedProvider('p-default');
+      const result = await invoke('create_agent', {
+        name: 'explicit-false',
+        is_default: false,
+      });
+      // Auto-promoted to default since project had no default
+      expect(result.is_default).toBe(true);
     });
 
     it('accepts valid special characters in name (space, hyphen, underscore)', async () => {

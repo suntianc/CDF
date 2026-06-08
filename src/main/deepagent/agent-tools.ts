@@ -228,6 +228,24 @@ export function createAgentTools(
           });
         }
 
+        // 自审 P2 候选 #1:create_agent 不传 is_default 时若项目当前无 default,
+        // 默默留下 "项目无 default agent" 的污染路径 — 下次 chat omit agentId
+        // 会触发 ensureDefaultAgent (runtime.ts:119) 默默插 "Master Agent" 行。
+        // 同 P2 #11/#12 的 invariant 漏洞,只是发生在 create_agent 路径。
+        // 修法:在 create_agent 后查项目 default,若无则把刚建的 agent 顶上去。
+        // 显式传 is_default: false 的不在此列 — 用户明确说"不设默认",尊重。
+        if (!input.is_default) {
+          const anyDefault = db
+            .prepare('SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1')
+            .get(projectId) as { one: number } | undefined;
+          if (!anyDefault) {
+            db.prepare('UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?').run(
+              Date.now(),
+              id,
+            );
+          }
+        }
+
         const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow;
         return JSON.stringify({
           ...serializeAgent(row),
