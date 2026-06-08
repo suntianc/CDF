@@ -54,6 +54,8 @@ vi.mock('../logger', () => ({
 
 import { watchSystemCommandsDir, watchProjectCommandsDir, ensureProjectWatcher, __resetDegradedForTests } from './chokidar-watcher';
 
+const normalizePathForAssert = (value: string) => value.replace(/\\/g, '/');
+
 describe('chokidar-watcher', () => {
   beforeEach(() => {
     mocks.fakeWatchInstances.length = 0;
@@ -110,8 +112,9 @@ describe('chokidar-watcher', () => {
   it('passes awaitWriteFinish options to chokidar.watch (stabilityThreshold 200)', () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
     const stop = watchSystemCommandsDir(onChange);
-    expect(mocks.chokidarMock.watch).toHaveBeenCalledWith(
-      expect.stringContaining('.cdf/commands'),
+    const [watchPath, watchOptions] = mocks.chokidarMock.watch.mock.calls[0];
+    expect(normalizePathForAssert(watchPath)).toContain('.cdf/commands');
+    expect(watchOptions).toEqual(
       expect.objectContaining({
         awaitWriteFinish: expect.objectContaining({ stabilityThreshold: 200 }),
         depth: 0,
@@ -177,10 +180,9 @@ describe('chokidar-watcher', () => {
   it('watchProjectCommandsDir watches project .cdf/commands', async () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
     const stop = watchProjectCommandsDir('/my/project', onChange);
-    expect(mocks.chokidarMock.watch).toHaveBeenCalledWith(
-      expect.stringContaining('/my/project/.cdf/commands'),
-      expect.any(Object)
-    );
+    const [watchPath, watchOptions] = mocks.chokidarMock.watch.mock.calls[0];
+    expect(normalizePathForAssert(watchPath)).toContain('/my/project/.cdf/commands');
+    expect(watchOptions).toEqual(expect.any(Object));
     mocks.fakeWatchInstances[mocks.fakeWatchInstances.length - 1].emit('add', '/my/project/.cdf/commands/x.md');
     await new Promise((r) => setTimeout(r, 150));
     expect(onChange).toHaveBeenCalled();
