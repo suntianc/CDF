@@ -320,6 +320,28 @@ export function createAgentTools(
           is_default: input.is_default !== undefined ? (input.is_default ? 1 : 0) : existing.is_default,
         };
 
+        // Codex P2 #11: 拒绝把项目唯一 default agent 改为非 default。
+        // 否则下次 chat omit agentId 时,ensureDefaultAgent (runtime.ts:119) 找不到
+        // 任何 default,会调 createDefaultAgent 插入一个新 "Master Agent",
+        // 默默改了 default 还污染 agent 库。UI 的 db:saveAgent 路径(ipc-handlers.ts:432)
+        // 也只 reset 其他 default(当设为 true 时),不防最后 default 被 unset。
+        if (next.is_default === 0 && existing.is_default === 1) {
+          const otherDefaults = db
+            .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?')
+            .get(projectId, input.id) as { id: string } | undefined;
+          if (!otherDefaults) {
+            return JSON.stringify({
+              error:
+                `Cannot unset the project's only default agent (id=${input.id}). ` +
+                `The project would have no default agent, and the next chat that omits an ` +
+                `explicit agent id would auto-create a new "Master Agent" row, silently ` +
+                `changing the default and cluttering the library. Either pass is_default: true ` +
+                `to keep this agent as default, or first create / promote another agent as default ` +
+                `(use list_agents + update_agent on the other with is_default: true).`,
+            });
+          }
+        }
+
         const runTx = db.transaction(() => {
           if (next.is_default === 1) {
             db.prepare(

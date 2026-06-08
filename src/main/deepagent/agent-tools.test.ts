@@ -432,6 +432,41 @@ describe('createAgentTools', () => {
       // A's default flag should be cleared
       expect(dbState.agents.get(a.id)!.is_default).toBe(0);
     });
+
+    it('rejects unsetting the only default agent (P2 #11)', async () => {
+      // Codex P2 #11: if the project's only default agent is demoted to
+      // is_default=false, the next chat that omits agentId reaches
+      // ensureDefaultAgent (runtime.ts:119) with no default to find and
+      // auto-creates a new "Master Agent" row. That silently changes the
+      // default and clutters the library. The tool must preserve a
+      // project default by rejecting the demotion.
+      seedProvider('p-default');
+      const sole = await invoke('create_agent', { name: 'sole-default', is_default: true });
+      expect(sole.is_default).toBe(true);
+
+      const result = await invoke('update_agent', { id: sole.id, is_default: false });
+
+      expect(result.error).toMatch(/only default agent/);
+      expect(result.error).toMatch(/next chat that omits/);
+      // Sole agent's default flag NOT cleared
+      expect(dbState.agents.get(sole.id)!.is_default).toBe(1);
+    });
+
+    it('allows unsetting default when other agents are also default (P2 #11)', async () => {
+      // Sanity check: the guard only fires when this agent is the LAST
+      // default. If the project has another default already, demoting
+      // this one is fine.
+      seedProvider('p-default');
+      const a = await invoke('create_agent', { name: 'a', is_default: true });
+      const b = await invoke('create_agent', { name: 'b', is_default: true });
+      expect(a.is_default).toBe(true);
+      expect(b.is_default).toBe(true);
+
+      const updated = await invoke('update_agent', { id: a.id, is_default: false });
+      expect(updated.is_default).toBe(false);
+      // B is still default
+      expect(dbState.agents.get(b.id)!.is_default).toBe(1);
+    });
   });
 
   describe('update_agent', () => {
