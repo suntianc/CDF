@@ -29,7 +29,7 @@ const dbState = {
   agents: new Map<string, AgentRow>(),
   agentMcp: new Map<string, string[]>(),
   agentSkills: new Map<string, string[]>(),
-  providers: new Map<string, { id: string }>(),
+  providers: new Map<string, { id: string; is_active?: number; updated_at?: number }>(),
   mcpServers: new Map<string, { id: string; project_id: string }>(),
   // 仅跟踪 agent_runs 的 agent_id 引用(因为是工具显式 UPDATE 的目标)
   // sessions 靠 FK ON DELETE SET NULL 自动 orphan,messages 无 agent_id 列
@@ -163,10 +163,19 @@ function makePrepared(state: typeof dbState) {
         const [id] = params;
         return dbState.providers.get(id as string);
       }
-      // SELECT id FROM llm_providers ORDER BY id LIMIT 1  (provider fallback)
-      if (s === 'SELECT id FROM llm_providers ORDER BY id LIMIT 1') {
-        const first = [...dbState.providers.values()][0];
-        return first;
+      // SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1
+      // (matches runtime.ts:78-89 getFallbackProviderId active-first branch)
+      if (s === 'SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1') {
+        const active = [...dbState.providers.values()].filter((p) => (p as any).is_active === 1);
+        if (active.length === 0) return undefined;
+        return active.sort((a, b) => ((b as any).updated_at ?? 0) - ((a as any).updated_at ?? 0))[0];
+      }
+      // SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1
+      // (matches runtime.ts fallback when no active provider)
+      if (s === 'SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1') {
+        const all = [...dbState.providers.values()];
+        if (all.length === 0) return undefined;
+        return all.sort((a, b) => ((b as any).updated_at ?? 0) - ((a as any).updated_at ?? 0))[0];
       }
       // SELECT id FROM mcp_servers WHERE id = ?
       if (s === 'SELECT id FROM mcp_servers WHERE id = ?') {
@@ -325,11 +334,24 @@ describe('createAgentTools', () => {
       expect(dbState.agents.size).toBe(0);
     });
 
-    it('falls back to first provider when provider_id omitted (P2 #3)', async () => {
-      seedProvider('p-first');
-      seedProvider('p-second');
+    it('falls back to active provider when provider_id omitted (P2 #3 + P2 #6)', async () => {
+      // Codex P2 #6: lexicographic ORDER BY id picks `default-anthropic` (inactive)
+      // over the real active provider, leaving the agent unable to run.
+      // Fix: prefer providers with is_active = 1, fall back to most-recently-updated.
+      const now = Date.now();
+      dbState.providers.set('p-inactive', { id: 'p-inactive', is_active: 0, updated_at: now - 1000 });
+      dbState.providers.set('p-active-old', { id: 'p-active-old', is_active: 1, updated_at: now - 500 });
+      dbState.providers.set('p-active-new', { id: 'p-active-new', is_active: 1, updated_at: now });
       const result = await invoke('create_agent', { name: 'fallback' });
-      expect(result.provider_id).toBe('p-first');
+      expect(result.provider_id).toBe('p-active-new');
+    });
+
+    it('falls back to most-recently-updated provider when no active provider (P2 #6)', async () => {
+      const now = Date.now();
+      dbState.providers.set('p-stale', { id: 'p-stale', is_active: 0, updated_at: now - 1000 });
+      dbState.providers.set('p-recent', { id: 'p-recent', is_active: 0, updated_at: now });
+      const result = await invoke('create_agent', { name: 'fallback' });
+      expect(result.provider_id).toBe('p-recent');
     });
 
     it('rejects names with non-English characters', async () => {

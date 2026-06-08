@@ -126,19 +126,28 @@ export function createAgentTools(projectId: string) {
         }
 
         // provider 必填语义:workflow 后续 getProvider(null) 会抛错,
-        // 工具兜底:省略时回退到第一个可用 provider;没有 provider 则拒绝。
+        // 工具兜底:省略时回退到 active provider(与 runtime.ts:78-89
+        // getFallbackProviderId 同款逻辑);没有 provider 则拒绝。
+        // 注:不能简单 ORDER BY id 取字典序第一个,可能是未激活的旧 provider。
         let effectiveProviderId = input.provider_id ?? null;
         if (!effectiveProviderId) {
-          const firstProvider = db
-            .prepare('SELECT id FROM llm_providers ORDER BY id LIMIT 1')
+          const activeProvider = db
+            .prepare(
+              'SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1',
+            )
             .get() as { id: string } | undefined;
-          if (!firstProvider) {
+          const anyProvider =
+            activeProvider ??
+            (db
+              .prepare('SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1')
+              .get() as { id: string } | undefined);
+          if (!anyProvider) {
             return JSON.stringify({
               error:
                 'No LLM provider configured. The user must add one in Settings before creating agents, or pass provider_id explicitly.',
             });
           }
-          effectiveProviderId = firstProvider.id;
+          effectiveProviderId = anyProvider.id;
         } else {
           const provider = db
             .prepare('SELECT id FROM llm_providers WHERE id = ?')

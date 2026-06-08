@@ -37,6 +37,10 @@ describe('createBashTool', () => {
   });
 
   it('inherits HOME from the parent process environment', async () => {
+    // POSIX-only: relies on /bin/sh + $HOME expansion; Windows cmd.exe lacks both.
+    // The pre-validation tests below (empty command, dangerous pattern) still
+    // run on Windows because they short-circuit before the shell is invoked.
+    if (process.platform === 'win32') return;
     process.env.HOME = path.join(workingDir, 'home');
     const bash = createBashTool({ workingDir });
 
@@ -51,6 +55,7 @@ describe('createBashTool', () => {
   });
 
   it('uses the parent PATH instead of a hard-coded minimal PATH', async () => {
+    if (process.platform === 'win32') return;
     const commandPath = path.join(binDir, 'cdf-path-probe');
     fs.writeFileSync(commandPath, '#!/bin/sh\nprintf "found-on-path"\n', 'utf-8');
     fs.chmodSync(commandPath, 0o755);
@@ -67,6 +72,7 @@ describe('createBashTool', () => {
   });
 
   it('returns a structured error when the working directory is missing', async () => {
+    if (process.platform === 'win32') return;
     const missingDir = path.join(workingDir, 'missing');
     const bash = createBashTool({ workingDir: missingDir });
 
@@ -105,6 +111,7 @@ describe('createBashTool', () => {
   });
 
   it('keeps existing failed command reporting', async () => {
+    if (process.platform === 'win32') return;
     const bash = createBashTool({ workingDir });
 
     const result = parseToolResult(await (bash as any).invoke({ command: 'printf "nope" >&2; exit 7' }));
