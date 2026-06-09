@@ -280,6 +280,13 @@ export function createAgentTools(
           ...serializeAgent(row),
           mcpServerIds: getMcpIdsForAgent(id),
           skillNames: getSkillNamesForAgent(id),
+          // P2 #15: runtime 在 createDeepAgentRuntime 启动时(runtime.ts:547-599)已快照
+          // subagents 列表,本 turn 内 task(name:) 委托不到刚 insert 的 agent。把这点
+          // 显式写进返回 + 工具描述,模型就知道要么等下个 turn / 新会话,要么
+          // 不在本 turn 委托。修复路径之一:动态重 build runtime(复杂度高、超出 PR 范围)。
+          note:
+            '新 agent 已写入数据库,但 createDeepAgentRuntime 启动时已快照 subagents 列表,本 chat turn 内 ' +
+            'task(name: ...) 委托不到 effective_slug 对应的 subagent。需重新发起新会话或等下个 turn 才能委托。',
         });
       },
       {
@@ -287,7 +294,10 @@ export function createAgentTools(
         description:
           '在当前项目下创建一个新 agent。可选挂载 MCP server (mcpServerIds)、skill (skillNames)、关联 provider。' +
           'name 必须是英文/数字/空格/连字符/下划线。is_default 只能同时有一个 agent 拥有,设置后其他 agent 自动取消默认。' +
-          '返回创建成功的 agent 完整信息(含生成的 id)。',
+          '返回创建成功的 agent 完整信息(含生成的 id、effective_slug)。' +
+          '⚠️ **新 agent 在当前 chat turn 内不可用于 task() 委托** — runtime 在 createDeepAgentRuntime 启动时 ' +
+          '已快照 subagents 列表(runtime.ts:547-599),本 turn 内 task(name: ...) 找不到刚 insert 的 subagent。' +
+          '如需立即委托,需重新发起新会话或等下个 turn。',
         schema: z.object({
           name: z.string().describe('agent 名称(英文/数字/空格/-/_)'),
           description: z.string().optional().describe('agent 用途描述'),
@@ -343,7 +353,22 @@ export function createAgentTools(
               'Invalid agent name. Must contain only English letters, numbers, spaces, hyphens, or underscores.',
           });
         }
-        if (input.provider_id) {
+        // P2 #3(residual): 不允许显式清空 provider。
+        // workflow node-executor.ts:303 调 getProvider(agentRow.provider_id) 抛错;
+        // chat runtime 也会读 provider_id,所以 null provider 让 agent 在两个路径都跑不起来。
+        // create_agent 在缺省时回退到 active provider(runtime.ts:78-89 同款);update_agent
+        // 对齐 — 想换 provider 显式传合法 id,想保留 omit(不传)字段,不要传 null/''。
+        if (input.provider_id !== undefined) {
+          if (input.provider_id === null || input.provider_id === '') {
+            return JSON.stringify({
+              error:
+                `Cannot clear provider_id on update_agent. provider_id must remain set: ` +
+                `workflow node-executor.ts calls getProvider(agentRow.provider_id) which throws ` +
+                `when null, and the chat runtime also reads it. To change the provider, pass a ` +
+                `valid id; to keep the current provider, omit the field. ` +
+                `Use list_agents to inspect the current provider_id.`,
+            });
+          }
           const provider = db
             .prepare('SELECT id FROM llm_providers WHERE id = ?')
             .get(input.provider_id);
@@ -450,6 +475,13 @@ export function createAgentTools(
           ...serializeAgent(row),
           mcpServerIds: getMcpIdsForAgent(input.id),
           skillNames: getSkillNamesForAgent(input.id),
+          // P2 #15: 同 create_agent — runtime subagents 列表是启动时快照的,
+          // 本 turn 内 task(name:) 委托不到 effective_slug(改 name 衍生新 slug) 或
+          // 找不到新 slug(若旧 slug 已变)。
+          note:
+            '更新已写入数据库,但 createDeepAgentRuntime 启动时已快照 subagents 列表,' +
+            '本 chat turn 内 task(name: ...) 委托用的还是旧 effective_slug。' +
+            '如需用新 effective_slug 委托,需重新发起新会话或等下个 turn。',
         });
       },
       {
@@ -457,7 +489,12 @@ export function createAgentTools(
         description:
           '更新已有 agent。仅更新提供的字段;未提供的字段保持不变。' +
           'mcpServerIds / skillNames 整体替换(若提供)。' +
-          '返回更新后的 agent 完整信息。',
+          'provider_id 不允许传 null 或空字符串(workflow node-executor.ts 读 provider_id,' +
+          'null 会抛错;chat runtime 也读);想换 provider 显式传合法 id,想保留 omit(不传)该字段。' +
+          '返回更新后的 agent 完整信息。' +
+          '⚠️ **改名 / 改 effective_slug 后,本 chat turn 内 task() 委托用的还是旧 slug** — ' +
+          'runtime 在启动时已快照 subagents(runtime.ts:547-599),' +
+          '新 slug 要等下个 turn / 新会话才被 runtime 看到。',
         schema: z.object({
           id: z.string().describe('要更新的 agent ID'),
           name: z.string().optional().describe('新名称'),

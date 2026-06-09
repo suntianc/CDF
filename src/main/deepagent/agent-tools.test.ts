@@ -493,6 +493,22 @@ describe('createAgentTools', () => {
       expect(dbState.agents.get(result.id)?.slug).toBe('code-reviewer');
     });
 
+    it('returns a defer-delegation note in tool results (P2 #15)', async () => {
+      // Codex P2 #15: the runtime's subagents list is snapshotted in
+      // createDeepAgentRuntime before any tool call (runtime.ts:547-599).
+      // A create_agent in the same turn writes a new row, but the live
+      // runtime's `subagents` array doesn't see it, so `task(name: ...)`
+      // against the returned effective_slug fails until the next turn /
+      // new chat session. Fix: surface this in the JSON return so the
+      // master knows the agent is "created but not yet routable".
+      seedProvider('p-default');
+      const result = await invoke('create_agent', { name: 'Defer Me' });
+      expect(result.note).toBeDefined();
+      expect(result.note).toMatch(/createDeepAgentRuntime/);
+      expect(result.note).toMatch(/task\(name/);
+      expect(result.note).toMatch(/下个 turn|next turn/);
+    });
+
     it('accepts valid special characters in name (space, hyphen, underscore)', async () => {
       seedProvider('p-default');
       const result = await invoke('create_agent', { name: 'Code Reviewer-v2_final' });
@@ -615,6 +631,49 @@ describe('createAgentTools', () => {
       dbState.agentMcp.set(a.id, ['m1']);
       const result = await invoke('update_agent', { id: a.id, name: 'x' });
       expect(result.mcpServerIds).toEqual(['m1']);
+    });
+
+    it('rejects provider_id: null (P2 #3 residual)', async () => {
+      // Codex P2 #3: update_agent's original `if (input.provider_id)` truthy
+      // guard silently allowed clearing the provider (null → provider_id=NULL
+      // in DB). That breaks workflow node-executor.ts:303 getProvider(null)
+      // AND the chat runtime, which both read provider_id. Fix: explicitly
+      // reject null and '' with a clear error pointing the model at the
+      // valid paths (pass a valid id to switch, omit the field to keep).
+      const a = seedAgent({ provider_id: 'p-existing' });
+      const result = await invoke('update_agent', { id: a.id, provider_id: null });
+      expect(result.error).toMatch(/Cannot clear provider_id/);
+      expect(result.error).toMatch(/workflow node-executor/);
+      // Existing provider NOT cleared
+      expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
+    });
+
+    it('rejects provider_id: "" (P2 #3 residual)', async () => {
+      const a = seedAgent({ provider_id: 'p-existing' });
+      const result = await invoke('update_agent', { id: a.id, provider_id: '' });
+      expect(result.error).toMatch(/Cannot clear provider_id/);
+      expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
+    });
+
+    it('omitting provider_id keeps the existing provider (P2 #3 residual)', async () => {
+      // Sanity check: the new guard fires only on EXPLICIT null/''.
+      // Omitting the field (undefined) leaves the existing value alone.
+      const a = seedAgent({ provider_id: 'p-existing' });
+      const result = await invoke('update_agent', { id: a.id, name: 'rename' });
+      expect(result.name).toBe('rename');
+      expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
+    });
+
+    it('returns a defer-delegation note (P2 #15)', async () => {
+      // Codex P2 #15: createDeepAgentRuntime snapshots subagents at startup
+      // (runtime.ts:547-599), so a create_agent / update_agent in the same
+      // turn cannot be reached by `task(name: ...)`. Document this in the
+      // tool description AND in the JSON return so the model knows to
+      // either wait for the next turn or start a new chat session.
+      const a = seedAgent({});
+      const result = await invoke('update_agent', { id: a.id, name: 'renamed' });
+      expect(result.note).toMatch(/turn/);
+      expect(result.note).toMatch(/subagents/);
     });
   });
 
