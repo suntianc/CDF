@@ -17,6 +17,7 @@ import { createFetchTool } from './fetch-tool';
 import { createArxivTool } from './arxiv-tool';
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
+import { generateSlug } from './agent-slug';
 import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
@@ -158,6 +159,7 @@ function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
     id: crypto.randomUUID(),
     project_id: projectId,
     name: 'Master Agent',
+    slug: generateSlug('Master Agent'),
     description: '项目默认 Agent',
     provider_id: fallbackProviderId,
     system_prompt: '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
@@ -168,12 +170,13 @@ function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
   };
 
   db.prepare(`
-    INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     agent.id,
     agent.project_id,
     agent.name,
+    agent.slug,
     agent.description,
     agent.provider_id,
     agent.system_prompt,
@@ -307,14 +310,6 @@ function getAgentMcpServers(agentId: string): MCPServer[] {
 
 function buildProjectContext(project: RuntimeProjectRow): string {
   return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${project.path}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
-}
-
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
 }
 
 function getRecoverableToolErrorCode(error: unknown): string {

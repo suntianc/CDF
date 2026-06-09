@@ -284,22 +284,28 @@ function makePrepared(state: typeof dbState) {
         const [aid] = params;
         return (dbState.agentSkills.get(aid as string) ?? []).map((name) => ({ skill_name: name }));
       }
-      // SELECT slug FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ?)
-      // (P2 #16: create_agent slug-uniqueness check)
+      // SELECT id, slug, name FROM agents WHERE project_id = ? AND
+      //   (slug = ? OR slug LIKE ? OR slug IS NULL OR slug = ?)
+      // (P2 #16: create_agent slug-uniqueness check via ensureUniqueSlug.
+      // The IS NULL / = '' branches project legacy rows' effective
+      // slugs into the taken set so a NULL-slug row cannot be shadowed
+      // by a same-name insert — PR #5 maintainer feedback 2026-06-09.)
       if (
         s ===
-        'SELECT slug FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ?)'
+        'SELECT id, slug, name FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ? OR slug IS NULL OR slug = ?)'
       ) {
         const [pid, base, likePattern] = params as [string, string, string];
-        // likePattern is `${baseSlug}-%` — match prefix followed by '-digits'
         const likePrefix = likePattern.replace(/%$/, '');
         return Array.from(dbState.agents.values())
           .filter(
             (a) =>
               a.project_id === pid &&
-              (a.slug === base || (a.slug && a.slug.startsWith(likePrefix))),
+              (a.slug === base ||
+                (a.slug && a.slug.startsWith(likePrefix)) ||
+                a.slug === null ||
+                a.slug === ''),
           )
-          .map((a) => ({ slug: a.slug }));
+          .map((a) => ({ id: a.id, slug: a.slug, name: a.name }));
       }
       return [];
     };

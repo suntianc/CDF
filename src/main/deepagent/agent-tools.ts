@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import db from '../database';
+import { ensureUniqueSlug, generateSlug, resolveAgentSlug } from './agent-slug';
 
 const AGENT_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
 
@@ -36,17 +37,12 @@ interface AgentRow {
 }
 
 /**
- * Stable task key for delegated subagent calls (runtime.ts:573 pattern).
- * If the persisted slug is null, fall back to a slugified version of
- * the display name. Matches `createDeepAgentRuntime`'s lookup so the
- * master can use this directly in `task(name: ...)` calls.
+ * Stable task key for delegated subagent calls (runtime.ts:583-584
+ * pattern). If the persisted slug is null, fall back to a slugified
+ * version of the display name. The implementation lives in
+ * `./agent-slug.ts` (resolveAgentSlug) so all 4 historical copies
+ * of this regex chain share one canonical home.
  */
-function resolveAgentSlug(row: AgentRow): string {
-  return row.slug || row.name.toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-}
 
 function parseConfig(raw: string | null): Record<string, unknown> {
   if (!raw) return {};
@@ -193,53 +189,15 @@ export function createAgentTools(
               'UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ?',
             ).run(now, projectId);
           }
-          // Codex P2 #14: persist slug on INSERT so the master can
-          // immediately use the returned `effective_slug` in `task(name:)`
-          // delegated calls. Without persisting, the slug is null until
-          // the runtime's generateSlug fallback kicks in at lookup
-          // time — which leaves the model guessing what task key to
-          // pass. Use the same slugify rules as runtime.ts:573.
-          //
-          // Codex P2 #16: enforce slug uniqueness WITHIN the project
-          // before insert. Two agents named "Code Reviewer" would
-          // otherwise share the same `effective_slug`, and the runtime
-          // (runtime.ts:571) registers subagents under
-          // `agentRow.slug || generateSlug(agentRow.name)` — so the
-          // master has no distinct `task(name: ...)` target for the
-          // second one, and delegation becomes ambiguous / unreachable.
-          // Resolve by appending `-2`, `-3`, ... until the slug is free.
-          // We do this inside the transaction (better-sqlite3 is
-          // single-writer; the IMMEDIATE-equivalent is the surrounding
-          // tx), so concurrent create_agent calls serialize.
-          const baseSlug = input.name
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '')
-            .slice(0, 50) || 'agent';
-          const taken = new Set(
-            (
-              db
-                .prepare(
-                  'SELECT slug FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ?)',
-                )
-                .all(projectId, baseSlug, `${baseSlug}-%`) as { slug: string }[]
-            ).map((r) => r.slug),
-          );
-          let newSlug = baseSlug;
-          if (taken.has(newSlug)) {
-            for (let n = 2; n < 1000; n++) {
-              const candidate = `${baseSlug}-${n}`;
-              if (!taken.has(candidate)) {
-                newSlug = candidate;
-                break;
-              }
-            }
-            // 1000 collisions is unrealistic, but if it happens fall
-            // back to a timestamp suffix rather than inserting a
-            // colliding row.
-            if (taken.has(newSlug)) newSlug = `${baseSlug}-${now}`;
-          }
+          // P2 #14 + P2 #16 + maintainer 2026-06-09: persist a unique
+          // slug on INSERT so `task(name: <effective_slug>)` is
+          // immediately addressable. Use the canonical
+          // ensureUniqueSlug helper from ./agent-slug.ts, which also
+          // projects NULL/empty legacy rows' effective slugs into
+          // the collision check (the inline query before this fix
+          // missed those — see PR #5 review).
+          const baseSlug = generateSlug(input.name.trim()) || 'agent';
+          const newSlug = ensureUniqueSlug(projectId, baseSlug, now);
           db.prepare(
             `INSERT INTO agents
               (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
@@ -259,12 +217,18 @@ export function createAgentTools(
           );
 
           if (Array.isArray(input.mcpServerIds)) {
+            // Dedup before insert: the (agent_id, mcp_server_id)
+            // composite PK would otherwise throw on duplicate ids in
+            // the same call. Matches workflow-runtime.ts:131-135
+            // canonical pattern. Mirrored in ipc-handlers.ts:451-456
+            // for the UI path.
+            const uniqueMcpIds = Array.from(new Set(input.mcpServerIds));
             const insertMcp = db.prepare(
               'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)',
             );
             // mcp_servers is a global table (no project_id column per
             // database.ts:139-148), so we only validate the server exists.
-            for (const mcpId of input.mcpServerIds) {
+            for (const mcpId of uniqueMcpIds) {
               const exists = db
                 .prepare('SELECT id FROM mcp_servers WHERE id = ?')
                 .get(mcpId);
@@ -273,10 +237,11 @@ export function createAgentTools(
           }
 
           if (Array.isArray(input.skillNames)) {
+            const uniqueSkillNames = Array.from(new Set(input.skillNames));
             const insertSkill = db.prepare(
               'INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)',
             );
-            for (const skillId of input.skillNames) {
+            for (const skillId of uniqueSkillNames) {
               // 与 db:saveAgent 保持一致:仅保留 global scope 的 skill
               const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
               if (scope === 'global') insertSkill.run(id, skillId);
@@ -415,8 +380,28 @@ export function createAgentTools(
         }
 
         const now = Date.now();
+        const trimmedName = input.name?.trim() ?? existing.name;
+        const nameChanged = input.name !== undefined && trimmedName !== existing.name;
+        // Maintainer 2026-06-09: rename 必须重算 slug,否则 effective_slug
+        // 与返回说明不一致。slug 跟随 name,但需 ensureUniqueSlug 防冲突。
+        // 当 name 没变时,保留 existing.slug(可能为 NULL legacy 行;
+        // 不在本 PR 主动回填,留给 database.ts:225-241 的启动 backfill)。
+        let nextSlug = existing.slug;
+        if (nameChanged) {
+          const baseSlug = generateSlug(trimmedName) || 'agent';
+          // ensureUniqueSlug 把当前行也算进了 taken 集合。若重命名后
+          // 期望的 baseSlug 跟现有 effective slug 一致(仅大小写/标点
+          // 差异),helper 会返回 `${baseSlug}-2` 触发"自我碰撞"。
+          // 这种情况下保留 existing.slug,避免无意义的 slug 变更。
+          if (resolveAgentSlug({ slug: existing.slug, name: existing.name }) === baseSlug) {
+            nextSlug = existing.slug;
+          } else {
+            nextSlug = ensureUniqueSlug(projectId, baseSlug, now);
+          }
+        }
         const next = {
-          name: input.name?.trim() ?? existing.name,
+          name: trimmedName,
+          slug: nextSlug,
           description:
             input.description !== undefined ? input.description : existing.description,
           provider_id:
@@ -426,6 +411,7 @@ export function createAgentTools(
           config: input.config !== undefined ? JSON.stringify(input.config) : existing.config,
           is_default: input.is_default !== undefined ? (input.is_default ? 1 : 0) : existing.is_default,
         };
+        const slugChanged = next.slug !== existing.slug;
 
         // Codex P2 #11: 拒绝把项目唯一 default agent 改为非 default。
         // 否则下次 chat omit agentId 时,ensureDefaultAgent (runtime.ts:119) 找不到
@@ -457,10 +443,11 @@ export function createAgentTools(
           }
           db.prepare(
             `UPDATE agents SET
-              name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
+              name = ?, slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
               WHERE id = ?`,
           ).run(
             next.name,
+            next.slug,
             next.description,
             next.provider_id,
             next.system_prompt,
@@ -472,12 +459,15 @@ export function createAgentTools(
 
           if (Array.isArray(input.mcpServerIds)) {
             db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(input.id);
+            // Dedup before insert: see create_agent and
+            // ipc-handlers.ts:451-456. Same composite-PK rationale.
+            const uniqueMcpIds = Array.from(new Set(input.mcpServerIds));
             const insertMcp = db.prepare(
               'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)',
             );
             // mcp_servers is a global table (no project_id column per
             // database.ts:139-148), so we only validate the server exists.
-            for (const mcpId of input.mcpServerIds) {
+            for (const mcpId of uniqueMcpIds) {
               const exists = db
                 .prepare('SELECT id FROM mcp_servers WHERE id = ?')
                 .get(mcpId);
@@ -487,10 +477,11 @@ export function createAgentTools(
 
           if (Array.isArray(input.skillNames)) {
             db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(input.id);
+            const uniqueSkillNames = Array.from(new Set(input.skillNames));
             const insertSkill = db.prepare(
               'INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)',
             );
-            for (const skillId of input.skillNames) {
+            for (const skillId of uniqueSkillNames) {
               const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
               if (scope === 'global') insertSkill.run(input.id, skillId);
             }
@@ -510,34 +501,38 @@ export function createAgentTools(
           ...serializeAgent(row),
           mcpServerIds: getMcpIdsForAgent(input.id),
           skillNames: getSkillNamesForAgent(input.id),
-          // P2 #15: 同 create_agent — runtime subagents 列表是启动时快照的,
-          // 本 turn 内 task(name:) 委托不到 effective_slug(改 name 衍生新 slug) 或
-          // 找不到新 slug(若旧 slug 已变)。
-          note:
-            '更新已写入数据库,但 createDeepAgentRuntime 启动时已快照 subagents 列表,' +
-            '本 chat turn 内 task(name: ...) 委托用的还是旧 effective_slug。' +
-            '如需用新 effective_slug 委托,需重新发起新会话或等下个 turn。',
+          note: slugChanged
+            ? `update_agent 改 name 触发了 slug 重算,新 effective_slug 为 ` +
+                `${resolveAgentSlug(row)}。createDeepAgentRuntime 启动时已快照 subagents 列表,` +
+                `本 chat turn 内 task(name: ...) 委托仍解析到旧 effective_slug,` +
+                `新 slug 要等下个 turn / 新会话才被 runtime 看到。`
+            : '更新已写入数据库,但 createDeepAgentRuntime 启动时已快照 subagents 列表,' +
+              '本 chat turn 内 task(name: ...) 委托用的还是旧 effective_slug。' +
+              '如需用新 effective_slug 委托,需重新发起新会话或等下个 turn。',
         });
       },
       {
         name: 'update_agent',
         description:
           '更新已有 agent。仅更新提供的字段;未提供的字段保持不变。' +
-          'mcpServerIds / skillNames 整体替换(若提供)。' +
+          'mcpServerIds / skillNames 整体替换(若提供,内部去重)。' +
           'provider_id 不允许传 null 或空字符串(workflow node-executor.ts 读 provider_id,' +
           'null 会抛错;chat runtime 也读);想换 provider 显式传合法 id,想保留 omit(不传)该字段。' +
+          '**Slug 跟随 name**:改 name 会重算 effective_slug,自动用 `generateSlug(name)` ' +
+          '并加 `-2`/`-3` 直至项目内唯一(同 create_agent)。若重命名后 effective_slug 与 ' +
+          '旧值一致(仅大小写/标点差异),保留旧 slug 不变更。' +
           '返回更新后的 agent 完整信息。' +
           '⚠️ **改名 / 改 effective_slug 后,本 chat turn 内 task() 委托用的还是旧 slug** — ' +
           'runtime 在启动时已快照 subagents(runtime.ts:547-599),' +
           '新 slug 要等下个 turn / 新会话才被 runtime 看到。',
         schema: z.object({
           id: z.string().describe('要更新的 agent ID'),
-          name: z.string().optional().describe('新名称'),
+          name: z.string().optional().describe('新名称(若提供,会触发 slug 重算)'),
           description: z.string().optional().describe('新描述'),
           provider_id: z.string().nullable().optional().describe('新 provider ID'),
           system_prompt: z.string().optional().describe('新系统提示词'),
-          mcpServerIds: z.array(z.string()).optional().describe('新的 MCP server ID 列表'),
-          skillNames: z.array(z.string()).optional().describe('新的 skill 名称列表'),
+          mcpServerIds: z.array(z.string()).optional().describe('新的 MCP server ID 列表(内部去重)'),
+          skillNames: z.array(z.string()).optional().describe('新的 skill 名称列表(内部去重)'),
           is_default: z.boolean().optional().describe('是否设为默认'),
           config: z.record(z.string(), z.unknown()).optional().describe('新 config 对象'),
         }),

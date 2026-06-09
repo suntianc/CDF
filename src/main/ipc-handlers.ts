@@ -21,6 +21,7 @@ import {
 } from './deepagent/skill-manager';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
+import { generateSlug } from './deepagent/agent-slug';
 import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
 import { collectAllCommands } from './commands/command-registry';
 import { listProjectCommands } from './commands/project-commands';
@@ -87,12 +88,13 @@ export function registerIpcHandlers() {
     const id = crypto.randomUUID();
 
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       projectId,
       'Master Agent',
+      generateSlug('Master Agent'),
       '项目默认 Agent',
       fallbackProvider?.id || null,
       '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
@@ -437,28 +439,34 @@ export function registerIpcHandlers() {
       const existing = db.prepare('SELECT id FROM agents WHERE id = ?').get(id);
       if (existing) {
         db.prepare(`
-          UPDATE agents SET project_id = ?, name = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
+          UPDATE agents SET project_id = ?, name = ?, slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
           WHERE id = ?
-        `).run(project_id, name, description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, id);
+        `).run(project_id, name, generateSlug(name), description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, id);
       } else {
         db.prepare(`
-          INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, project_id, name, description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, now);
+          INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, project_id, name, generateSlug(name), description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, now);
       }
 
       db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
       if (Array.isArray(mcpServerIds)) {
+        // Dedup before insert: see agent-tools.ts:create_agent +
+        // agent-tools.ts:update_agent. The (agent_id, mcp_server_id)
+        // composite PK would otherwise throw on duplicate ids in the
+        // same call.
+        const uniqueMcpIds = Array.from(new Set(mcpServerIds));
         const insertMcp = db.prepare('INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)');
-        for (const mcpId of mcpServerIds) {
+        for (const mcpId of uniqueMcpIds) {
           insertMcp.run(id, mcpId);
         }
       }
 
       db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
       if (Array.isArray(skillNames)) {
+        const uniqueSkillNames = Array.from(new Set(skillNames));
         const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
-        for (const skillId of skillNames) {
+        for (const skillId of uniqueSkillNames) {
           const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
           if (scope === 'global') {
             insertSkill.run(id, skillId);
