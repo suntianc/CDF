@@ -63,12 +63,21 @@ const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['
   // (database.ts:176,190) without the user seeing the confirmation flow
   // that protects `delete_file`. update_agent is gated too because it
   // can change library state the user might want to vet (is_default
-  // demotion, provider swap, slug rename, etc.). create_agent is
-  // skipped — it only adds, never destroys, so the cost of a spurious
-  // insert is low and a confirmation step would just be friction for
-  // the common "add a helper subagent" path. list_agents is read-only.
+  // demotion, provider swap, slug rename, etc.).
+  //
+  // Codex P2 (PR #5 maintainer review round 2, id=3381739597): create_agent
+  // is NOT pure additive — when called with `is_default: true` it first
+  // runs `UPDATE agents SET is_default = 0 ...` to demote the project's
+  // current default. That side-effect is the same kind of invariant
+  // mutation update_agent gates, and was previously silently changing the
+  // project's default without any approval flow. Gate create_agent too
+  // (the friction is acceptable: helpers can be auto-approved by the
+  // user's "Allow all for this session" toggle, and the common
+  // "add a helper subagent" flow becomes a single click).
+  // list_agents is read-only — no gate.
   delete_agent: { allowedDecisions: ['approve', 'reject'] },
   update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
 };
 
 let checkpointSaver: SqliteSaver | null = null;

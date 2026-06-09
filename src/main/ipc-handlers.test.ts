@@ -109,10 +109,14 @@ describe('IPC handlers', () => {
       'Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.'
     );
 
-    // Valid names should not throw name validation error
+    // Valid names should not throw name validation error.
+    // include `all` because ensureUniqueSlug (now called by db:saveAgent
+    // for both INSERT and UPDATE branches, PR #5) does a
+    // `db.prepare(...).all(...)` for the project-scoped collision check.
     dbPrepareMock.mockReturnValue({
       get: vi.fn(() => null),
       run: vi.fn(),
+      all: vi.fn(() => []),
     });
     const result = saveAgentHandler({}, { 
       id: 'agent-1', 
