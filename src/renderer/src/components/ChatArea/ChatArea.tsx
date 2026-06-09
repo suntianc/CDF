@@ -393,6 +393,31 @@ export function ChatArea({
     [projects, currentProjectId]
   );
 
+  const [welcomeText, setWelcomeText] = useState({
+    headlineKey: 'chat.welcomeHeadlineIdle',
+    sublineText: '',
+  });
+
+  useEffect(() => {
+    if (activeSessionId) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const headlineKey = currentProjectId && currentProjectId !== 'default-project'
+        ? 'chat.welcomeHeadlineActive'
+        : 'chat.welcomeHeadlineIdle';
+      const sublineText = currentProjectId
+        ? (currentProjectId === 'default-project'
+            ? t('chat.welcomeSublineTempSession')
+            : t('chat.welcomeSublineProjectLoaded', { name: currentProjectName }))
+        : t('chat.welcomeSublineNoProject');
+      setWelcomeText({ headlineKey, sublineText });
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [activeSessionId, currentProjectId, currentProjectName, t]);
+
   const activeSession = useMemo(() => {
     return sessions.find(s => s.id === activeSessionId) || null;
   }, [activeSessionId, sessions]);
@@ -1058,21 +1083,13 @@ export function ChatArea({
         
         <div className="max-w-[640px] w-full flex flex-col items-center gap-6 z-10">
           <h1 className="center-headline">
-            {currentProjectId && currentProjectId !== 'default-project' ? (
-              <>{t('chat.welcomeHeadlineActive')}</>
-            ) : (
-              <Trans
-                i18nKey="chat.welcomeHeadlineIdle"
-                components={{ span: <span /> }}
-              />
-            )}
+            <Trans
+              i18nKey={welcomeText.headlineKey}
+              components={{ span: <span /> }}
+            />
           </h1>
           <p className="center-subline">
-            {currentProjectId
-              ? (currentProjectId === 'default-project'
-                  ? t('chat.welcomeSublineTempSession')
-                  : t('chat.welcomeSublineProjectLoaded', { name: currentProjectName }))
-              : t('chat.welcomeSublineNoProject')}
+            {welcomeText.sublineText}
           </p>
 
           {/* Error Banner on Welcome Page */}
@@ -1426,9 +1443,9 @@ export function ChatArea({
               <div className="message assistant animate-pulse">
                 <div className="message-bubble">
                   <div className="flex items-center gap-1 py-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '300ms' }} />
                   </div>
                 </div>
               </div>

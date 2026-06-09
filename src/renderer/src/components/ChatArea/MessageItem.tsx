@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { ToolMessageCard } from './ToolMessageCard';
-import { CodeBlock, MarkdownRenderer } from './MarkdownRenderer';
+import { CodeBlock, MarkdownRenderer, MathRenderer } from './MarkdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 
@@ -170,8 +170,11 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       return parts.map((part, index) => {
         if (part.startsWith('```')) {
           const match = part.match(/```(\w*)\n([\s\S]*?)```/);
-          const lang = match ? match[1] : '';
+          const lang = match ? match[1].toLowerCase() : '';
           const code = match ? match[2] : part.slice(3, -3);
+          if (lang === 'math' || lang === 'latex' || lang === 'katex') {
+            return <MathRenderer math={code} block={true} key={index} />;
+          }
           return <CodeBlock lang={lang} code={code} key={index} />;
         }
         if (!part.trim()) return null;

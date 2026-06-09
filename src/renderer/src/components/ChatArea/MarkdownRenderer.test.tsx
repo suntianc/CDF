@@ -24,8 +24,8 @@ describe('MarkdownRenderer', () => {
     const { container } = render(<MarkdownRenderer text={markdown} />);
     const blockquote = container.querySelector('blockquote');
     expect(blockquote).toBeTruthy();
-    expect(blockquote?.className).toContain('border-l-4');
-    expect(blockquote?.className).toContain('border-[var(--color-accent)]/60');
+    expect(blockquote?.className).toContain('border');
+    expect(blockquote?.className).toContain('border-[var(--color-border)]/60');
     expect(blockquote?.textContent).toContain('💡 小提示：这是一个提示');
   });
 
@@ -52,5 +52,50 @@ describe('MarkdownRenderer', () => {
     expect(blockquotes[0].textContent).toContain('Line 1');
     expect(blockquotes[0].textContent).toContain('Line 2');
     expect(getByText('Some paragraph').tagName).toBe('P');
+  });
+
+  it('should render GitHub-style alerts', () => {
+    const markdown = '> [!NOTE]\n> Directly write content here!';
+    const { container } = render(<MarkdownRenderer text={markdown} />);
+    const alertDiv = container.querySelector('.border-l-sky-500');
+    expect(alertDiv).toBeTruthy();
+    expect(alertDiv?.textContent).toContain('NOTE');
+    expect(alertDiv?.textContent).toContain('Directly write content here!');
+  });
+
+  it('should render inline math formulas using KaTeX', () => {
+    const { container } = render(<MarkdownRenderer text="The formula is $E = mc^2$." />);
+    const katexElement = container.querySelector('.katex');
+    expect(katexElement).toBeTruthy();
+    expect(katexElement?.textContent).toContain('E=mc');
+  });
+
+  it('should render single-line block math formulas using KaTeX', () => {
+    const { container } = render(<MarkdownRenderer text="$$f(x) = \int x^2 dx$$" />);
+    const katexBlock = container.querySelector('.overflow-x-auto .katex');
+    expect(katexBlock).toBeTruthy();
+    expect(katexBlock?.textContent).toContain('f(x)');
+  });
+
+  it('should render multi-line block math formulas using KaTeX', () => {
+    const markdown = '$$\n\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\n$$';
+    const { container } = render(<MarkdownRenderer text={markdown} />);
+    const katexBlock = container.querySelector('.overflow-x-auto .katex');
+    expect(katexBlock).toBeTruthy();
+    expect(katexBlock?.textContent).toContain('i=1');
+  });
+
+  it('should not render ordinary dollar signs as math', () => {
+    const { container } = render(<MarkdownRenderer text="I have $10 and you have $20." />);
+    const katexElement = container.querySelector('.katex');
+    expect(katexElement).toBeFalsy();
+  });
+
+  it('should render inline math wrapped in backticks', () => {
+    const { container } = render(<MarkdownRenderer text="The formula is `$E = mc^2$`." />);
+    const katexElement = container.querySelector('.katex');
+    expect(katexElement).toBeTruthy();
+    expect(katexElement?.textContent).toContain('E=mc');
+    expect(container.querySelector('code')).toBeFalsy();
   });
 });

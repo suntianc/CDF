@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Check, Copy, AlertCircle, AlertTriangle, Info, Lightbulb, AlertOctagon } from 'lucide-react';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 interface CodeBlockProps {
   lang: string;
@@ -54,9 +56,58 @@ export function CodeBlock({ lang, code }: CodeBlockProps) {
   );
 }
 
+interface MathRendererProps {
+  math: string;
+  block?: boolean;
+}
+
+export function MathRenderer({ math, block = false }: MathRendererProps) {
+  const cleanMath = useMemo(() => {
+    let content = math.trim();
+    if (block) {
+      if (content.startsWith('$$') && content.endsWith('$$')) {
+        content = content.slice(2, -2);
+      }
+    } else {
+      if (content.startsWith('$') && content.endsWith('$')) {
+        content = content.slice(1, -1);
+      }
+    }
+    return content.trim();
+  }, [math, block]);
+
+  const html = useMemo(() => {
+    try {
+      return katex.renderToString(cleanMath, {
+        displayMode: block,
+        throwOnError: false,
+      });
+    } catch (error) {
+      console.error('KaTeX error:', error);
+      return cleanMath;
+    }
+  }, [cleanMath, block]);
+
+  if (block) {
+    return (
+      <div 
+        className="w-full overflow-x-auto my-3 select-text py-1 scrollbar-thin"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
+  return (
+    <span 
+      className="inline-block select-text align-middle mx-1"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 export const renderInlineMarkdown = (text: string) => {
   if (!text) return null;
-  const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
+  const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|`.*?`|\$[^\s$](?:[^$]*?[^\s$])?\$)/g;
   const parts = text.split(inlineRegex);
   
   return parts.map((part, i) => {
@@ -75,14 +126,24 @@ export const renderInlineMarkdown = (text: string) => {
       );
     }
     if (part.startsWith('`') && part.endsWith('`')) {
+      const inner = part.slice(1, -1);
+      if (inner.startsWith('$$') && inner.endsWith('$$')) {
+        return <MathRenderer key={i} math={inner} block={true} />;
+      }
+      if (inner.startsWith('$') && inner.endsWith('$')) {
+        return <MathRenderer key={i} math={inner} block={false} />;
+      }
       return (
         <code 
           key={i} 
           className="px-1.5 py-0.5 mx-0.5 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 rounded text-xs font-mono text-[var(--color-accent)]"
         >
-          {part.slice(1, -1)}
+          {inner}
         </code>
       );
+    }
+    if (part.startsWith('$') && part.endsWith('$')) {
+      return <MathRenderer key={i} math={part} block={false} />;
     }
     return part;
   });
@@ -104,6 +165,19 @@ export const renderMarkdownText = (text: string) => {
   let tableAlignments: ('left' | 'center' | 'right')[] = [];
 
   let currentBlockquoteLines: string[] = [];
+  
+  let inMathBlock = false;
+  let currentMathLines: string[] = [];
+
+  const flushMathBlock = (key: string | number) => {
+    if (currentMathLines.length > 0) {
+      const mathText = currentMathLines.join('\n');
+      elements.push(
+        <MathRenderer key={`math-${key}`} math={mathText} block={true} />
+      );
+      currentMathLines = [];
+    }
+  };
   
   const flushParagraph = (key: string | number) => {
     if (currentParagraphLines.length > 0) {
@@ -149,11 +223,75 @@ export const renderMarkdownText = (text: string) => {
   const flushBlockquote = (key: string | number) => {
     if (currentBlockquoteLines.length > 0) {
       const quoteText = currentBlockquoteLines.join('\n');
-      elements.push(
-        <blockquote key={`quote-${key}`} className="border-l-4 border-[var(--color-accent)]/60 bg-[var(--color-bg-sidebar)]/30 pl-4 pr-3 py-2 rounded-r-lg my-2 text-[var(--color-text-secondary)] text-sm select-text leading-relaxed">
-          {renderMarkdownText(quoteText)}
-        </blockquote>
-      );
+      
+      const firstLineTrimmed = currentBlockquoteLines[0].trim();
+      const alertMatch = firstLineTrimmed.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION|DANGER)\]$/i);
+      
+      if (alertMatch) {
+        const type = alertMatch[1].toUpperCase();
+        const contentLines = currentBlockquoteLines.slice(1);
+        const contentText = contentLines.join('\n');
+        
+        let styleClass = '';
+        let titleClass = '';
+        let titleText = '';
+        let icon: React.ReactNode = null;
+        
+        switch (type) {
+          case 'NOTE':
+            styleClass = 'border-l-2 border-l-sky-500 bg-sky-500/[0.03] dark:bg-sky-400/[0.02]';
+            titleClass = 'text-sky-600 dark:text-sky-400';
+            titleText = 'NOTE';
+            icon = <Info className="w-3.5 h-3.5 shrink-0" />;
+            break;
+          case 'TIP':
+            styleClass = 'border-l-2 border-l-emerald-500 bg-emerald-500/[0.03] dark:bg-emerald-400/[0.02]';
+            titleClass = 'text-emerald-600 dark:text-emerald-400';
+            titleText = 'TIP';
+            icon = <Lightbulb className="w-3.5 h-3.5 shrink-0" />;
+            break;
+          case 'IMPORTANT':
+            styleClass = 'border-l-2 border-l-indigo-500 bg-indigo-500/[0.03] dark:bg-indigo-400/[0.02]';
+            titleClass = 'text-indigo-600 dark:text-indigo-400';
+            titleText = 'IMPORTANT';
+            icon = <AlertCircle className="w-3.5 h-3.5 shrink-0" />;
+            break;
+          case 'WARNING':
+            styleClass = 'border-l-2 border-l-amber-500 bg-amber-500/[0.03] dark:bg-amber-400/[0.02]';
+            titleClass = 'text-amber-600 dark:text-amber-400';
+            titleText = 'WARNING';
+            icon = <AlertTriangle className="w-3.5 h-3.5 shrink-0" />;
+            break;
+          case 'CAUTION':
+          case 'DANGER':
+            styleClass = 'border-l-2 border-l-rose-500 bg-rose-500/[0.03] dark:bg-rose-400/[0.02]';
+            titleClass = 'text-rose-600 dark:text-rose-400';
+            titleText = type;
+            icon = <AlertOctagon className="w-3.5 h-3.5 shrink-0" />;
+            break;
+        }
+
+        elements.push(
+          <div 
+            key={`alert-${key}`} 
+            className={`pl-4 pr-3 py-2.5 rounded-r-lg my-3 text-sm select-text leading-relaxed ${styleClass}`}
+          >
+            <div className={`flex items-center gap-1.5 font-bold text-xs select-none tracking-wider uppercase mb-1.5 ${titleClass}`}>
+              {icon}
+              <span>{titleText}</span>
+            </div>
+            <div className="text-[var(--color-text-secondary)] text-[13px] leading-relaxed font-normal">
+              {renderMarkdownText(contentText)}
+            </div>
+          </div>
+        );
+      } else {
+        elements.push(
+          <blockquote key={`quote-${key}`} className="border border-[var(--color-border)]/60 bg-[var(--color-bg-sidebar)]/30 px-4 py-2 rounded-lg my-2 text-[var(--color-text-secondary)] text-sm select-text leading-relaxed">
+            {renderMarkdownText(quoteText)}
+          </blockquote>
+        );
+      }
       currentBlockquoteLines = [];
     }
   };
@@ -213,10 +351,53 @@ export const renderMarkdownText = (text: string) => {
     flushList(key);
     flushTable(key);
     flushBlockquote(key);
+    flushMathBlock(key);
   };
   
   lines.forEach((line, index) => {
     const trimmedLine = line.trim();
+    
+    // Check if we are inside a math block
+    if (inMathBlock) {
+      if (trimmedLine.includes('$$')) {
+        const parts = line.split('$$');
+        const mathPart = parts[0].trim();
+        if (mathPart) {
+          currentMathLines.push(mathPart);
+        }
+        flushMathBlock(index);
+        inMathBlock = false;
+        
+        const remaining = parts.slice(1).join('$$').trim();
+        if (remaining) {
+          currentParagraphLines.push(remaining);
+        }
+      } else {
+        currentMathLines.push(line);
+      }
+      return;
+    }
+
+    // Check single line block math
+    if (trimmedLine.startsWith('$$') && trimmedLine.endsWith('$$') && trimmedLine.length >= 4) {
+      flushAll(index);
+      const mathContent = trimmedLine.slice(2, -2).trim();
+      elements.push(
+        <MathRenderer key={`math-${index}`} math={mathContent} block={true} />
+      );
+      return;
+    }
+
+    // Check multi-line block math start
+    if (trimmedLine.startsWith('$$')) {
+      flushAll(index);
+      inMathBlock = true;
+      const mathContent = line.slice(line.indexOf('$$') + 2).trim();
+      if (mathContent) {
+        currentMathLines.push(mathContent);
+      }
+      return;
+    }
     
     // Check if it's a table row
     const isTableRow = trimmedLine.startsWith('|') && trimmedLine.endsWith('|') && trimmedLine.length > 2;

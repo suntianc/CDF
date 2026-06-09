@@ -888,10 +888,7 @@ export function registerIpcHandlers() {
   // lookup → 200_000 default inside the aggregator.
   ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number, overriddenModelName?: string) => {
     try {
-      console.log('[context:currentSession] IPC incoming:', { sessionId, contextLimit, overriddenModelName });
-      const result = await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
-      console.log('[context:currentSession] IPC result:', { modelName: result.modelName, contextLimit: result.contextLimit });
-      return result;
+      return await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
     } catch (err) {
       console.error('[context:currentSession] failed:', err);
       return {

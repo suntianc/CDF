@@ -205,7 +205,6 @@ export function ContextModal() {
     const limit = active?.context_limit;
 
     let cancelled = false;
-    console.log('[ContextModal] requesting currentSession:', { activeSessionId, limit, override });
     window.electronAPI.context
       .currentSession(activeSessionId, limit, override?.model || undefined)
       .then((payload: ContextAggregate) => {
@@ -399,18 +398,18 @@ export function ContextModal() {
 
         {data && (() => {
           const segments = [
-            { label: t('context.segment.systemPrompt'), value: data.breakdown.systemPrompt, color: 'bg-gradient-to-r from-sky-500 to-cyan-400', dotColor: 'bg-sky-500' },
-            { label: t('context.segment.builtInMcp'), value: data.breakdown.systemTools + data.breakdown.mcp, color: 'bg-gradient-to-r from-indigo-500 to-violet-500', dotColor: 'bg-indigo-500' },
-            { label: t('context.segment.skillsWorkflows'), value: data.breakdown.skills + data.breakdown.workflows + data.breakdown.projectCommandBodies, color: 'bg-gradient-to-r from-purple-500 to-fuchsia-500', dotColor: 'bg-purple-500' },
-            { label: t('context.segment.sessionMessages'), value: data.breakdown.messages, color: 'bg-gradient-to-r from-pink-500 to-rose-500', dotColor: 'bg-pink-500' },
-            { label: t('context.segment.memoryCache'), value: data.breakdown.memoryFiles + data.breakdown.customAgents, color: 'bg-gradient-to-r from-amber-500 to-orange-400', dotColor: 'bg-amber-500' },
+            { label: t('context.segment.systemPrompt'), value: data.breakdown.systemPrompt, color: 'bg-[var(--color-info)]', dotColor: 'bg-[var(--color-info)]' },
+            { label: t('context.segment.builtInMcp'), value: data.breakdown.systemTools + data.breakdown.mcp, color: 'bg-[var(--color-accent)]', dotColor: 'bg-[var(--color-accent)]' },
+            { label: t('context.segment.skillsWorkflows'), value: data.breakdown.skills + data.breakdown.workflows + data.breakdown.projectCommandBodies, color: 'bg-[var(--color-accent-hover)]', dotColor: 'bg-[var(--color-accent-hover)]' },
+            { label: t('context.segment.sessionMessages'), value: data.breakdown.messages, color: 'bg-[var(--color-danger)]', dotColor: 'bg-[var(--color-danger)]' },
+            { label: t('context.segment.memoryCache'), value: data.breakdown.memoryFiles + data.breakdown.customAgents, color: 'bg-[var(--color-warning)]', dotColor: 'bg-[var(--color-warning)]' },
           ];
           return (
             <div data-testid="context-modal-body" className="space-y-5 pt-4 flex-1 overflow-y-auto pr-1 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
               {/* Stats Hero Cards */}
               <div className="grid grid-cols-3 gap-3">
                 {/* Used Context Card */}
-                <div className="relative overflow-hidden bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-[var(--color-accent)]/30 transition-all duration-300 group hover:shadow-[0_8px_24px_rgba(124,58,237,0.12)] hover:-translate-y-1">
+                <div className="relative overflow-hidden min-w-0 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-[var(--color-accent)]/30 transition-all duration-300 group hover:shadow-[0_8px_24px_rgba(124,58,237,0.12)] hover:-translate-y-1">
                   <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 group-hover:opacity-25 transition-all duration-300 text-[var(--color-accent)]">
                     <BarChart3 className="size-12" />
                   </div>
@@ -428,7 +427,7 @@ export function ContextModal() {
                 </div>
 
                 {/* Free Space Card */}
-                <div className="relative overflow-hidden bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-[var(--color-success)]/30 transition-all duration-300 group hover:shadow-[0_8px_24px_rgba(34,197,94,0.12)] hover:-translate-y-1">
+                <div className="relative overflow-hidden min-w-0 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-[var(--color-success)]/30 transition-all duration-300 group hover:shadow-[0_8px_24px_rgba(34,197,94,0.12)] hover:-translate-y-1">
                   <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 group-hover:opacity-25 transition-all duration-300 text-[var(--color-success)]">
                     <Activity className="size-12" />
                   </div>
@@ -446,7 +445,7 @@ export function ContextModal() {
                 </div>
 
                 {/* Model Info Card */}
-                <div className="relative overflow-hidden bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-[var(--color-info)]/30 transition-all duration-300 group hover:shadow-[0_8px_24px_rgba(59,130,246,0.12)] hover:-translate-y-1">
+                <div className="relative overflow-hidden min-w-0 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-[var(--color-info)]/30 transition-all duration-300 group hover:shadow-[0_8px_24px_rgba(59,130,246,0.12)] hover:-translate-y-1">
                   <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 group-hover:opacity-25 transition-all duration-300 text-[var(--color-info)]">
                     <Cpu className="size-12" />
                   </div>
