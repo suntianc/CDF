@@ -46,6 +46,8 @@ electron-log-*
 .claude/
 .pi/
 .planning/
+.github/skills/
+.impeccable/
 
 # TypeScript cache
 *.tsbuildinfo

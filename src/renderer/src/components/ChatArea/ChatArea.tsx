@@ -34,6 +34,7 @@ interface ChatAreaProps {
   onToggleSidebar?: () => void;
   taskPanelOpen?: boolean;
   onToggleTaskPanel?: () => void;
+  onOpenTaskPanel?: () => void;
 }
 
 const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }) => {
@@ -82,7 +83,7 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
   );
 };
 
-const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; onToggleTaskPanel?: () => void }) => {
+const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onOpenTaskPanel?: () => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const actions = approval.actions || [];
@@ -124,7 +125,7 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
               </div>
             ))}
             <button
-              onClick={onToggleTaskPanel}
+              onClick={onOpenTaskPanel}
               className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-white rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
             >
               <span>{t('chat.goApproveNow')}</span>
@@ -199,7 +200,8 @@ export function ChatArea({
   sidebarCollapsed,
   onToggleSidebar,
   taskPanelOpen,
-  onToggleTaskPanel
+  onToggleTaskPanel,
+  onOpenTaskPanel
 }: ChatAreaProps) {
   const { t } = useTranslation();
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
@@ -746,6 +748,8 @@ export function ChatArea({
   };
 
   useEffect(() => {
+    if (providers.length === 0) return;
+
     if (!selectedProvider) {
       if (selectedModel) setSelectedModel('');
       return;
@@ -754,7 +758,7 @@ export function ChatArea({
     if (!selectedProviderModels.includes(selectedModel)) {
       setSelectedModel(selectedProviderModels[0] || '');
     }
-  }, [selectedModel, selectedProvider, selectedProviderModels]);
+  }, [selectedModel, selectedProvider, selectedProviderModels, providers]);
 
   const currentProvider = selectedProvider || masterProvider;
   const currentModel = selectedModel || masterProvider?.default_model || '';
@@ -1383,7 +1387,7 @@ export function ChatArea({
                   <PendingApprovalCard
                     key={item.id}
                     approval={item.approval}
-                    onToggleTaskPanel={onToggleTaskPanel}
+                    onOpenTaskPanel={onOpenTaskPanel}
                   />
                 );
               }

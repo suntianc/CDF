@@ -117,6 +117,8 @@
     "toolSummaryRunning": "Running",
     "toolSummaryFailed": "Failed",
     "toolCallFailed": "Tool call failed",
+    "loading": "Loading task panel...",
+    "loadFailed": "Task panel failed to load.",
     "approvalTitle": "Waiting for approval",
     "approvalActionsMultiple": "{{count}} actions waiting confirmation",
     "approvalActionsSingle": "1 action waiting confirmation",

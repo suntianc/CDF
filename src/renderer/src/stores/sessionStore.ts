@@ -83,7 +83,7 @@ interface SessionState {
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
-  fetchAgentActivity: (sessionId: string) => Promise<void>;
+  fetchAgentActivity: (sessionId: string, force?: boolean) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
   getIsSessionStreaming: (sessionId: string) => boolean;
@@ -110,6 +110,14 @@ interface StreamingSessionState {
 }
 
 const streamingSessionsCache = new Map<string, StreamingSessionState>();
+interface ActivityFetchEntry {
+  requestId: number;
+  promise: Promise<void>;
+}
+const activityFetches = new Map<string, ActivityFetchEntry>();
+const latestActivityFetchRequestIds = new Map<string, number>();
+let latestSelectSessionRequestId = 0;
+let nextActivityFetchRequestId = 0;
 
 interface SendMessageOptions {
   hiddenUserMessage?: boolean;
@@ -130,15 +138,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
-  sessionModelOverrides: {},
+  sessionModelOverrides: (() => {
+    try {
+      const saved = localStorage.getItem('sessionModelOverrides');
+      return saved ? JSON.parse(saved) : {};
+    } catch (err) {
+      console.error('Failed to load sessionModelOverrides from localStorage:', err);
+      return {};
+    }
+  })(),
 
   setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
-    set((state) => ({
-      sessionModelOverrides: {
+    set((state) => {
+      const nextOverrides = {
         ...state.sessionModelOverrides,
         [sessionId]: { providerId, model },
-      },
-    }));
+      };
+      try {
+        localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
+      } catch (err) {
+        console.error('Failed to save sessionModelOverrides to localStorage:', err);
+      }
+      return { sessionModelOverrides: nextOverrides };
+    });
   },
 
   // D-02/D-03: setSessionGoal synchronously writes to a NEW Map (immutability for
@@ -215,11 +237,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         nextGoals.delete(sessionId);
         const nextJudge = new Map(state.goalJudgeStatus);
         nextJudge.delete(sessionId);
+
+        const nextOverrides = { ...state.sessionModelOverrides };
+        delete nextOverrides[sessionId];
+        try {
+          localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
+        } catch (err) {
+          console.error('Failed to update sessionModelOverrides in localStorage on delete:', err);
+        }
+
         return {
           sessions: remaining,
           activeSessionId: nextActive,
           sessionGoals: nextGoals,
           goalJudgeStatus: nextJudge,
+          sessionModelOverrides: nextOverrides,
         };
       });
 
@@ -235,6 +267,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
  
   selectSession: async (sessionId: string | null) => {
+    const requestId = ++latestSelectSessionRequestId;
     if (!sessionId) {
       set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null });
       return;
@@ -256,35 +289,98 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           error: null,
         });
       } else {
-        const messages = await window.electronAPI.db.getMessages(sessionId);
-        set({
-          activeSessionId: sessionId,
-          messages,
-          delegatedTasks: [],
-          todos: [],
-          error: null,
-          isStreaming: false,
-          streamingMessageId: null,
-          activeRunId: null,
-          pendingApproval: null,
-        });
-        await get().fetchAgentActivity(sessionId);
+        set({ error: null });
+        const messagesBeforeLoad = get().activeSessionId === sessionId ? get().messages : null;
+
+        let messages: Message[] | null = null;
+        let messageError: any = null;
+        try {
+          messages = await window.electronAPI.db.getMessages(sessionId);
+        } catch (err: any) {
+          messageError = err;
+        }
+
+        if (latestSelectSessionRequestId !== requestId) return;
+
+        if (messages) {
+          const cachedDuringLoad = streamingSessionsCache.get(sessionId);
+          const messagesChangedDuringLoad = messagesBeforeLoad !== null && get().messages !== messagesBeforeLoad;
+          if (cachedDuringLoad) {
+            set({
+              activeSessionId: sessionId,
+              messages: cachedDuringLoad.messages,
+              todos: cachedDuringLoad.todos,
+              delegatedTasks: cachedDuringLoad.delegatedTasks,
+              agentRuns: cachedDuringLoad.agentRuns,
+              agentToolCalls: cachedDuringLoad.agentToolCalls,
+              activeRunId: cachedDuringLoad.activeRunId,
+              pendingApproval: cachedDuringLoad.pendingApproval,
+              isStreaming: cachedDuringLoad.isStreaming,
+              streamingMessageId: cachedDuringLoad.streamingMessageId,
+              error: null,
+            });
+          } else if (messagesChangedDuringLoad) {
+            set({
+              activeSessionId: sessionId,
+              error: null,
+            });
+          } else {
+            set({
+              activeSessionId: sessionId,
+              messages,
+              agentRuns: [],
+              agentToolCalls: [],
+              delegatedTasks: [],
+              todos: [],
+              error: null,
+              isStreaming: false,
+              streamingMessageId: null,
+              activeRunId: null,
+              pendingApproval: null,
+            });
+          }
+        } else {
+          set({ error: messageError?.message || 'Failed to load messages for session' });
+        }
+
+        if (get().activeSessionId === sessionId) {
+          try {
+            await get().fetchAgentActivity(sessionId, true);
+          } catch {
+            // fetchAgentActivity already records the more specific activity-load error.
+          }
+        }
       }
     } catch (err: any) {
-      set({ error: err.message || 'Failed to load messages for session' });
+      if (latestSelectSessionRequestId === requestId) {
+        set({ error: err.message || 'Failed to load messages for session' });
+      }
     }
   },
 
-  fetchAgentActivity: async (sessionId: string) => {
-    try {
-      if (
-        typeof window.electronAPI.db.getAgentRuns !== 'function' ||
-        typeof window.electronAPI.db.getAgentToolCalls !== 'function'
-      ) {
-        set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
-        return;
-      }
-      const runs = await window.electronAPI.db.getAgentRuns(sessionId);
+  fetchAgentActivity: async (sessionId: string, force = false) => {
+    if (!force) {
+      const existingFetch = activityFetches.get(sessionId);
+      if (existingFetch) return existingFetch.promise;
+    }
+
+    const requestId = ++nextActivityFetchRequestId;
+    latestActivityFetchRequestIds.set(sessionId, requestId);
+
+    const entry: ActivityFetchEntry = {
+      requestId,
+      promise: Promise.resolve().then(async () => {
+        try {
+        if (
+          typeof window.electronAPI.db.getAgentRuns !== 'function' ||
+          typeof window.electronAPI.db.getAgentToolCalls !== 'function'
+        ) {
+          if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
+            set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
+          }
+          return;
+        }
+        const runs = await window.electronAPI.db.getAgentRuns(sessionId);
       const activeRun = runs[0] || null;
       const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
 
@@ -417,16 +513,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         console.warn('[sessionStore] Failed to fetch/parse latest todos from DB:', err);
       }
 
-      set({
-        agentRuns: runs,
-        agentToolCalls: toolCalls,
-        delegatedTasks: tasks,
-        todos: latestTodos,
-        activeRunId: activeRun?.id || null,
-      });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to load agent activity' });
-    }
+        if (get().activeSessionId !== sessionId || latestActivityFetchRequestIds.get(sessionId) !== requestId) return;
+
+        set({
+          agentRuns: runs,
+          agentToolCalls: toolCalls,
+          delegatedTasks: tasks,
+          todos: latestTodos,
+          activeRunId: activeRun?.id || null,
+        });
+      } catch (err: any) {
+        if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
+          set({ error: err.message || 'Failed to load agent activity' });
+        }
+        throw err;
+        } finally {
+          if (activityFetches.get(sessionId) === entry) {
+            activityFetches.delete(sessionId);
+          }
+          if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
+            latestActivityFetchRequestIds.delete(sessionId);
+          }
+        }
+      }),
+    };
+
+    activityFetches.set(sessionId, entry);
+    return entry.promise;
   },
 
   getMessagesForSession: (sessionId: string) => {
@@ -887,6 +1000,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
       });
 
+      const sessionModelOverride = get().sessionModelOverrides[sessionId] || {};
+      const finalOverrides = {
+        providerId: sessionModelOverride.providerId || undefined,
+        model: sessionModelOverride.model || undefined,
+        ...overrides,
+      };
+
       try {
         await window.electronAPI.llm.chat(assistantMsgId, {
           projectId,
@@ -896,7 +1016,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             id: userMsgId,
             content,
           },
-          overrides,
+          overrides: finalOverrides,
         });
         await streamPromise;
       } catch (err: any) {

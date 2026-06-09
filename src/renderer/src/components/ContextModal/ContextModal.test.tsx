@@ -21,13 +21,17 @@ vi.mock('@/stores/contextModalStore', () => ({
   ),
 }));
 
-vi.mock('@/stores/sessionStore', () => ({
-  useSessionStore: { getState: () => mockSessionGet() },
-}));
+vi.mock('@/stores/sessionStore', () => {
+  const store = (selector: any) => selector(mockSessionGet());
+  store.getState = () => mockSessionGet();
+  return { useSessionStore: store };
+});
 
-vi.mock('@/stores/llmStore', () => ({
-  useLLMStore: { getState: () => mockLLMGet() },
-}));
+vi.mock('@/stores/llmStore', () => {
+  const store = (selector: any) => selector(mockLLMGet());
+  store.getState = () => mockLLMGet();
+  return { useLLMStore: store };
+});
 
 // Radix Dialog mocks
 vi.mock('@/components/ui/dialog', () => ({
@@ -233,5 +237,34 @@ describe('ContextModal', () => {
     await waitFor(() => screen.getByTestId('context-modal-error'));
     const err = screen.getByTestId('context-modal-error');
     expect(err.textContent).toContain('context.dataLoadFailed');
+  });
+
+  it('passes overridden model name to currentSession when session overrides exist', async () => {
+    mockSessionGet.mockReturnValue({
+      activeSessionId: 'session-1',
+      sessionModelOverrides: {
+        'session-1': { providerId: 'provider-2', model: 'gpt-4o' },
+      },
+    });
+    mockLLMGet.mockReturnValue({
+      activeProvider: { context_limit: 200_000, default_model: 'claude-opus' },
+      providers: [
+        { id: 'provider-1', context_limit: 200_000, default_model: 'claude-opus' },
+        { id: 'provider-2', context_limit: 128_000, default_model: 'gpt-4o' },
+      ],
+    });
+    mockCurrentSession.mockResolvedValue({
+      breakdown: fullBreakdown,
+      total: 2400,
+      modelName: 'gpt-4o',
+      contextLimit: 128_000,
+      used: 2400,
+      usedPct: 1,
+      freePct: 50,
+      mcpPerTool: [],
+    });
+
+    render(<ContextModal />);
+    await waitFor(() => expect(mockCurrentSession).toHaveBeenCalledWith('session-1', 128_000, 'gpt-4o'));
   });
 });

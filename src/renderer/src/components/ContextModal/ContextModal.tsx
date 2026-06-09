@@ -172,6 +172,11 @@ export function ContextModal() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessionModelOverrides = useSessionStore((s) => s.sessionModelOverrides) || {};
+  const override = activeSessionId ? sessionModelOverrides[activeSessionId] : null;
+  const activeProvider = useLLMStore((s) => s.activeProvider);
+  const providers = useLLMStore((s) => s.providers);
 
   useEffect(() => {
     if (!isOpen) {
@@ -182,7 +187,6 @@ export function ContextModal() {
       return;
     }
 
-    const activeSessionId = useSessionStore.getState().activeSessionId;
     if (!activeSessionId) {
       setError(t('context.noActiveSession'));
       return;
@@ -191,12 +195,9 @@ export function ContextModal() {
     setLoading(true);
     setError(null);
 
-    const sessionModelOverrides = useSessionStore.getState().sessionModelOverrides || {};
-    const override = activeSessionId ? sessionModelOverrides[activeSessionId] : null;
-
-    let active = useLLMStore.getState().activeProvider;
+    let active = activeProvider;
     if (override?.providerId) {
-      const matched = useLLMStore.getState().providers.find((p) => p.id === override.providerId);
+      const matched = providers.find((p) => p.id === override.providerId);
       if (matched) {
         active = matched;
       }
@@ -204,8 +205,9 @@ export function ContextModal() {
     const limit = active?.context_limit;
 
     let cancelled = false;
+    console.log('[ContextModal] requesting currentSession:', { activeSessionId, limit, override });
     window.electronAPI.context
-      .currentSession(activeSessionId, limit)
+      .currentSession(activeSessionId, limit, override?.model || undefined)
       .then((payload: ContextAggregate) => {
         if (!cancelled) setData(payload);
       })
@@ -219,7 +221,7 @@ export function ContextModal() {
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, activeSessionId, override, activeProvider, providers]);
 
   const progressBarColor = (() => {
     if (!data) return 'bg-[var(--color-bg-active)]';

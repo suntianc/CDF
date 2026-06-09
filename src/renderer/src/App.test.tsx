@@ -1,7 +1,14 @@
-import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { render, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { render, waitFor, act, fireEvent, screen } from '@testing-library/react';
 import { toast } from 'sonner';
 import App from './App';
+import { useProjectStore } from './stores/projectStore';
+
+const { taskPanelRenderSpy, taskPanelMountSpy, shouldThrowTaskPanel } = vi.hoisted(() => ({
+  taskPanelRenderSpy: vi.fn(),
+  taskPanelMountSpy: vi.fn(),
+  shouldThrowTaskPanel: { current: false },
+}));
 
 // Phase 8 — T-08-T9: latent bug fix verification.
 // Phase 6/7 dispatcher.ts and useCommandRegistry.ts call `toast.warning/info/error`,
@@ -9,12 +16,6 @@ import App from './App';
 // anything. This test pins the Toaster mount so future refactors cannot silently
 // drop it.
 
-// Mock the heavy view modules so the full App tree can render in jsdom without
-// rendering their full contents. The views themselves are not the subject of
-// this test — only the Toaster mount is. (ProviderIcon is now a thin shim
-// over @lobehub/icons-static-svg SVGs via Vite ?raw imports, so the previous
-// "@lobehub icon family peer-dep chain" concern is no longer relevant — we
-// could unmock these views in a follow-up if desired.)
 vi.mock('@/components/AgentLibrary/AgentLibrary', () => ({
   AgentLibrary: () => null,
 }));
@@ -37,14 +38,35 @@ vi.mock('@/components/Sidebar/Sidebar', () => ({
   Sidebar: () => null,
 }));
 vi.mock('@/components/ChatArea/ChatArea', () => ({
-  ChatArea: () => null,
+  ChatArea: ({ taskPanelOpen, onToggleTaskPanel, onOpenTaskPanel }: {
+    taskPanelOpen?: boolean;
+    onToggleTaskPanel?: () => void;
+    onOpenTaskPanel?: () => void;
+  }) => (
+    <div>
+      <span data-testid="task-panel-state">{taskPanelOpen ? 'open' : 'closed'}</span>
+      <button type="button" onClick={onToggleTaskPanel}>toggle task panel</button>
+      <button type="button" onClick={onOpenTaskPanel}>go approve now</button>
+    </div>
+  ),
 }));
-vi.mock('@/components/TaskPanel/TaskPanel', () => ({
-  TaskPanel: () => null,
-}));
+vi.mock('@/components/TaskPanel/TaskPanel', async () => {
+  const React = await import('react');
+  return {
+    TaskPanel: ({ isOpen }: { isOpen: boolean }) => {
+      React.useEffect(() => {
+        taskPanelMountSpy();
+      }, []);
+      taskPanelRenderSpy(isOpen);
+      if (shouldThrowTaskPanel.current) {
+        throw new Error('task panel render failed');
+      }
+      return <aside data-testid="task-panel">{isOpen ? 'open' : 'closed'}</aside>;
+    },
+  };
+});
 
 beforeAll(() => {
-  // jsdom does not implement ResizeObserver (cmdk) or scrollIntoView (cmdk) — polyfill.
   if (typeof globalThis.ResizeObserver === 'undefined') {
     globalThis.ResizeObserver = class {
       observe() {}
@@ -58,9 +80,6 @@ beforeAll(() => {
   if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = function () {};
   }
-  // App.tsx reads `window.electronAPI.store.get('theme')` on mount; provide a
-  // minimal stub so the test does not crash before we can assert on the
-  // Toaster DOM presence.
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     store: {
       get: vi.fn().mockResolvedValue(null),
@@ -69,14 +88,16 @@ beforeAll(() => {
   };
 });
 
+beforeEach(() => {
+  taskPanelRenderSpy.mockClear();
+  taskPanelMountSpy.mockClear();
+  shouldThrowTaskPanel.current = false;
+  useProjectStore.setState({ activeView: 'chat', taskPanelOpen: false });
+});
+
 describe('App', () => {
   it('mounts <Toaster /> from sonner in the DOM (Phase 8 T-08-T9 latent fix)', async () => {
     render(<App />);
-    // sonner 2.0.7 only renders the inner `<ol data-sonner-toaster>` after at
-    // least one toast is added. Trigger a toast to make the toaster materialise,
-    // then wait for the data attribute to appear. The callback must throw if
-    // the element is not yet present so waitFor keeps polling until the
-    // timeout — returning a falsy value would short-circuit immediately.
     act(() => {
       toast.info('phase 8 mount probe');
     });
@@ -89,5 +110,54 @@ describe('App', () => {
       { timeout: 3000, interval: 50 }
     );
     expect(toaster).toBeTruthy();
+  });
+
+  it('keeps go approve now as an open action instead of a toggle', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByText('go approve now'));
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('task-panel-state').textContent).toBe('open');
+
+    fireEvent.click(screen.getByText('go approve now'));
+    expect(screen.getByTestId('task-panel-state').textContent).toBe('open');
+  });
+
+  it('keeps TaskPanel mounted after close so local state can survive reopen', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByText('toggle task panel'));
+    await screen.findByTestId('task-panel');
+    expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('task-panel').textContent).toBe('open');
+
+    fireEvent.click(screen.getByText('toggle task panel'));
+    await waitFor(() => expect(screen.getByTestId('task-panel').textContent).toBe('closed'));
+    expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText('toggle task panel'));
+    await waitFor(() => expect(screen.getByTestId('task-panel').textContent).toBe('open'));
+    expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('collapses TaskPanel error fallback when closed and retries on reopen', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    shouldThrowTaskPanel.current = true;
+
+    render(<App />);
+    fireEvent.click(screen.getByText('toggle task panel'));
+
+    const failedPanel = await screen.findByText(/Task panel failed to load\.|任务面板加载失败。/);
+    expect(failedPanel.closest('aside')?.style.width).toBe('340px');
+
+    fireEvent.click(screen.getByText('toggle task panel'));
+    await waitFor(() => expect(failedPanel.closest('aside')?.style.width).toBe('0px'));
+
+    shouldThrowTaskPanel.current = false;
+    fireEvent.click(screen.getByText('toggle task panel'));
+
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('task-panel').textContent).toBe('open');
+    consoleSpy.mockRestore();
   });
 });

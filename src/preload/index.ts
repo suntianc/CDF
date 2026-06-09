@@ -141,8 +141,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 08.2 P4: optional contextLimit so renderer can pin the active provider
   // limit (P10 mitigation). Falls back to default 200_000 server-side.
   context: {
-    currentSession: (sessionId: string, contextLimit?: number) =>
-      ipcRenderer.invoke('context:currentSession', sessionId, contextLimit),
+    currentSession: (sessionId: string, contextLimit?: number, overriddenModelName?: string) =>
+      ipcRenderer.invoke('context:currentSession', sessionId, contextLimit, overriddenModelName),
   },
   platform: process.platform,
 });

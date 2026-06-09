@@ -602,7 +602,7 @@ export interface ElectronAPI {
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {
-    currentSession: (sessionId: string, contextLimit?: number) => Promise<ContextAggregate>;
+    currentSession: (sessionId: string, contextLimit?: number, overriddenModelName?: string) => Promise<ContextAggregate>;
   };
   platform: string;
 }

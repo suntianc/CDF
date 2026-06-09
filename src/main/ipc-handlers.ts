@@ -886,9 +886,12 @@ export function registerIpcHandlers() {
   // 08.2 P4: accepts optional `contextLimit` arg so renderer can pin
   // the active provider's limit (P10 mitigation). Falls back to provider
   // lookup → 200_000 default inside the aggregator.
-  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number) => {
+  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number, overriddenModelName?: string) => {
     try {
-      return await aggregateCurrentSessionContext(sessionId, contextLimit);
+      console.log('[context:currentSession] IPC incoming:', { sessionId, contextLimit, overriddenModelName });
+      const result = await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
+      console.log('[context:currentSession] IPC result:', { modelName: result.modelName, contextLimit: result.contextLimit });
+      return result;
     } catch (err) {
       console.error('[context:currentSession] failed:', err);
       return {

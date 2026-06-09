@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useSessionStore, type DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
 
-interface TaskPanelProps {
+export interface TaskPanelProps {
   isOpen: boolean;
   onClose: () => void;
   width: number;
@@ -84,23 +84,20 @@ function getApprovalSummary(action: AgentApprovalAction, t: (key: string) => str
   };
 }
 
-export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) {
+function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
+  expandedTasks: Record<string, boolean>;
+  setExpandedTasks: Dispatch<SetStateAction<Record<string, boolean>>>;
+}) {
   const { t } = useTranslation();
-  const [isResizing, setIsResizing] = useState(false);
-  const {
-    activeSessionId,
-    activeRunId,
-    agentRuns,
-    agentToolCalls,
-    delegatedTasks,
-    pendingApproval,
-    fetchAgentActivity,
-    resolveApproval,
-  } = useSessionStore();
-
-  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const activeRunId = useSessionStore((state) => state.activeRunId);
+  const agentRuns = useSessionStore((state) => state.agentRuns);
+  const agentToolCalls = useSessionStore((state) => state.agentToolCalls);
+  const delegatedTasks = useSessionStore((state) => state.delegatedTasks);
+  const pendingApproval = useSessionStore((state) => state.pendingApproval);
+  const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
+  const resolveApproval = useSessionStore((state) => state.resolveApproval);
   const [, setTick] = useState(0);
-
   const agents = useAgentStore((state) => state.agents);
 
   const statusLabel = (status: AgentRunStatus) => {
@@ -127,11 +124,11 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
     }));
   };
 
-  const hasRunningTask = delegatedTasks.some((t) => t.status === 'running');
+  const hasRunningTask = delegatedTasks.some((task) => task.status === 'running');
   useEffect(() => {
     if (!hasRunningTask) return;
     const timer = setInterval(() => {
-      setTick((t) => t + 1);
+      setTick((tick) => tick + 1);
     }, 1000);
     return () => clearInterval(timer);
   }, [hasRunningTask]);
@@ -145,13 +142,11 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
   };
 
   const getAgentName = (task: DelegatedTask) => {
-    const matched = agents.find((a) => a.slug === task.agentSlug || a.name === task.agentSlug);
+    const matched = agents.find((agent) => (agent as { slug?: string }).slug === task.agentSlug || agent.name === task.agentSlug);
     return matched ? matched.name : (task.agentName || task.agentSlug);
   };
 
-  const activeRun = useMemo(() => {
-    return agentRuns.find((run) => run.id === activeRunId) || agentRuns[0] || null;
-  }, [activeRunId, agentRuns]);
+  const activeRun = useMemo(() => agentRuns.find((run) => run.id === activeRunId) || agentRuns[0] || null, [activeRunId, agentRuns]);
 
   const toolSummary = useMemo(() => {
     const calls = agentToolCalls ?? [];
@@ -166,58 +161,13 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
   }, [agentToolCalls]);
 
   useEffect(() => {
-    if (!activeSessionId || !isOpen) return;
-    fetchAgentActivity(activeSessionId);
-  }, [activeSessionId, fetchAgentActivity, isOpen]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = window.innerWidth - e.clientX;
-      const clampedWidth = Math.min(600, Math.max(300, newWidth));
-      onResize(clampedWidth);
-    };
-
-    const handleMouseUp = () => setIsResizing(false);
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.userSelect = 'none';
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.body.style.userSelect = '';
-      };
-    }
-    return undefined;
-  }, [isResizing, onResize]);
+    if (!activeSessionId) return;
+    fetchAgentActivity(activeSessionId).catch(() => undefined);
+  }, [activeSessionId, fetchAgentActivity]);
 
   return (
-    <aside
-      className={`
-        h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)]
-        flex flex-col relative shrink-0
-        ${isResizing ? '' : 'transition-all duration-300 ease-in-out'}
-        ${isOpen ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'}
-      `}
-      style={{ width: isOpen ? width : 0 }}
-    >
-      <div
-        onMouseDown={handleMouseDown}
-        className={`absolute left-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize z-50 bg-transparent hover:bg-[var(--color-accent)]/40 transition-colors duration-150 ${isResizing ? 'bg-[var(--color-accent)]/80' : ''}`}
-      />
+    <>
 
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0 select-none">
-        <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</span>
-      </div>
-
-      <div className="flex-1 p-4 overflow-y-auto space-y-4">
         {!activeSessionId && (
           <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoSession')}</div>
         )}
@@ -446,7 +396,72 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
         {delegatedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
           <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
         )}
-      </div>
+    </>
+  );
+}
+
+export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) {
+  const { t } = useTranslation();
+  const [isResizing, setIsResizing] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
+
+  void onClose;
+
+  const handleMouseDown = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = window.innerWidth - event.clientX;
+      const clampedWidth = Math.min(600, Math.max(300, newWidth));
+      onResize(clampedWidth);
+    };
+
+    const handleMouseUp = () => setIsResizing(false);
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = 'none';
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.body.style.userSelect = '';
+      };
+    }
+    return undefined;
+  }, [isResizing, onResize]);
+
+  return (
+    <aside
+      className={`h-full bg-[var(--color-bg-sidebar)] flex flex-col relative shrink-0 ${
+        isResizing ? '' : 'transition-all duration-300 ease-in-out'
+      } ${
+        isOpen
+          ? 'border-l border-[var(--color-border)] opacity-100'
+          : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
+      }`}
+      style={{ width: isOpen ? width : 0 }}
+    >
+      {isOpen && (
+        <>
+          <div
+            onMouseDown={handleMouseDown}
+            className={`absolute left-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize z-50 bg-transparent hover:bg-[var(--color-accent)]/40 transition-colors duration-150 ${isResizing ? 'bg-[var(--color-accent)]/80' : ''}`}
+          />
+
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0 select-none">
+            <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</span>
+          </div>
+
+          <div className="flex-1 p-4 overflow-y-auto space-y-4">
+            <TaskPanelContent expandedTasks={expandedTasks} setExpandedTasks={setExpandedTasks} />
+          </div>
+        </>
+      )}
     </aside>
   );
 }
