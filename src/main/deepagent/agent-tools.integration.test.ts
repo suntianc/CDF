@@ -26,12 +26,15 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 // Per-process tmp dir for the test DB. `vi.hoisted` ensures this
 // runs before `vi.mock` factory is invoked (vitest hoists vi.mock
 // above all imports, including `os`/`path`/`fs` above — so we
-// resolve the dir via process.env + require('node:fs') inside the
-// hoisted callback).
+// resolve the dir via require('os') + require('node:fs') inside
+// the hoisted callback). Use `os.tmpdir()` so Windows runners
+// (which don't define TMPDIR) get a writable path automatically.
 const TMP_DIR = vi.hoisted(() => {
-  const dir = `${process.env.TMPDIR ?? '/tmp'}/cdf-agent-tools-int-${process.pid}-${Date.now()}`;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const osSync = require('os') as typeof import('os');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const fsSync = require('node:fs') as typeof import('node:fs');
+  const dir = `${osSync.tmpdir()}/cdf-agent-tools-int-${process.pid}-${Date.now()}`;
   fsSync.mkdirSync(dir, { recursive: true });
   return dir;
 });
