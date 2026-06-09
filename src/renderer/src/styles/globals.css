@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../../../../node_modules/streamdown/dist/*.js";
+@source "../../../../node_modules/@streamdown/math/dist/*.js";
 
 :root {
   /* Dark theme (default) */
@@ -1084,3 +1086,91 @@ html[data-theme="light"] .toast {
 .animate-node-running {
   animation: node-running-pulse 2s infinite ease-in-out;
 }
+
+.streamdown-renderer {
+  color: var(--text-primary);
+}
+
+.streamdown-renderer p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+
+.streamdown-renderer ul,
+.streamdown-renderer ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.streamdown-renderer li {
+  margin: 2px 0;
+}
+
+.streamdown-renderer table {
+  margin: 8px 0;
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.streamdown-renderer th,
+.streamdown-renderer td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.streamdown-renderer th {
+  background: rgba(255,255,255,0.04);
+  font-weight: 600;
+}
+
+.streamdown-renderer a {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.streamdown-renderer details {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  margin: 12px 0;
+  transition: all 0.2s ease;
+}
+
+.streamdown-renderer summary {
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  transition: color 0.2s ease;
+  padding: 2px 0;
+  outline: none;
+}
+
+.streamdown-renderer summary:hover {
+  color: var(--text-primary);
+}
+
+.streamdown-renderer details[open] {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.streamdown-renderer blockquote {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.streamdown-renderer blockquote blockquote {
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+

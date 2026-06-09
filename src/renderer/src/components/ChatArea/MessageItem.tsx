@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { ToolMessageCard } from './ToolMessageCard';
 import { CodeBlock, MarkdownRenderer, MathRenderer } from './MarkdownRenderer';
+import { StreamdownRenderer } from './StreamdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 
@@ -180,7 +181,11 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         if (!part.trim()) return null;
         return (
           <div key={index} className="w-full">
-            <MarkdownRenderer text={part} />
+            {message.role === 'assistant' && isStreaming && isLast ? (
+              <StreamdownRenderer text={part} isAnimating={true} />
+            ) : (
+              <MarkdownRenderer text={part} />
+            )}
           </div>
         );
       });

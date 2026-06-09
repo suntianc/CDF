@@ -107,7 +107,7 @@ export function MathRenderer({ math, block = false }: MathRendererProps) {
 
 export const renderInlineMarkdown = (text: string) => {
   if (!text) return null;
-  const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|`.*?`|\$[^\s$](?:[^$]*?[^\s$])?\$)/g;
+  const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|~~.*?~~|`.*?`|!?\[.*?\]\(.*?\)|\$[^\s$](?:[^$]*?[^\s$])?\$)/g;
   const parts = text.split(inlineRegex);
   
   return parts.map((part, i) => {
@@ -124,6 +124,42 @@ export const renderInlineMarkdown = (text: string) => {
           {part.slice(1, -1)}
         </em>
       );
+    }
+    if (part.startsWith('~~') && part.endsWith('~~')) {
+      return (
+        <del key={i} className="line-through text-[var(--color-text-secondary)]">
+          {renderInlineMarkdown(part.slice(2, -2))}
+        </del>
+      );
+    }
+    if (part.startsWith('![') && part.endsWith(')')) {
+      const match = part.match(/!\[(.*?)\]\((.*?)\)/);
+      if (match) {
+        return (
+          <img
+            key={i}
+            src={match[2]}
+            alt={match[1]}
+            className="max-w-full h-auto rounded-lg border border-[var(--color-border)]/30 my-2 inline-block"
+          />
+        );
+      }
+    }
+    if (part.startsWith('[') && part.endsWith(')')) {
+      const match = part.match(/\[(.*?)\]\((.*?)\)/);
+      if (match) {
+        return (
+          <a
+            key={i}
+            href={match[2]}
+            className="text-[var(--color-accent-hover)] hover:text-[var(--color-accent)] underline text-underline-offset-2 transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {renderInlineMarkdown(match[1])}
+          </a>
+        );
+      }
     }
     if (part.startsWith('`') && part.endsWith('`')) {
       const inner = part.slice(1, -1);
@@ -169,6 +205,10 @@ export const renderMarkdownText = (text: string) => {
   let inMathBlock = false;
   let currentMathLines: string[] = [];
 
+  let inDetailsBlock = false;
+  let currentDetailsLines: string[] = [];
+  let detailsSummary = '';
+
   const flushMathBlock = (key: string | number) => {
     if (currentMathLines.length > 0) {
       const mathText = currentMathLines.join('\n');
@@ -176,6 +216,26 @@ export const renderMarkdownText = (text: string) => {
         <MathRenderer key={`math-${key}`} math={mathText} block={true} />
       );
       currentMathLines = [];
+    }
+  };
+
+  const flushDetailsBlock = (key: string | number) => {
+    if (currentDetailsLines.length > 0 || detailsSummary) {
+      const detailsContent = currentDetailsLines.join('\n');
+      elements.push(
+        <details key={`details-${key}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+          {detailsSummary && (
+            <summary className="font-semibold cursor-pointer select-none text-sm hover:text-[var(--color-text-primary)] transition-colors py-0.5">
+              {detailsSummary}
+            </summary>
+          )}
+          <div className="mt-2.5 text-[var(--color-text-secondary)] text-sm">
+            {renderMarkdownText(detailsContent)}
+          </div>
+        </details>
+      );
+      currentDetailsLines = [];
+      detailsSummary = '';
     }
   };
   
@@ -352,10 +412,36 @@ export const renderMarkdownText = (text: string) => {
     flushTable(key);
     flushBlockquote(key);
     flushMathBlock(key);
+    flushDetailsBlock(key);
   };
   
   lines.forEach((line, index) => {
     const trimmedLine = line.trim();
+    
+    // Check if we are inside a details block
+    if (inDetailsBlock) {
+      if (trimmedLine.startsWith('</details>')) {
+        flushDetailsBlock(index);
+        inDetailsBlock = false;
+      } else {
+        const summaryMatch = trimmedLine.match(/<summary>([\s\S]*?)<\/summary>/i);
+        if (summaryMatch) {
+          detailsSummary = summaryMatch[1].trim();
+        } else {
+          currentDetailsLines.push(line);
+        }
+      }
+      return;
+    }
+
+    // Check details block start
+    if (trimmedLine.startsWith('<details>')) {
+      flushAll(index);
+      inDetailsBlock = true;
+      currentDetailsLines = [];
+      detailsSummary = '';
+      return;
+    }
     
     // Check if we are inside a math block
     if (inMathBlock) {
