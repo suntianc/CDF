@@ -199,12 +199,47 @@ export function createAgentTools(
           // the runtime's generateSlug fallback kicks in at lookup
           // time — which leaves the model guessing what task key to
           // pass. Use the same slugify rules as runtime.ts:573.
-          const newSlug = input.name
+          //
+          // Codex P2 #16: enforce slug uniqueness WITHIN the project
+          // before insert. Two agents named "Code Reviewer" would
+          // otherwise share the same `effective_slug`, and the runtime
+          // (runtime.ts:571) registers subagents under
+          // `agentRow.slug || generateSlug(agentRow.name)` — so the
+          // master has no distinct `task(name: ...)` target for the
+          // second one, and delegation becomes ambiguous / unreachable.
+          // Resolve by appending `-2`, `-3`, ... until the slug is free.
+          // We do this inside the transaction (better-sqlite3 is
+          // single-writer; the IMMEDIATE-equivalent is the surrounding
+          // tx), so concurrent create_agent calls serialize.
+          const baseSlug = input.name
             .trim()
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '')
-            .slice(0, 50);
+            .slice(0, 50) || 'agent';
+          const taken = new Set(
+            (
+              db
+                .prepare(
+                  'SELECT slug FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ?)',
+                )
+                .all(projectId, baseSlug, `${baseSlug}-%`) as { slug: string }[]
+            ).map((r) => r.slug),
+          );
+          let newSlug = baseSlug;
+          if (taken.has(newSlug)) {
+            for (let n = 2; n < 1000; n++) {
+              const candidate = `${baseSlug}-${n}`;
+              if (!taken.has(candidate)) {
+                newSlug = candidate;
+                break;
+              }
+            }
+            // 1000 collisions is unrealistic, but if it happens fall
+            // back to a timestamp suffix rather than inserting a
+            // colliding row.
+            if (taken.has(newSlug)) newSlug = `${baseSlug}-${now}`;
+          }
           db.prepare(
             `INSERT INTO agents
               (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)

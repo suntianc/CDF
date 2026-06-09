@@ -55,6 +55,19 @@ const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['
   write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   delete_file: { allowedDecisions: ['approve', 'reject'] },
+  // Codex P2 #17: gate destructive agent CRUD on user approval, matching
+  // the policy for destructive file ops above. Without this, the model
+  // can call delete_agent and cascade-delete the target's
+  // agent_runs / agent_tool_calls / agent_mcp_servers / agent_skills
+  // (database.ts:176,190) without the user seeing the confirmation flow
+  // that protects `delete_file`. update_agent is gated too because it
+  // can change library state the user might want to vet (is_default
+  // demotion, provider swap, slug rename, etc.). create_agent is
+  // skipped — it only adds, never destroys, so the cost of a spurious
+  // insert is low and a confirmation step would just be friction for
+  // the common "add a helper subagent" path. list_agents is read-only.
+  delete_agent: { allowedDecisions: ['approve', 'reject'] },
+  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
 };
 
 let checkpointSaver: SqliteSaver | null = null;

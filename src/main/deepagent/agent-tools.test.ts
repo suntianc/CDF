@@ -16,6 +16,7 @@ interface AgentRow {
   id: string;
   project_id: string;
   name: string;
+  slug: string | null;
   description: string | null;
   provider_id: string | null;
   system_prompt: string | null;
@@ -283,6 +284,23 @@ function makePrepared(state: typeof dbState) {
         const [aid] = params;
         return (dbState.agentSkills.get(aid as string) ?? []).map((name) => ({ skill_name: name }));
       }
+      // SELECT slug FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ?)
+      // (P2 #16: create_agent slug-uniqueness check)
+      if (
+        s ===
+        'SELECT slug FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ?)'
+      ) {
+        const [pid, base, likePattern] = params as [string, string, string];
+        // likePattern is `${baseSlug}-%` — match prefix followed by '-digits'
+        const likePrefix = likePattern.replace(/%$/, '');
+        return Array.from(dbState.agents.values())
+          .filter(
+            (a) =>
+              a.project_id === pid &&
+              (a.slug === base || (a.slug && a.slug.startsWith(likePrefix))),
+          )
+          .map((a) => ({ slug: a.slug }));
+      }
       return [];
     };
 
@@ -314,6 +332,7 @@ function seedAgent(overrides: Partial<AgentRow> = {}): AgentRow {
     id,
     project_id: overrides.project_id ?? PROJECT_ID,
     name: overrides.name ?? 'Test Agent',
+    slug: overrides.slug ?? null,
     description: overrides.description ?? null,
     provider_id: overrides.provider_id ?? null,
     system_prompt: overrides.system_prompt ?? null,
@@ -491,6 +510,58 @@ describe('createAgentTools', () => {
       // raw slug is also persisted in DB
       expect(result.slug).toBe('code-reviewer');
       expect(dbState.agents.get(result.id)?.slug).toBe('code-reviewer');
+    });
+
+    it('appends -2 when slug collides with an existing agent (P2 #16)', async () => {
+      // Codex P2 #16: two agents whose names slugify to the same key
+      // (e.g. "Code Reviewer" + "Code-Reviewer" + "code  reviewer")
+      // would otherwise share the same `effective_slug`. The runtime
+      // registers subagents under `agentRow.slug || generateSlug(...)`
+      // (runtime.ts:571) — so the master has no distinct
+      // `task(name: ...)` target for the second one, and delegation
+      // becomes ambiguous / unreachable. Fix: de-dupe within the
+      // project by appending -2, -3, ... to the slug.
+      seedProvider('p-default');
+      const first = await invoke('create_agent', { name: 'Code Reviewer' });
+      expect(first.effective_slug).toBe('code-reviewer');
+
+      const second = await invoke('create_agent', { name: 'Code-Reviewer' });
+      expect(second.effective_slug).toBe('code-reviewer-2');
+      // Slug persisted in DB too (P2 #14 invariant)
+      expect(second.slug).toBe('code-reviewer-2');
+      expect(dbState.agents.get(second.id)?.slug).toBe('code-reviewer-2');
+
+      // Both rows are present, neither lost
+      expect(dbState.agents.get(first.id)?.slug).toBe('code-reviewer');
+      expect(dbState.agents.get(second.id)?.slug).toBe('code-reviewer-2');
+    });
+
+    it('three-way collision produces -2 and -3 suffixes (P2 #16)', async () => {
+      seedProvider('p-default');
+      const a = await invoke('create_agent', { name: 'Reviewer' });
+      const b = await invoke('create_agent', { name: 'Reviewer' });
+      const c = await invoke('create_agent', { name: 'Reviewer' });
+      expect(a.effective_slug).toBe('reviewer');
+      expect(b.effective_slug).toBe('reviewer-2');
+      expect(c.effective_slug).toBe('reviewer-3');
+    });
+
+    it('slug uniqueness is scoped to the project (P2 #16)', async () => {
+      // Slugs are task keys for `task(name:)`, and the runtime
+      // registers subagents scoped to the current project. So the
+      // uniqueness check is project-scoped, not global. A
+      // "Code Reviewer" in project A doesn't block the same name in
+      // project B.
+      seedProvider('p-default');
+      const a = await invoke('create_agent', { name: 'Code Reviewer' });
+      // Seed a different project with the same agent name directly
+      // (bypasses create_agent so we can prove independence).
+      seedAgent({ id: 'other-project-agent', project_id: 'other-project', name: 'Code Reviewer', slug: 'code-reviewer' });
+      // Now create a second in the *current* project — should still
+      // get -2 because the current project has the slug.
+      const b = await invoke('create_agent', { name: 'Code Reviewer' });
+      expect(a.effective_slug).toBe('code-reviewer');
+      expect(b.effective_slug).toBe('code-reviewer-2');
     });
 
     it('returns a defer-delegation note in tool results (P2 #15)', async () => {
