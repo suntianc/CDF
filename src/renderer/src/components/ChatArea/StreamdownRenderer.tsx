@@ -149,11 +149,23 @@ const TrComponent = ({ children }: any) => (
   </tr>
 );
 
+// Tailwind JIT cannot statically detect class names that are built by
+// string interpolation (`text-${align}`). If a caller passes
+// style={{ textAlign: 'center' }} the resulting class would never be
+// generated. We use an explicit map so the four alignment utilities
+// are emitted by the build.
+const ALIGN_CLASS: Record<string, string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+  justify: 'text-justify',
+};
+
 const ThComponent = ({ children, style, ...props }: any) => {
   const align = style?.textAlign || 'left';
   return (
     <th
-      className={`px-4 py-2.5 text-${align} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
+      className={`px-4 py-2.5 ${ALIGN_CLASS[align] ?? ALIGN_CLASS.left} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
       {...props}
     >
       {children}
@@ -165,7 +177,7 @@ const TdComponent = ({ children, style, ...props }: any) => {
   const align = style?.textAlign || 'left';
   return (
     <td
-      className={`px-4 py-2 text-${align} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
+      className={`px-4 py-2 ${ALIGN_CLASS[align] ?? ALIGN_CLASS.left} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
       {...props}
     >
       {children}

@@ -111,6 +111,16 @@ export function MathRenderer({ math, block = false }: MathRendererProps) {
   );
 }
 
+// Tailwind JIT cannot statically detect class names that are built by
+// string interpolation (`text-${align}`). The map below ensures the
+// four alignment utilities are emitted by the build.
+const ALIGN_CLASS: Record<string, string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+  justify: 'text-justify',
+};
+
 function MathFallback({ math, block, errorMessage }: { math: string; block: boolean; errorMessage: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -437,9 +447,9 @@ export const renderMarkdownText = (text: string) => {
                 {tableHeaders.map((header, i) => {
                   const align = tableAlignments[i] || 'left';
                   return (
-                     <th 
-                       key={`th-${i}`} 
-                       className={`px-4 py-2.5 text-${align} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
+                     <th
+                       key={`th-${i}`}
+                       className={`px-4 py-2.5 ${ALIGN_CLASS[align] ?? ALIGN_CLASS.left} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
                      >
                        {renderInlineMarkdown(header)}
                      </th>
@@ -456,9 +466,9 @@ export const renderMarkdownText = (text: string) => {
                   {row.map((cell, cIndex) => {
                     const align = tableAlignments[cIndex] || 'left';
                     return (
-                      <td 
-                        key={`td-${cIndex}`} 
-                        className={`px-4 py-2 text-${align} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
+                      <td
+                        key={`td-${cIndex}`}
+                        className={`px-4 py-2 ${ALIGN_CLASS[align] ?? ALIGN_CLASS.left} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
                       >
                         {renderInlineMarkdown(cell)}
                       </td>

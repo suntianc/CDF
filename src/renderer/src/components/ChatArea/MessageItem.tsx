@@ -75,12 +75,66 @@ function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = 
   );
 }
 
+/**
+ * Historical think-time estimation. Historical messages don't carry a
+ * real timestamp for the LLM-side thinking phase, so we approximate
+ * the duration from the trace length. ~18 characters per second is a
+ * rough average for Anthropic / OpenAI thinking tokens; the constant
+ * is named (rather than inlined) so future tuning happens in one place
+ * and is easy to find in code review.
+ */
+const CHARS_PER_SECOND_HISTORICAL = 18;
+
 const checkThinkingFinished = (content: string): boolean => {
   if (!content) return true;
   const lastThink = content.lastIndexOf('<think>');
   if (lastThink === -1) return true;
   const lastThinkEnd = content.lastIndexOf('</think>');
   return lastThinkEnd > lastThink;
+};
+
+interface ThinkBlocks {
+  thinkParts: string[];
+  mainContent: string;
+  isThinkingFinished: boolean;
+}
+
+/**
+ * Walk a message body once, splitting it into the in-progress think
+ * trace and the main content. Used by both the streaming branch (which
+ * keeps multiple in-flight think blocks) and the folded branch (which
+ * concatenates the trace into a single folded body).
+ *
+ *   `isThinkingFinished` is false when the last segment is an unclosed
+ *   `<think>` (the LLM is still emitting the trace).
+ */
+const parseThinkBlocks = (content: string): ThinkBlocks => {
+  const thinkParts: string[] = [];
+  let mainContent = '';
+  let remaining = content;
+  let isThinkingFinished = true;
+
+  while (true) {
+    const startIdx = remaining.indexOf('<think>');
+    if (startIdx === -1) {
+      mainContent += remaining;
+      break;
+    }
+    mainContent += remaining.substring(0, startIdx);
+
+    const endIdx = remaining.indexOf('</think>', startIdx);
+    if (endIdx !== -1) {
+      thinkParts.push(remaining.substring(startIdx + 7, endIdx));
+      remaining = remaining.substring(endIdx + 8);
+    } else {
+      thinkParts.push(remaining.substring(startIdx + 7));
+      isThinkingFinished = false;
+      remaining = '';
+      break;
+    }
+  }
+
+  return { thinkParts, mainContent: mainContent.trim(), isThinkingFinished };
 };
 
 interface MessageItemProps {
@@ -287,33 +341,8 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     }
 
     if (isTypewriting) {
-      let thinkParts: string[] = [];
-      let mainContent = '';
-      let remaining = cleanContent;
-      let isThinkingFinished = true;
-
-      while (true) {
-        const startIdx = remaining.indexOf('<think>');
-        if (startIdx === -1) {
-          mainContent += remaining;
-          break;
-        }
-        mainContent += remaining.substring(0, startIdx);
-
-        const endIdx = remaining.indexOf('</think>', startIdx);
-        if (endIdx !== -1) {
-          thinkParts.push(remaining.substring(startIdx + 7, endIdx));
-          remaining = remaining.substring(endIdx + 8);
-        } else {
-          thinkParts.push(remaining.substring(startIdx + 7));
-          isThinkingFinished = false;
-          remaining = '';
-          break;
-        }
-      }
-
+      const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
       const thinkContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
-      mainContent = mainContent.trim();
 
       const renderThink = () => {
         if (!thinkContent) return null;
@@ -327,7 +356,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
             return finalDuration;
           }
           // 历史消息估算（每个字符大概 18-20 毫秒生成速度）
-          return Math.max(1, Math.round(thinkContent.length / 18));
+          return Math.max(1, Math.round(thinkContent.length / CHARS_PER_SECOND_HISTORICAL));
         };
 
         const currentSeconds = getThinkingTime();
@@ -367,29 +396,30 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       );
     }
 
-    const lastThinkEnd = cleanContent.lastIndexOf('</think>');
-    let foldedRaw = '';
-    let preContent = '';
-    let postContent = '';
+    // Delegate to the shared parser, then split its pre/post/main
+    // segments into the three pieces the folded block needs:
+    //   - preContentTrimmed  → main rendered above the fold
+    //   - postContentTrimmed → main rendered below the fold
+    //   - foldedContent      → the think trace, concatenated
+    const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
+    void isThinkingFinished; // folded branch always treats the trace as finished
+    const foldedContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
 
-    preContent = cleanContent.substring(0, firstThink);
-    if (lastThinkEnd !== -1 && lastThinkEnd > firstThink) {
-      foldedRaw = cleanContent.substring(firstThink + 7, lastThinkEnd);
-      postContent = cleanContent.substring(lastThinkEnd + 8);
-    } else {
-      foldedRaw = cleanContent.substring(firstThink + 7);
-      postContent = '';
-    }
-
-    const foldedContent = foldedRaw.replace(/<\/?think>/g, '').trim();
-    const preContentTrimmed = preContent.trim();
-    const postContentTrimmed = postContent.trim();
+    // Locate the segments around the first <think> fence so the folded
+    // block sits between pre-content and post-content.
+    const firstClose = cleanContent.indexOf('</think>', firstThink);
+    const preContentTrimmed = cleanContent.substring(0, firstThink).trim();
+    const postContentTrimmed = (firstClose === -1
+      ? ''
+      : cleanContent.substring(firstClose + 8)
+    ).trim();
+    void mainContent; // pre/post already slice the right segments
 
     const getThinkingTime = () => {
       if (finalDuration !== null) {
         return finalDuration;
       }
-      return Math.max(1, Math.round(foldedContent.length / 18));
+      return Math.max(1, Math.round(foldedContent.length / CHARS_PER_SECOND_HISTORICAL));
     };
 
     const currentSeconds = getThinkingTime();
@@ -433,8 +463,15 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     </div>
   );
 }, (prevProps, nextProps) => {
-  return prevProps.message.content === nextProps.message.content &&
-         prevProps.message.tokens === nextProps.message.tokens &&
+  // The actively-streaming message (isLast + isStreaming) is re-rendered
+  // on every token chunk. We intentionally do NOT short-circuit on
+  // `message.content` equality here — that comparison would defeat the
+  // memo and force a re-render anyway because each token is a new
+  // string. Instead we rely on `isLast` / `isStreaming` / `tokens` to
+  // gate re-renders. For historical (non-streaming) messages, content
+  // is stable, so a content-equality early-return would also be a
+  // no-op.
+  return prevProps.message.tokens === nextProps.message.tokens &&
          prevProps.isLast === nextProps.isLast &&
          prevProps.isStreaming === nextProps.isStreaming;
 });
