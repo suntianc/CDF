@@ -263,7 +263,15 @@ export function createAgentTools(
         // 同 P2 #11/#12 的 invariant 漏洞,只是发生在 create_agent 路径。
         // 修法:在 create_agent 后查项目 default,若无则把刚建的 agent 顶上去。
         // 显式传 is_default: false 的不在此列 — 用户明确说"不设默认",尊重。
-        if (!input.is_default) {
+        //
+        // Codex P2 (PR #5 round 3, id=3382053065): \`!input.is_default\`
+        // accidentally treated explicit \`false\` the same as omission
+        // because \`!false === true\`. After the UI's \`db:deleteAgent\`
+        // removes the only default agent, the next create_agent with
+        // \`is_default: false\` would silently promote the new row to
+        // default, overriding the user's explicit "not default" choice.
+        // Use \`=== undefined\` so explicit \`false\` is respected.
+        if (input.is_default === undefined) {
           const anyDefault = db
             .prepare('SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1')
             .get(projectId) as { one: number } | undefined;

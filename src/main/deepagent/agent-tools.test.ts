@@ -485,22 +485,37 @@ describe('createAgentTools', () => {
       expect(dbState.agents.get(existing.id)!.is_default).toBe(1);
     });
 
-    it('respects explicit is_default: false even when project has no default (自审 P2 候选 #1)', async () => {
+    it('respects explicit is_default: false even when project has no default (自审 P2 候选 #1 + Codex P2 id=3382053065)', async () => {
       // Edge case: user explicitly says "do NOT make this default".
-      // The auto-promotion is only for omitted/falsy is_default, not
-      // explicit false. (Note: Zod's optional().default() is not used
-      // here, so undefined → falsy branch is what triggers
-      // auto-promotion. Explicit `false` is also falsy and goes through
-      // the same path, which matches user intent: if they say
-      // 'is_default: false' but the project has no default, we'd
-      // rather auto-promote them than leave a footgun.)
+      // The auto-promotion is only for *omitted* is_default, NOT for
+      // explicit `false`. The old `if (!input.is_default)` accidentally
+      // treated both the same because `!false === true`; Codex P2
+      // id=3382053065 caught this. After the UI's db:deleteAgent
+      // removes the only default agent, a create_agent call with
+      // is_default: false must stay at false and not silently re-promote
+      // (the user's explicit "not default" choice wins).
+      //
+      // Trade-off (documented): if the project genuinely has no default
+      // AND the user explicitly opts out, the project stays without a
+      // default. The next chat that omits agentId will fall through
+      // ensureDefaultAgent (runtime.ts:132) and auto-insert a new
+      // "Master Agent" row. That trade-off was already discussed in the
+      // original P2 #11/#12 review thread — explicit choice overrides
+      // silent auto-promotion.
       seedProvider('p-default');
       const result = await invoke('create_agent', {
         name: 'explicit-false',
         is_default: false,
       });
-      // Auto-promoted to default since project had no default
-      expect(result.is_default).toBe(true);
+      // Explicit false is respected: agent created with is_default=0,
+      // NOT silently promoted.
+      expect(result.is_default).toBe(false);
+      expect(dbState.agents.get(result.id)!.is_default).toBe(0);
+      // No other agent in the project was promoted either.
+      const anyDefault = (dbState.agents.values() as any[]).some(
+        (a) => a.project_id === 'project-test-1' && a.is_default === 1,
+      );
+      expect(anyDefault).toBe(false);
     });
 
     it('returns slug + effective_slug in tool results (P2 #14)', async () => {
