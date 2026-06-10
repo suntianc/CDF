@@ -72,6 +72,18 @@ export function useTypewriter(
   useEffect(() => {
     if (!isStreamActive) return;
 
+    // Honor `prefers-reduced-motion: reduce` by short-circuiting the rAF
+    // loop. The user has asked for no motion; the typewriter must not
+    // pretend otherwise. We still set isTypewriting so the thinking
+    // caret + folded-reveal signal "this is the live stream", but
+    // displayedContent is synced each render instead of being stepped.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setDisplayedContent(targetRef.current);
+      displayedLenRef.current = targetRef.current.length;
+      setIsTypewriting(true);
+      return;
+    }
+
     setIsTypewriting(true);
 
     // Don't start a second loop if one is already running
