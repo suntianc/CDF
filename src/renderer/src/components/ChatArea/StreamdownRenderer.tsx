@@ -7,7 +7,7 @@ import 'katex/dist/katex.min.css';
 
 interface StreamdownRendererProps {
   text: string;
-  isAnimating?: boolean;
+  isTypewriting?: boolean;
 }
 
 const mathPlugin = createMathPlugin({
@@ -114,7 +114,7 @@ const CodeComponent = ({ inline, className, children, ...props }: any) => {
 
   return (
     <code
-      className="px-1.5 py-0.5 mx-0.5 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 rounded text-xs font-mono text-[var(--color-accent)]"
+      className="px-1.5 py-0.5 mx-0.5 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 rounded text-xs font-mono text-[var(--color-text-primary)]"
       {...props}
     >
       {children}
@@ -195,7 +195,7 @@ const LiComponent = ({ children }: any) => (
 const AComponent = ({ children, href }: any) => (
   <a
     href={href}
-    className="text-[var(--color-accent-hover)] hover:text-[var(--color-accent)] underline text-underline-offset-2 transition-colors"
+    className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline underline-offset-2 transition-colors"
     target="_blank"
     rel="noopener noreferrer"
   >
@@ -217,16 +217,14 @@ customComponents.ol = OlComponent;
 customComponents.li = LiComponent;
 customComponents.a = AComponent;
 
-export const StreamdownRenderer = memo(({ text, isAnimating = false }: StreamdownRendererProps) => {
+export const StreamdownRenderer = memo(({ text, isTypewriting = false }: StreamdownRendererProps) => {
   if (!text) return null;
 
   return (
     <Streamdown
       className="streamdown-renderer w-full text-sm leading-relaxed text-[var(--color-text-primary)]"
-      mode={isAnimating ? 'streaming' : 'static'}
-      isAnimating={isAnimating}
-      animated={{ animation: 'fadeIn', duration: 120, sep: 'word', stagger: 12 }}
-      parseIncompleteMarkdown={isAnimating}
+      mode="static"
+      parseIncompleteMarkdown={isTypewriting}
       controls={false}
       lineNumbers={false}
       components={customComponents}

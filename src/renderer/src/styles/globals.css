@@ -872,6 +872,31 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   to { opacity: 1; }
 }
 
+/* ─── Project-wide focus ring ───
+   Visible only for keyboard navigation, never on mouse click.
+   Single ring color (accent) reinforces the same focus signal across
+   every interactive surface. */
+*:focus {
+  outline: none;
+}
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Project-wide focus ring exclusion ───
+   The Composer has its own focus-within treatment (border + ring) on
+   the form container. Suppressing the global outline on the focused
+   textarea inside the Composer prevents a double-ring (the global
+   outline on the textarea stacking on top of the form's focus-within
+   ring). The exclusion is scoped to the textarea so the send button,
+   attachment button, and model selector inside the Composer still
+   receive the global focus ring for keyboard users. */
+.chat-composer textarea:focus-visible {
+  outline: none;
+}
+
 .animate-fade-in {
   animation: fade-in 0.25s ease-out forwards;
 }
@@ -908,7 +933,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .message {
   max-width: 80%;
   padding: 8px 0;
-  animation: fadeUp 0.25s ease-out forwards;
 }
 
 .message.user {
@@ -923,7 +947,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   margin-right: auto;
 }
 
-.message-bubble {
+.message-row {
   font-size: 14px;
   line-height: 1.7;
   color: var(--text-primary);
@@ -931,11 +955,11 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 /* AI Message - Bubbleless, rendered directly on background */
-.message.assistant .message-bubble {
+.message.assistant .message-row {
   color: var(--text-primary);
 }
 
-.message.user .message-bubble {
+.message.user .message-row {
   background: var(--accent-dim);
   border: 1px solid var(--border);
   padding: 10px 14px;
@@ -945,7 +969,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   max-width: 100%;
 }
 
-.message-bubble code {
+.message-row code {
   font-family: var(--font-mono);
   font-size: 13px;
   background: rgba(255,255,255,0.06);
@@ -953,7 +977,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   border-radius: 3px;
 }
 
-.message-bubble pre {
+.message-row pre {
   margin: 8px 0;
   padding: 12px;
   background: rgba(0,0,0,0.3);
@@ -975,7 +999,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   text-align: right;
 }
 
-.message-bubble pre code {
+.message-row pre code {
   background: transparent !important;
   padding: 0 !important;
   border-radius: 0 !important;

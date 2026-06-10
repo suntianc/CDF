@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { ToolMessageCard } from './ToolMessageCard';
-import { CodeBlock, MarkdownRenderer, MathRenderer } from './MarkdownRenderer';
 import { StreamdownRenderer } from './StreamdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
+import { useTypewriter } from '@/hooks/useTypewriter';
 
 const formatDuration = (seconds: number): string => {
+  if (seconds <= 0) return '< 1 秒';
   if (seconds < 60) {
     return `${seconds} 秒`;
   }
@@ -23,7 +24,7 @@ export const formatHMSTime = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  
+
   if (h > 0) {
     return `${h}h ${m}m ${s}s`;
   }
@@ -32,6 +33,47 @@ export const formatHMSTime = (seconds: number): string => {
   }
   return `${s}s`;
 };
+
+interface ThinkBlockProps {
+  expanded: boolean;
+  onToggle: () => void;
+  bodyId: string;
+  headerText: string;
+  body: string;
+  showCaret?: boolean;
+}
+
+function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = false }: ThinkBlockProps) {
+  return (
+    <div className="mb-2.5 flex flex-col transition-all duration-200">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={bodyId}
+        data-testid="think-toggle"
+        className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
+      >
+        <span aria-hidden="true">{expanded ? '▼' : '▶'}</span>
+        <span>{headerText}</span>
+      </button>
+      {expanded && (
+        <div
+          id={bodyId}
+          className={`mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal${showCaret ? '' : ' animate-slide-down'}`}
+        >
+          {body}
+          {showCaret && (
+            <span
+              aria-hidden="true"
+              className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-text-muted)]/70 animate-pulse vertical-middle"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const checkThinkingFinished = (content: string): boolean => {
   if (!content) return true;
@@ -49,7 +91,7 @@ interface MessageItemProps {
 
 export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemProps) => {
   const isFinished = useMemo(() => checkThinkingFinished(message.content), [message.content]);
-  
+
   // 刚刚生成的消息（2分钟以内创建），在流式或刚结束时默认保持展开，防止意外重装折叠
   const isRecent = useMemo(() => {
     return (Date.now() - message.created_at) < 120 * 1000;
@@ -87,66 +129,11 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     }
   }, [isFinished, elapsedSeconds, finalDuration]);
 
-  // === 平滑吐字缓冲队列 ===
-  const [displayedContent, setDisplayedContent] = useState(message.content);
-  const targetContentRef = useRef(message.content);
-  const displayedContentRef = useRef(message.content);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // 当内容发生改变或者流式状态改变时更新
-  useEffect(() => {
-    targetContentRef.current = message.content;
-
-    if (!isStreaming || !isLast) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      setDisplayedContent(message.content);
-      displayedContentRef.current = message.content;
-      return;
-    }
-
-    // 正在流式中，如果当前显示内容落后于目标内容，并且定时器没在跑，启动它
-    const startQueue = () => {
-      if (timerRef.current) return;
-
-      const tick = () => {
-        const target = targetContentRef.current;
-        const current = displayedContentRef.current;
-
-        if (current.length < target.length) {
-          const diff = target.length - current.length;
-          // 按比例追赶：落后越多，步长越大，但最少 1 个字符，最多一次追赶 diff/5 字符以保持平滑
-          const step = Math.max(1, Math.min(diff, Math.ceil(diff / 5)));
-          const nextContent = target.slice(0, current.length + step);
-          
-          setDisplayedContent(nextContent);
-          displayedContentRef.current = nextContent;
-
-          timerRef.current = setTimeout(tick, 20); // 20ms 的间隔，大约 50fps，非常丝滑
-        } else {
-          // 已经赶上，挂起定时器
-          timerRef.current = null;
-        }
-      };
-
-      tick();
-    };
-
-    if (displayedContentRef.current.length < message.content.length) {
-      startQueue();
-    }
-  }, [message.content, isStreaming, isLast]);
-
-  // 组件卸载时清理定时器
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
+  // === 平滑打字机调度（rAF 驱动，自适应步长） ===
+  const { displayedContent, isTypewriting } = useTypewriter(
+    message.content,
+    isStreaming && isLast
+  );
 
   // Helper to parse tool JSON
   const toolInfo = useMemo(() => {
@@ -162,34 +149,127 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return null;
   }, [message.content, message.role]);
 
+  // Render a non-code markdown segment with at-token substitution.
+  // Caller is responsible for splitting on code blocks so that `@` inside
+  // backticks is never tokenized — markdown code renders literally.
+  const renderAtSegment = (segment: string, baseKey: number): React.ReactNode[] => {
+    if (!segment) return [];
+    const atTokens = parseAtTokens(segment);
+    if (atTokens.length === 0) {
+      return [<StreamdownRenderer key={`seg-${baseKey}`} text={segment} isTypewriting={isTypewriting} />];
+    }
+    const parts: React.ReactNode[] = [];
+    let cursor = 0;
+    for (const t of atTokens) {
+      if (t.start > cursor) {
+        const pre = segment.slice(cursor, t.start);
+        parts.push(
+          <StreamdownRenderer key={`pre-${baseKey}-${cursor}`} text={pre} isTypewriting={isTypewriting} />
+        );
+      }
+      parts.push(
+        <AtToken
+          key={`at-${baseKey}-${t.start}`}
+          path={t.path}
+          kind={t.kind}
+          data-testid="history-at-token"
+        />
+      );
+      cursor = t.end;
+    }
+    if (cursor < segment.length) {
+      const post = segment.slice(cursor);
+      parts.push(
+        <StreamdownRenderer key={`post-${baseKey}-${cursor}`} text={post} isTypewriting={isTypewriting} />
+      );
+    }
+    return parts;
+  };
+
+  // Render markdown content with at-token substitution. Walks the string once
+  // with a tiny state machine so:
+  //   1. `@` inside fenced ``` or inline `…` code is never tokenized.
+  //   2. Unbalanced backticks (LLM streamed a stray ` mid-response) do not
+  //      swallow the rest of the message.
+  //   3. Unreasonably large payloads skip the scan and fall through to a
+  //      single StreamdownRenderer to avoid freezing the main thread.
+  const AT_TOKEN_SCAN_LIMIT = 50_000;
+
+  const renderContentWithAtTokens = (text: string): React.ReactNode => {
+    if (!text || typeof text !== 'string') return null;
+    if (!text.includes('@') || text.length > AT_TOKEN_SCAN_LIMIT) {
+      return <StreamdownRenderer text={text} isTypewriting={isTypewriting} />;
+    }
+
+    const segments: React.ReactNode[] = [];
+    let cursor = 0;
+    let key = 0;
+    const len = text.length;
+
+    while (cursor < len) {
+      const fenceOpen = text.startsWith('```', cursor);
+      const tick = text.indexOf('`', cursor);
+
+      if (!fenceOpen && tick === -1) {
+        // No more code spans — rest is plain prose, scan for at-tokens.
+        segments.push(...renderAtSegment(text.slice(cursor), key++));
+        break;
+      }
+
+      if (fenceOpen && (tick === -1 || cursor === tick)) {
+        // Fenced code block: advance until the matching closing ``` (or EOS).
+        const close = text.indexOf('```', cursor + 3);
+        const end = close === -1 ? len : close + 3;
+        segments.push(
+          <StreamdownRenderer key={`code-${key++}`} text={text.slice(cursor, end)} isTypewriting={isTypewriting} />
+        );
+        cursor = end;
+        continue;
+      }
+
+      if (!fenceOpen && tick !== -1) {
+        // Prose gap before the inline backtick: scan for at-tokens.
+        if (tick > cursor) {
+          segments.push(...renderAtSegment(text.slice(cursor, tick), key++));
+        }
+        // Inline code: advance to the matching closing ` (same length) or EOS.
+        const tickLen = countBackticks(text, tick);
+        const closer = findInlineCodeClose(text, tick, tickLen);
+        const end = closer === -1 ? len : closer + tickLen;
+        segments.push(
+          <StreamdownRenderer key={`code-${key++}`} text={text.slice(cursor, end)} isTypewriting={isTypewriting} />
+        );
+        cursor = end;
+        continue;
+      }
+    }
+
+    return <>{segments}</>;
+  };
+
+  function countBackticks(text: string, start: number): number {
+    let n = 0;
+    while (text[start + n] === '`') n++;
+    return n;
+  }
+
+  function findInlineCodeClose(text: string, start: number, run: number): number {
+    const len = text.length;
+    let i = start + run;
+    while (i < len) {
+      if (text[i] === '`') {
+        const closing = countBackticks(text, i);
+        if (closing === run) return i;
+        i += closing;
+      } else {
+        i++;
+      }
+    }
+    return -1;
+  }
+
   const renderMessageContent = (content: string) => {
     if (!content) return null;
-
-    const renderMain = (text: string) => {
-      if (!text) return null;
-      const parts = text.split(/(```[\s\S]*?```)/g);
-      return parts.map((part, index) => {
-        if (part.startsWith('```')) {
-          const match = part.match(/```(\w*)\n([\s\S]*?)```/);
-          const lang = match ? match[1].toLowerCase() : '';
-          const code = match ? match[2] : part.slice(3, -3);
-          if (lang === 'math' || lang === 'latex' || lang === 'katex') {
-            return <MathRenderer math={code} block={true} key={index} />;
-          }
-          return <CodeBlock lang={lang} code={code} key={index} />;
-        }
-        if (!part.trim()) return null;
-        return (
-          <div key={index} className="w-full">
-            {message.role === 'assistant' && isStreaming && isLast ? (
-              <StreamdownRenderer text={part} isAnimating={true} />
-            ) : (
-              <MarkdownRenderer text={part} />
-            )}
-          </div>
-        );
-      });
-    };
 
     // 清洗多余的 </think> 标签（例如由于主进程补发与大模型输出重叠产生的冗余闭合标签）
     let cleanContent = content;
@@ -206,68 +286,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       }
     }
 
-    // Phase 08.3 C-03: scan cleanContent for @relative/path substrings and render
-    // each match as an <AtToken> pill. Code blocks (triple-backticks + single
-    // backticks) are NOT scanned — markdown code should render literally.
-    // Mirrors the at-trigger regex in pathUtils.parseAtTokens (lookbehind for ^ or \s).
-    const renderAtSegment = (segment: string, baseKey: number): React.ReactNode[] => {
-      const atTokens = parseAtTokens(segment);
-      if (atTokens.length === 0) {
-        const rendered = renderMain(segment);
-        return rendered ? [<span key={`seg-${baseKey}`}>{rendered}</span>] : [];
-      }
-      const parts: React.ReactNode[] = [];
-      let cursor = 0;
-      for (const t of atTokens) {
-        if (t.start > cursor) {
-          const pre = segment.slice(cursor, t.start);
-          const preRender = renderMain(pre);
-          if (preRender) parts.push(<span key={`pre-${baseKey}-${cursor}`}>{preRender}</span>);
-        }
-        parts.push(
-          <AtToken
-            key={`at-${baseKey}-${t.start}`}
-            path={t.path}
-            kind={t.kind}
-            data-testid="history-at-token"
-          />
-        );
-        cursor = t.end;
-      }
-      if (cursor < segment.length) {
-        const post = segment.slice(cursor);
-        const postRender = renderMain(post);
-        if (postRender) parts.push(<span key={`post-${baseKey}-${cursor}`}>{postRender}</span>);
-      }
-      return parts;
-    };
-
-    function renderContentWithAtTokens(text: string): React.ReactNode {
-      if (!text.includes('@')) return renderMain(text);
-      // Split text on code blocks first; only non-code segments get at-tokenized.
-      const codeBlockRegex = /(```[\s\S]*?```|`[^`]+`)/g;
-      const segments: React.ReactNode[] = [];
-      let lastIndex = 0;
-      let match: RegExpExecArray | null;
-      let key = 0;
-      while ((match = codeBlockRegex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
-          segments.push(...renderAtSegment(text.slice(lastIndex, match.index), key++));
-        }
-        // Code block — render via renderMain (which will treat it as code/markdown)
-        const codeRender = renderMain(match[0]);
-        if (codeRender) segments.push(<span key={`code-${key++}`}>{codeRender}</span>);
-        lastIndex = match.index + match[0].length;
-      }
-      if (lastIndex < text.length) {
-        segments.push(...renderAtSegment(text.slice(lastIndex), key++));
-      }
-      return <>{segments}</>;
-    }
-
-    const isOutputting = isStreaming && isLast;
-
-    if (isOutputting) {
+    if (isTypewriting) {
       let thinkParts: string[] = [];
       let mainContent = '';
       let remaining = cleanContent;
@@ -280,7 +299,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
           break;
         }
         mainContent += remaining.substring(0, startIdx);
-        
+
         const endIdx = remaining.indexOf('</think>', startIdx);
         if (endIdx !== -1) {
           thinkParts.push(remaining.substring(startIdx + 7, endIdx));
@@ -312,109 +331,90 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         };
 
         const currentSeconds = getThinkingTime();
-        const headerText = finished 
-          ? `已思考 (用时 ${formatDuration(currentSeconds)})` 
+        const headerText = finished
+          ? `已思考 (用时 ${formatDuration(currentSeconds)})`
           : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
 
         return (
-          <div className="mb-2.5 flex flex-col transition-all duration-200">
-            {/* Thinking Header (Flat Text style) */}
-            <div 
-              onClick={() => setThinkExpanded(!thinkExpanded)}
-              className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
-            >
-              <span>{thinkExpanded ? '▼' : '▶'}</span>
-              <span>{headerText}</span>
-            </div>
-            
-            {/* Thinking Body (Flat sidebar line style) */}
-            {thinkExpanded && (
-              <div className="mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal animate-slide-down">
-                {thinkContent}
-                {!finished && (
-                  <span className="inline-block w-1 h-3 ml-0.5 bg-[var(--color-text-muted)]/70 animate-pulse vertical-middle" />
-                )}
-              </div>
-            )}
-          </div>
+          <ThinkBlock
+            expanded={thinkExpanded}
+            onToggle={() => setThinkExpanded(!thinkExpanded)}
+            bodyId="think-body-streaming"
+            headerText={headerText}
+            body={thinkContent}
+            showCaret={!finished}
+          />
         );
       };
 
       return (
         <div className="flex flex-col gap-3">
           {renderThink()}
-          {renderContentWithAtTokens(mainContent)}
-        </div>
-      );
-    } else {
-      const firstThink = cleanContent.indexOf('<think>');
-      if (firstThink === -1) {
-        return (
-          <div className="flex flex-col gap-3">
-            {renderContentWithAtTokens(cleanContent)}
-          </div>
-        );
-      }
-
-      const lastThinkEnd = cleanContent.lastIndexOf('</think>');
-      let foldedRaw = '';
-      let preContent = '';
-      let postContent = '';
-
-      preContent = cleanContent.substring(0, firstThink);
-      if (lastThinkEnd !== -1 && lastThinkEnd > firstThink) {
-        foldedRaw = cleanContent.substring(firstThink + 7, lastThinkEnd);
-        postContent = cleanContent.substring(lastThinkEnd + 8);
-      } else {
-        foldedRaw = cleanContent.substring(firstThink + 7);
-        postContent = '';
-      }
-
-      const foldedContent = foldedRaw.replace(/<\/?think>/g, '').trim();
-      const preContentTrimmed = preContent.trim();
-      const postContentTrimmed = postContent.trim();
-
-      const getThinkingTime = () => {
-        if (finalDuration !== null) {
-          return finalDuration;
-        }
-        return Math.max(1, Math.round(foldedContent.length / 18));
-      };
-
-      const currentSeconds = getThinkingTime();
-      const headerText = `已处理（用时 ${formatHMSTime(currentSeconds)}）`;
-
-      const renderFoldedBlock = () => {
-        if (!foldedContent) return null;
-        return (
-          <div className="mb-2.5 flex flex-col transition-all duration-200">
-            {/* Thinking Header (Flat Text style) */}
-            <div 
-              onClick={() => setThinkExpanded(!thinkExpanded)}
-              className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
-            >
-              <span>{thinkExpanded ? '▼' : '▶'}</span>
-              <span>{headerText}</span>
-            </div>
-            
-            {/* Thinking Body (Flat sidebar line style) */}
-            {thinkExpanded && (
-              <div className="mt-1 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 text-[12.5px] text-[var(--color-text-secondary)] select-text whitespace-pre-wrap leading-relaxed font-normal animate-slide-down">
-                {foldedContent}
-              </div>
-            )}
-          </div>
-        );
-      };
-
-      return (
-        <div className="flex flex-col gap-3">
-          {preContentTrimmed && renderMain(preContentTrimmed)}
-          {renderFoldedBlock()}
-          {postContentTrimmed && renderMain(postContentTrimmed)}
+          {mainContent && (
+            <StreamdownRenderer text={mainContent} isTypewriting={true} />
+          )}
         </div>
       );
     }
+
+    // Finished path: folded think block + main, both routed through StreamdownRenderer.
+    const firstThink = cleanContent.indexOf('<think>');
+    if (firstThink === -1) {
+      return (
+        <div className="flex flex-col gap-3">
+          {renderContentWithAtTokens(cleanContent)}
+        </div>
+      );
+    }
+
+    const lastThinkEnd = cleanContent.lastIndexOf('</think>');
+    let foldedRaw = '';
+    let preContent = '';
+    let postContent = '';
+
+    preContent = cleanContent.substring(0, firstThink);
+    if (lastThinkEnd !== -1 && lastThinkEnd > firstThink) {
+      foldedRaw = cleanContent.substring(firstThink + 7, lastThinkEnd);
+      postContent = cleanContent.substring(lastThinkEnd + 8);
+    } else {
+      foldedRaw = cleanContent.substring(firstThink + 7);
+      postContent = '';
+    }
+
+    const foldedContent = foldedRaw.replace(/<\/?think>/g, '').trim();
+    const preContentTrimmed = preContent.trim();
+    const postContentTrimmed = postContent.trim();
+
+    const getThinkingTime = () => {
+      if (finalDuration !== null) {
+        return finalDuration;
+      }
+      return Math.max(1, Math.round(foldedContent.length / 18));
+    };
+
+    const currentSeconds = getThinkingTime();
+    const headerText = `思考完成 (用时 ${formatDuration(currentSeconds)})`;
+
+    const renderFoldedBlock = () => {
+      if (!foldedContent) return null;
+      return (
+        <ThinkBlock
+          expanded={thinkExpanded}
+          onToggle={() => setThinkExpanded(!thinkExpanded)}
+          bodyId="think-body-folded"
+          headerText={headerText}
+          body={foldedContent}
+        />
+      );
+    };
+
+    return (
+      <div className="flex flex-col gap-3">
+        {preContentTrimmed && renderContentWithAtTokens(preContentTrimmed)}
+        {renderFoldedBlock()}
+        {postContentTrimmed && renderContentWithAtTokens(postContentTrimmed)}
+      </div>
+    );
   };
 
   if (toolInfo) {
@@ -423,7 +423,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
 
   return (
     <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
-      <div className="message-bubble animate-pop-in">
+      <div className="message-row">
         {renderMessageContent(displayedContent)}
         <div className="message-time">
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

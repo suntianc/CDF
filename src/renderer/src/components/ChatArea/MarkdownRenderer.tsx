@@ -24,7 +24,7 @@ export function CodeBlock({ lang, code }: CodeBlockProps) {
   return (
     <div className="border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]">
       <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
-        <span className="uppercase text-xs font-bold text-[var(--color-accent)] tracking-wider">
+        <span className="uppercase text-xs font-bold text-[var(--color-text-secondary)] tracking-wider">
           {lang || 'code'}
         </span>
         <button
@@ -76,21 +76,27 @@ export function MathRenderer({ math, block = false }: MathRendererProps) {
     return content.trim();
   }, [math, block]);
 
-  const html = useMemo(() => {
+  const { html, ok, errorMessage } = useMemo(() => {
     try {
-      return katex.renderToString(cleanMath, {
+      const rendered = katex.renderToString(cleanMath, {
         displayMode: block,
-        throwOnError: false,
+        throwOnError: true,
       });
+      return { html: rendered, ok: true, errorMessage: null as string | null };
     } catch (error) {
-      console.error('KaTeX error:', error);
-      return cleanMath;
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('KaTeX error:', msg);
+      return { html: '', ok: false, errorMessage: msg };
     }
   }, [cleanMath, block]);
 
+  if (!ok) {
+    return <MathFallback math={cleanMath} block={block} errorMessage={errorMessage!} />;
+  }
+
   if (block) {
     return (
-      <div 
+      <div
         className="w-full overflow-x-auto my-3 select-text py-1 scrollbar-thin"
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -98,10 +104,75 @@ export function MathRenderer({ math, block = false }: MathRendererProps) {
   }
 
   return (
-    <span 
+    <span
       className="inline-block select-text align-middle mx-1"
       dangerouslySetInnerHTML={{ __html: html }}
     />
+  );
+}
+
+function MathFallback({ math, block, errorMessage }: { math: string; block: boolean; errorMessage: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(math);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy formula source:', err);
+    }
+  };
+
+  const Wrapper = block ? 'div' : 'span';
+  const wrapperProps = block
+    ? { className: 'block my-3' }
+    : { className: 'inline-block align-middle mx-1' };
+
+  return (
+    <Wrapper
+      {...wrapperProps}
+      role="img"
+      aria-label={`公式解析失败: ${math}`}
+      data-testid="math-fallback"
+    >
+      <div className="border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/[0.06] rounded-md px-3 py-2 font-mono text-xs select-text">
+        <div className="flex items-center gap-1.5 text-[var(--color-danger)] font-semibold mb-1.5">
+          <AlertOctagon className="w-3.5 h-3.5 shrink-0" />
+          <span>公式无法解析</span>
+        </div>
+        <pre className="whitespace-pre-wrap break-words text-[var(--color-text-primary)] mb-2 leading-relaxed">
+          {math}
+        </pre>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-[var(--color-text-muted)] truncate" title={errorMessage}>
+            {errorMessage}
+          </span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            aria-label="复制公式源码"
+            className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded transition-colors ${
+              copied
+                ? 'text-[var(--color-success)] bg-[var(--color-success)]/10'
+                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
+            }`}
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3" />
+                <span>已复制</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span>复制源码</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </Wrapper>
   );
 }
 
@@ -152,7 +223,7 @@ export const renderInlineMarkdown = (text: string) => {
           <a
             key={i}
             href={match[2]}
-            className="text-[var(--color-accent-hover)] hover:text-[var(--color-accent)] underline text-underline-offset-2 transition-colors"
+            className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline underline-offset-2 transition-colors"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -172,7 +243,7 @@ export const renderInlineMarkdown = (text: string) => {
       return (
         <code 
           key={i} 
-          className="px-1.5 py-0.5 mx-0.5 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 rounded text-xs font-mono text-[var(--color-accent)]"
+          className="px-1.5 py-0.5 mx-0.5 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)]/50 rounded text-xs font-mono text-[var(--color-text-primary)]"
         >
           {inner}
         </code>

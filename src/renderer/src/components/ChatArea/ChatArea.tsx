@@ -1441,7 +1441,7 @@ export function ChatArea({
             {/* Typing Indicator while streaming empty block */}
             {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
               <div className="message assistant animate-pulse">
-                <div className="message-bubble">
+                <div className="message-row">
                   <div className="flex items-center gap-1 py-1.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '0ms' }} />
                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '150ms' }} />
@@ -1495,7 +1495,7 @@ export function ChatArea({
               modal={false}
             >
               <PopoverAnchor asChild>
-                <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
+                <form onSubmit={(e) => e.preventDefault()} className="chat-composer relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
                   {/* HOTFIX 2026-06-05: `style={{ fontSize: '14px' }}` on the
                       wrapper ensures the SlashToken inherits the same 14px

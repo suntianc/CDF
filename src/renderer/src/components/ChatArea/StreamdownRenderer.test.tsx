@@ -44,7 +44,7 @@ $$`;
 
   it('should render details and summary tags in streamdown', () => {
     const markdown = `<details>\n<summary>Click me</summary>\nInside details\n</details>`;
-    const { container } = render(<StreamdownRenderer text={markdown} isAnimating={false} />);
+    const { container } = render(<StreamdownRenderer text={markdown} isTypewriting={false} />);
     console.log('HTML for details/summary:', container.innerHTML);
     const details = container.querySelector('details');
     expect(details).toBeTruthy();
