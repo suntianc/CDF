@@ -402,7 +402,6 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     //   - postContentTrimmed → main rendered below the fold
     //   - foldedContent      → the think trace, concatenated
     const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
-    void isThinkingFinished; // folded branch always treats the trace as finished
     const foldedContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
 
     // Locate the segments around the first <think> fence so the folded
@@ -423,7 +422,13 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     };
 
     const currentSeconds = getThinkingTime();
-    const headerText = `思考完成 (用时 ${formatDuration(currentSeconds)})`;
+    // Honest header: if the LLM is still emitting the trace (the
+    // unclosed-`<think>` case), do not claim "思考完成". The folded
+    // block appears for any message with a non-empty think trace, so
+    // it can render while the stream is still in progress.
+    const headerText = isThinkingFinished
+      ? `思考完成 (用时 ${formatDuration(currentSeconds)})`
+      : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
 
     const renderFoldedBlock = () => {
       if (!foldedContent) return null;
