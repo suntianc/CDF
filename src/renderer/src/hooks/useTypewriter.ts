@@ -70,6 +70,16 @@ export function useTypewriter(
 
   // ── Start the animation loop when stream activates ───────────────────
   useEffect(() => {
+    // Cancel any rAF chain left over from a previous activation before
+    // deciding what to do for this one. Without this, a rapid
+    // isStreamActive true → false → true flip can leave the second
+    // activation short-circuited at the `rafRef.current !== null`
+    // guard below, swallowing the new chain entirely.
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
     if (!isStreamActive) return;
 
     // Honor `prefers-reduced-motion: reduce` by short-circuiting the rAF
