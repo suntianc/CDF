@@ -3,18 +3,22 @@
 @source "../../../../node_modules/@streamdown/math/dist/*.js";
 
 :root {
-  /* Dark theme (default) */
-  --bg-app: #212121;
-  --bg-sidebar: #191919;
-  --bg-surface: #2d2d2d;
-  --bg-hover: rgba(255,255,255,0.06);
-  --bg-active: rgba(255,255,255,0.10);
-  --border: rgba(255,255,255,0.10);
-  --border-strong: rgba(255,255,255,0.16);
-  --text-primary: #ececec;
-  --text-secondary: rgba(255,255,255,0.55);
-  --text-muted: rgba(255,255,255,0.30);
-  --accent: #7c3aed;
+  /* Dark theme (default) — DESIGN.md §2.2
+     Token names stay as `--accent / --bg-*`; values realigned to DESIGN.md.
+     Renaming to accent-magenta/surface-raised etc. is deferred to Phase 7. */
+  --bg-app: #111216;        /* canvas */
+  --bg-sidebar: #1f2228;    /* surface-soft */
+  --bg-surface: #252932;    /* surface-raised */
+  --bg-sunken: #171a1f;     /* surface-sunken (NEW) */
+  --bg-hover: rgba(216, 224, 240, 0.06);
+  --bg-active: rgba(216, 224, 240, 0.10);
+  --border: #d8e0f014;      /* trace-line */
+  --border-strong: #d8e0f026;
+  --text-primary: #f0f2f5;  /* ink-primary */
+  --text-secondary: #c8cfda99;
+  --text-muted: #c8cfda5c;
+  --text-inverse: #111216;  /* ink-inverse */
+  --accent: #7c3aed;        /* Intelligence Violet (Dark single-shot) */
   --accent-hover: #8b5cf6;
   --accent-dim: rgba(124, 58, 237, 0.12);
   --accent-glow: rgba(124, 58, 237, 0.08);
@@ -26,6 +30,17 @@
   --warning-dim: rgba(245, 158, 11, 0.12);
   --info: #3b82f6;
   --info-dim: rgba(59, 130, 246, 0.12);
+  --overlay-scrim: rgba(0, 0, 0, 0.80);
+
+  /* 7 color block palette (DESIGN.md §2.2 — closed set, declared only;
+     consumers per Phase 2-6 design. One block per viewport, no drop shadow.) */
+  --block-lime:  #3a4a2c;
+  --block-lilac: #3d3658;
+  --block-cream: #4a3f24;
+  --block-mint:  #2c4438;
+  --block-pink:  #4a2f37;
+  --block-coral: #4a3128;
+  --block-navy:  #0e0f1a;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -36,26 +51,51 @@
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 }
 
-/* Light theme overrides */
+/* Light theme overrides — DESIGN.md §2.1
+   Light is the default product theme: cream canvas, pastel surfaces,
+   accent-magenta as single-shot CTA color. */
 html[data-theme="light"] {
-  --bg-app: #F9F9F7;
-  --bg-sidebar: #F0F0F0;
-  --bg-surface: #eaeaea;
-  --bg-hover: rgba(0, 0, 0, 0.05);
-  --bg-active: rgba(0, 0, 0, 0.08);
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --text-primary: #161618;
-  --text-secondary: rgba(0, 0, 0, 0.50);
-  --text-muted: rgba(0, 0, 0, 0.28);
-  --accent-dim: rgba(124, 58, 237, 0.08);
-  --accent-glow: rgba(124, 58, 237, 0.04);
+  --bg-app: #fbf8f4;         /* canvas */
+  --bg-sidebar: #f1ece2;     /* surface-soft */
+  --bg-surface: #ffffff;     /* surface-raised */
+  --bg-sunken: #ece5d4;      /* surface-sunken */
+  --bg-hover: rgba(26, 26, 26, 0.05);
+  --bg-active: rgba(26, 26, 26, 0.08);
+  --border: rgba(26, 26, 26, 0.08);       /* trace-line */
+  --border-strong: rgba(26, 26, 26, 0.15);
+  --text-primary: #1a1a1a;   /* ink-primary */
+  --text-secondary: rgba(26, 26, 26, 0.80);
+  --text-muted: rgba(26, 26, 26, 0.50);
+  --text-inverse: #fbf8f4;
+  --accent: #e2007a;         /* accent-magenta (Light single-shot) */
+  --accent-hover: #c4006a;
+  --accent-dim: rgba(226, 0, 122, 0.12);
+  --accent-glow: rgba(226, 0, 122, 0.08);
+  --success: #0a7a3a;
+  --success-dim: rgba(10, 122, 58, 0.10);
+  --danger: #c0002a;
+  --danger-dim: rgba(192, 0, 42, 0.10);
+  --warning: #a86b00;
+  --warning-dim: rgba(168, 107, 0, 0.10);
+  --info: #1f5fb0;
+  --info-dim: rgba(31, 95, 176, 0.10);
+  --overlay-scrim: rgba(0, 0, 0, 0.60);
+
+  /* Light block palette — pastels on cream canvas. */
+  --block-lime:  #e0f0c2;
+  --block-lilac: #e3d8f5;
+  --block-cream: #f5e6c5;
+  --block-mint:  #c2e8d6;
+  --block-pink:  #f5c4d1;
+  --block-coral: #f5b0a0;
+  --block-navy:  #1a1a3a;
 }
 
 @theme {
   --color-bg-app: var(--bg-app);
   --color-bg-sidebar: var(--bg-sidebar);
   --color-bg-surface: var(--bg-surface);
+  --color-bg-sunken: var(--bg-sunken);
   --color-bg-hover: var(--bg-hover);
   --color-bg-active: var(--bg-active);
   --color-border: var(--border);
@@ -63,6 +103,7 @@ html[data-theme="light"] {
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
+  --color-text-inverse: var(--text-inverse);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-dim: var(--accent-dim);
@@ -75,6 +116,16 @@ html[data-theme="light"] {
   --color-warning-dim: var(--warning-dim);
   --color-info: var(--info);
   --color-info-dim: var(--info-dim);
+  --color-overlay-scrim: var(--overlay-scrim);
+
+  /* 7-block palette utility surface (consumers added per phase). */
+  --color-block-lime:  var(--block-lime);
+  --color-block-lilac: var(--block-lilac);
+  --color-block-cream: var(--block-cream);
+  --color-block-mint:  var(--block-mint);
+  --color-block-pink:  var(--block-pink);
+  --color-block-coral: var(--block-coral);
+  --color-block-navy:  var(--block-navy);
 
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
@@ -143,15 +194,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .center-headline span {
-  background: linear-gradient(
-    135deg,
-    var(--accent) 0%,
-    var(--accent-hover) 58%,
-    color-mix(in srgb, var(--accent-hover) 72%, white) 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent);
 }
 
 .center-subline {
@@ -171,12 +214,16 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  transition: border-color 0.15s, box-shadow 0.2s;
+  transition: border-color 0.25s ease, box-shadow 0.35s ease;
 }
 
 .dialog-box:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-dim), 0 4px 24px rgba(0,0,0,0.3);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 0 12px 0 color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 32px -4px color-mix(in srgb, var(--accent) 8%, transparent),
+    0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .dialog-input {
@@ -911,6 +958,12 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .center-bg-glow {
+    display: none;
   }
 }
 

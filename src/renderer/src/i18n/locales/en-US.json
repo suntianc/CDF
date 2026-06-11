@@ -319,7 +319,7 @@
     "configureSkillsDesc": "Install and enable agent capability modules",
     "connectMcpTitle": "Connect MCP",
     "connectMcpDesc": "Configure data sources and external tool integrations",
-    "shortcutHint": "Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
+    "shortcutHint": "Press <kbd>/</kbd> for commands · <kbd>@</kbd> for files · <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
     "hideTaskPanel": "Hide task panel",
     "showTaskPanel": "Show task panel",
     "composerPlaceholder": "Send a message to Master Agent..."

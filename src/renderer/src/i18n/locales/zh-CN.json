@@ -319,7 +319,7 @@
     "configureSkillsDesc": "安装和启用智能体能力模块",
     "connectMcpTitle": "连接 MCP",
     "connectMcpDesc": "配置数据源和外部工具集成",
-    "shortcutHint": "按下 <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行",
+    "shortcutHint": "按 <kbd>/</kbd> 调命令 · <kbd>@</kbd> 选文件 · <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行",
     "hideTaskPanel": "隐藏任务展板",
     "showTaskPanel": "显示任务展板",
     "composerPlaceholder": "给 Master Agent 发送消息..."
