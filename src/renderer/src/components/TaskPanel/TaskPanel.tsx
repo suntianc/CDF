@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
+import { AgentTraceModal } from './AgentTraceModal';
 
 export interface TaskPanelProps {
   isOpen: boolean;
@@ -99,6 +100,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
   const [, setTick] = useState(0);
+  const [traceModalTask, setTraceModalTask] = useState<DelegatedTask | null>(null);
   const agents = useAgentStore((state) => state.agents);
 
   const statusLabel = (status: AgentRunStatus) => {
@@ -331,7 +333,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
                   >
                     {/* Collapsible Card Header */}
                     <div
-                      onClick={() => toggleTaskExpand(task.taskId, task.status)}
+                      onClick={() => { toggleTaskExpand(task.taskId, task.status); setTraceModalTask(task); }}
                       className="flex items-center justify-between cursor-pointer select-none group/hdr"
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -415,6 +417,12 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
         {delegatedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
           <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
         )}
+
+        <AgentTraceModal
+          open={traceModalTask !== null}
+          onClose={() => setTraceModalTask(null)}
+          task={traceModalTask}
+        />
     </>
   );
 }
