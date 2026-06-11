@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
-import { useSessionStore, type DelegatedTask } from '../../stores/sessionStore';
+import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
+import type { DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
+import { AgentTraceModal } from './AgentTraceModal';
 
 export interface TaskPanelProps {
   isOpen: boolean;
@@ -98,6 +100,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
   const [, setTick] = useState(0);
+  const [traceModalTask, setTraceModalTask] = useState<DelegatedTask | null>(null);
   const agents = useAgentStore((state) => state.agents);
 
   const statusLabel = (status: AgentRunStatus) => {
@@ -316,6 +319,13 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
               {delegatedTasks.map((task) => {
                 const expanded = isTaskExpanded(task.taskId, task.status);
                 const duration = getElapsedTimeText(task.startedAt, task.completedAt);
+                const toolCountEstimate = task.chunks.length;
+                const totalText = task.chunks.join('');
+                const tokenEstimate = estimateTokens(totalText);
+                const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
+                const latestChunkPreview = task.status === 'running' && task.chunks.length > 0
+                  ? task.chunks[task.chunks.length - 1].replace(/\s/g, ' ').slice(0, 8)
+                  : null;
                 return (
                   <div
                     key={task.taskId}
@@ -323,7 +333,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
                   >
                     {/* Collapsible Card Header */}
                     <div
-                      onClick={() => toggleTaskExpand(task.taskId, task.status)}
+                      onClick={() => { toggleTaskExpand(task.taskId, task.status); setTraceModalTask(task); }}
                       className="flex items-center justify-between cursor-pointer select-none group/hdr"
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -341,7 +351,18 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {duration && (
+                        <span className="text-[10px] text-[var(--color-text-muted)] font-mono tabular-nums">
+                          {toolCountEstimate} 块
+                        </span>
+                        <span className="text-[10px] text-[var(--color-text-muted)] font-mono tabular-nums">
+                          {tokenDisplay} tokens
+                        </span>
+                        {latestChunkPreview && (
+                          <span className="text-[10px] text-[var(--color-text-muted)] truncate max-w-[80px] animate-pulse">
+                            {latestChunkPreview}
+                          </span>
+                        )}
+                        {task.status !== 'running' && duration && (
                           <span className="text-[10px] text-[var(--color-text-muted)] font-medium">
                             {duration}
                           </span>
@@ -396,6 +417,12 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
         {delegatedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
           <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
         )}
+
+        <AgentTraceModal
+          open={traceModalTask !== null}
+          onClose={() => setTraceModalTask(null)}
+          task={traceModalTask}
+        />
     </>
   );
 }
