@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
-import { useSessionStore, type DelegatedTask } from '../../stores/sessionStore';
+import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
+import type { DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
 
@@ -316,6 +317,13 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
               {delegatedTasks.map((task) => {
                 const expanded = isTaskExpanded(task.taskId, task.status);
                 const duration = getElapsedTimeText(task.startedAt, task.completedAt);
+                const toolCountEstimate = task.chunks.length;
+                const totalText = task.chunks.join('');
+                const tokenEstimate = estimateTokens(totalText);
+                const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
+                const latestChunkPreview = task.status === 'running' && task.chunks.length > 0
+                  ? task.chunks[task.chunks.length - 1].replace(/\s/g, ' ').slice(0, 8)
+                  : null;
                 return (
                   <div
                     key={task.taskId}
@@ -341,7 +349,18 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {duration && (
+                        <span className="text-[10px] text-[var(--color-text-muted)] font-mono tabular-nums">
+                          {toolCountEstimate} 块
+                        </span>
+                        <span className="text-[10px] text-[var(--color-text-muted)] font-mono tabular-nums">
+                          {tokenDisplay} tokens
+                        </span>
+                        {latestChunkPreview && (
+                          <span className="text-[10px] text-[var(--color-text-muted)] truncate max-w-[80px] animate-pulse">
+                            {latestChunkPreview}
+                          </span>
+                        )}
+                        {task.status !== 'running' && duration && (
                           <span className="text-[10px] text-[var(--color-text-muted)] font-medium">
                             {duration}
                           </span>
