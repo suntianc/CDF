@@ -108,8 +108,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          # --clobber: if the release or any asset already exists, overwrite it.
+          # Makes publish idempotent — safe to rerun on transient failures.
           gh release create "$TAG_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
-            --generate-notes
-          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG_NAME" --repo "$GITHUB_REPOSITORY"
+            --generate-notes \
+            --notes-start-tag v0.1.1
+          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --clobber
