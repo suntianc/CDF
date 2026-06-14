@@ -432,6 +432,28 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     [rfInstance, setNodes, showToast, takeSnapshot, t],
   );
 
+  const handleAddNode = useCallback((type: string) => {
+    if (!rfInstance || !reactFlowWrapper.current) return;
+    const currentNodes = nodesRef.current;
+    if ((type === 'start' && currentNodes.some((node) => node.type === 'start')) || (type === 'end' && currentNodes.some((node) => node.type === 'end'))) {
+      showToast(t('workflow.editor.singleNodeOnly', { type: type === 'start' ? t('workflow.nodeTypes.start.label') : t('workflow.nodeTypes.end.label') }), 'error');
+      return;
+    }
+    const { x, y, zoom } = rfInstance.getViewport();
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const nodeWidth = type === 'start' || type === 'end' ? 150 : 210;
+    const nodeHeight = type === 'start' || type === 'end' ? 50 : 100;
+    const position = {
+      x: (bounds.width / 2 - x) / zoom - nodeWidth / 2,
+      y: (bounds.height / 2 - y) / zoom - nodeHeight / 2,
+    };
+    const id = type === 'start' ? START_NODE_ID : type === 'end' ? END_NODE_ID : `${type}-${crypto.randomUUID()}`;
+    const newNode: Node = { id, type, position, width: nodeWidth, height: nodeHeight, deletable: isExecutableNodeType(type), data: getDefaultNodeData(type) };
+    const nextNds = [...currentNodes, newNode];
+    setNodes(nextNds);
+    takeSnapshot(nextNds, edgesRef.current);
+  }, [rfInstance, setNodes, showToast, takeSnapshot, t]);
+
   const handleSave = useCallback(async (mode: 'save' | 'run' = 'save') => {
     if (!currentProjectId || !rfInstance) return false;
 
@@ -621,9 +643,14 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
   }, [handleSave, handleUndo, handleRedo]);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Toast Notification Container */}
-      <div className="absolute top-14 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div
+        className="absolute top-14 right-4 z-[9999] flex flex-col gap-2 pointer-events-none"
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         {toasts.map(t => (
           <div 
             key={t.id} 
@@ -663,6 +690,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         {/* Left Node Panel */}
         <NodePalette
           onDragStart={onDragStart}
+          onAddNode={handleAddNode}
         />
 
         {/* Canvas */}
@@ -711,23 +739,31 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
             onClose={() => setHistoryDrawerOpen(false)}
           />
         )}
-      </div>
 
-      {/* Node Config Drawer */}
-      <NodeConfigDrawer
-        isOpen={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        node={selectedNode ? { id: selectedNode.id, type: selectedNode.type, data: selectedNode.data as Record<string, unknown> } as any : null}
-        onUpdateNode={handleUpdateNode}
-        onDeleteNode={(nodeId) => deleteNodesById([nodeId])}
-      />
-      <EdgeConfigDrawer
-        isOpen={edgeDrawerOpen}
-        onClose={() => setEdgeDrawerOpen(false)}
-        edge={selectedEdge}
-        onUpdateEdge={handleUpdateEdge}
-        onDeleteEdge={(edgeId) => deleteEdgesById([edgeId])}
-      />
+        {/* Config Side Panel — inside flex row so canvas auto-shrinks, Toolbar never overlapped */}
+        {(drawerOpen || edgeDrawerOpen) && (
+          <div className="w-[380px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col overflow-hidden">
+            {drawerOpen && (
+              <NodeConfigDrawer
+                isOpen={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                node={selectedNode ? { id: selectedNode.id, type: selectedNode.type, data: selectedNode.data as Record<string, unknown> } as any : null}
+                onUpdateNode={handleUpdateNode}
+                onDeleteNode={(nodeId) => deleteNodesById([nodeId])}
+              />
+            )}
+            {edgeDrawerOpen && (
+              <EdgeConfigDrawer
+                isOpen={edgeDrawerOpen}
+                onClose={() => setEdgeDrawerOpen(false)}
+                edge={selectedEdge}
+                onUpdateEdge={handleUpdateEdge}
+                onDeleteEdge={(edgeId) => deleteEdgesById([edgeId])}
+              />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

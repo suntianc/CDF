@@ -20,7 +20,7 @@ type AgentFlowNode = Node<AgentNodeData, 'agent'>;
 
 const statusStyles: Record<string, { border: string; glow: string; dot: string }> = {
   pending: { border: 'var(--border)', glow: 'none', dot: 'bg-[var(--color-text-muted)]' },
-  running: { border: 'var(--color-info)', glow: '0 0 12px var(--color-info-dim)', dot: 'bg-[var(--color-info)] animate-pulse' },
+  running: { border: 'var(--color-accent)', glow: '0 0 12px var(--color-accent-dim)', dot: 'bg-[var(--color-accent)] animate-pulse' },
   completed: { border: 'var(--color-success)', glow: 'none', dot: 'bg-[var(--color-success)]' },
   failed: { border: 'var(--color-danger)', glow: 'none', dot: 'bg-[var(--color-danger)]' },
   skipped: { border: 'var(--color-warning)', glow: 'none', dot: 'bg-[var(--color-warning)]' },
@@ -61,8 +61,8 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
         status === 'running' ? 'animate-node-running' : ''
       }`}
       style={{
-        borderColor: selected ? 'var(--color-info)' : style.border,
-        boxShadow: selected ? '0 0 0 2px var(--color-info-dim)' : style.glow,
+        borderColor: selected ? 'var(--color-accent)' : style.border,
+        boxShadow: selected ? '0 0 0 2px var(--color-accent-dim)' : style.glow,
         background: data.bgColor
           ? `linear-gradient(${data.bgColor}, ${data.bgColor}), var(--color-bg-surface)`
           : 'var(--color-bg-surface)',
@@ -75,7 +75,7 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
           width: 10,
           height: 10,
           backgroundColor: data.bgColor || 'var(--color-bg-surface)',
-          border: `2px solid ${selected ? 'var(--color-info)' : style.border}`,
+          border: `2px solid ${selected ? 'var(--color-accent)' : style.border}`,
           borderRadius: '50%',
           left: -5,
           top: '20px',
@@ -92,9 +92,9 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
           {config.title}
         </div>
         {status === 'running' ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-info)] shrink-0" />
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-accent)] shrink-0" />
         ) : (
-          <div className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+          <div aria-hidden="true" className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
         )}
       </div>
 
@@ -117,7 +117,7 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
           width: 10,
           height: 10,
           backgroundColor: data.bgColor || 'var(--color-bg-surface)',
-          border: `2px solid ${selected ? 'var(--color-info)' : style.border}`,
+          border: `2px solid ${selected ? 'var(--color-accent)' : style.border}`,
           borderRadius: '50%',
           right: -5,
           top: '20px',

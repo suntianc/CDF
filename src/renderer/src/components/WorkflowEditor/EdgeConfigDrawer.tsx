@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Drawer } from 'vaul';
 import { GitBranch, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Edge } from '@xyflow/react';
@@ -57,18 +56,12 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
   const isConditional = Boolean(condition.trim());
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()} direction="right" dismissible={false}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
-        <Drawer.Content
-          className="fixed right-0 top-0 bottom-0 w-[400px] bg-[var(--color-bg-surface)] border-l border-[var(--color-border)] z-50 flex flex-col"
-          aria-label={t('workflow.edgeConfig.title')}
-        >
+    <div className="flex flex-col flex-1 overflow-hidden" aria-label={t('workflow.edgeConfig.title')}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
-            <Drawer.Title className="text-base font-semibold text-[var(--color-text-primary)] flex items-center gap-2">
+            <span className="text-base font-semibold text-[var(--color-text-primary)] flex items-center gap-2">
               <GitBranch className="w-5 h-5 text-[var(--color-accent)]" />
               {t('workflow.edgeConfig.title')}
-            </Drawer.Title>
+            </span>
 
           </div>
 
@@ -145,8 +138,6 @@ export function EdgeConfigDrawer({ isOpen, onClose, edge, onUpdateEdge, onDelete
               )}
             </div>
           </div>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+    </div>
   );
 }

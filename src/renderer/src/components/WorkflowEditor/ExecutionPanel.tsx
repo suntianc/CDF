@@ -84,7 +84,7 @@ function RenderStep({ step, isLatest, isNodeRunning, t }: { step: ExecutionStep;
             <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{formatTs(step.ts)}</span>
           </div>
           {step.args !== undefined && (
-            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
+            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
               {formatJson(step.args)}
             </pre>
           )}
@@ -105,12 +105,12 @@ function RenderStep({ step, isLatest, isNodeRunning, t }: { step: ExecutionStep;
             )}
           </div>
           {isSuccess && step.output !== undefined && (
-            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
+            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
               {formatJson(step.output)}
             </pre>
           )}
           {!isSuccess && step.error && (
-            <pre className="text-[9px] font-mono text-[var(--color-danger)] whitespace-pre-wrap bg-black/10 p-1 rounded max-h-[80px] overflow-y-auto">
+            <pre className="text-[9px] font-mono text-[var(--color-danger)] whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
               {step.error}
             </pre>
           )}
@@ -423,7 +423,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                           <div className="text-[9px] font-semibold text-[var(--color-text-muted)] mb-1">
                             {t('workflow.execution.executionTrace')}
                           </div>
-                          <div className="max-h-[240px] overflow-y-auto rounded bg-black/15 p-2 leading-relaxed space-y-1">
+                          <div className="max-h-[240px] overflow-y-auto rounded bg-[var(--color-bg-sunken)] p-2 leading-relaxed space-y-1">
                             {steps.map((s, idx) => (
                               <RenderStep
                                 key={idx}
@@ -457,7 +457,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
                           <summary className="cursor-pointer text-[10px] font-medium text-[var(--color-accent)] select-none">
                             {t('workflow.execution.viewRawData')}
                           </summary>
-                          <pre className="mt-2 max-h-[160px] overflow-auto whitespace-pre-wrap rounded bg-black/20 p-2 text-[9px] leading-relaxed text-[var(--color-text-secondary)] font-mono">
+                          <pre className="mt-2 max-h-[160px] overflow-auto whitespace-pre-wrap rounded bg-[var(--color-bg-sunken)] p-2 text-[9px] leading-relaxed text-[var(--color-text-secondary)] font-mono">
                             {extractNodeArtifact(run.output)}
                           </pre>
                         </details>
@@ -493,7 +493,7 @@ export function ExecutionPanel({ executionId, taskGoal, onClose }: ExecutionPane
               <summary className="cursor-pointer text-[10px] font-medium text-[var(--color-text-secondary)] select-none">
                 {t('workflow.execution.viewRawOutput')}
               </summary>
-              <pre className="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap rounded bg-black/20 p-2 text-[10px] leading-relaxed text-[var(--color-text-secondary)]">
+              <pre className="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap rounded bg-[var(--color-bg-sunken)] p-2 text-[10px] leading-relaxed text-[var(--color-text-secondary)]">
                 {formatJson(execution.output)}
               </pre>
             </details>

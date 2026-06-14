@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Drawer } from 'vaul';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../../stores/agentStore';
@@ -38,11 +37,12 @@ interface NodeConfigDrawerProps {
 
 const colorPresets = [
   { nameKey: 'workflow.nodeConfig.colorDefault', value: '', class: 'bg-[var(--color-bg-surface)] border border-[var(--color-border)]' },
-  { nameKey: 'workflow.nodeConfig.colorBlue', value: 'rgba(59, 130, 246, 0.12)', class: 'bg-[#3b82f6]' },
-  { nameKey: 'workflow.nodeConfig.colorGreen', value: 'rgba(34, 197, 94, 0.12)', class: 'bg-[#10b981]' },
-  { nameKey: 'workflow.nodeConfig.colorRed', value: 'rgba(239, 68, 68, 0.12)', class: 'bg-[#ef4444]' },
-  { nameKey: 'workflow.nodeConfig.colorPurple', value: 'rgba(139, 92, 246, 0.12)', class: 'bg-[#8b5cf6]' },
-  { nameKey: 'workflow.nodeConfig.colorYellow', value: 'rgba(245, 158, 11, 0.12)', class: 'bg-[#f59e0b]' },
+  { nameKey: 'workflow.nodeConfig.colorLime',  value: 'color-mix(in srgb, var(--color-block-lime) 40%, transparent)',  class: 'bg-[var(--color-block-lime)]' },
+  { nameKey: 'workflow.nodeConfig.colorLilac', value: 'color-mix(in srgb, var(--color-block-lilac) 40%, transparent)', class: 'bg-[var(--color-block-lilac)]' },
+  { nameKey: 'workflow.nodeConfig.colorCream', value: 'color-mix(in srgb, var(--color-block-cream) 40%, transparent)', class: 'bg-[var(--color-block-cream)]' },
+  { nameKey: 'workflow.nodeConfig.colorMint',  value: 'color-mix(in srgb, var(--color-block-mint) 40%, transparent)',  class: 'bg-[var(--color-block-mint)]' },
+  { nameKey: 'workflow.nodeConfig.colorPink',  value: 'color-mix(in srgb, var(--color-block-pink) 40%, transparent)',  class: 'bg-[var(--color-block-pink)]' },
+  { nameKey: 'workflow.nodeConfig.colorCoral', value: 'color-mix(in srgb, var(--color-block-coral) 40%, transparent)', class: 'bg-[var(--color-block-coral)]' },
 ];
 
 import { getFolderName } from './utils';
@@ -160,38 +160,14 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   };
 
   return (
-    <Drawer.Root
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          if (modalOpen) return;
-          handleClose();
-        }
-      }}
-      direction="right"
-      dismissible={false}
-    >
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
-        <Drawer.Content
-          className="fixed right-0 top-0 bottom-0 w-[400px] bg-[var(--color-bg-surface)] border-l border-[var(--color-border)] z-50 flex flex-col"
-          aria-label={t('workflow.nodeConfig.title')}
-          onPointerDownOutside={(e) => {
-            if (modalOpen) e.preventDefault();
-          }}
-          onFocusOutside={(e) => {
-            if (modalOpen) e.preventDefault();
-          }}
-          onInteractOutside={(e) => {
-            if (modalOpen) e.preventDefault();
-          }}
-        >
+    <>
+      <div className="flex flex-col flex-1 overflow-hidden" aria-label={t('workflow.nodeConfig.title')}>
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
-            <Drawer.Title className="text-base font-semibold text-[var(--color-text-primary)] flex items-center gap-2">
+            <span className="text-base font-semibold text-[var(--color-text-primary)] flex items-center gap-2">
               {titleIcon}
               {t('workflow.nodeConfig.title')}
-            </Drawer.Title>
+            </span>
           </div>
 
           {/* Body */}
@@ -489,12 +465,12 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </button>
             </div>
           </div>
-        </Drawer.Content>
+      </div>
 
-        {/* Large Text Edit Modal */}
-        <Dialog.Root open={modalOpen} onOpenChange={setModalOpen}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-6" />
+      {/* Large Text Edit Modal */}
+      <Dialog.Root open={modalOpen} onOpenChange={setModalOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-6" />
             <Dialog.Content className="fixed left-[50%] top-[50%] z-[10000] translate-x-[-50%] translate-y-[-50%] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-xl w-[640px] max-w-full h-[480px] flex flex-col shadow-2xl overflow-hidden focus:outline-none">
               {/* Modal Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]/50">
@@ -511,14 +487,14 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               <div className="flex-1 p-5">
                 <textarea
                   autoFocus
-                  className="w-full h-full bg-black/15 border border-[var(--color-border)]/50 rounded-lg p-3 text-xs leading-relaxed text-[var(--color-text-primary)] font-mono resize-none focus:outline-none focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/30"
+                  className="w-full h-full bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded-lg p-3 text-xs leading-relaxed text-[var(--color-text-primary)] font-mono resize-none focus:outline-none focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]/30"
                   value={modalValue}
                   onChange={(e) => setModalValue(e.target.value)}
                   placeholder={t('workflow.nodeConfig.modalPlaceholder')}
                 />
               </div>
               {/* Modal Footer */}
-              <div className="flex justify-end gap-2 px-5 py-3.5 border-t border-[var(--color-border)]/50 bg-black/5">
+              <div className="flex justify-end gap-2 px-5 py-3.5 border-t border-[var(--color-border)]/50 bg-[var(--color-bg-sunken)]">
                 <Dialog.Close asChild>
                   <button
                     className="btn btn-secondary text-xs py-1.5 px-3 cursor-pointer"
@@ -537,9 +513,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                 </button>
               </div>
             </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
-      </Drawer.Portal>
-    </Drawer.Root>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
   );
 }
