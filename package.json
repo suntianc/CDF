@@ -12,9 +12,11 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:electron": "electron-rebuild -f -w better-sqlite3 && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps && patch-package",
+    "postinstall": "electron-rebuild -f -w better-sqlite3 && patch-package",
+    "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "test:watch": "vitest"
   },
