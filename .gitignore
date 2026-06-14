@@ -58,3 +58,6 @@ electron-log-*
 
 # Playwright MCP runtime artifacts
 .playwright-mcp/
+
+# Nezha monitoring agent runtime
+.nezha/
