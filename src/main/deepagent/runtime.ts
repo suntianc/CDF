@@ -15,7 +15,9 @@ import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from
 import { createBashTool } from './bash-tool';
 import { createFetchTool } from './fetch-tool';
 import { createArxivTool } from './arxiv-tool';
+import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
+import { generateSlug } from './agent-slug';
 import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
@@ -54,6 +56,28 @@ const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['
   write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   delete_file: { allowedDecisions: ['approve', 'reject'] },
+  // Codex P2 #17: gate destructive agent CRUD on user approval, matching
+  // the policy for destructive file ops above. Without this, the model
+  // can call delete_agent and cascade-delete the target's
+  // agent_runs / agent_tool_calls / agent_mcp_servers / agent_skills
+  // (database.ts:176,190) without the user seeing the confirmation flow
+  // that protects `delete_file`. update_agent is gated too because it
+  // can change library state the user might want to vet (is_default
+  // demotion, provider swap, slug rename, etc.).
+  //
+  // Codex P2 (PR #5 maintainer review round 2, id=3381739597): create_agent
+  // is NOT pure additive — when called with `is_default: true` it first
+  // runs `UPDATE agents SET is_default = 0 ...` to demote the project's
+  // current default. That side-effect is the same kind of invariant
+  // mutation update_agent gates, and was previously silently changing the
+  // project's default without any approval flow. Gate create_agent too
+  // (the friction is acceptable: helpers can be auto-approved by the
+  // user's "Allow all for this session" toggle, and the common
+  // "add a helper subagent" flow becomes a single click).
+  // list_agents is read-only — no gate.
+  delete_agent: { allowedDecisions: ['approve', 'reject'] },
+  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
 };
 
 let checkpointSaver: SqliteSaver | null = null;
@@ -144,6 +168,7 @@ function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
     id: crypto.randomUUID(),
     project_id: projectId,
     name: 'Master Agent',
+    slug: generateSlug('Master Agent'),
     description: '项目默认 Agent',
     provider_id: fallbackProviderId,
     system_prompt: '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
@@ -154,12 +179,13 @@ function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
   };
 
   db.prepare(`
-    INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     agent.id,
     agent.project_id,
     agent.name,
+    agent.slug,
     agent.description,
     agent.provider_id,
     agent.system_prompt,
@@ -293,14 +319,6 @@ function getAgentMcpServers(agentId: string): MCPServer[] {
 
 function buildProjectContext(project: RuntimeProjectRow): string {
   return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${project.path}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
-}
-
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
 }
 
 function getRecoverableToolErrorCode(error: unknown): string {
@@ -490,6 +508,12 @@ export async function createDeepAgentRuntime(
     createBashTool({ workingDir: project.path }),
   ];
 
+  // Codex P2 #13: agent CRUD 工具只能给 MASTER,不能 spread 给 subagent。
+  // 否则 delegated subagent 能调 create/update/delete agent,
+  // 包括 delete 自己(parent agent) / 改 active agent / 污染 agent 库。
+  // subagents 收到的 tools 列表(下 line 594)不应该包含这些。
+  const masterAgentTools = createAgentTools(projectId, { activeAgentId: agentRow.id });
+
   // ---- Tool Registry: 注册新工具只需在此添加一行 ----
   const TOOL_REGISTRY = [
     { toolType: 'tavily',    requiresApiKey: true,  create: createTavilyTool },
@@ -597,7 +621,9 @@ export async function createDeepAgentRuntime(
     systemPrompt: systemPrompt || undefined,
     skills: skillsSources,
     permissions,
-    tools: [...mcpRuntime.tools, ...builtInTools],
+    // master 独享 agent CRUD 工具(create_agent / update_agent / delete_agent /
+    // list_agents) — P2 #13 修复:不让这些工具 leak 到 subagent。
+    tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     middleware: [createRecoverableToolErrorMiddleware()],
     interruptOn: DEFAULT_INTERRUPT_ON,

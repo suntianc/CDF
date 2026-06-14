@@ -6,6 +6,10 @@
   "main": "./out/main/index.js",
   "author": "suntianc",
   "license": "AGPL-3.0",
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

@@ -191,7 +191,21 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+### 版本号管理
+
+本项目存在两套独立的版本号体系，不可混用：
+
+- **产品发布版本（git tag）**：标记对用户/远端可见的发布点。当前 `0.1.x` 系列（如 `v0.1.1` → `v0.1.2`）。
+  - 由 `git tag -a v<X.Y.Z>` 创建，annotated tag，message 含发布摘要。
+  - tag 只打在 `master` 分支，**先合入 master 再打 tag**（不在 dev 上打发布 tag）。
+  - patch：bug 修复 / 小调整；minor：新能力 / 新 phase 交付；major：方向性重写。
+  - `package.json` 的 `version` 字段当前未与发布版本同步维护（默认 `1.0.0`），发布版本以 git tag 为准，不强制 bump package.json。
+- **GSD 里程碑版本（`.planning/` 内部）**：GSD 工作流自身的规划版本号，出现在 `STATE.md`、`ROADMAP.md`、`PROJECT.md`、`milestones/` 归档文件名等。
+  - 形如 `v0.2.1`，由 `/gsd:new-milestone` 定义，与产品发布版本**互相独立**（例如 GSD `v0.2.1` 里程碑对应产品发布 `v0.1.2`）。
+  - 仅存在于 gitignored 的 `.planning/`，不进 git，不对外可见。
+  - 里程碑归档文件命名用 GSD 版本（`milestones/v0.2.1-ROADMAP.md`），git tag 用产品版本（`v0.1.2`）。
+
+**关键区分：** 涉及 git tag / release / 用户可见版本时用产品版本号；涉及 `.planning/` 规划产物时用 GSD 里程碑版本号。两者不要互相替换。
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->

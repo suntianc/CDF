@@ -42,13 +42,39 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+
+      # The integration tests in src/main/deepagent/*.integration.test.ts
+      # import the production `../database` module, which loads
+      # better-sqlite3. prebuild-install may pick a binary built for a
+      # different Node ABI than the runner's Node 22 (NODE_MODULE_VERSION
+      # mismatch → ERR_DLOPEN_FAILED). Force a source build of just this
+      # native module to guarantee the binary matches the runner's Node.
+      - name: Rebuild better-sqlite3 against the runner's Node
+        run: pnpm rebuild better-sqlite3
 
       - name: Run tests
-        run: npm test
+        run: pnpm test
 
       - name: Build app
-        run: npm run build
+        run: pnpm run build

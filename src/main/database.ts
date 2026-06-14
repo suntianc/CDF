@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { generateSlug } from './deepagent/agent-slug';
 
 const dbPath = path.join(app.getPath('userData'), 'cdf.db');
 const db = new Database(dbPath);
@@ -226,13 +227,8 @@ try {
 }
 
 // D-03: Backfill existing agents' slug from name
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-}
+// (generateSlug itself lives in deepagent/agent-slug.ts — the canonical
+// helper. This import is here to avoid duplicating the regex chain.)
 try {
   const agentsWithoutSlug = db.prepare("SELECT id, name FROM agents WHERE slug IS NULL OR slug = ''").all() as Array<{ id: string; name: string }>;
   for (const agent of agentsWithoutSlug) {
