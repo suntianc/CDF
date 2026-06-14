@@ -39,6 +39,7 @@ export function WorkflowToolbar({
           className="bg-transparent text-sm font-semibold text-[var(--color-text-primary)] outline-none border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] transition-colors px-1 py-0.5 w-[200px]"
           value={workflowName}
           onChange={(e) => onWorkflowNameChange(e.target.value)}
+          aria-label={t('workflow.editor.workflowName')}
         />
       </div>
       <div className="topbar-actions">
@@ -46,17 +47,19 @@ export function WorkflowToolbar({
           className="topbar-btn cursor-pointer opacity-60 hover:opacity-100 disabled:opacity-30"
           onClick={onUndo}
           disabled={!canUndo}
+          aria-label={t('workflow.editor.undo') + ' (Ctrl+Z)'}
           title={t('workflow.editor.undo') + ' (Ctrl+Z)'}
         >
-          <Undo2 className="w-3.5 h-3.5" />
+          <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
         <button
           className="topbar-btn cursor-pointer opacity-60 hover:opacity-100 disabled:opacity-30"
           onClick={onRedo}
           disabled={!canRedo}
+          aria-label={t('workflow.editor.redo') + ' (Ctrl+Y)'}
           title={t('workflow.editor.redo') + ' (Ctrl+Y)'}
         >
-          <Redo2 className="w-3.5 h-3.5" />
+          <Redo2 className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
         <button
           className="topbar-btn cursor-pointer"

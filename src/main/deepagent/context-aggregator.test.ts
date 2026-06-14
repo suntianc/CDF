@@ -498,4 +498,19 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(result.breakdown.freeSpace).toBeGreaterThan(0);
     warnSpy.mockRestore();
   });
+
+  it('overriddenModelName overrides model_name from agent row', async () => {
+    installFakeDb({
+      agentRow: {
+        id: 'agent-1',
+        system_prompt: 'some-prompt',
+        provider_id: 'provider-1',
+        context_limit: 200_000,
+        model_name: 'database-model-name',
+        provider_name: 'provider-1',
+      },
+    });
+    const result = await aggregateCurrentSessionContext('session-1', undefined, 'my-overridden-model');
+    expect(result.modelName).toBe('my-overridden-model');
+  });
 });

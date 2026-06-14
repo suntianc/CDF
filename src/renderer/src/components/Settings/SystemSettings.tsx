@@ -21,7 +21,7 @@ export function SystemSettings() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden animate-fade-up">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden animate-fade-up">
       {/* Topbar */}
       <div className="main-topbar shrink-0 h-9 border-b-0" />
 

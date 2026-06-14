@@ -176,7 +176,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         <form onSubmit={handleSaveAgent} className="flex-1 flex overflow-hidden min-h-0">
           {/* Left Column - Core Configuration (40%) */}
           <div className="w-[40%] border-r border-[var(--color-border)] p-6 overflow-y-auto space-y-4">
-            <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <div className="text-[12px] font-semibold text-[var(--color-text-secondary)] mb-2 flex items-center gap-1.5">
               <span>{t('agent.sectionBasic')}</span>
             </div>
 
@@ -218,7 +218,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
           {/* Right Column - Ability & Prompt Config (60%) */}
           <div className="w-[60%] p-6 overflow-y-auto flex flex-col min-h-0">
-            <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <div className="text-[12px] font-semibold text-[var(--color-text-secondary)] mb-3 flex items-center gap-1.5">
               <span>{t('agent.sectionAbilities')}</span>
             </div>
 
@@ -329,7 +329,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                                 />
                                 <span className="truncate">{s.name}</span>
                               </div>
-                              <span className="text-[10px] scale-90 px-1 py-0.2 rounded bg-black/10 text-[var(--color-text-muted)] font-mono">
+                              <span className="text-[10px] scale-90 px-1 py-0.2 rounded bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)] font-mono">
                                 {s.server_type}
                               </span>
                             </div>

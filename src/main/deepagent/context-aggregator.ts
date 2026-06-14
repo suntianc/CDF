@@ -306,7 +306,8 @@ function safeStringifyLen(v: unknown): number {
  */
 export async function aggregateCurrentSessionContext(
   sessionId: string,
-  contextLimit?: number
+  contextLimit?: number,
+  overriddenModelName?: string
 ): Promise<ContextAggregate> {
   // ASVS V5 input validation
   if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 64) {
@@ -354,7 +355,7 @@ export async function aggregateCurrentSessionContext(
     } else if (agent?.context_limit && agent.context_limit > 0) {
       resolvedLimit = agent.context_limit;
     }
-    modelName = agent?.model_name || '';
+    modelName = overriddenModelName || agent?.model_name || '';
     agentSystemPrompt = agent?.system_prompt ?? null;
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);

@@ -34,6 +34,7 @@ interface ChatAreaProps {
   onToggleSidebar?: () => void;
   taskPanelOpen?: boolean;
   onToggleTaskPanel?: () => void;
+  onOpenTaskPanel?: () => void;
 }
 
 const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }) => {
@@ -44,13 +45,15 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
   return (
     <div className="mb-2.5 flex flex-col transition-all duration-200 w-full animate-slide-down">
       {/* Header */}
-      <div 
+      <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
       >
-        <span className="text-[10px]">{expanded ? '▼' : '▶'}</span>
+        <span aria-hidden="true" className="text-[10px]">{expanded ? '▼' : '▶'}</span>
         <span>{headerText}</span>
-      </div>
+      </button>
       
       {/* Body */}
       {expanded && (
@@ -82,7 +85,7 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
   );
 };
 
-const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; onToggleTaskPanel?: () => void }) => {
+const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onOpenTaskPanel?: () => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const actions = approval.actions || [];
@@ -91,11 +94,13 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
     <div className="w-full py-1 select-none animate-slide-down">
       <div className="flex flex-col">
         {/* Header */}
-        <div
+        <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
           className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
         >
-          <span className="flex items-center justify-center shrink-0">
+          <span aria-hidden="true" className="flex items-center justify-center shrink-0">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-warning)]" />
           </span>
 
@@ -103,29 +108,29 @@ const PendingApprovalCard = ({ approval, onToggleTaskPanel }: { approval: any; o
             {t('chat.awaitingApproval')}{actions.map((act: any) => translateToolAction(act.name, act.args, t)).join(', ')}
           </span>
 
-          <span className="text-[9px] opacity-60 font-mono ml-0.5">
+          <span aria-hidden="true" className="text-[9px] opacity-60 font-mono ml-0.5">
             {expanded ? '▼' : '▶'}
           </span>
-        </div>
+        </button>
 
         {/* Collapsed details */}
         {expanded && (
           <div className="mt-1.5 pl-4 pb-2 flex flex-col gap-3 border-l border-[var(--color-warning)]/20 ml-1.5 animate-slide-down">
             {actions.map((action: any, idx: number) => (
               <div key={idx} className="flex flex-col gap-1">
-                <span className="text-[9px] font-bold text-[var(--color-warning)] uppercase tracking-wider">
+                <span className="text-[10px] font-medium text-[var(--color-warning)]">
                   {t('chat.pendingExecute', { name: action.name })}
                 </span>
                 {action.args && (
-                  <pre className="p-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-warning)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+                  <pre className="p-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
                     <code>{typeof action.args === 'string' ? action.args : JSON.stringify(action.args, null, 2)}</code>
                   </pre>
                 )}
               </div>
             ))}
             <button
-              onClick={onToggleTaskPanel}
-              className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-white rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+              onClick={onOpenTaskPanel}
+              className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-[var(--color-text-inverse)] rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
             >
               <span>{t('chat.goApproveNow')}</span>
               <span>➔</span>
@@ -199,7 +204,8 @@ export function ChatArea({
   sidebarCollapsed,
   onToggleSidebar,
   taskPanelOpen,
-  onToggleTaskPanel
+  onToggleTaskPanel,
+  onOpenTaskPanel
 }: ChatAreaProps) {
   const { t } = useTranslation();
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
@@ -390,6 +396,31 @@ export function ChatArea({
     () => projects.find((p) => p.id === currentProjectId)?.path ?? null,
     [projects, currentProjectId]
   );
+
+  const [welcomeText, setWelcomeText] = useState({
+    headlineKey: 'chat.welcomeHeadlineIdle',
+    sublineText: '',
+  });
+
+  useEffect(() => {
+    if (activeSessionId) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const headlineKey = currentProjectId && currentProjectId !== 'default-project'
+        ? 'chat.welcomeHeadlineActive'
+        : 'chat.welcomeHeadlineIdle';
+      const sublineText = currentProjectId
+        ? (currentProjectId === 'default-project'
+            ? t('chat.welcomeSublineTempSession')
+            : t('chat.welcomeSublineProjectLoaded', { name: currentProjectName }))
+        : t('chat.welcomeSublineNoProject');
+      setWelcomeText({ headlineKey, sublineText });
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [activeSessionId, currentProjectId, currentProjectName, t]);
 
   const activeSession = useMemo(() => {
     return sessions.find(s => s.id === activeSessionId) || null;
@@ -746,6 +777,8 @@ export function ChatArea({
   };
 
   useEffect(() => {
+    if (providers.length === 0) return;
+
     if (!selectedProvider) {
       if (selectedModel) setSelectedModel('');
       return;
@@ -754,7 +787,7 @@ export function ChatArea({
     if (!selectedProviderModels.includes(selectedModel)) {
       setSelectedModel(selectedProviderModels[0] || '');
     }
-  }, [selectedModel, selectedProvider, selectedProviderModels]);
+  }, [selectedModel, selectedProvider, selectedProviderModels, providers]);
 
   const currentProvider = selectedProvider || masterProvider;
   const currentModel = selectedModel || masterProvider?.default_model || '';
@@ -1043,7 +1076,7 @@ export function ChatArea({
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Onboarding / Welcome view */}
       <main
-        className={`absolute inset-0 flex flex-col items-center justify-center p-6 bg-[var(--bg-app)] overflow-hidden transition-all duration-300 ease-in-out ${
+        className={`absolute inset-0 flex flex-col items-center justify-center p-6 bg-[var(--color-bg-app)] overflow-hidden transition-all duration-300 ease-in-out ${
           !activeSessionId
             ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto z-10'
             : 'opacity-0 translate-y-4 scale-95 pointer-events-none z-0'
@@ -1054,30 +1087,35 @@ export function ChatArea({
         
         <div className="max-w-[640px] w-full flex flex-col items-center gap-6 z-10">
           <h1 className="center-headline">
-            {currentProjectId && currentProjectId !== 'default-project' ? (
-              <>{t('chat.welcomeHeadlineActive')}</>
-            ) : (
-              <Trans
-                i18nKey="chat.welcomeHeadlineIdle"
-                components={{ span: <span /> }}
-              />
-            )}
+            <Trans
+              i18nKey={welcomeText.headlineKey}
+              components={{ span: <span /> }}
+            />
           </h1>
           <p className="center-subline">
-            {currentProjectId
-              ? (currentProjectId === 'default-project'
-                  ? t('chat.welcomeSublineTempSession')
-                  : t('chat.welcomeSublineProjectLoaded', { name: currentProjectName }))
-              : t('chat.welcomeSublineNoProject')}
+            {welcomeText.sublineText}
           </p>
 
           {/* Error Banner on Welcome Page */}
           {error && (
-            <div className="w-full p-3 rounded-lg bg-[var(--color-danger-dim)] text-[var(--color-danger)] text-xs flex items-center justify-between border border-[var(--color-danger)]/20 animate-fade-in shadow-sm">
-              <div className="flex-1 font-medium">{error}</div>
+            <div role="alert" aria-live="assertive" className="w-full p-3 rounded-lg bg-[var(--color-danger-dim)] text-[var(--color-danger)] text-xs flex items-start gap-2 border border-[var(--color-danger)]/20 animate-fade-in shadow-sm">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">{error.message}</div>
+                {error.recoverableActions && error.recoverableActions.length > 0 && (
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {error.recoverableActions.map((a) => (
+                      <button key={a.label} type="button" onClick={() => { a.action(); clearError(); }} className="text-[var(--color-danger)] underline underline-offset-2 hover:no-underline font-medium cursor-pointer">
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
+                type="button"
                 onClick={clearError}
-                className="p-1 rounded hover:bg-black/10 text-[var(--color-danger)] shrink-0 transition-colors cursor-pointer"
+                className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-danger)] shrink-0 transition-colors cursor-pointer"
                 aria-label={t('chat.dismissError')}
               >
                 <X className="w-3.5 h-3.5" />
@@ -1298,29 +1336,29 @@ export function ChatArea({
           </div>
 
           <div className="feature-rows">
-            <div className="feature-card" onClick={handleCreateProject}>
+            <button type="button" className="feature-card" onClick={handleCreateProject}>
               <div className="feature-card-icon">
                 <Plus className="w-4 h-4" />
               </div>
               <div className="feature-card-title">{t('chat.createProjectTitle')}</div>
               <div className="feature-card-desc">{t('chat.createProjectDesc')}</div>
-            </div>
-            
-            <div className="feature-card" onClick={() => onOpenSettings?.()}>
+            </button>
+
+            <button type="button" className="feature-card" onClick={() => onOpenSettings?.()}>
               <div className="feature-card-icon">
                 <Sliders className="w-4 h-4" />
               </div>
               <div className="feature-card-title">{t('chat.configureSkillsTitle')}</div>
               <div className="feature-card-desc">{t('chat.configureSkillsDesc')}</div>
-            </div>
+            </button>
 
-            <div className="feature-card" onClick={() => onOpenSettings?.()}>
+            <button type="button" className="feature-card" onClick={() => onOpenSettings?.()}>
               <div className="feature-card-icon">
                 <Layers className="w-4 h-4" />
               </div>
               <div className="feature-card-title">{t('chat.connectMcpTitle')}</div>
               <div className="feature-card-desc">{t('chat.connectMcpDesc')}</div>
-            </div>
+            </button>
           </div>
 
           <div className="dialog-footer">
@@ -1357,6 +1395,7 @@ export function ChatArea({
                   : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
               }`}
               title={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
+              aria-label={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
             >
               <Info className="w-3.5 h-3.5" />
             </button>
@@ -1383,7 +1422,7 @@ export function ChatArea({
                   <PendingApprovalCard
                     key={item.id}
                     approval={item.approval}
-                    onToggleTaskPanel={onToggleTaskPanel}
+                    onOpenTaskPanel={onOpenTaskPanel}
                   />
                 );
               }
@@ -1419,12 +1458,12 @@ export function ChatArea({
 
             {/* Typing Indicator while streaming empty block */}
             {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
-              <div className="message assistant animate-pulse">
-                <div className="message-bubble">
-                  <div className="flex items-center gap-1 py-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="message assistant" role="status" aria-label={t('chat.generating')}>
+                <div className="message-row">
+                  <div className="flex items-center gap-1 py-1.5" aria-hidden="true">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '300ms' }} />
                   </div>
                 </div>
               </div>
@@ -1432,12 +1471,24 @@ export function ChatArea({
 
             {/* Error Banner */}
             {error && (
-              <div className="p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-xl flex items-start gap-2.5 text-xs text-[var(--color-danger)] shadow-sm animate-shake">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="flex-1">{error}</div>
-                <button 
+              <div role="alert" aria-live="assertive" className="p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-xl flex items-start gap-2.5 text-xs text-[var(--color-danger)] shadow-sm animate-shake">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="flex-1 min-w-0">
+                  <div>{error.message}</div>
+                  {error.recoverableActions && error.recoverableActions.length > 0 && (
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {error.recoverableActions.map((a) => (
+                        <button key={a.label} type="button" onClick={() => { a.action(); clearError(); }} className="text-[var(--color-danger)] underline underline-offset-2 hover:no-underline font-medium cursor-pointer">
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
                   onClick={clearError}
-                  className="p-0.5 rounded hover:bg-white/10 text-[var(--color-danger)]"
+                  className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-danger)]"
                   aria-label={t('chat.dismissError')}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1474,7 +1525,7 @@ export function ChatArea({
               modal={false}
             >
               <PopoverAnchor asChild>
-                <form onSubmit={(e) => e.preventDefault()} className="relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
+                <form onSubmit={(e) => e.preventDefault()} className="chat-composer relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg">
                   {/* Upper: Text Input Area */}
                   {/* HOTFIX 2026-06-05: `style={{ fontSize: '14px' }}` on the
                       wrapper ensures the SlashToken inherits the same 14px

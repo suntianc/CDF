@@ -370,3 +370,315 @@ describe('sessionStore goalJudgeStatus (P3)', () => {
     expect(useSessionStore.getState().goalJudgeStatus.has('s1')).toBe(false);
   });
 });
+
+describe('sessionStore selectSession activity errors', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    window.electronAPI = {
+      store: { get: vi.fn(), set: vi.fn() },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(),
+        createSession: vi.fn(),
+        deleteSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage: vi.fn(),
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+        getAgentRuns: vi.fn(async () => { throw new Error('agent activity db failed'); }),
+        getAgentToolCalls: vi.fn(),
+        getLatestTodos: vi.fn(),
+      },
+      llm: {
+        chat: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn(),
+      },
+      platform: 'darwin',
+    } as any;
+
+    useSessionStore.setState({
+      activeSessionId: null,
+      messages: [],
+      agentRuns: [],
+      agentToolCalls: [],
+      delegatedTasks: [],
+      todos: [],
+      error: null,
+      isStreaming: false,
+      streamingMessageId: null,
+    } as any);
+  });
+
+  it('keeps the activity-load error instead of overwriting it as a message-load error', async () => {
+    await useSessionStore.getState().selectSession('session-activity-fails');
+
+    expect(window.electronAPI.db.getMessages).toHaveBeenCalledWith('session-activity-fails');
+    expect(useSessionStore.getState().error?.message).toBe('agent activity db failed');
+  });
+
+  it('clears stale activity before loading a new uncached session', async () => {
+    useSessionStore.setState({
+      agentRuns: [{ id: 'old-run' }],
+      agentToolCalls: [{ id: 'old-tool' }],
+      delegatedTasks: [{ taskId: 'old-task' }],
+      activeRunId: 'old-run',
+    } as any);
+
+    await useSessionStore.getState().selectSession('session-activity-fails');
+
+    const state = useSessionStore.getState();
+    expect(state.agentRuns).toEqual([]);
+    expect(state.agentToolCalls).toEqual([]);
+    expect(state.delegatedTasks).toEqual([]);
+    expect(state.activeRunId).toBe(null);
+  });
+
+  it('does not let a slow activity fetch overwrite a newer active session', async () => {
+    window.electronAPI.db.getAgentRuns = vi.fn(async (sessionId: string) => [
+      { id: `${sessionId}-run`, status: 'completed', started_at: Date.now() },
+    ]);
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+
+    useSessionStore.setState({ activeSessionId: 'session-b' } as any);
+    await useSessionStore.getState().fetchAgentActivity('session-a');
+
+    expect(useSessionStore.getState().agentRuns).toEqual([]);
+  });
+
+  it('does not let stale activity failures overwrite the current session error', async () => {
+    useSessionStore.setState({ activeSessionId: 'session-b', error: null } as any);
+
+    await expect(useSessionStore.getState().fetchAgentActivity('session-a')).rejects.toThrow('agent activity db failed');
+
+    expect(useSessionStore.getState().error).toBe(null);
+  });
+
+  it('deduplicates concurrent activity fetches for the same session in the store', async () => {
+    let resolveRuns: ((runs: any[]) => void) | undefined;
+    window.electronAPI.db.getAgentRuns = vi.fn(() => new Promise((resolve) => {
+      resolveRuns = resolve;
+    }));
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+
+    useSessionStore.setState({ activeSessionId: 'session-1' } as any);
+    const first = useSessionStore.getState().fetchAgentActivity('session-1');
+    const second = useSessionStore.getState().fetchAgentActivity('session-1');
+
+    await Promise.resolve();
+    expect(window.electronAPI.db.getAgentRuns).toHaveBeenCalledTimes(1);
+    resolveRuns?.([{ id: 'run-1', status: 'completed', started_at: Date.now() }]);
+    await Promise.all([first, second]);
+    expect(useSessionStore.getState().agentRuns).toHaveLength(1);
+  });
+
+  it('ignores stale selectSession message loads and errors', async () => {
+    let resolveA: ((messages: any[]) => void) | undefined;
+    window.electronAPI.db.getMessages = vi.fn((sessionId: string) => {
+      if (sessionId === 'session-a') {
+        return new Promise((resolve) => { resolveA = resolve; });
+      }
+      return Promise.resolve([{ id: 'message-b', session_id: 'session-b', role: 'user', content: 'B' }]);
+    });
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+
+    const selectA = useSessionStore.getState().selectSession('session-a');
+    await useSessionStore.getState().selectSession('session-b');
+    resolveA?.([{ id: 'message-a', session_id: 'session-a', role: 'user', content: 'A' }]);
+    await selectA;
+
+    expect(useSessionStore.getState().activeSessionId).toBe('session-b');
+    expect(useSessionStore.getState().messages[0]?.content).toBe('B');
+
+    window.electronAPI.db.getMessages = vi.fn((sessionId: string) => {
+      if (sessionId === 'session-c') return Promise.reject(new Error('stale message failure'));
+      return Promise.resolve([]);
+    });
+    const selectC = useSessionStore.getState().selectSession('session-c');
+    await useSessionStore.getState().selectSession('session-d');
+    await selectC;
+
+    expect(useSessionStore.getState().activeSessionId).toBe('session-d');
+    expect(useSessionStore.getState().error).toBe(null);
+  });
+
+  it('ignores older selectSession results for the same session id', async () => {
+    let resolveFirst: ((messages: any[]) => void) | undefined;
+    window.electronAPI.db.getMessages = vi.fn(() => {
+      if (!resolveFirst) {
+        return new Promise((resolve) => { resolveFirst = resolve; });
+      }
+      return Promise.resolve([{ id: 'message-new', session_id: 'session-same', role: 'user', content: 'new' }]);
+    });
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+
+    const first = useSessionStore.getState().selectSession('session-same');
+    await useSessionStore.getState().selectSession('session-same');
+    resolveFirst?.([{ id: 'message-old', session_id: 'session-same', role: 'user', content: 'old' }]);
+    await first;
+
+    expect(useSessionStore.getState().activeSessionId).toBe('session-same');
+    expect(useSessionStore.getState().messages[0]?.content).toBe('new');
+  });
+
+  it('ignores older activity results for the same session id', async () => {
+    const resolvers: Array<(runs: any[]) => void> = [];
+    window.electronAPI.db.getMessages = vi.fn(async () => []);
+    window.electronAPI.db.getAgentRuns = vi.fn(() => new Promise((resolve) => {
+      resolvers.push(resolve);
+    }));
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+
+    const first = useSessionStore.getState().selectSession('session-same');
+    await Promise.resolve();
+    await Promise.resolve();
+    const second = useSessionStore.getState().selectSession('session-same');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolvers).toHaveLength(2);
+    resolvers[1]?.([{ id: 'new-run', status: 'completed', started_at: Date.now() }]);
+    await second;
+    resolvers[0]?.([{ id: 'old-run', status: 'running', started_at: Date.now() }]);
+    await first;
+
+    expect(useSessionStore.getState().agentRuns[0]?.id).toBe('new-run');
+  });
+
+  it('does not leave a failed uncached session active with empty messages', async () => {
+    const existingMessages = [{ id: 'old-message', session_id: 'session-old', role: 'user', content: 'old' }];
+    window.electronAPI.db.getMessages = vi.fn(async () => { throw new Error('message db failed'); });
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+
+    useSessionStore.setState({
+      activeSessionId: 'session-old',
+      messages: existingMessages,
+      agentRuns: [{ id: 'old-run' }],
+      error: null,
+    } as any);
+
+    await useSessionStore.getState().selectSession('session-new');
+
+    const state = useSessionStore.getState();
+    expect(state.activeSessionId).toBe('session-old');
+    expect(state.messages).toBe(existingMessages);
+    expect(state.error?.message).toBe('message db failed');
+  });
+
+  it('still attempts to refresh activity when message loading fails', async () => {
+    window.electronAPI.db.getMessages = vi.fn(async () => { throw new Error('message db failed'); });
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => [
+      { id: 'session-current-run', status: 'completed', started_at: Date.now() },
+    ]);
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+
+    useSessionStore.setState({ activeSessionId: 'session-current', agentRuns: [], error: null } as any);
+
+    await useSessionStore.getState().selectSession('session-current');
+
+    expect(window.electronAPI.db.getAgentRuns).toHaveBeenCalledWith('session-current');
+    expect(useSessionStore.getState().agentRuns[0]?.id).toBe('session-current-run');
+  });
+
+  it('does not overwrite messages created while session messages are loading', async () => {
+    let resolveMessages: ((messages: any[]) => void) | undefined;
+    let chunkListener: ((event: unknown, data: any) => void) | null = null;
+    window.electronAPI.db.getMessages = vi.fn(() => new Promise((resolve) => {
+      resolveMessages = resolve;
+    }));
+    window.electronAPI.db.saveMessage = vi.fn(async (message) => message);
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    window.electronAPI.llm.chat = vi.fn(async () => {
+      chunkListener?.(null, { type: 'message_chunk', text: 'new reply' });
+      chunkListener?.(null, { type: 'message_done' });
+    });
+    window.electronAPI.llm.onChunk = vi.fn((_requestId, callback) => {
+      chunkListener = callback;
+      return () => {
+        chunkListener = null;
+      };
+    });
+
+    useSessionStore.setState({
+      sessions: [{ id: 'session-loading', project_id: 'project-1', name: 'Loading', created_at: Date.now(), updated_at: Date.now() }],
+      activeSessionId: 'session-loading',
+      messages: [],
+      isStreaming: false,
+      streamingMessageId: null,
+      error: null,
+    } as any);
+
+    const select = useSessionStore.getState().selectSession('session-loading');
+    await useSessionStore.getState().sendMessage('project-1', 'new message');
+    resolveMessages?.([{ id: 'history-message', session_id: 'session-loading', role: 'user', content: 'history' }]);
+    await select;
+
+    const contents = useSessionStore.getState().messages.map((message) => message.content);
+    expect(contents).toContain('new message');
+    expect(contents).toContain('new reply');
+    expect(contents).not.toEqual(['history']);
+  });
+});
+
+describe('sessionStore model overrides persistence', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSessionStore.setState({
+      sessionModelOverrides: {},
+    });
+  });
+
+  it('saves model overrides to localStorage and retrieves them', () => {
+    useSessionStore.getState().setSessionModelOverride('session-1', 'provider-1', 'gpt-4');
+    
+    // Verify stored state
+    expect(useSessionStore.getState().sessionModelOverrides['session-1']).toEqual({
+      providerId: 'provider-1',
+      model: 'gpt-4',
+    });
+
+    // Verify localStorage item
+    const saved = localStorage.getItem('sessionModelOverrides');
+    expect(saved).toBeDefined();
+    expect(JSON.parse(saved!)).toEqual({
+      'session-1': { providerId: 'provider-1', model: 'gpt-4' },
+    });
+  });
+
+  it('cleans up overrides when a session is deleted', async () => {
+    window.electronAPI = {
+      db: {
+        deleteSession: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
+
+    useSessionStore.setState({
+      sessions: [{ id: 'session-1', project_id: 'project-1', name: 'Test', created_at: 0, updated_at: 0 }],
+      sessionModelOverrides: {
+        'session-1': { providerId: 'provider-1', model: 'gpt-4' },
+      },
+      sessionGoals: new Map(),
+      goalJudgeStatus: new Map(),
+    });
+
+    await useSessionStore.getState().deleteSession('session-1');
+
+    expect(useSessionStore.getState().sessionModelOverrides['session-1']).toBeUndefined();
+    const saved = localStorage.getItem('sessionModelOverrides');
+    expect(JSON.parse(saved!)).toEqual({});
+  });
+});

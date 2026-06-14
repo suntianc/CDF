@@ -91,7 +91,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden relative">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Toast Notification Container */}
       <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
@@ -118,7 +118,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       <div className="settings-content overflow-y-auto flex-1 px-6 pb-6 pt-3">
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-4 shrink-0">
-          <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
             {t('workflow.list.title', { count: workflows.length })}
           </div>
           <button
@@ -142,7 +142,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all group cursor-pointer"
+              className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
               onClick={() => onSelectWorkflow(workflow)}
             >
               <div>

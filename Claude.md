@@ -69,17 +69,23 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
-**Agent 开发工作站**
+**CDF — 本地多领域 Agent 工作站**
 
-基于 pi-code-agent 的离线桌面全栈 Agent 开发工作站。开发者通过 Master Agent 对话界面描述需求，Master Agent 统筹工作流执行，调用已配置的 MCP、Skills 构建自动化开发流程。支持多项目管理、工作流可视化编排、Agent 资产库管理。
+基于 deepagents SDK 的离线桌面全栈 Agent 工作站。用户通过 Master Agent 对话界面描述任务，Master Agent 统筹工作流执行，调用已配置的 MCP、Skills、Workflows、文件系统、浏览器与本地知识，把跨领域目标（开发、研究、写作、数据、运营、自动化办公）交给本地 Agent 协作处理。**工作站，不是聊天框。** 用户组织的是任务、上下文、Agent、能力、过程与产物，不是单纯的对话气泡。
 
-**Core Value:** 开发者通过自然语言对话驱动自动化开发工作流，Master Agent 负责需求理解、流程编排、节点执行监控和结果交付。
+**Core Value:** 用户可以把跨领域目标交给本地 Agent 协作处理，同时保留上下文控制权、关键节点审批权和最终产物所有权。
+
+### Audience
+
+不只面向开发者。开发者、研究者、创作者、产品/运营、小团队负责人，以及任何需要把本地文件、知识、工具和自动化流程交给 Agent 协作处理的人。
 
 ### Constraints
 
 - **离线优先**：所有数据本地存储，不依赖网络
 - **Electron 桌面应用**：跨平台桌面环境
-- **技术栈**：Electron + React + Vite | assistant-ui（对话组件）| ReactFlow（工作流组件）| Tailwind + Shadcn UI
+- **技术栈**：Electron + React + Vite | **streamdown**（流式 markdown 渲染 + KaTeX 公式）| ReactFlow（工作流组件）| Tailwind + Shadcn UI | Zustand
+- **双主题**：Light（奶白画布 + 粉彩 color block + accent-magenta #e2007a）/ Dark（冷黑画布 + 同一套 block + Intelligence Violet #7c3aed）。两主题共享 ink 角色、状态色、组件语法、spacing
+- **设计语言**：Task Surface · Activity Trail · Agent Bench · Capability Shelf · Artifact Space · Workflow Canvas。不用 chat bubble、icon-card 网格、紫色 SaaS Dashboard、hero-metric 模板、玻璃拟态默认
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:research/STACK.md -->
@@ -101,16 +107,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | **Shadcn/ui** | latest | Component primitives | Accessible, customizable, copy-paste not dependency |
 | **Radix UI** | v1.2+ | Headless components | Underlies shadcn, accessible primitives |
 | **Lucide React** | latest | Icons | Consistent, tree-shakeable icon set |
-### Chat Interface
+### Streaming Markdown Renderer
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
-| **assistant-ui** | latest | Chat components | Purpose-built for AI chat, Markdown/Code rendering, streaming support |
-| **or** | | | |
-| **chat-ui** (TailChat) | latest | Alternative chat UI | More customizable, if assistant-ui insufficient |
-- Built by Vercel/AI SDK team
-- Designed for LLM streaming interfaces
-- Markdown/code block rendering out of box
-- Compatible with React 19
+| **streamdown** | latest | Streaming markdown | Purpose-built for LLM streaming interfaces; markdown/code/LaTeX/alert/details rendering out of box; `parseIncompleteMarkdown` switch for live vs static |
+| **@streamdown/math** | matching | KaTeX formula plugin | Inline + block math, error color respects theme tokens |
+| **katex** | latest | Formula rendering | Underlies the math plugin; we wrap with a `MathFallback` danger-bordered block on parse failure |
+
+> Replaces the earlier `assistant-ui` recommendation. The streaming layer routes all messages through a single `StreamdownRenderer` so the work-in-progress and finished states share one markdown engine.
 ### Workflow Visualization
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
@@ -138,12 +142,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | **Electron contextBridge** | Secure API exposure | Mandatory for security, preload scripts |
 | **Electron IPC** | Message passing | Standard pattern for main-renderer communication |
 | **electron-trpc** | Type-safe RPC | If wanting end-to-end TypeScript IPC |
-### Process Management (for pi-code-agent)
+### Process Management (for deepagents / local tools)
 | Technology | Purpose | Why |
 |------------|---------|-----|
-| **child_process.spawn** | Node child processes | Standard Node.js, sufficient for CLI invocation |
-| **node-pty** | PTY for interactive CLI | If needing terminal emulation for pi-code-agent |
-| **xterm.js** | Terminal emulator UI | If rendering pi-code-agent output in terminal panel |
+| **deepagents** | Agent runtime | `createDeepAgent` + `CompositeBackend` + `StateBackend` + `FilesystemBackend` + `registerHarnessProfile` (`src/main/deepagent/runtime.ts`) |
+| **@langchain/langgraph** | Agent state graph | Underlies deepagents; `SqliteSaver` checkpoints (`src/main/deepagent/runtime.ts:63`) |
+| **node-pty** | PTY for interactive CLI | If a local tool needs terminal emulation |
+| **xterm.js** | Terminal emulator UI | If rendering a local tool's terminal output |
 ### Logging & Error Handling
 | Technology | Purpose | Why |
 |------------|---------|-----|
@@ -154,7 +159,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 |----------|-------------|-------------|---------|
 | Build tool | electron-vite | electron-forge | electron-vite is more Vite-native, faster HMR |
 | Build tool | electron-vite | electron-builder | electron-builder is for packaging only, not dev workflow |
-| Chat UI | assistant-ui | Custom + Radix | assistant-ui saves 2-4 weeks of work |
+| Streaming markdown | streamdown | Custom + Radix | streamdown saves 2-4 weeks; we still own component overrides via `components` prop |
 | Workflow | ReactFlow | D3.js | ReactFlow is purpose-built, D3 is too low-level |
 | State | Zustand | Redux Toolkit | Zustand has 1/3 the boilerplate |
 | SQLite | better-sqlite3 | sql.js | Native bindings are 10x faster |
@@ -170,7 +175,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## Installation
 # Core dependencies
 # UI
-# Chat (if using assistant-ui)
+# Streaming (streamdown + KaTeX)
 # Workflow
 # State
 # Database

@@ -1,18 +1,30 @@
 @import "tailwindcss";
+@source "../../../../node_modules/streamdown/dist/*.js";
+@source "../../../../node_modules/@streamdown/math/dist/*.js";
+
+/* Wire Tailwind's dark: variant to data-theme="dark" (CDF uses attribute-based theming,
+   not prefers-color-scheme, so the built-in dark: selector needs to be remapped). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  /* Dark theme (default) */
-  --bg-app: #212121;
-  --bg-sidebar: #191919;
-  --bg-surface: #2d2d2d;
-  --bg-hover: rgba(255,255,255,0.06);
-  --bg-active: rgba(255,255,255,0.10);
-  --border: rgba(255,255,255,0.10);
-  --border-strong: rgba(255,255,255,0.16);
-  --text-primary: #ececec;
-  --text-secondary: rgba(255,255,255,0.55);
-  --text-muted: rgba(255,255,255,0.30);
-  --accent: #7c3aed;
+  /* Dark theme (default) — DESIGN.md §2.2
+     Token names stay as `--accent / --bg-*`; values realigned to DESIGN.md.
+     Renaming to accent-magenta/surface-raised etc. is deferred to Phase 7. */
+  --bg-app: #111216;        /* canvas */
+  --bg-sidebar: #1f2228;    /* surface-soft */
+  --bg-surface: #252932;    /* surface-raised */
+  --bg-sunken: #171a1f;     /* surface-sunken (NEW) */
+  --bg-hover: rgba(216, 224, 240, 0.06);
+  --bg-active: rgba(216, 224, 240, 0.10);
+  --border: #d8e0f014;      /* trace-line */
+  --border-strong: #d8e0f026;
+  --text-primary: #f0f2f5;  /* ink-primary */
+  --text-secondary: #c8cfda99;
+  --text-muted: #c8cfda5c;
+  --text-inverse: #111216;  /* ink-inverse */
+  --text-inverse-soft: #11121626; /* ink-inverse-soft */
+  --bg-inverse-canvas: #f0f2f5;   /* inverse-canvas */
+  --accent: #7c3aed;        /* Intelligence Violet (Dark single-shot) */
   --accent-hover: #8b5cf6;
   --accent-dim: rgba(124, 58, 237, 0.12);
   --accent-glow: rgba(124, 58, 237, 0.08);
@@ -24,6 +36,17 @@
   --warning-dim: rgba(245, 158, 11, 0.12);
   --info: #3b82f6;
   --info-dim: rgba(59, 130, 246, 0.12);
+  --overlay-scrim: rgba(0, 0, 0, 0.80);
+
+  /* 7 color block palette (DESIGN.md §2.2 — closed set, declared only;
+     consumers per Phase 2-6 design. One block per viewport, no drop shadow.) */
+  --block-lime:  #3a4a2c;
+  --block-lilac: #3d3658;
+  --block-cream: #4a3f24;
+  --block-mint:  #2c4438;
+  --block-pink:  #4a2f37;
+  --block-coral: #4a3128;
+  --block-navy:  #0e0f1a;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -32,28 +55,75 @@
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  /* ── z-index scale ─────────────────────────────────────────────────
+     New code must use these tokens. Tailwind z-[N] in components
+     may still reference the canonical values below. */
+  --z-topbar:     20;
+  --z-dropdown:  100;
+  --z-drawer:    200;
+  --z-modal-scrim: 400;
+  --z-modal:     500;
+  --z-toast:    9999;
+
+  /* ── Motion tokens ─────────────────────────────────────────────────
+     JS-driven animations read prefers-reduced-motion separately and
+     switch to a synchronous path (see useTypewriter). */
+  --duration-instant:  80ms;
+  --duration-fast:    150ms;
+  --duration-normal:  220ms;
+  --duration-slow:    350ms;
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);   /* expo-out — most interactive transitions */
+  --ease-standard: cubic-bezier(0.45, 0, 0.55, 1);  /* symmetric — panel open / close */
 }
 
-/* Light theme overrides */
+/* Light theme overrides — DESIGN.md §2.1
+   Light is the default product theme: cream canvas, pastel surfaces,
+   accent-magenta as single-shot CTA color. */
 html[data-theme="light"] {
-  --bg-app: #F9F9F7;
-  --bg-sidebar: #F0F0F0;
-  --bg-surface: #eaeaea;
-  --bg-hover: rgba(0, 0, 0, 0.05);
-  --bg-active: rgba(0, 0, 0, 0.08);
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --text-primary: #161618;
-  --text-secondary: rgba(0, 0, 0, 0.50);
-  --text-muted: rgba(0, 0, 0, 0.28);
-  --accent-dim: rgba(124, 58, 237, 0.08);
-  --accent-glow: rgba(124, 58, 237, 0.04);
+  --bg-app: #fbf8f4;         /* canvas */
+  --bg-sidebar: #f1ece2;     /* surface-soft */
+  --bg-surface: #ffffff;     /* surface-raised */
+  --bg-sunken: #ece5d4;      /* surface-sunken */
+  --bg-hover: rgba(26, 26, 26, 0.05);
+  --bg-active: rgba(26, 26, 26, 0.08);
+  --border: rgba(26, 26, 26, 0.08);       /* trace-line */
+  --border-strong: rgba(26, 26, 26, 0.15);
+  --text-primary: #1a1a1a;   /* ink-primary */
+  --text-secondary: rgba(26, 26, 26, 0.80);
+  --text-muted: rgba(26, 26, 26, 0.50);
+  --text-inverse: #fbf8f4;
+  --text-inverse-soft: #fbf8f426; /* ink-inverse-soft */
+  --bg-inverse-canvas: #1a1a1a;   /* inverse-canvas */
+  --accent: #e2007a;         /* accent-magenta (Light single-shot) */
+  --accent-hover: #c4006a;
+  --accent-dim: rgba(226, 0, 122, 0.12);
+  --accent-glow: rgba(226, 0, 122, 0.08);
+  --success: #0a7a3a;
+  --success-dim: rgba(10, 122, 58, 0.10);
+  --danger: #c0002a;
+  --danger-dim: rgba(192, 0, 42, 0.10);
+  --warning: #a86b00;
+  --warning-dim: rgba(168, 107, 0, 0.10);
+  --info: #1f5fb0;
+  --info-dim: rgba(31, 95, 176, 0.10);
+  --overlay-scrim: rgba(0, 0, 0, 0.60);
+
+  /* Light block palette — pastels on cream canvas. */
+  --block-lime:  #e0f0c2;
+  --block-lilac: #e3d8f5;
+  --block-cream: #f5e6c5;
+  --block-mint:  #c2e8d6;
+  --block-pink:  #f5c4d1;
+  --block-coral: #f5b0a0;
+  --block-navy:  #1a1a3a;
 }
 
 @theme {
   --color-bg-app: var(--bg-app);
   --color-bg-sidebar: var(--bg-sidebar);
   --color-bg-surface: var(--bg-surface);
+  --color-bg-sunken: var(--bg-sunken);
   --color-bg-hover: var(--bg-hover);
   --color-bg-active: var(--bg-active);
   --color-border: var(--border);
@@ -61,6 +131,9 @@ html[data-theme="light"] {
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-inverse-soft: var(--text-inverse-soft);
+  --color-bg-inverse-canvas: var(--bg-inverse-canvas);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-dim: var(--accent-dim);
@@ -73,6 +146,16 @@ html[data-theme="light"] {
   --color-warning-dim: var(--warning-dim);
   --color-info: var(--info);
   --color-info-dim: var(--info-dim);
+  --color-overlay-scrim: var(--overlay-scrim);
+
+  /* 7-block palette utility surface (consumers added per phase). */
+  --color-block-lime:  var(--block-lime);
+  --color-block-lilac: var(--block-lilac);
+  --color-block-cream: var(--block-cream);
+  --color-block-mint:  var(--block-mint);
+  --color-block-pink:  var(--block-pink);
+  --color-block-coral: var(--block-coral);
+  --color-block-navy:  var(--block-navy);
 
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
@@ -141,10 +224,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .center-headline span {
-  background: linear-gradient(135deg, var(--accent), #a855f7, #e879f9);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent);
 }
 
 .center-subline {
@@ -164,12 +244,16 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  transition: border-color 0.15s, box-shadow 0.2s;
+  transition: border-color 0.25s ease, box-shadow 0.35s ease;
 }
 
 .dialog-box:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-dim), 0 4px 24px rgba(0,0,0,0.3);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 0 12px 0 color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 32px -4px color-mix(in srgb, var(--accent) 8%, transparent),
+    0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .dialog-input {
@@ -305,7 +389,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   border-radius: var(--radius-md);
   padding: 6px 0;
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   display: none;
   animation: fadeUp 0.18s ease-out;
   max-height: min(320px, calc(100vh - 160px));
@@ -458,7 +542,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   transition: padding-left 0.2s ease;
   background: var(--bg-app);
   position: relative;
-  z-index: 20;
+  z-index: var(--z-topbar);
 }
 
 /* 当侧边栏折叠时，主界面顶栏自动向右缩进避开窗口控制交通灯及浮动按钮 */
@@ -771,7 +855,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: var(--z-modal-scrim);
 }
 
 .modal {
@@ -865,6 +949,55 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   to { opacity: 1; }
 }
 
+/* ─── Project-wide focus ring ───
+   Visible only for keyboard navigation, never on mouse click.
+   Single ring color (accent) reinforces the same focus signal across
+   every interactive surface. */
+*:focus {
+  outline: none;
+}
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Project-wide focus ring exclusion ───
+   The Composer has its own focus-within treatment (border + ring) on
+   the form container. Suppressing the global outline on the focused
+   textarea inside the Composer prevents a double-ring (the global
+   outline on the textarea stacking on top of the form's focus-within
+   ring). The exclusion is scoped to the textarea so the send button,
+   attachment button, and model selector inside the Composer still
+   receive the global focus ring for keyboard users. */
+.chat-composer textarea:focus-visible,
+.dialog-box textarea:focus-visible {
+  outline: none;
+}
+
+/* ─── Reduced motion ───
+   Honor the user's OS-level motion preference. All CSS animations and
+   transitions across the surface are reduced to instant or near-
+   instant. JavaScript-driven motion (e.g. useTypewriter rAF) reads the
+   same media query separately and short-circuits to a synchronous
+   path. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .center-bg-glow {
+    display: none;
+  }
+}
+
 .animate-fade-in {
   animation: fade-in 0.25s ease-out forwards;
 }
@@ -880,7 +1013,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .animate-pop-in {
-  animation: pop-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* ═══ High-Fidelity Chat Messages Styles ═══ */
@@ -901,7 +1034,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .message {
   max-width: 80%;
   padding: 8px 0;
-  animation: fadeUp 0.25s ease-out forwards;
 }
 
 .message.user {
@@ -916,7 +1048,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   margin-right: auto;
 }
 
-.message-bubble {
+.message-row {
   font-size: 14px;
   line-height: 1.7;
   color: var(--text-primary);
@@ -924,11 +1056,11 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 /* AI Message - Bubbleless, rendered directly on background */
-.message.assistant .message-bubble {
+.message.assistant .message-row {
   color: var(--text-primary);
 }
 
-.message.user .message-bubble {
+.message.user .message-row {
   background: var(--accent-dim);
   border: 1px solid var(--border);
   padding: 10px 14px;
@@ -938,7 +1070,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   max-width: 100%;
 }
 
-.message-bubble code {
+.message-row code {
   font-family: var(--font-mono);
   font-size: 13px;
   background: rgba(255,255,255,0.06);
@@ -946,10 +1078,11 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   border-radius: 3px;
 }
 
-.message-bubble pre {
+.message-row pre {
   margin: 8px 0;
   padding: 12px;
-  background: rgba(0,0,0,0.3);
+  background: var(--color-bg-sunken);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow-x: auto;
   font-family: var(--font-mono);
@@ -968,7 +1101,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   text-align: right;
 }
 
-.message-bubble pre code {
+.message-row pre code {
   background: transparent !important;
   padding: 0 !important;
   border-radius: 0 !important;
@@ -994,18 +1127,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   min-height: 0;
 }
 
-/* ─── Todo List Glassmorphism ─── */
-.todo-list-glass {
-  background: rgba(20, 20, 20, 0.12) !important;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-color: rgba(255, 255, 255, 0.05) !important;
-}
-
-html[data-theme="light"] .todo-list-glass {
-  background: rgba(255, 255, 255, 0.20) !important;
-  border-color: rgba(0, 0, 0, 0.03) !important;
-}
 
 /* ─── Floating Toast Notification Styles ─── */
 .toast-container {
@@ -1015,7 +1136,7 @@ html[data-theme="light"] .todo-list-glass {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 9999;
+  z-index: var(--z-toast);
   pointer-events: none;
 }
 
@@ -1065,17 +1186,109 @@ html[data-theme="light"] .toast {
   }
 }
 
+.animate-slide-in {
+  animation: toastSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* Running node animation */
 @keyframes node-running-pulse {
   0%, 100% {
-    border-color: var(--info);
-    box-shadow: 0 0 6px var(--info-dim);
+    border-color: var(--accent);
+    box-shadow: 0 0 6px var(--accent-dim);
   }
   50% {
     border-color: var(--accent);
-    box-shadow: 0 0 14px var(--accent-dim);
+    box-shadow: 0 0 14px var(--accent-glow);
   }
 }
 .animate-node-running {
   animation: node-running-pulse 2s infinite ease-in-out;
 }
+
+.streamdown-renderer {
+  color: var(--text-primary);
+}
+
+.streamdown-renderer p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+
+.streamdown-renderer ul,
+.streamdown-renderer ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.streamdown-renderer li {
+  margin: 2px 0;
+}
+
+.streamdown-renderer table {
+  margin: 8px 0;
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.streamdown-renderer th,
+.streamdown-renderer td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.streamdown-renderer th {
+  background: rgba(255,255,255,0.04);
+  font-weight: 600;
+}
+
+.streamdown-renderer a {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.streamdown-renderer details {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  margin: 12px 0;
+  transition: all 0.2s ease;
+}
+
+.streamdown-renderer summary {
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  transition: color 0.2s ease;
+  padding: 2px 0;
+  outline: none;
+}
+
+.streamdown-renderer summary:hover {
+  color: var(--text-primary);
+}
+
+.streamdown-renderer details[open] {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.streamdown-renderer blockquote {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.streamdown-renderer blockquote blockquote {
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+

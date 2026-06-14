@@ -339,7 +339,7 @@ export function ModelSettings() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Topbar */}
       <div className="main-topbar shrink-0 h-9 border-b-0" />
 
@@ -347,7 +347,7 @@ export function ModelSettings() {
       <div className="settings-content !pt-3">
         {/* 内置的操作 Toolbar 面板 */}
         <div className="flex items-center justify-between gap-4 mb-4 shrink-0">
-          <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
             {t('settings.model.providersList', { count: providers.length })}
           </div>
           <button className="btn btn-primary flex items-center gap-1.5 cursor-pointer text-xs py-1.5" onClick={openCreateModal}>

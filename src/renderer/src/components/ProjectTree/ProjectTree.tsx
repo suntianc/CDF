@@ -115,7 +115,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
           {/* Chevron expand/collapse toggle */}
           <button
             type="button"
-            className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[var(--color-text-muted)] cursor-pointer"
+            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
               setExpanded(!expanded);
@@ -168,7 +168,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
               e.stopPropagation();
               setMenuOpen(!menuOpen);
             }}
-            className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+            className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
             title={t('projectTree.projectActions')}
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
@@ -176,7 +176,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
           <button
             type="button"
             onClick={handleNewChat}
-            className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+            className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
             title={t('projectTree.newChat')}
           >
             <Plus className="w-3.5 h-3.5" />

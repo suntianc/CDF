@@ -199,9 +199,9 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('db:saveMessage', (_, message: any) => {
-    const { id, session_id, role, content, tokens } = message;
+    const { id, session_id, role, content, tokens, think_duration_seconds } = message;
     const now = Date.now();
-    
+
     const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
     if (existing) {
       db.prepare(`
@@ -209,13 +209,16 @@ export function registerIpcHandlers() {
       `).run(content, tokens || null, id);
     } else {
       db.prepare(`
-        INSERT INTO messages (id, session_id, role, content, created_at, tokens)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(id, session_id, role, content, now, tokens || null);
+        INSERT INTO messages (id, session_id, role, content, created_at, tokens, think_duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, session_id, role, content, now, tokens || null, think_duration_seconds || null);
     }
-    // Update the session's updated_at timestamp
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, session_id);
     return { id, session_id, role, content, created_at: now, tokens };
+  });
+
+  ipcMain.handle('db:updateMessageThinkDuration', (_, id: string, seconds: number) => {
+    db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
   });
 
   ipcMain.handle('db:deleteMessage', (_, id: string) => {
@@ -886,9 +889,9 @@ export function registerIpcHandlers() {
   // 08.2 P4: accepts optional `contextLimit` arg so renderer can pin
   // the active provider's limit (P10 mitigation). Falls back to provider
   // lookup → 200_000 default inside the aggregator.
-  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number) => {
+  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number, overriddenModelName?: string) => {
     try {
-      return await aggregateCurrentSessionContext(sessionId, contextLimit);
+      return await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
     } catch (err) {
       console.error('[context:currentSession] failed:', err);
       return {

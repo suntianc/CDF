@@ -26,6 +26,11 @@ export function estimateTokens(text: string): number {
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
+export interface SessionError {
+  message: string;
+  recoverableActions?: { label: string; action: () => void }[];
+}
+
 export interface DelegatedTask {
   taskId: string;
   agentSlug: string;
@@ -69,7 +74,7 @@ interface SessionState {
   delegatedTasks: DelegatedTask[];
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
-  error: string | null;
+  error: SessionError | null;
   // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
   sessionGoals: Map<string, string>;
   // 08.2 P3 C1-05: per-session /goal judge status (iteration + reason).
@@ -83,7 +88,7 @@ interface SessionState {
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
-  fetchAgentActivity: (sessionId: string) => Promise<void>;
+  fetchAgentActivity: (sessionId: string, force?: boolean) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
   getIsSessionStreaming: (sessionId: string) => boolean;
@@ -95,6 +100,7 @@ interface SessionState {
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
+  updateMessageThinkDuration: (messageId: string, seconds: number) => void;
 }
 
 interface StreamingSessionState {
@@ -110,6 +116,14 @@ interface StreamingSessionState {
 }
 
 const streamingSessionsCache = new Map<string, StreamingSessionState>();
+interface ActivityFetchEntry {
+  requestId: number;
+  promise: Promise<void>;
+}
+const activityFetches = new Map<string, ActivityFetchEntry>();
+const latestActivityFetchRequestIds = new Map<string, number>();
+let latestSelectSessionRequestId = 0;
+let nextActivityFetchRequestId = 0;
 
 interface SendMessageOptions {
   hiddenUserMessage?: boolean;
@@ -130,15 +144,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
-  sessionModelOverrides: {},
+  sessionModelOverrides: (() => {
+    try {
+      const saved = localStorage.getItem('sessionModelOverrides');
+      return saved ? JSON.parse(saved) : {};
+    } catch (err) {
+      console.error('Failed to load sessionModelOverrides from localStorage:', err);
+      return {};
+    }
+  })(),
 
   setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
-    set((state) => ({
-      sessionModelOverrides: {
+    set((state) => {
+      const nextOverrides = {
         ...state.sessionModelOverrides,
         [sessionId]: { providerId, model },
-      },
-    }));
+      };
+      try {
+        localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
+      } catch (err) {
+        console.error('Failed to save sessionModelOverrides to localStorage:', err);
+      }
+      return { sessionModelOverrides: nextOverrides };
+    });
   },
 
   // D-02/D-03: setSessionGoal synchronously writes to a NEW Map (immutability for
@@ -186,7 +214,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessions = await window.electronAPI.db.getSessions(projectId);
       set({ sessions });
     } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch sessions' });
+      set({ error: { message: err.message || 'Failed to fetch sessions' } });
     }
   },
 
@@ -196,7 +224,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await get().fetchSessions(projectId);
       return newSession;
     } catch (err: any) {
-      set({ error: err.message || 'Failed to create session' });
+      set({ error: { message: err.message || 'Failed to create session' } });
       throw err;
     }
   },
@@ -215,11 +243,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         nextGoals.delete(sessionId);
         const nextJudge = new Map(state.goalJudgeStatus);
         nextJudge.delete(sessionId);
+
+        const nextOverrides = { ...state.sessionModelOverrides };
+        delete nextOverrides[sessionId];
+        try {
+          localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
+        } catch (err) {
+          console.error('Failed to update sessionModelOverrides in localStorage on delete:', err);
+        }
+
         return {
           sessions: remaining,
           activeSessionId: nextActive,
           sessionGoals: nextGoals,
           goalJudgeStatus: nextJudge,
+          sessionModelOverrides: nextOverrides,
         };
       });
 
@@ -230,11 +268,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null });
       }
     } catch (err: any) {
-      set({ error: err.message || 'Failed to delete session' });
+      set({ error: { message: err.message || 'Failed to delete session' } });
     }
   },
  
   selectSession: async (sessionId: string | null) => {
+    const requestId = ++latestSelectSessionRequestId;
     if (!sessionId) {
       set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null });
       return;
@@ -256,37 +295,106 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           error: null,
         });
       } else {
-        const messages = await window.electronAPI.db.getMessages(sessionId);
-        set({
-          activeSessionId: sessionId,
-          messages,
-          delegatedTasks: [],
-          todos: [],
-          error: null,
-          isStreaming: false,
-          streamingMessageId: null,
-          activeRunId: null,
-          pendingApproval: null,
-        });
-        await get().fetchAgentActivity(sessionId);
+        set({ error: null });
+        const messagesBeforeLoad = get().activeSessionId === sessionId ? get().messages : null;
+
+        let messages: Message[] | null = null;
+        let messageError: any = null;
+        try {
+          messages = await window.electronAPI.db.getMessages(sessionId);
+        } catch (err: any) {
+          messageError = err;
+        }
+
+        if (latestSelectSessionRequestId !== requestId) return;
+
+        if (messages) {
+          const cachedDuringLoad = streamingSessionsCache.get(sessionId);
+          const messagesChangedDuringLoad = messagesBeforeLoad !== null && get().messages !== messagesBeforeLoad;
+          if (cachedDuringLoad) {
+            set({
+              activeSessionId: sessionId,
+              messages: cachedDuringLoad.messages,
+              todos: cachedDuringLoad.todos,
+              delegatedTasks: cachedDuringLoad.delegatedTasks,
+              agentRuns: cachedDuringLoad.agentRuns,
+              agentToolCalls: cachedDuringLoad.agentToolCalls,
+              activeRunId: cachedDuringLoad.activeRunId,
+              pendingApproval: cachedDuringLoad.pendingApproval,
+              isStreaming: cachedDuringLoad.isStreaming,
+              streamingMessageId: cachedDuringLoad.streamingMessageId,
+              error: null,
+            });
+          } else if (messagesChangedDuringLoad) {
+            set({
+              activeSessionId: sessionId,
+              error: null,
+            });
+          } else {
+            set({
+              activeSessionId: sessionId,
+              messages,
+              agentRuns: [],
+              agentToolCalls: [],
+              delegatedTasks: [],
+              todos: [],
+              error: null,
+              isStreaming: false,
+              streamingMessageId: null,
+              activeRunId: null,
+              pendingApproval: null,
+            });
+          }
+        } else {
+          set({ error: { message: messageError?.message || 'Failed to load messages for session' } });
+        }
+
+        if (get().activeSessionId === sessionId) {
+          try {
+            await get().fetchAgentActivity(sessionId, true);
+          } catch {
+            // fetchAgentActivity already records the more specific activity-load error.
+          }
+        }
       }
     } catch (err: any) {
-      set({ error: err.message || 'Failed to load messages for session' });
+      if (latestSelectSessionRequestId === requestId) {
+        set({ error: { message: err.message || 'Failed to load messages for session' } });
+      }
     }
   },
 
-  fetchAgentActivity: async (sessionId: string) => {
-    try {
-      if (
-        typeof window.electronAPI.db.getAgentRuns !== 'function' ||
-        typeof window.electronAPI.db.getAgentToolCalls !== 'function'
-      ) {
-        set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
-        return;
-      }
-      const runs = await window.electronAPI.db.getAgentRuns(sessionId);
+  fetchAgentActivity: async (sessionId: string, force = false) => {
+    if (!force) {
+      const existingFetch = activityFetches.get(sessionId);
+      if (existingFetch) return existingFetch.promise;
+    }
+
+    const requestId = ++nextActivityFetchRequestId;
+    latestActivityFetchRequestIds.set(sessionId, requestId);
+
+    const entry: ActivityFetchEntry = {
+      requestId,
+      promise: Promise.resolve().then(async () => {
+        try {
+        if (
+          typeof window.electronAPI.db.getAgentRuns !== 'function' ||
+          typeof window.electronAPI.db.getAgentToolCalls !== 'function'
+        ) {
+          if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
+            set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
+          }
+          return;
+        }
+        const runs = await window.electronAPI.db.getAgentRuns(sessionId);
       const activeRun = runs[0] || null;
       const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+
+      // Detect stale running state: if the session is not currently streaming,
+      // any task still marked 'running' in DB is likely a crash or disconnect
+      // leftover. Streaming chunks are ephemeral (not persisted), so these
+      // tasks will permanently show "0 块 / 0 tokens" unless resolved.
+      const isSessionStreaming = streamingSessionsCache.has(sessionId);
 
       const tasks: DelegatedTask[] = [];
       for (const call of toolCalls) {
@@ -315,7 +423,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           let parsedResult: any;
 
           if (call.status === 'running') {
-            status = 'running';
+            // If the session is not streaming, a "running" task means the
+            // process that owned it disappeared (crash / disconnect / tab
+            // close). Resolve it so the UI never shows a permanently-running
+            // ghost with 0 chunks and 0 tokens.
+            if (!isSessionStreaming) {
+              status = 'failure';
+              errorCode = 'DISCONNECTED';
+              parsedResult = {
+                status: 'failure',
+                artifacts: [],
+                summary: '',
+                error: { code: 'DISCONNECTED', message: '会话流已结束，任务未正常完成' },
+              };
+            } else {
+              status = 'running';
+            }
           } else if (call.status === 'error') {
             status = 'failure';
             errorCode = 'UNKNOWN';
@@ -417,16 +540,69 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         console.warn('[sessionStore] Failed to fetch/parse latest todos from DB:', err);
       }
 
-      set({
-        agentRuns: runs,
-        agentToolCalls: toolCalls,
-        delegatedTasks: tasks,
-        todos: latestTodos,
-        activeRunId: activeRun?.id || null,
-      });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to load agent activity' });
-    }
+        if (get().activeSessionId !== sessionId || latestActivityFetchRequestIds.get(sessionId) !== requestId) return;
+
+        // Preserve live chunks from streaming cache and current store state.
+        // DB-reconstructed tasks always have chunks: [] (streaming chunks are
+        // transient and not persisted to SQLite). Merging from both sources
+        // prevents "0 块 / 0 tokens" flash on every reopen / session switch.
+        const streamCache = streamingSessionsCache.get(sessionId);
+        const storeTasks = get().delegatedTasks ?? [];
+
+        for (const t of tasks) {
+          // Prefer streaming cache chunks (most recent), fall back to current
+          // store chunks (may survive a brief cache deletion window), then keep
+          // the DB-derived empty array as last resort.
+          const streamCached = streamCache?.delegatedTasks?.find(c => c.taskId === t.taskId);
+          const storeTask = storeTasks.find(s => s.taskId === t.taskId);
+
+          if (streamCached && streamCached.chunks.length > 0) {
+            t.chunks = streamCached.chunks;
+            // Streaming cache may carry a human-readable agentName; DB
+            // reconstruction uses the slug as fallback.
+            if (streamCached.agentName && streamCached.agentName !== streamCached.agentSlug) {
+              t.agentName = streamCached.agentName;
+            }
+          } else if (storeTask && storeTask.chunks.length > 0) {
+            t.chunks = storeTask.chunks;
+          }
+
+          // Also preserve startedAt from streaming cache / store if the DB
+          // tool call didn't record one (e.g. task tool call created before
+          // run_started event was received).
+          if (!t.startedAt) {
+            t.startedAt = streamCached?.startedAt ?? storeTask?.startedAt;
+          }
+        }
+
+        set({
+          agentRuns: runs,
+          agentToolCalls: toolCalls,
+          delegatedTasks: tasks,
+          todos: latestTodos,
+          activeRunId: activeRun?.id || null,
+        });
+      } catch (err: any) {
+        if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
+          set({ error: { message: err.message || 'Failed to load agent activity' } });
+        }
+        throw err;
+        } finally {
+          if (activityFetches.get(sessionId) === entry) {
+            activityFetches.delete(sessionId);
+          }
+          if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
+            latestActivityFetchRequestIds.delete(sessionId);
+          }
+          if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
+            latestActivityFetchRequestIds.delete(sessionId);
+          }
+        }
+      }),
+    };
+
+    activityFetches.set(sessionId, entry);
+    return entry.promise;
   },
 
   getMessagesForSession: (sessionId: string) => {
@@ -626,7 +802,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               window.electronAPI.db.saveMessage(prevMsg).catch((err: unknown) => {
                 console.error('Failed to save intermediate assistant message:', err);
                 if (get().activeSessionId === sessionId) {
-                  set({ error: '消息保存失败，对话历史可能不完整' });
+                  set({ error: { message: '消息保存失败，对话历史可能不完整' } });
                 }
               });
             }
@@ -837,7 +1013,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   isStreaming: false,
                   streamingMessageId: null,
                   pendingApproval: null,
-                  error: err.message || '保存回复消息失败',
+                  error: { message: err.message || '保存回复消息失败' },
                 });
               }
               streamingSessionsCache.delete(sessionId);
@@ -862,7 +1038,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 isStreaming: false,
                 streamingMessageId: null,
                 pendingApproval: null,
-                error: data.error || '对话请求出错',
+                error: { message: data.error || '对话请求出错', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
               });
             }
             streamingSessionsCache.delete(sessionId);
@@ -887,6 +1063,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
       });
 
+      const sessionModelOverride = get().sessionModelOverrides[sessionId] || {};
+      const finalOverrides = {
+        providerId: sessionModelOverride.providerId || undefined,
+        model: sessionModelOverride.model || undefined,
+        ...overrides,
+      };
+
       try {
         await window.electronAPI.llm.chat(assistantMsgId, {
           projectId,
@@ -896,7 +1079,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             id: userMsgId,
             content,
           },
-          overrides,
+          overrides: finalOverrides,
         });
         await streamPromise;
       } catch (err: any) {
@@ -921,7 +1104,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             isStreaming: false,
             streamingMessageId: null,
             pendingApproval: null,
-            error: err.message || '发送消息失败',
+            error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
           }));
         }
         streamingSessionsCache.delete(sessionId);
@@ -931,7 +1114,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: err.message || '发送消息失败',
+          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
         });
       }
       streamingSessionsCache.delete(sessionId);
@@ -947,7 +1130,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       try {
         editedAction = editedArgs ? JSON.parse(editedArgs) : undefined;
       } catch (err: any) {
-        set({ error: err.message || '审批参数不是合法 JSON' });
+        set({ error: { message: err.message || '审批参数不是合法 JSON' } });
         return;
       }
     }
@@ -974,4 +1157,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   checkContextThreshold: async () => {},
 
   clearError: () => set({ error: null }),
+
+  updateMessageThinkDuration: (messageId: string, seconds: number) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, think_duration_seconds: seconds } : m
+      ),
+    }));
+    if (typeof window.electronAPI?.db?.updateMessageThinkDuration === 'function') {
+      window.electronAPI.db.updateMessageThinkDuration(messageId, seconds).catch((err: unknown) => {
+        console.error('Failed to persist think duration:', err);
+      });
+    }
+  },
 }));

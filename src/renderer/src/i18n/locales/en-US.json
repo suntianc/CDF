@@ -117,6 +117,8 @@
     "toolSummaryRunning": "Running",
     "toolSummaryFailed": "Failed",
     "toolCallFailed": "Tool call failed",
+    "loading": "Loading task panel...",
+    "loadFailed": "Task panel failed to load.",
     "approvalTitle": "Waiting for approval",
     "approvalActionsMultiple": "{{count}} actions waiting confirmation",
     "approvalActionsSingle": "1 action waiting confirmation",
@@ -135,7 +137,22 @@
     "taskGoal": "Goal",
     "subagentInitializing": "Subagent initializing environment...",
     "taskFailed": "Task failed: {{code}}",
-    "taskCompleted": "Task completed"
+    "taskCompleted": "Task completed",
+    "viewTrace": "View execution trace",
+    "chunkUnit": "chunks",
+    "tokenUnit": "tokens"
+  },
+  "traceModal": {
+    "title": "{{name}} execution trace",
+    "workGoal": "Work goal",
+    "noGoal": "(No goal set)",
+    "executionLog": "Execution log",
+    "noLog": "No execution log available",
+    "waitingOutput": "(Waiting for output...)",
+    "errorCode": "Error code:",
+    "chunkCount": "{{count}} chunks",
+    "tokensEstimate": "tokens est.",
+    "statusUnknown": "Unknown"
   },
   "agent": {
     "listTitle": "Agent roles list ({{count}})",
@@ -306,6 +323,7 @@
     "welcomeSublineProjectLoaded": "Project loaded: {{name}} · type to start chatting",
     "welcomeSublineNoProject": "Select a project on the left or start a new conversation, CDF is ready",
     "dismissError": "Dismiss error",
+    "generating": "AI is generating a response",
     "welcomePlaceholder": "Give CDF an instruction, or ask a question...",
     "addAttachment": "Add attachment",
     "noProvidersAvailable": "No providers available, click to configure",
@@ -317,7 +335,7 @@
     "configureSkillsDesc": "Install and enable agent capability modules",
     "connectMcpTitle": "Connect MCP",
     "connectMcpDesc": "Configure data sources and external tool integrations",
-    "shortcutHint": "Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
+    "shortcutHint": "Press <kbd>/</kbd> for commands · <kbd>@</kbd> for files · <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
     "hideTaskPanel": "Hide task panel",
     "showTaskPanel": "Show task panel",
     "composerPlaceholder": "Send a message to Master Agent..."
@@ -423,6 +441,7 @@
       "save": "Save",
       "stop": "Stop",
       "run": "Run",
+      "workflowName": "Workflow name",
       "newWorkflowName": "New workflow",
       "cannotDeleteStartEnd": "Start/End nodes cannot be deleted",
       "deletedEdges": "Deleted {{count}} edges",
@@ -468,7 +487,8 @@
     "nodePalette": {
       "title": "Node palette",
       "flowCategory": "Flow control",
-      "agentCategory": "Agent nodes"
+      "agentCategory": "Agent nodes",
+      "addNode": "Add {{name}} node"
     },
     "nodeConfig": {
       "title": "Node configuration",
@@ -476,11 +496,12 @@
       "nodeNamePlaceholder": "Enter node name",
       "bgColor": "Node background color",
       "colorDefault": "Default",
-      "colorBlue": "Blue",
-      "colorGreen": "Green",
-      "colorRed": "Red",
-      "colorPurple": "Purple",
-      "colorYellow": "Yellow",
+      "colorLime": "Lime",
+      "colorLilac": "Lilac",
+      "colorCream": "Cream",
+      "colorMint": "Mint",
+      "colorPink": "Pink",
+      "colorCoral": "Coral",
       "startNodeHint": "The start node defines the workspace for this workflow. Both manual execution and Master scheduling place the workspace configuration here into the initial context.",
       "workspacePath": "Workspace path",
       "workspacePlaceholder": "Click to select workspace folder",

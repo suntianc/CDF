@@ -10,8 +10,8 @@ export function EndNode({ data, selected }: NodeProps<EndFlowNode>) {
     <div
       className="rounded-xl border-2 px-6 py-3 w-[150px] text-center shadow-md relative transition-[border-color,box-shadow,background-color] duration-150"
       style={{
-        borderColor: selected ? 'var(--color-info)' : '#ef4444',
-        boxShadow: selected ? '0 0 0 2px var(--color-info-dim)' : 'none',
+        borderColor: selected ? 'var(--color-accent)' : 'var(--color-danger)',
+        boxShadow: selected ? '0 0 0 2px var(--color-accent-dim)' : 'none',
         background: data.bgColor
           ? `linear-gradient(${data.bgColor}, ${data.bgColor}), var(--color-bg-surface)`
           : 'var(--color-bg-surface)',
@@ -24,7 +24,7 @@ export function EndNode({ data, selected }: NodeProps<EndFlowNode>) {
           width: 10,
           height: 10,
           backgroundColor: data.bgColor || 'var(--color-bg-surface)',
-          border: `2px solid ${selected ? 'var(--color-info)' : '#ef4444'}`,
+          border: `2px solid ${selected ? 'var(--color-accent)' : 'var(--color-danger)'}`,
           borderRadius: '50%',
           left: -5,
           top: '50%',

@@ -46,6 +46,8 @@ electron-log-*
 .claude/
 .pi/
 .planning/
+.github/skills/
+.impeccable/
 
 # TypeScript cache
 *.tsbuildinfo
@@ -56,3 +58,6 @@ electron-log-*
 
 # Playwright MCP runtime artifacts
 .playwright-mcp/
+
+# Nezha monitoring agent runtime
+.nezha/

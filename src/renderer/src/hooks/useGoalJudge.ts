@@ -203,6 +203,7 @@ async function callJudgeOnce(opts: {
   goal: string;
   recentTurns: string;
   model?: string;
+  providerId?: string;
 }): Promise<JudgeDecision> {
   const api = window.electronAPI?.llm;
   if (!api?.judge) {
@@ -210,10 +211,14 @@ async function callJudgeOnce(opts: {
   }
   const prompt = buildJudgePrompt(opts.goal, opts.recentTurns);
 
+  const overrides: any = {};
+  if (opts.providerId) overrides.providerId = opts.providerId;
+  if (opts.model) overrides.model = opts.model;
+
   const response = await api.judge({
     projectId: opts.projectId,
     prompt,
-    overrides: opts.model ? { model: opts.model } : undefined,
+    overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
   });
 
   try {
@@ -266,6 +271,11 @@ export function createGoalJudge(): GoalJudgeInstance {
       return;
     }
 
+    const sessionModelOverrides = sessionState.sessionModelOverrides || {};
+    const sessionModelOverride = sessionModelOverrides[sessionId];
+    const judgeModel = options.model || sessionModelOverride?.model;
+    const judgeProviderId = sessionModelOverride?.providerId;
+
     // 1) 先订阅目标 session 的 streaming 转换。true→false 翻转 = 主 agent 一轮结束。
     let prevStreaming = useSessionStore.getState().getIsSessionStreaming?.(sessionId)
       ?? useSessionStore.getState().isStreaming;
@@ -280,7 +290,7 @@ export function createGoalJudge(): GoalJudgeInstance {
         if (judgingSessions.has(sessionId)) {
           queuedCompletions.add(sessionId);
         } else {
-          void runJudgeIteration(sessionId, goal, maxTurns, projectId, options.model);
+          void runJudgeIteration(sessionId, goal, maxTurns, projectId, judgeModel, judgeProviderId);
         }
       }
       prevStreaming = nowStreaming;
@@ -306,7 +316,8 @@ export function createGoalJudge(): GoalJudgeInstance {
     goal: string,
     maxTurns: number,
     projectId: string,
-    model: string | undefined
+    model: string | undefined,
+    providerId: string | undefined
   ): Promise<void> {
     // 若已被外部 stopGoalJudgeLoop 清掉，直接返回
     if (!subs.has(sessionId)) return;
@@ -335,6 +346,7 @@ export function createGoalJudge(): GoalJudgeInstance {
           goal,
           recentTurns,
           model,
+          providerId,
         });
       } catch (err: any) {
         useSessionStore.getState().setGoalJudgeStatus(sessionId, {
@@ -393,7 +405,7 @@ export function createGoalJudge(): GoalJudgeInstance {
     } finally {
       judgingSessions.delete(sessionId);
       if (queuedCompletions.delete(sessionId) && subs.has(sessionId)) {
-        void runJudgeIteration(sessionId, goal, maxTurns, projectId, model);
+        void runJudgeIteration(sessionId, goal, maxTurns, projectId, model, providerId);
       }
     }
   }

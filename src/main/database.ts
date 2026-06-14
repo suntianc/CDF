@@ -92,6 +92,9 @@ safeMigrate('llm_providers table (models)', `ALTER TABLE llm_providers ADD COLUM
 // Safe migration for sessions summary
 safeMigrate('sessions table (summary)', `ALTER TABLE sessions ADD COLUMN summary TEXT;`);
 
+// Think duration: store real LLM thinking wall-clock time so historical messages show accurate timing
+safeMigrate('messages table (think_duration_seconds)', `ALTER TABLE messages ADD COLUMN think_duration_seconds INTEGER;`);
+
 // Tool configs table for built-in tools with API keys
 db.exec(`
   CREATE TABLE IF NOT EXISTS tool_configs (

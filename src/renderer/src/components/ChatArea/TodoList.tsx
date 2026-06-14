@@ -47,36 +47,39 @@ export function TodoList({ todos, isExpanded, onToggleExpanded }: TodoListProps)
 
   return (
     <div 
-      className="relative z-0 mx-auto w-full max-w-[720px] rounded-xl border border-[var(--color-border)] p-3 shadow-xl pointer-events-auto mb-[-24px] pb-[32px] overflow-hidden todo-list-glass"
-      style={{
-        boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.12)',
-      }}
+      className="relative z-0 mx-auto w-full max-w-[720px] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 pointer-events-auto mb-[-24px] pb-[32px] overflow-hidden shadow-[0_8px_24px_rgba(0,0,0,0.10)]"
     >
       {/* Header Row */}
-      <div 
-        className="flex items-center justify-between cursor-pointer select-none"
+      <button
+        type="button"
+        className="flex items-center justify-between w-full cursor-pointer select-none"
         onClick={onToggleExpanded}
+        aria-expanded={isExpanded}
+        aria-label={isExpanded ? t('todo.collapse') : t('todo.expand')}
       >
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-[var(--color-text-primary)] tracking-wider">
+          <span className="text-xs font-semibold text-[var(--color-text-primary)]">
             Todo List
           </span>
           <span className="rounded bg-[var(--color-bg-active)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]">
             {t('todo.completedCount', { completed: completedCount, total: todos.length })}
           </span>
         </div>
-        <button 
-          type="button" 
-          className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-          aria-label={isExpanded ? t('todo.collapse') : t('todo.expand')}
-        >
+        <span aria-hidden="true" className="p-1 rounded-md text-[var(--color-text-muted)]">
           {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-        </button>
-      </div>
+        </span>
+      </button>
 
       {/* Progress Bar */}
       <div className="mt-2.5 space-y-1">
-        <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40">
+        <div
+          role="progressbar"
+          aria-valuenow={percentage}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={t('todo.completedCount', { completed: completedCount, total: todos.length })}
+          className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
+        >
           <div
             className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out"
             style={{ width: `${percentage}%` }}

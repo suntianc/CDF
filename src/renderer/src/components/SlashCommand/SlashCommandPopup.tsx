@@ -26,8 +26,8 @@ const SOURCE_TEXT_COLOR: Record<CommandSource, string> = {
   'skill:project': 'text-purple-400',
   'workflow': 'text-green-400',
   'mcp': 'text-amber-400',
-  'cmd:system': 'text-gray-400',
-  'cmd:project': 'text-gray-500',
+  'cmd:system': 'text-[var(--color-text-muted)]',
+  'cmd:project': 'text-[var(--color-text-secondary)]',
 };
 
 // Phase 8 — D-05d: Unicode variation selector removal so `/🎉` and `/🎉︎`

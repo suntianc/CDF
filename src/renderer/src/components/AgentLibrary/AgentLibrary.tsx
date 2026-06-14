@@ -77,7 +77,7 @@ export function AgentLibrary() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Header */}
       <div className="main-topbar shrink-0 h-9 border-b-0" />
 
@@ -85,7 +85,7 @@ export function AgentLibrary() {
       <div className="settings-content overflow-y-auto flex-1 px-6 pb-6 pt-3">
         {/* 内置的操作 Toolbar 面板 */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 shrink-0">
-          <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
             {t('agent.listTitle', { count: agents.filter(agent =>
               agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
               (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -128,10 +128,10 @@ export function AgentLibrary() {
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
             return (
-              <div key={agent.id} className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all group">
+              <div key={agent.id} className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors group">
                 <div>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0">
                       {provider ? (
                         <ProviderIcon provider={mapProviderTypeToIcon(provider.provider_type)} size={32} shape="square" />
                       ) : (
@@ -151,12 +151,12 @@ export function AgentLibrary() {
                   </p>
 
                   <div className="flex flex-wrap gap-2 mb-4">
-                    <span className="px-2 py-0.5 rounded-full text-[11px] bg-[var(--color-accent-dim)] text-[var(--color-accent)] border border-[var(--color-accent)]/10 flex items-center gap-1 font-medium scale-95 origin-left shrink-0">
-                      <Layers className="w-3 h-3 text-[var(--color-accent)]" />
+                    <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
+                      <Layers className="w-3 h-3 text-[var(--color-text-muted)]" />
                       <span>{t('agent.mcpBindings', { count: agent.mcpServerIds?.length || 0 })}</span>
                     </span>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] bg-[var(--color-success-dim)] text-[var(--color-success)] border border-[var(--color-success)]/10 flex items-center gap-1 font-medium scale-95 origin-left shrink-0">
-                      <Code className="w-3 h-3 text-[var(--color-success)]" />
+                    <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
+                      <Code className="w-3 h-3 text-[var(--color-text-muted)]" />
                       <span>{t('agent.skillBindings', { count: agent.skillNames?.length || 0 })}</span>
                     </span>
                   </div>

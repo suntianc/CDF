@@ -127,6 +127,7 @@ export function Sidebar({
           onClick={onCollapse}
           className={styles.sidebarCollapseBtn}
           title={t('sidebar.collapse')}
+          aria-label={t('sidebar.collapse')}
         >
           <PanelLeft className="w-4 h-4" />
         </button>
@@ -141,7 +142,7 @@ export function Sidebar({
           </div>
 
           <div className={styles.bottomBar}>
-            <button onClick={() => onChangeView('system')} title={t('sidebar.settings.system')}>
+            <button onClick={() => onChangeView('system')} title={t('sidebar.settings.system')} aria-label={t('sidebar.settings.system')}>
               <Settings className="w-4 h-4" />
             </button>
           </div>
