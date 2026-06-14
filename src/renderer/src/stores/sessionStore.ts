@@ -26,6 +26,11 @@ export function estimateTokens(text: string): number {
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
+export interface SessionError {
+  message: string;
+  recoverableActions?: { label: string; action: () => void }[];
+}
+
 export interface DelegatedTask {
   taskId: string;
   agentSlug: string;
@@ -69,7 +74,7 @@ interface SessionState {
   delegatedTasks: DelegatedTask[];
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
-  error: string | null;
+  error: SessionError | null;
   // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
   sessionGoals: Map<string, string>;
   // 08.2 P3 C1-05: per-session /goal judge status (iteration + reason).
@@ -95,6 +100,7 @@ interface SessionState {
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
+  updateMessageThinkDuration: (messageId: string, seconds: number) => void;
 }
 
 interface StreamingSessionState {
@@ -208,7 +214,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessions = await window.electronAPI.db.getSessions(projectId);
       set({ sessions });
     } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch sessions' });
+      set({ error: { message: err.message || 'Failed to fetch sessions' } });
     }
   },
 
@@ -218,7 +224,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await get().fetchSessions(projectId);
       return newSession;
     } catch (err: any) {
-      set({ error: err.message || 'Failed to create session' });
+      set({ error: { message: err.message || 'Failed to create session' } });
       throw err;
     }
   },
@@ -262,7 +268,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null });
       }
     } catch (err: any) {
-      set({ error: err.message || 'Failed to delete session' });
+      set({ error: { message: err.message || 'Failed to delete session' } });
     }
   },
  
@@ -340,7 +346,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             });
           }
         } else {
-          set({ error: messageError?.message || 'Failed to load messages for session' });
+          set({ error: { message: messageError?.message || 'Failed to load messages for session' } });
         }
 
         if (get().activeSessionId === sessionId) {
@@ -353,7 +359,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     } catch (err: any) {
       if (latestSelectSessionRequestId === requestId) {
-        set({ error: err.message || 'Failed to load messages for session' });
+        set({ error: { message: err.message || 'Failed to load messages for session' } });
       }
     }
   },
@@ -384,6 +390,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const activeRun = runs[0] || null;
       const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
 
+      // Detect stale running state: if the session is not currently streaming,
+      // any task still marked 'running' in DB is likely a crash or disconnect
+      // leftover. Streaming chunks are ephemeral (not persisted), so these
+      // tasks will permanently show "0 块 / 0 tokens" unless resolved.
+      const isSessionStreaming = streamingSessionsCache.has(sessionId);
+
       const tasks: DelegatedTask[] = [];
       for (const call of toolCalls) {
         if (call.tool_name === 'task') {
@@ -411,7 +423,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           let parsedResult: any;
 
           if (call.status === 'running') {
-            status = 'running';
+            // If the session is not streaming, a "running" task means the
+            // process that owned it disappeared (crash / disconnect / tab
+            // close). Resolve it so the UI never shows a permanently-running
+            // ghost with 0 chunks and 0 tokens.
+            if (!isSessionStreaming) {
+              status = 'failure';
+              errorCode = 'DISCONNECTED';
+              parsedResult = {
+                status: 'failure',
+                artifacts: [],
+                summary: '',
+                error: { code: 'DISCONNECTED', message: '会话流已结束，任务未正常完成' },
+              };
+            } else {
+              status = 'running';
+            }
           } else if (call.status === 'error') {
             status = 'failure';
             errorCode = 'UNKNOWN';
@@ -515,6 +542,39 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
         if (get().activeSessionId !== sessionId || latestActivityFetchRequestIds.get(sessionId) !== requestId) return;
 
+        // Preserve live chunks from streaming cache and current store state.
+        // DB-reconstructed tasks always have chunks: [] (streaming chunks are
+        // transient and not persisted to SQLite). Merging from both sources
+        // prevents "0 块 / 0 tokens" flash on every reopen / session switch.
+        const streamCache = streamingSessionsCache.get(sessionId);
+        const storeTasks = get().delegatedTasks ?? [];
+
+        for (const t of tasks) {
+          // Prefer streaming cache chunks (most recent), fall back to current
+          // store chunks (may survive a brief cache deletion window), then keep
+          // the DB-derived empty array as last resort.
+          const streamCached = streamCache?.delegatedTasks?.find(c => c.taskId === t.taskId);
+          const storeTask = storeTasks.find(s => s.taskId === t.taskId);
+
+          if (streamCached && streamCached.chunks.length > 0) {
+            t.chunks = streamCached.chunks;
+            // Streaming cache may carry a human-readable agentName; DB
+            // reconstruction uses the slug as fallback.
+            if (streamCached.agentName && streamCached.agentName !== streamCached.agentSlug) {
+              t.agentName = streamCached.agentName;
+            }
+          } else if (storeTask && storeTask.chunks.length > 0) {
+            t.chunks = storeTask.chunks;
+          }
+
+          // Also preserve startedAt from streaming cache / store if the DB
+          // tool call didn't record one (e.g. task tool call created before
+          // run_started event was received).
+          if (!t.startedAt) {
+            t.startedAt = streamCached?.startedAt ?? storeTask?.startedAt;
+          }
+        }
+
         set({
           agentRuns: runs,
           agentToolCalls: toolCalls,
@@ -524,12 +584,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
       } catch (err: any) {
         if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
-          set({ error: err.message || 'Failed to load agent activity' });
+          set({ error: { message: err.message || 'Failed to load agent activity' } });
         }
         throw err;
         } finally {
           if (activityFetches.get(sessionId) === entry) {
             activityFetches.delete(sessionId);
+          }
+          if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
+            latestActivityFetchRequestIds.delete(sessionId);
           }
           if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
             latestActivityFetchRequestIds.delete(sessionId);
@@ -739,7 +802,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               window.electronAPI.db.saveMessage(prevMsg).catch((err: unknown) => {
                 console.error('Failed to save intermediate assistant message:', err);
                 if (get().activeSessionId === sessionId) {
-                  set({ error: '消息保存失败，对话历史可能不完整' });
+                  set({ error: { message: '消息保存失败，对话历史可能不完整' } });
                 }
               });
             }
@@ -950,7 +1013,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   isStreaming: false,
                   streamingMessageId: null,
                   pendingApproval: null,
-                  error: err.message || '保存回复消息失败',
+                  error: { message: err.message || '保存回复消息失败' },
                 });
               }
               streamingSessionsCache.delete(sessionId);
@@ -975,7 +1038,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 isStreaming: false,
                 streamingMessageId: null,
                 pendingApproval: null,
-                error: data.error || '对话请求出错',
+                error: { message: data.error || '对话请求出错', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
               });
             }
             streamingSessionsCache.delete(sessionId);
@@ -1041,7 +1104,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             isStreaming: false,
             streamingMessageId: null,
             pendingApproval: null,
-            error: err.message || '发送消息失败',
+            error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
           }));
         }
         streamingSessionsCache.delete(sessionId);
@@ -1051,7 +1114,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: err.message || '发送消息失败',
+          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
         });
       }
       streamingSessionsCache.delete(sessionId);
@@ -1067,7 +1130,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       try {
         editedAction = editedArgs ? JSON.parse(editedArgs) : undefined;
       } catch (err: any) {
-        set({ error: err.message || '审批参数不是合法 JSON' });
+        set({ error: { message: err.message || '审批参数不是合法 JSON' } });
         return;
       }
     }
@@ -1094,4 +1157,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   checkContextThreshold: async () => {},
 
   clearError: () => set({ error: null }),
+
+  updateMessageThinkDuration: (messageId: string, seconds: number) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, think_duration_seconds: seconds } : m
+      ),
+    }));
+    if (typeof window.electronAPI?.db?.updateMessageThinkDuration === 'function') {
+      window.electronAPI.db.updateMessageThinkDuration(messageId, seconds).catch((err: unknown) => {
+        console.error('Failed to persist think duration:', err);
+      });
+    }
+  },
 }));

@@ -422,7 +422,7 @@ describe('sessionStore selectSession activity errors', () => {
     await useSessionStore.getState().selectSession('session-activity-fails');
 
     expect(window.electronAPI.db.getMessages).toHaveBeenCalledWith('session-activity-fails');
-    expect(useSessionStore.getState().error).toBe('agent activity db failed');
+    expect(useSessionStore.getState().error?.message).toBe('agent activity db failed');
   });
 
   it('clears stale activity before loading a new uncached session', async () => {
@@ -573,7 +573,7 @@ describe('sessionStore selectSession activity errors', () => {
     const state = useSessionStore.getState();
     expect(state.activeSessionId).toBe('session-old');
     expect(state.messages).toBe(existingMessages);
-    expect(state.error).toBe('message db failed');
+    expect(state.error?.message).toBe('message db failed');
   });
 
   it('still attempts to refresh activity when message loading fails', async () => {

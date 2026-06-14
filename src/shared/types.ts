@@ -39,6 +39,7 @@ export interface Message {
   content: string;
   created_at: number;
   tokens?: number | null;
+  think_duration_seconds?: number | null;
 }
 
 export interface LLMProvider {
@@ -514,6 +515,7 @@ export interface ElectronAPI {
     deleteSession: (sessionId: string) => Promise<void>;
     getMessages: (sessionId: string) => Promise<Message[]>;
     saveMessage: (message: any) => Promise<Message>;
+    updateMessageThinkDuration: (id: string, seconds: number) => Promise<void>;
     deleteMessage: (id: string) => Promise<void>;
     getProviders: () => Promise<LLMProvider[]>;
     saveProvider: (provider: any) => Promise<LLMProvider>;

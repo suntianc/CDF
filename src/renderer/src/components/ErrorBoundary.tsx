@@ -71,7 +71,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <summary className="cursor-pointer hover:text-[var(--color-text-secondary)]">
                 查看 React 组件栈 (展开)
               </summary>
-              <pre className="mt-2 max-h-[280px] overflow-auto bg-black/15 p-2 rounded whitespace-pre-wrap">
+              <pre className="mt-2 max-h-[280px] overflow-auto bg-[var(--color-bg-sunken)] p-2 rounded whitespace-pre-wrap">
                 {errorInfo.componentStack}
               </pre>
             </details>

@@ -4,6 +4,7 @@ import { StreamdownRenderer } from './StreamdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { useTypewriter } from '@/hooks/useTypewriter';
+import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 
 const formatDuration = (seconds: number): string => {
   if (seconds <= 0) return '< 1 秒';
@@ -75,15 +76,6 @@ function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = 
   );
 }
 
-/**
- * Historical think-time estimation. Historical messages don't carry a
- * real timestamp for the LLM-side thinking phase, so we approximate
- * the duration from the trace length. ~18 characters per second is a
- * rough average for Anthropic / OpenAI thinking tokens; the constant
- * is named (rather than inlined) so future tuning happens in one place
- * and is easy to find in code review.
- */
-const CHARS_PER_SECOND_HISTORICAL = 18;
 
 const checkThinkingFinished = (content: string): boolean => {
   if (!content) return true;
@@ -180,8 +172,12 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
   useEffect(() => {
     if (isFinished && elapsedSeconds > 0 && finalDuration === null) {
       setFinalDuration(elapsedSeconds);
+      // Persist real think duration so historical reloads show accurate timing
+      if (message.id && !message.think_duration_seconds) {
+        useSessionStore.getState().updateMessageThinkDuration(message.id, elapsedSeconds);
+      }
     }
-  }, [isFinished, elapsedSeconds, finalDuration]);
+  }, [isFinished, elapsedSeconds, finalDuration, message.id, message.think_duration_seconds]);
 
   // === 平滑打字机调度（rAF 驱动，自适应步长） ===
   const { displayedContent, isTypewriting } = useTypewriter(
@@ -349,19 +345,17 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         const finished = isThinkingFinished;
 
         const getThinkingTime = () => {
-          if (!finished) {
-            return elapsedSeconds;
-          }
-          if (finalDuration !== null) {
-            return finalDuration;
-          }
-          // 历史消息估算（每个字符大概 18-20 毫秒生成速度）
-          return Math.max(1, Math.round(thinkContent.length / CHARS_PER_SECOND_HISTORICAL));
+          if (!finished) return elapsedSeconds;
+          if (finalDuration !== null) return finalDuration;
+          if (message.think_duration_seconds) return message.think_duration_seconds;
+          return null;
         };
 
-        const currentSeconds = getThinkingTime();
+        const resolvedSeconds = getThinkingTime();
         const headerText = finished
-          ? `已思考 (用时 ${formatDuration(currentSeconds)})`
+          ? resolvedSeconds !== null
+            ? `已思考 (用时 ${formatDuration(resolvedSeconds)})`
+            : `已思考 (约 ${estimateTokens(thinkContent)} tokens)`
           : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
 
         return (
@@ -414,20 +408,15 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     ).trim();
     void mainContent; // pre/post already slice the right segments
 
-    const getThinkingTime = () => {
-      if (finalDuration !== null) {
-        return finalDuration;
-      }
-      return Math.max(1, Math.round(foldedContent.length / CHARS_PER_SECOND_HISTORICAL));
-    };
-
-    const currentSeconds = getThinkingTime();
+    const resolvedSeconds = finalDuration ?? message.think_duration_seconds ?? null;
     // Honest header: if the LLM is still emitting the trace (the
     // unclosed-`<think>` case), do not claim "思考完成". The folded
     // block appears for any message with a non-empty think trace, so
     // it can render while the stream is still in progress.
     const headerText = isThinkingFinished
-      ? `思考完成 (用时 ${formatDuration(currentSeconds)})`
+      ? resolvedSeconds !== null
+        ? `思考完成 (用时 ${formatDuration(resolvedSeconds)})`
+        : `思考完成 (约 ${estimateTokens(foldedContent)} tokens)`
       : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
 
     const renderFoldedBlock = () => {
@@ -468,15 +457,15 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     </div>
   );
 }, (prevProps, nextProps) => {
-  // The actively-streaming message (isLast + isStreaming) is re-rendered
-  // on every token chunk. We intentionally do NOT short-circuit on
-  // `message.content` equality here — that comparison would defeat the
-  // memo and force a re-render anyway because each token is a new
-  // string. Instead we rely on `isLast` / `isStreaming` / `tokens` to
-  // gate re-renders. For historical (non-streaming) messages, content
-  // is stable, so a content-equality early-return would also be a
-  // no-op.
-  return prevProps.message.tokens === nextProps.message.tokens &&
+  // During active streaming of the last message, content changes on every
+  // chunk. We MUST re-render when the message object changes (each chunk
+  // produces a new object via .map() in sessionStore). For non-streaming
+  // historical messages, content is stable so identity comparison is fine.
+  if (nextProps.isLast && nextProps.isStreaming) {
+    // Always re-render the actively-streaming message — content is updating
+    return false;
+  }
+  return prevProps.message === nextProps.message &&
          prevProps.isLast === nextProps.isLast &&
          prevProps.isStreaming === nextProps.isStreaming;
 });

@@ -23,7 +23,7 @@ export function CodeBlock({ lang, code }: CodeBlockProps) {
 
   return (
     <div className="border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]">
-      <div className="flex justify-between items-center px-4 py-1.5 bg-black/20 text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
+      <div className="flex justify-between items-center px-4 py-1.5 bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
         <span className="uppercase text-xs font-bold text-[var(--color-text-secondary)] tracking-wider">
           {lang || 'code'}
         </span>

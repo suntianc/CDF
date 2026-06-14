@@ -126,12 +126,14 @@ export function ToolMessageCard({
   const cardContent = (
     <div className="flex flex-col">
       {/* Header Trigger */}
-      <div 
+      <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="flex items-center gap-2 cursor-pointer select-none text-[10.5px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors py-0.5 w-fit"
       >
         {/* Status/Category Icon */}
-        <span className="flex items-center justify-center shrink-0">
+        <span aria-hidden="true" className="flex items-center justify-center shrink-0">
           {status === 'running' ? (
             <Loader2 className="w-3 h-3 animate-spin text-[var(--color-accent)]" />
           ) : (
@@ -145,24 +147,24 @@ export function ToolMessageCard({
         </span>
 
         {/* Micro Status Label */}
-        {status === 'success' && <span className="text-[var(--color-success)] text-[8px] font-bold">✔</span>}
-        {status === 'error' && <span className="text-[var(--color-danger)] text-[8px] font-bold">❌</span>}
+        {status === 'success' && <span aria-hidden="true" className="text-[var(--color-success)] text-[9px] font-bold">✔</span>}
+        {status === 'error' && <span aria-hidden="true" className="text-[var(--color-danger)] text-[9px] font-bold">✕</span>}
 
         {/* Expand/Collapse Chevron Indicator */}
         {(input || output || error) && (
-          <span className="text-[8px] opacity-40 font-mono ml-0.5">
+          <span aria-hidden="true" className="text-[9px] opacity-40 font-mono ml-0.5">
             {expanded ? '▼' : '▶'}
           </span>
         )}
-      </div>
+      </button>
 
       {/* Collapsible Details */}
       {expanded && (
         <div className="mt-1 pl-4 pb-2 flex flex-col gap-1.5 border-l border-[var(--color-border)]/15 ml-1.5 animate-slide-down">
           {input && (
             <div className="flex flex-col gap-0.5">
-              <span className="text-[8.5px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Input</span>
-              <pre className="p-1.5 bg-[var(--color-bg-sidebar)]/50 border border-[var(--color-border)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+              <span className="text-[10px] font-medium text-[var(--color-text-muted)]">Input</span>
+              <pre className="p-1.5 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
                 <code>{formatData(input)}</code>
               </pre>
             </div>
@@ -170,8 +172,8 @@ export function ToolMessageCard({
           
           {output && (
             <div className="flex flex-col gap-0.5">
-              <span className="text-[8.5px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Output</span>
-              <pre className="p-1.5 bg-[var(--color-bg-sidebar)]/50 border border-[var(--color-border)]/20 rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+              <span className="text-[10px] font-medium text-[var(--color-text-muted)]">Output</span>
+              <pre className="p-1.5 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
                 <code>{formatData(output)}</code>
               </pre>
             </div>
@@ -179,8 +181,8 @@ export function ToolMessageCard({
 
           {error && (
             <div className="flex flex-col gap-0.5">
-              <span className="text-[8.5px] font-bold text-[var(--color-danger)] uppercase tracking-wider">Error</span>
-              <pre className="p-1.5 bg-[var(--color-danger-dim)]/10 border border-[var(--color-danger)]/20 rounded text-[10.5px] font-mono text-[var(--color-danger)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+              <span className="text-[10px] font-medium text-[var(--color-danger)]">Error</span>
+              <pre className="p-1.5 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded text-[10.5px] font-mono text-[var(--color-danger)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
                 <code>{formatData(error)}</code>
               </pre>
             </div>
@@ -262,11 +264,13 @@ export function ToolGroupCard({ tools }: { tools: any[] }) {
     <div className="w-full py-0.5 select-none">
       <div className="flex flex-col">
         {/* Group Title Bar */}
-        <div 
+        <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
           className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors py-1 w-fit"
         >
-          <span className="flex items-center justify-center shrink-0 animate-pop-in">
+          <span aria-hidden="true" className="flex items-center justify-center shrink-0 animate-pop-in">
             {getGroupIcon()}
           </span>
 
@@ -274,13 +278,13 @@ export function ToolGroupCard({ tools }: { tools: any[] }) {
             {groupLabel}
           </span>
 
-          {groupStatus === 'success' && <span className="text-[var(--color-success)] text-[9px] font-bold">✔</span>}
-          {groupStatus === 'error' && <span className="text-[var(--color-danger)] text-[9px] font-bold">❌</span>}
+          {groupStatus === 'success' && <span aria-hidden="true" className="text-[var(--color-success)] text-[9px] font-bold">✔</span>}
+          {groupStatus === 'error' && <span aria-hidden="true" className="text-[var(--color-danger)] text-[9px] font-bold">✕</span>}
 
-          <span className="text-[9px] opacity-40 font-mono ml-0.5">
+          <span aria-hidden="true" className="text-[9px] opacity-40 font-mono ml-0.5">
             {expanded ? '▼' : '▶'}
           </span>
-        </div>
+        </button>
 
         {/* Collapsed List showing child tool rows */}
         {expanded && (
