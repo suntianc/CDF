@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import type { DelegatedTask } from '../../stores/sessionStore';
 import { estimateTokens } from '../../stores/sessionStore';
@@ -9,79 +11,113 @@ interface AgentTraceModalProps {
 }
 
 function AgentTraceModal({ open, onClose, task }: AgentTraceModalProps) {
+  const { t } = useTranslation();
+
+  // Hooks before any early return (Rules of Hooks)
+  const totalText = useMemo(
+    () => !task ? '' : (task.chunks.length > 0 ? task.chunks.join('') : (task.result?.summary || '')),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [task?.chunks, task?.result?.summary],
+  );
+  const tokenEstimate = useMemo(() => estimateTokens(totalText), [totalText]);
+  const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
+
   if (!task) {
     return (
       <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-2xl">
-          {/* Content is empty when no task; Dialog handles open/close */}
-        </DialogContent>
+        <DialogContent className="max-w-2xl" />
       </Dialog>
     );
   }
 
-  const totalText = task.chunks.join('');
-  const tokenEstimate = estimateTokens(totalText);
-  const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
   const isRunning = task.status === 'running';
   const isFailure = task.status === 'failure';
   const hasChunks = task.chunks.length > 0;
+  const showEmptyState = !hasChunks && !isRunning && !task.result?.summary;
 
-  const statusLabel = isRunning ? '运行中' : isFailure ? '失败' : '已完成';
+  const statusLabel = isRunning
+    ? t('taskPanel.statusRunning')
+    : isFailure
+      ? t('taskPanel.statusFailed')
+      : t('taskPanel.statusCompleted');
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{task.agentName} 执行轨迹</DialogTitle>
-          <DialogDescription>
-            {tokenDisplay} tokens · {statusLabel}
+          <DialogTitle className="flex items-center gap-2">
+            {/* [P1-A] motion-reduce on status dot pulse */}
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                isRunning ? 'bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none'
+                : isFailure ? 'bg-[var(--color-danger)]'
+                : 'bg-[var(--color-success)]'
+              }`}
+              aria-hidden="true"
+            />
+            {t('traceModal.title', { name: task.agentName })}
+          </DialogTitle>
+          <DialogDescription className="font-mono text-[11px] tabular-nums">
+            {tokenDisplay} {t('traceModal.tokensEstimate')} · {statusLabel}
           </DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[65vh] overflow-y-auto space-y-3">
           {/* Work Goal */}
           <div>
-            <div className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mb-1">
-              工作目标
+            {/* [P1-B] text-muted → text-secondary for WCAG AA contrast on 12px text */}
+            <div className="text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">
+              {t('traceModal.workGoal')}
             </div>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-              {task.goal || '（未设定目标）'}
+            <p className="text-sm text-[var(--color-text-primary)] leading-relaxed max-w-[65ch]">
+              {task.goal || t('traceModal.noGoal')}
             </p>
           </div>
 
           {/* Failure Alert */}
           {isFailure && (
-            <div className="bg-[var(--color-danger-dim)]/10 border border-[var(--color-danger)]/20 rounded-md p-2 text-xs text-[var(--color-danger)] space-y-1">
-              <div>
-                <span className="font-semibold">错误码:</span> {task.errorCode || 'UNKNOWN'}
+            <div
+              role="alert"
+              className="rounded-md bg-[var(--color-danger)]/8 border border-[var(--color-danger)]/25 p-2.5 space-y-1"
+            >
+              <div className="text-xs text-[var(--color-danger)]">
+                <span className="font-semibold">{t('traceModal.errorCode')}</span>{' '}
+                {task.errorCode || t('traceModal.statusUnknown')}
               </div>
               {task.result?.error?.message && (
-                <div className="opacity-90 text-[11px] leading-relaxed">{task.result.error.message}</div>
+                <div className="text-[11px] text-[var(--color-danger)] opacity-85 leading-relaxed">
+                  {task.result.error.message}
+                </div>
               )}
             </div>
           )}
 
           {/* Execution Log */}
           <div>
-            <div className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mb-1">
-              执行日志
+            {/* [P1-B] text-muted → text-secondary */}
+            <div className="text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">
+              {t('traceModal.executionLog')}
             </div>
-            {(!hasChunks && !isRunning) ? (
+            {showEmptyState ? (
               <div className="rounded-md bg-[var(--color-bg-app)] border border-[var(--color-border)] p-3 text-[var(--color-text-muted)] text-xs">
-                该 Agent 尚无执行日志
+                {t('traceModal.noLog')}
               </div>
             ) : (
               <pre className="whitespace-pre-wrap break-words text-[12px] leading-relaxed font-mono text-[var(--color-text-primary)] bg-[var(--color-bg-app)] rounded-md p-3 border border-[var(--color-border)] max-h-[50vh] overflow-y-auto">
-                {hasChunks ? totalText : ''}
-                {isRunning && <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse align-middle">{'▋'}</span>}
+                {totalText || t('traceModal.waitingOutput')}
+                {isRunning && (
+                  <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none align-middle" />
+                )}
               </pre>
             )}
           </div>
 
-          {/* Stats Bar */}
-          <div className="text-[10px] text-[var(--color-text-muted)] border-t border-[var(--color-border)]/40 pt-2">
-            {task.chunks.length} 个文本块 · {tokenDisplay} tokens 估算
-          </div>
+          {/* [P3-B] Stats bar — chunk count only; token count is already in header description */}
+          {hasChunks && (
+            <div className="text-[11px] text-[var(--color-text-secondary)] border-t border-[var(--color-border)]/40 pt-2 font-mono tabular-nums">
+              {t('traceModal.chunkCount', { count: task.chunks.length })}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

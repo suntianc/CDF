@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, waitFor, act } from '@testing-library/react';
+import { render, waitFor, act, fireEvent } from '@testing-library/react';
 import { TaskPanel } from './TaskPanel';
 
 const fetchAgentActivity = vi.fn();
@@ -13,10 +13,16 @@ vi.mock('../../stores/sessionStore', () => ({
   useSessionStore: (selector?: (state: Record<string, unknown>) => unknown) => (
     selector ? selector(sessionState) : sessionState
   ),
+  estimateTokens: (text: string) => Math.ceil(text.length / 4),
 }));
 
 vi.mock('../../stores/agentStore', () => ({
   useAgentStore: () => [],
+}));
+
+vi.mock('./AgentTraceModal', () => ({
+  AgentTraceModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="trace-modal-open" /> : null,
 }));
 
 beforeEach(() => {
@@ -100,5 +106,141 @@ describe('TaskPanel', () => {
     });
 
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('TaskPanel — Activity Trail', () => {
+  it('D-05: newest task (higher startedAt) appears before older task in DOM', () => {
+    sessionState = {
+      ...sessionState,
+      delegatedTasks: [
+        {
+          taskId: 'old-task', agentName: 'OldAgent', agentSlug: 'old-agent',
+          status: 'success', startedAt: 1000, completedAt: 2000, chunks: ['done'],
+        },
+        {
+          taskId: 'new-task', agentName: 'NewAgent', agentSlug: 'new-agent',
+          status: 'running', startedAt: 5000, chunks: ['work'],
+        },
+      ],
+    };
+    const { getByText } = render(
+      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+    );
+    const newEl = getByText('NewAgent');
+    const oldEl = getByText('OldAgent');
+    // DOCUMENT_POSITION_FOLLOWING (4): oldEl follows newEl means newEl is first
+    expect(newEl.compareDocumentPosition(oldEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('D-07: elapsed time shown for completed task, absent for running task', () => {
+    sessionState = {
+      ...sessionState,
+      delegatedTasks: [
+        {
+          taskId: 'done-task', agentName: 'DoneAgent', agentSlug: 'done',
+          status: 'success', startedAt: 1000, completedAt: 6000, chunks: ['result'],
+        },
+        {
+          taskId: 'run-task', agentName: 'RunAgent', agentSlug: 'run',
+          status: 'running', startedAt: Date.now() - 3000, chunks: ['live'],
+        },
+      ],
+    };
+    const { getByText } = render(
+      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+    );
+
+    const doneCard = getByText('DoneAgent').closest('.relative') as Element;
+    expect(doneCard?.textContent).toMatch(/5s/);
+
+    const runCard = getByText('RunAgent').closest('.relative') as Element;
+    expect(runCard?.textContent).not.toMatch(/\d+s\b/);
+  });
+
+  it('D-08: approve button calls resolveApproval("approve")', () => {
+    const resolveApproval = vi.fn();
+    sessionState = {
+      ...sessionState,
+      resolveApproval,
+      pendingApproval: {
+        runId: 'run-1',
+        actions: [{ name: 'write_file', args: { file_path: '/foo.txt', content: 'bar' } }],
+      },
+    };
+    const { getByText } = render(
+      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+    );
+    fireEvent.click(getByText('common.approve'));
+    expect(resolveApproval).toHaveBeenCalledWith('approve');
+  });
+
+  it('D-09: failure expanded body contains error summary with no recoverable action buttons', async () => {
+    sessionState = {
+      ...sessionState,
+      delegatedTasks: [
+        {
+          taskId: 'fail-task', agentName: 'FailAgent', agentSlug: 'fail',
+          status: 'failure', chunks: [],
+          errorCode: 'ERR_TIMEOUT',
+          result: { error: { message: 'request timed out after 30s' } },
+        },
+      ],
+    };
+    const { getByText } = render(
+      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+    );
+
+    // Failure tasks don't auto-expand; click toggle to open
+    const toggleBtn = getByText('FailAgent').closest('button') as Element;
+    fireEvent.click(toggleBtn);
+
+    await waitFor(() => expect(getByText('request timed out after 30s')).toBeTruthy());
+    expect(getByText('ERR_TIMEOUT')).toBeTruthy();
+
+    // The expanded body should have no retry / action buttons — only toggle + trace buttons
+    const failCard = getByText('FailAgent').closest('.relative') as Element;
+    const buttons = Array.from(failCard?.querySelectorAll('button') ?? []);
+    const actionButtonLabels = buttons.map((b) =>
+      (b.textContent?.trim() || b.getAttribute('aria-label') || '').toLowerCase()
+    );
+    expect(actionButtonLabels.some((label) => /retry|重试|再试|try again/.test(label))).toBe(false);
+  });
+
+  it('D-10: task entry remains visible in timeline after transitioning out of waiting_approval', () => {
+    // A task that was approved and is now "success" must still appear in the timeline
+    sessionState = {
+      ...sessionState,
+      delegatedTasks: [
+        {
+          taskId: 'approved-task', agentName: 'ApprovedAgent', agentSlug: 'approved',
+          status: 'success', startedAt: 1000, completedAt: 2000, chunks: ['done'],
+        },
+      ],
+    };
+    const { getByText } = render(
+      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+    );
+    expect(getByText('ApprovedAgent')).toBeTruthy();
+  });
+
+  it('AgentTraceModal: clicking view-trace button opens the modal', () => {
+    sessionState = {
+      ...sessionState,
+      delegatedTasks: [
+        {
+          taskId: 'trace-task', agentName: 'TraceAgent', agentSlug: 'trace',
+          status: 'running', startedAt: Date.now(), chunks: ['work in progress'],
+        },
+      ],
+    };
+    const { getByLabelText, getByTestId } = render(
+      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+    );
+
+    const traceBtn = getByLabelText('taskPanel.viewTrace');
+    fireEvent.click(traceBtn);
+
+    expect(getByTestId('trace-modal-open')).toBeTruthy();
   });
 });
