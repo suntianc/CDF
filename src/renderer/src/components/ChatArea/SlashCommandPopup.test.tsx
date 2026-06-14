@@ -803,8 +803,8 @@ describe('Phase 8 polish', () => {
       ['review-project', /text-purple-400/],
       ['pr-flow', /text-green-400/],
       ['arxiv', /text-amber-400/],
-      ['sys-cmd', /text-gray-400/],
-      ['proj-cmd', /text-gray-500/],
+      ['sys-cmd', /--color-text-muted/],
+      ['proj-cmd', /--color-text-secondary/],
     ];
     render(<TestHarness commands={all} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
