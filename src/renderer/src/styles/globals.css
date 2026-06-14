@@ -2,6 +2,10 @@
 @source "../../../../node_modules/streamdown/dist/*.js";
 @source "../../../../node_modules/@streamdown/math/dist/*.js";
 
+/* Wire Tailwind's dark: variant to data-theme="dark" (CDF uses attribute-based theming,
+   not prefers-color-scheme, so the built-in dark: selector needs to be remapped). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   /* Dark theme (default) — DESIGN.md §2.2
      Token names stay as `--accent / --bg-*`; values realigned to DESIGN.md.
@@ -18,6 +22,8 @@
   --text-secondary: #c8cfda99;
   --text-muted: #c8cfda5c;
   --text-inverse: #111216;  /* ink-inverse */
+  --text-inverse-soft: #11121626; /* ink-inverse-soft */
+  --bg-inverse-canvas: #f0f2f5;   /* inverse-canvas */
   --accent: #7c3aed;        /* Intelligence Violet (Dark single-shot) */
   --accent-hover: #8b5cf6;
   --accent-dim: rgba(124, 58, 237, 0.12);
@@ -49,6 +55,26 @@
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  /* ── z-index scale ─────────────────────────────────────────────────
+     New code must use these tokens. Tailwind z-[N] in components
+     may still reference the canonical values below. */
+  --z-topbar:     20;
+  --z-dropdown:  100;
+  --z-drawer:    200;
+  --z-modal-scrim: 400;
+  --z-modal:     500;
+  --z-toast:    9999;
+
+  /* ── Motion tokens ─────────────────────────────────────────────────
+     JS-driven animations read prefers-reduced-motion separately and
+     switch to a synchronous path (see useTypewriter). */
+  --duration-instant:  80ms;
+  --duration-fast:    150ms;
+  --duration-normal:  220ms;
+  --duration-slow:    350ms;
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);   /* expo-out — most interactive transitions */
+  --ease-standard: cubic-bezier(0.45, 0, 0.55, 1);  /* symmetric — panel open / close */
 }
 
 /* Light theme overrides — DESIGN.md §2.1
@@ -67,6 +93,8 @@ html[data-theme="light"] {
   --text-secondary: rgba(26, 26, 26, 0.80);
   --text-muted: rgba(26, 26, 26, 0.50);
   --text-inverse: #fbf8f4;
+  --text-inverse-soft: #fbf8f426; /* ink-inverse-soft */
+  --bg-inverse-canvas: #1a1a1a;   /* inverse-canvas */
   --accent: #e2007a;         /* accent-magenta (Light single-shot) */
   --accent-hover: #c4006a;
   --accent-dim: rgba(226, 0, 122, 0.12);
@@ -104,6 +132,8 @@ html[data-theme="light"] {
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-text-inverse: var(--text-inverse);
+  --color-text-inverse-soft: var(--text-inverse-soft);
+  --color-bg-inverse-canvas: var(--bg-inverse-canvas);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-dim: var(--accent-dim);
@@ -359,7 +389,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   border-radius: var(--radius-md);
   padding: 6px 0;
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   display: none;
   animation: fadeUp 0.18s ease-out;
   max-height: min(320px, calc(100vh - 160px));
@@ -512,7 +542,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   transition: padding-left 0.2s ease;
   background: var(--bg-app);
   position: relative;
-  z-index: 20;
+  z-index: var(--z-topbar);
 }
 
 /* 当侧边栏折叠时，主界面顶栏自动向右缩进避开窗口控制交通灯及浮动按钮 */
@@ -825,7 +855,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: var(--z-modal-scrim);
 }
 
 .modal {
@@ -940,7 +970,8 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
    ring). The exclusion is scoped to the textarea so the send button,
    attachment button, and model selector inside the Composer still
    receive the global focus ring for keyboard users. */
-.chat-composer textarea:focus-visible {
+.chat-composer textarea:focus-visible,
+.dialog-box textarea:focus-visible {
   outline: none;
 }
 
@@ -1050,7 +1081,8 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .message-row pre {
   margin: 8px 0;
   padding: 12px;
-  background: rgba(0,0,0,0.3);
+  background: var(--color-bg-sunken);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow-x: auto;
   font-family: var(--font-mono);
@@ -1095,18 +1127,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   min-height: 0;
 }
 
-/* ─── Todo List Glassmorphism ─── */
-.todo-list-glass {
-  background: rgba(20, 20, 20, 0.12) !important;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-color: rgba(255, 255, 255, 0.05) !important;
-}
-
-html[data-theme="light"] .todo-list-glass {
-  background: rgba(255, 255, 255, 0.20) !important;
-  border-color: rgba(0, 0, 0, 0.03) !important;
-}
 
 /* ─── Floating Toast Notification Styles ─── */
 .toast-container {
@@ -1116,7 +1136,7 @@ html[data-theme="light"] .todo-list-glass {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 9999;
+  z-index: var(--z-toast);
   pointer-events: none;
 }
 
@@ -1166,15 +1186,19 @@ html[data-theme="light"] .toast {
   }
 }
 
+.animate-slide-in {
+  animation: toastSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* Running node animation */
 @keyframes node-running-pulse {
   0%, 100% {
-    border-color: var(--info);
-    box-shadow: 0 0 6px var(--info-dim);
+    border-color: var(--accent);
+    box-shadow: 0 0 6px var(--accent-dim);
   }
   50% {
     border-color: var(--accent);
-    box-shadow: 0 0 14px var(--accent-dim);
+    box-shadow: 0 0 14px var(--accent-glow);
   }
 }
 .animate-node-running {
