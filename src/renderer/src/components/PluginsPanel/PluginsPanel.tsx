@@ -29,7 +29,7 @@ export function PluginsPanel() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Top Header */}
       <div className="main-topbar shrink-0 h-9 border-b-0" />
 
@@ -133,7 +133,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
   return (
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
-        <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+        <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
           {t('plugins.skillsListTitle', { count: skills.length })}
         </div>
         <div className="flex items-center gap-2">
@@ -161,10 +161,10 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredSkills.map((skill) => (
-          <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all flex flex-col justify-between group">
+          <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <Code className="w-4 h-4 text-[var(--color-success)] shrink-0 group-hover:scale-110 transition-transform" />
+                <Code className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
                 <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate flex-1" title={skill.name}>{skill.name}</div>
               </div>
               <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 line-clamp-2" title={skill.description}>
@@ -335,7 +335,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
   return (
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
-        <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+        <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
           {t('plugins.mcpListTitle', { count: mcpServers.length })}
         </div>
         <div className="flex items-center gap-2">
@@ -369,20 +369,16 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
         ).map((server) => {
           const config = server.config || {};
           return (
-            <div key={server.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all flex flex-col justify-between group">
+            <div key={server.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 max-w-[70%]">
-                    <Layers className="w-4 h-4 text-[var(--color-accent)] shrink-0 group-hover:scale-110 transition-transform" />
+                    <Layers className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
                     <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate" title={server.name}>
                       {server.name}
                     </div>
                   </div>
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
-                    (server.server_type === 'sse' || server.server_type === 'http')
-                      ? 'bg-[var(--color-accent-dim)] text-[var(--color-accent)] border-[var(--color-accent)]/10'
-                      : 'bg-[var(--color-info-dim)] text-[var(--color-info)] border-[var(--color-info)]/10'
-                  } uppercase scale-95 shrink-0`}>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold border border-[var(--color-border)] bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)] uppercase shrink-0">
                     {server.server_type}
                   </span>
                 </div>

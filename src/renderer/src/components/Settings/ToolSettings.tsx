@@ -288,7 +288,7 @@ export function ToolSettings() {
       <div className="settings-content !pt-3 flex-1 overflow-y-auto flex flex-col">
         {/* Top toolbar */}
         <div className="flex items-center justify-between gap-4 mb-5 shrink-0 select-none">
-          <div className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
             {t('settings.tool.listTitle', { count: configs.length })}
           </div>
         </div>
@@ -307,7 +307,7 @@ export function ToolSettings() {
               return (
                 <div 
                   key={tool.id} 
-                  className="provider-card flex flex-col justify-between min-h-[185px] h-auto py-4 border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 rounded-xl bg-[var(--color-bg-surface)] shadow-sm hover:shadow-md transition-all"
+                  className="provider-card flex flex-col justify-between min-h-[185px] h-auto py-4 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors"
                 >
                   {/* Top: Icon, name and Toggle Switcher */}
                   <div className="flex items-start justify-between gap-3 select-none">
@@ -338,7 +338,7 @@ export function ToolSettings() {
                           ? 'cursor-pointer active:scale-95' 
                           : 'cursor-not-allowed opacity-30'
                       } ${
-                        tool.is_enabled ? 'bg-[var(--color-accent)]' : 'bg-black/30 dark:bg-white/10 border border-[var(--color-border)]/50'
+                        tool.is_enabled ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-border-strong)] border border-[var(--color-border)]'
                       }`}
                       title={isConfigured ? (tool.is_enabled ? t('settings.tool.disable') : t('settings.tool.enable')) : t('settings.tool.configKeyFirstTitle')}
                     >
@@ -358,9 +358,9 @@ export function ToolSettings() {
                       {toolMeta.exposedTools.map(toolName => (
                         <span
                           key={toolName}
-                          className="inline-flex items-center px-2 py-0.5 rounded-md border border-[var(--color-accent)]/20 bg-[var(--color-accent-dim)] text-[10px] font-mono text-[var(--color-accent-hover)] transition-all select-all hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/15"
+                          className="inline-flex items-center px-2 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-sunken)] text-[10px] font-mono text-[var(--color-text-muted)] select-all"
                         >
-                          <Wrench className="w-2.5 h-2.5 mr-1 text-[var(--color-accent-hover)]/70 shrink-0" />
+                          <Wrench className="w-2.5 h-2.5 mr-1 text-[var(--color-text-muted)] shrink-0" />
                           {toolName}
                         </span>
                       ))}
@@ -424,9 +424,9 @@ export function ToolSettings() {
                       {INTEGRATED_TOOLS.find(tg => tg.id === expandedTool.tool_type)!.exposedTools!.map(toolName => (
                         <span
                           key={toolName}
-                          className="inline-flex items-center px-2.5 py-1 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent-dim)] text-xs font-mono text-[var(--color-accent-hover)] transition-all select-all hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/15"
+                          className="inline-flex items-center px-2.5 py-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sunken)] text-xs font-mono text-[var(--color-text-secondary)] select-all"
                         >
-                          <Wrench className="w-3 h-3 mr-1 text-[var(--color-accent-hover)]/70 shrink-0" />
+                          <Wrench className="w-3 h-3 mr-1 text-[var(--color-text-muted)] shrink-0" />
                           {toolName}
                         </span>
                       ))}
