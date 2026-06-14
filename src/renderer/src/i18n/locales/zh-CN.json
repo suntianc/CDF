@@ -137,7 +137,22 @@
     "taskGoal": "目标",
     "subagentInitializing": "子代理正在准备初始化环境...",
     "taskFailed": "任务失败: {{code}}",
-    "taskCompleted": "任务执行完成"
+    "taskCompleted": "任务执行完成",
+    "viewTrace": "查看执行轨迹",
+    "chunkUnit": "块",
+    "tokenUnit": "tokens"
+  },
+  "traceModal": {
+    "title": "{{name}} 执行轨迹",
+    "workGoal": "工作目标",
+    "noGoal": "（未设定目标）",
+    "executionLog": "执行日志",
+    "noLog": "该 Agent 尚无执行日志",
+    "waitingOutput": "（等待输出...）",
+    "errorCode": "错误码:",
+    "chunkCount": "{{count}} 个文本块",
+    "tokensEstimate": "tokens 估算",
+    "statusUnknown": "未知"
   },
   "agent": {
     "listTitle": "Agent 智能体角色列表 ({{count}})",
@@ -308,6 +323,7 @@
     "welcomeSublineProjectLoaded": "项目已加载：{{name}} · 请输入以开启对话",
     "welcomeSublineNoProject": "选择左侧的项目或开始一个新对话，CDF 已经准备就绪",
     "dismissError": "关闭错误提示",
+    "generating": "AI 正在生成回复",
     "welcomePlaceholder": "给 CDF 下达指令，或者问点什么……",
     "addAttachment": "添加附件",
     "noProvidersAvailable": "暂无可用提供商，点击去配置",
@@ -425,6 +441,7 @@
       "save": "保存",
       "stop": "停止",
       "run": "运行",
+      "workflowName": "工作流名称",
       "newWorkflowName": "新建工作流",
       "cannotDeleteStartEnd": "开始/结束节点不能删除",
       "deletedEdges": "已删除 {{count}} 条边",
@@ -470,7 +487,8 @@
     "nodePalette": {
       "title": "节点面板",
       "flowCategory": "流程控制",
-      "agentCategory": "Agent 节点"
+      "agentCategory": "Agent 节点",
+      "addNode": "添加{{name}}节点"
     },
     "nodeConfig": {
       "title": "节点配置",
@@ -478,11 +496,12 @@
       "nodeNamePlaceholder": "输入节点名称",
       "bgColor": "节点背景颜色",
       "colorDefault": "默认",
-      "colorBlue": "蓝色",
-      "colorGreen": "绿色",
-      "colorRed": "红色",
-      "colorPurple": "紫色",
-      "colorYellow": "黄色",
+      "colorLime": "石灰绿",
+      "colorLilac": "丁香紫",
+      "colorCream": "奶油黄",
+      "colorMint": "薄荷绿",
+      "colorPink": "玫瑰粉",
+      "colorCoral": "珊瑚橙",
       "startNodeHint": "开始节点用于定义本次工作流的工作区。手动执行和 Master 调度都会把这里的工作区配置放进起始上下文。",
       "workspacePath": "工作区路径",
       "workspacePlaceholder": "点击选择工作文件夹",
