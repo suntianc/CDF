@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, CircleAlert, Clock, ExternalLink, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
+// ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
-import { AgentTraceModal } from './AgentTraceModal';
 
 export interface TaskPanelProps {
   isOpen: boolean;
@@ -87,20 +87,20 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
           <span className="truncate text-xs font-semibold text-[var(--color-text-primary)]">{summary.title}</span>
         </div>
         {/* [P1-B] 10px → 11px secondary for WCAG AA contrast */}
-        <span className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+        <span className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)]">
           {action.name}
         </span>
       </div>
       {summary.target && (
         <div className="bg-[var(--color-bg-app)] px-2 py-1.5">
-          <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.approvalTarget')}</div>
-          <div className="mt-0.5 truncate font-mono text-[11px] text-[var(--color-text-primary)]">{summary.target}</div>
+          <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.approvalTarget')}</div>
+          <div className="mt-0.5 truncate font-mono text-xs text-[var(--color-text-primary)]">{summary.target}</div>
         </div>
       )}
       {summary.preview && (
         <div className="bg-[var(--color-bg-app)] px-2 py-1.5">
-          <div className="text-[11px] text-[var(--color-text-secondary)]">{summary.previewLabel}</div>
-          <pre className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--color-text-primary)]">
+          <div className="text-xs text-[var(--color-text-secondary)]">{summary.previewLabel}</div>
+          <pre className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--color-text-primary)]">
             {summary.preview}
           </pre>
         </div>
@@ -109,19 +109,16 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
   );
 }
 
-// Activity Trail entry — compact single-row with status dot + metrics
-function DelegatedTaskCard({ task, expanded, onToggle, onOpenTrace, agentName }: {
+function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
   task: DelegatedTask;
-  expanded: boolean;
-  onToggle: () => void;
-  onOpenTrace: () => void;
   agentName: string;
+  isActive: boolean;
+  onSelect: () => void;
 }) {
   const { t } = useTranslation();
   const isRunning = task.status === 'running';
   const isFailure = task.status === 'failure';
 
-  // [P2-B] Status text for aria-label — conveys status beyond color alone (WCAG 1.4.1)
   const statusText = isRunning
     ? t('taskPanel.statusRunning')
     : isFailure
@@ -134,12 +131,9 @@ function DelegatedTaskCard({ task, expanded, onToggle, onOpenTrace, agentName }:
   );
   const tokenEstimate = useMemo(() => estimateTokens(totalText), [totalText]);
   const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
-  const chunkCount = task.chunks.length;
 
-  // Compact metrics: "5 chunks · 1.2k tokens · 12s" (elapsed only when done/failed)
   const metricsText = useMemo(() => {
     const parts: string[] = [];
-    if (chunkCount > 0) parts.push(`${chunkCount} ${t('taskPanel.chunkUnit')}`);
     parts.push(`${tokenDisplay} ${t('taskPanel.tokenUnit')}`);
     if (!isRunning && task.startedAt) {
       const end = task.completedAt ?? Date.now();
@@ -147,17 +141,11 @@ function DelegatedTaskCard({ task, expanded, onToggle, onOpenTrace, agentName }:
       parts.push(s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
     }
     return parts.join(' · ');
-  }, [chunkCount, tokenDisplay, isRunning, task.startedAt, task.completedAt, t]);
-
-  // Live preview of incoming chunk text (running only, 8 chars)
-  const chunkPreview = isRunning && chunkCount > 0
-    ? task.chunks[task.chunks.length - 1].replace(/\s/g, ' ').slice(0, 8)
-    : null;
+  }, [tokenDisplay, isRunning, task.startedAt, task.completedAt, t]);
 
   return (
     <div className="relative pl-4">
-      {/* Status dot — aria-hidden; status text conveyed via aria-label on toggle button */}
-      <div className="absolute left-0 top-[13px] flex items-center justify-center w-2 h-2" aria-hidden="true">
+      <div className="absolute left-0 top-3.5 flex items-center justify-center w-2 h-2" aria-hidden="true">
         {isRunning
           ? <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none" />
           : isFailure
@@ -166,103 +154,24 @@ function DelegatedTaskCard({ task, expanded, onToggle, onOpenTrace, agentName }:
         }
       </div>
 
-      {/* Collapsed row */}
-      <div className="flex items-center gap-1.5 py-1.5 min-h-[36px]">
-        {/* [P2-B] aria-label includes status so screen reader gets more than just color */}
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={`${agentName} (${statusText})`}
-          onClick={onToggle}
-          className="flex items-center gap-1.5 flex-1 min-w-0 text-left group/toggle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] rounded-sm"
-        >
-          {/* [P2-C] Chevrons are decorative inside a labeled button */}
-          {expanded
-            ? <ChevronDown aria-hidden="true" className="w-3 h-3 shrink-0 text-[var(--color-text-muted)] group-hover/toggle:text-[var(--color-text-secondary)] transition-colors" />
-            : <ChevronRight aria-hidden="true" className="w-3 h-3 shrink-0 text-[var(--color-text-muted)] group-hover/toggle:text-[var(--color-text-secondary)] transition-colors" />
-          }
-          <span className="text-[13px] font-medium text-[var(--color-text-primary)] truncate">{agentName}</span>
-          {/* [P1-B] 10px → 11px secondary for WCAG AA contrast */}
-          <span className="text-[11px] font-mono text-[var(--color-text-secondary)] truncate max-w-[90px] hidden sm:inline">{task.agentSlug}</span>
-        </button>
-
-        <div className="flex items-center gap-1.5 shrink-0 ml-1">
-          {chunkPreview && (
-            // [P1-B] 10px → 11px secondary; [P1-A] motion-reduce
-            <span className="text-[11px] font-mono text-[var(--color-text-secondary)] truncate max-w-[56px] animate-pulse motion-reduce:animate-none" aria-hidden="true">
-              {chunkPreview}
-            </span>
-          )}
-          {/* [P1-B] 10px → 11px secondary for contrast */}
-          <span className="text-[11px] font-mono text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
-            {metricsText}
-          </span>
-          {/* [P2-E] w-5 → w-6 for WCAG 2.5.8 24px minimum touch target */}
-          <button
-            type="button"
-            aria-label={t('taskPanel.viewTrace')}
-            onClick={(e) => { e.stopPropagation(); onOpenTrace(); }}
-            className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
-          >
-            <ExternalLink className="w-3 h-3" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
-      {/* Expanded body */}
-      {expanded && (
-        // [P2-A] role="status" + aria-live="polite" — not "alert" (alert implies assertive, contradicts polite)
-        <div
-          className="mb-1.5 ml-1 rounded-md bg-[var(--color-bg-app)] border border-[var(--color-border)] p-2.5 space-y-2"
-          role={isFailure ? 'status' : undefined}
-          aria-live={isFailure ? 'polite' : undefined}
-        >
-          {task.goal && (
-            <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">
-              <span className="font-semibold text-[var(--color-text-muted)] mr-1">{t('taskPanel.taskGoal')}:</span>
-              {task.goal}
-            </p>
-          )}
-
-          {/* D-09: Failure = observation only — plain error summary, no action buttons */}
-          {isFailure ? (
-            <div className="text-[11px] space-y-0.5">
-              <div className="font-medium text-[var(--color-danger)]">
-                {task.errorCode || t('taskPanel.taskFailed', { code: '' })}
-              </div>
-              {task.result?.error?.message ? (
-                <div className="text-[10px] text-[var(--color-danger)] opacity-80 leading-relaxed">
-                  {task.result.error.message}
-                </div>
-              ) : (
-                <div className="text-[10px] text-[var(--color-danger)] opacity-80 leading-relaxed">
-                  {t('taskPanel.subagentCallIntercepted')}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="font-mono text-[10.5px] leading-relaxed text-[var(--color-text-primary)] whitespace-pre-wrap break-words max-h-28 overflow-y-auto overflow-x-hidden">
-              {isRunning ? (
-                <>
-                  {chunkCount > 0 ? totalText : t('taskPanel.subagentInitializing')}
-                  {/* [P1-A] motion-reduce on cursor caret */}
-                  <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none align-middle" />
-                </>
-              ) : (
-                task.result?.summary || t('taskPanel.taskCompleted')
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      <button
+        type="button"
+        aria-label={`${agentName} (${statusText})`}
+        onClick={onSelect}
+        className={`flex items-center gap-1.5 w-full py-1.5 min-h-9 text-left rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
+          isActive ? 'bg-[var(--color-accent-dim)]' : 'hover:bg-[var(--color-bg-hover)]'
+        }`}
+      >
+        <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{agentName}</span>
+        <span className="text-xs font-mono text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap ml-auto shrink-0">
+          {metricsText}
+        </span>
+      </button>
     </div>
   );
 }
 
-function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
-  expandedTasks: Record<string, boolean>;
-  setExpandedTasks: Dispatch<SetStateAction<Record<string, boolean>>>;
-}) {
+function TaskPanelContent() {
   const { t } = useTranslation();
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const activeRunId = useSessionStore((state) => state.activeRunId);
@@ -272,10 +181,8 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
-  const [traceModalTaskId, setTraceModalTaskId] = useState<string | null>(null);
-  const traceModalTask = traceModalTaskId
-    ? delegatedTasks.find((t) => t.taskId === traceModalTaskId) ?? null
-    : null;
+  const viewingSubagentId = useSessionStore((state) => state.viewingSubagentId);
+  const setViewingSubagent = useSessionStore((state) => state.setViewingSubagent);
   const agents = useAgentStore((state) => state.agents);
 
   const statusLabel = (status: AgentRunStatus) => {
@@ -286,20 +193,6 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
       case 'failed': return t('taskPanel.statusFailed');
       case 'aborted': return t('taskPanel.statusAborted');
     }
-  };
-
-  const isTaskExpanded = (taskId: string, status: string) => {
-    if (expandedTasks[taskId] !== undefined) {
-      return expandedTasks[taskId];
-    }
-    return status === 'running';
-  };
-
-  const toggleTaskExpand = (taskId: string, status: string) => {
-    setExpandedTasks((prev) => ({
-      ...prev,
-      [taskId]: !isTaskExpanded(taskId, status),
-    }));
   };
 
   const getAgentName = (task: DelegatedTask) => {
@@ -347,7 +240,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
               {statusLabel(activeRun.status)}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+          <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
             <Clock className="w-3 h-3" aria-hidden="true" />
             <span>{new Date(activeRun.started_at).toLocaleTimeString()}</span>
           </div>
@@ -364,15 +257,15 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
               <div className="text-sm font-semibold text-[var(--color-text-primary)]">{toolSummary.total}</div>
               {/* [P1-B] 10px → 11px secondary */}
-              <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryTotal')}</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryTotal')}</div>
             </div>
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
               <div className="text-sm font-semibold text-[var(--color-text-primary)]">{toolSummary.running}</div>
-              <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryRunning')}</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryRunning')}</div>
             </div>
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
               <div className="text-sm font-semibold text-[var(--color-danger)]">{toolSummary.failed.length}</div>
-              <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryFailed')}</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryFailed')}</div>
             </div>
           </div>
           {toolSummary.failed.slice(0, 3).map((toolCall) => {
@@ -380,7 +273,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
               ? t('taskPanel.subagentCallIntercepted')
               : (toolCall.error || t('taskPanel.toolCallFailed'));
             return (
-              <div key={toolCall.id} className="text-[11px] text-[var(--color-danger)]">
+              <div key={toolCall.id} className="text-xs text-[var(--color-danger)]">
                 {toolCall.tool_name}: {errorText}
               </div>
             );
@@ -398,7 +291,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
               {/* [P2-G] div → h3 for proper heading hierarchy */}
               <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.approvalTitle')}</h3>
               {/* [P1-B] muted → secondary */}
-              <div className="mt-0.5 text-[11px] text-[var(--color-text-secondary)]">
+              <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
                 {pendingApproval.actions.length > 1 ? t('taskPanel.approvalActionsMultiple', { count: pendingApproval.actions.length }) : t('taskPanel.approvalActionsSingle')}
               </div>
             </div>
@@ -432,12 +325,19 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
           <div className="space-y-3">
             {/* Sub Agent progress bar */}
             <div className="space-y-1.5 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg p-3">
-              <div className="flex items-center justify-between text-[11px] font-medium text-[var(--color-text-secondary)]">
+              <div className="flex items-center justify-between text-xs font-medium text-[var(--color-text-secondary)]">
                 <span>{t('taskPanel.subagentProgress')}</span>
                 <span>{t('taskPanel.subagentProgressCount', { done: completedCount, total })}</span>
               </div>
               {/* [P1-A] motion-reduce on progress transition */}
-              <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40">
+              <div
+                role="progressbar"
+                aria-valuenow={percentage}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={t('taskPanel.subagentProgress')}
+                className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
+              >
                 <div
                   className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out motion-reduce:transition-none"
                   style={{ width: `${percentage}%` }}
@@ -448,7 +348,7 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
             {/* Synthesis indicator */}
             {allSubagentsComplete && isMasterRunning && (
               // [P1-A] motion-reduce on both pulse and spin
-              <div className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-[11px] text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-xs text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
                 <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 <span>{t('taskPanel.synthesizing', { count: total })}</span>
               </div>
@@ -472,10 +372,9 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
                     <DelegatedTaskCard
                       key={task.taskId}
                       task={task}
-                      expanded={isTaskExpanded(task.taskId, task.status)}
-                      onToggle={() => toggleTaskExpand(task.taskId, task.status)}
-                      onOpenTrace={() => setTraceModalTaskId(task.taskId)}
                       agentName={getAgentName(task)}
+                      isActive={viewingSubagentId === task.taskId}
+                      onSelect={() => setViewingSubagent(task.taskId)}
                     />
                   ))}
                 </div>
@@ -489,11 +388,6 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
         <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
       )}
 
-      <AgentTraceModal
-        open={traceModalTaskId !== null}
-        onClose={() => setTraceModalTaskId(null)}
-        task={traceModalTask}
-      />
     </>
   );
 }
@@ -501,7 +395,6 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
 export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) {
   const { t } = useTranslation();
   const [isResizing, setIsResizing] = useState(false);
-  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
 
   void onClose;
 
@@ -565,12 +458,12 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
             />
           </div>
 
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0 select-none">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-14 shrink-0 select-none">
             <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
           </div>
 
           <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            <TaskPanelContent expandedTasks={expandedTasks} setExpandedTasks={setExpandedTasks} />
+            <TaskPanelContent />
           </div>
         </>
       )}
