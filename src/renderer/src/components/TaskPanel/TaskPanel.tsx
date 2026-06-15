@@ -145,7 +145,7 @@ function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
 
   return (
     <div className="relative pl-4">
-      <div className="absolute left-0 top-3.5 flex items-center justify-center w-2 h-2" aria-hidden="true">
+      <div className="absolute left-0 top-3 flex items-center justify-center w-2 h-2" aria-hidden="true">
         {isRunning
           ? <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none" />
           : isFailure
