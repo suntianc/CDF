@@ -135,25 +135,18 @@
     "synthesizing": "Synthesizing {{count}} subagent results...",
     "delegatedTasksTitle": "Delegated tasks",
     "taskGoal": "Goal",
-    "subagentInitializing": "Subagent initializing environment...",
     "taskFailed": "Task failed: {{code}}",
     "taskCompleted": "Task completed",
-    "viewTrace": "View execution trace",
-    "chunkUnit": "chunks",
     "tokenUnit": "tokens",
     "subagentCallIntercepted": "Sub-agent tool call intercepted"
   },
-  "traceModal": {
-    "title": "{{name}} execution trace",
-    "workGoal": "Work goal",
-    "noGoal": "(No goal set)",
-    "executionLog": "Execution log",
-    "noLog": "No execution log available",
-    "waitingOutput": "(Waiting for output...)",
-    "errorCode": "Error code:",
-    "chunkCount": "{{count}} chunks",
-    "tokensEstimate": "tokens est.",
-    "statusUnknown": "Unknown"
+  "subagentView": {
+    "backToMaster": "Back to main conversation",
+    "waiting": "Waiting for agent output...",
+    "noOutput": "No output recorded",
+    "masterUpdating": "Main conversation updating — click to return",
+    "expandGoal": "Show full goal",
+    "collapseGoal": "Collapse goal"
   },
   "agent": {
     "listTitle": "Agent roles list ({{count}})",

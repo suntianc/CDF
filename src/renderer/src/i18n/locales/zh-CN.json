@@ -135,25 +135,18 @@
     "synthesizing": "正在整合 {{count}} 个子代理的执行结果...",
     "delegatedTasksTitle": "委派任务",
     "taskGoal": "目标",
-    "subagentInitializing": "子代理正在准备初始化环境...",
     "taskFailed": "任务失败: {{code}}",
     "taskCompleted": "任务执行完成",
-    "viewTrace": "查看执行轨迹",
-    "chunkUnit": "块",
     "tokenUnit": "tokens",
     "subagentCallIntercepted": "子 Agent 工具调用被拦截"
   },
-  "traceModal": {
-    "title": "{{name}} 执行轨迹",
-    "workGoal": "工作目标",
-    "noGoal": "（未设定目标）",
-    "executionLog": "执行日志",
-    "noLog": "该 Agent 尚无执行日志",
-    "waitingOutput": "（等待输出...）",
-    "errorCode": "错误码:",
-    "chunkCount": "{{count}} 个文本块",
-    "tokensEstimate": "tokens 估算",
-    "statusUnknown": "未知"
+  "subagentView": {
+    "backToMaster": "返回主对话",
+    "waiting": "等待 Agent 输出...",
+    "noOutput": "该 Agent 无输出记录",
+    "masterUpdating": "主对话正在更新，点击返回",
+    "expandGoal": "展开目标",
+    "collapseGoal": "收起目标"
   },
   "agent": {
     "listTitle": "Agent 智能体角色列表 ({{count}})",
