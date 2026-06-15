@@ -104,7 +104,7 @@ function AgentTraceModal({ open, onClose, task }: AgentTraceModalProps) {
               </div>
             ) : (
               <pre className="whitespace-pre-wrap break-words text-[12px] leading-relaxed font-mono text-[var(--color-text-primary)] bg-[var(--color-bg-app)] rounded-md p-3 border border-[var(--color-border)] max-h-[50vh] overflow-y-auto">
-                {totalText || t('traceModal.waitingOutput')}
+                {totalText || (isRunning ? t('traceModal.waitingOutput') : t('traceModal.noLog'))}
                 {isRunning && (
                   <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none align-middle" />
                 )}
