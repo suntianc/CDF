@@ -610,6 +610,7 @@ export async function createDeepAgentRuntime(
         skills: subSkillsSources.length > 0 ? subSkillsSources : undefined,
         model: subagentModel,
         middleware: createSubagentResilienceMiddleware(),
+        interruptOn: {},  // REPAIR-03: 子 Agent 工具调用不触发审批中断
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
       });
     }
