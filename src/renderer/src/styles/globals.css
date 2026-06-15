@@ -19,7 +19,7 @@
   --border: #d8e0f014;      /* trace-line */
   --border-strong: #d8e0f026;
   --text-primary: #f0f2f5;  /* ink-primary */
-  --text-secondary: #c8cfda99;
+  --text-secondary: #c8cfda;
   --text-muted: #c8cfda5c;
   --text-inverse: #111216;  /* ink-inverse */
   --text-inverse-soft: #11121626; /* ink-inverse-soft */
@@ -53,7 +53,7 @@
   --radius-lg: 14px;
   --radius-xl: 20px;
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 
   /* ── z-index scale ─────────────────────────────────────────────────
