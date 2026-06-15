@@ -607,6 +607,10 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 };
               }
 
+              // D-11: Overwrite DB with parsed standard format so sessionStore
+              // can reconstruct summary directly without LangChain Command fallback.
+              updateToolCall(toolCallId, status === 'failure' ? 'error' : 'success', parsedResult);
+
               sender.send(channel, {
                 type: 'delegated_task_end',
                 taskId: toolCallId,

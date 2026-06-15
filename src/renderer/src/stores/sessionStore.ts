@@ -452,6 +452,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               error: { code: errorCode, message: msg }
             };
           } else {
+            // Handles call.status === 'success', 'completed', and any other non-running/non-error status.
+            // 'skipped' calls will have no meaningful output; the try/catch below will produce a PARSE_FAILED
+            // result which is acceptable — skipped tasks are rare and not shown in normal flow.
+            // After REPAIR-04 (llm.ts D-11 fix), DB output is already parsed standard format
+            // {status, artifacts, summary}, so parsedOutput.summary will be populated directly.
             try {
               const rawOutput = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
               const parsedOutput = JSON.parse(rawOutput);
