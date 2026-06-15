@@ -24,18 +24,18 @@
   --text-inverse: #111216;  /* ink-inverse */
   --text-inverse-soft: #11121626; /* ink-inverse-soft */
   --bg-inverse-canvas: #f0f2f5;   /* inverse-canvas */
-  --accent: #7c3aed;        /* Intelligence Violet (Dark single-shot) */
-  --accent-hover: #8b5cf6;
-  --accent-dim: rgba(124, 58, 237, 0.12);
-  --accent-glow: rgba(124, 58, 237, 0.08);
-  --success: #22c55e;
-  --success-dim: rgba(34, 197, 94, 0.12);
-  --danger: #ef4444;
-  --danger-dim: rgba(239, 68, 68, 0.12);
-  --warning: #f59e0b;
-  --warning-dim: rgba(245, 158, 11, 0.12);
-  --info: #3b82f6;
-  --info-dim: rgba(59, 130, 246, 0.12);
+  --accent: oklch(0.541 0.247 293);        /* Intelligence Violet (Dark single-shot) */
+  --accent-hover: oklch(0.606 0.219 293);
+  --accent-dim: oklch(0.541 0.247 293 / 0.12);
+  --accent-glow: oklch(0.541 0.247 293 / 0.08);
+  --success: oklch(0.723 0.192 150);
+  --success-dim: oklch(0.723 0.192 150 / 0.12);
+  --danger: oklch(0.637 0.208 25);
+  --danger-dim: oklch(0.637 0.208 25 / 0.12);
+  --warning: oklch(0.769 0.165 70);
+  --warning-dim: oklch(0.769 0.165 70 / 0.12);
+  --info: oklch(0.623 0.188 260);
+  --info-dim: oklch(0.623 0.188 260 / 0.12);
   --overlay-scrim: rgba(0, 0, 0, 0.80);
 
   /* 7 color block palette (DESIGN.md §2.2 — closed set, declared only;
@@ -95,18 +95,18 @@ html[data-theme="light"] {
   --text-inverse: #fbf8f4;
   --text-inverse-soft: #fbf8f426; /* ink-inverse-soft */
   --bg-inverse-canvas: #1a1a1a;   /* inverse-canvas */
-  --accent: #e2007a;         /* accent-magenta (Light single-shot) */
-  --accent-hover: #c4006a;
-  --accent-dim: rgba(226, 0, 122, 0.12);
-  --accent-glow: rgba(226, 0, 122, 0.08);
-  --success: #0a7a3a;
-  --success-dim: rgba(10, 122, 58, 0.10);
-  --danger: #c0002a;
-  --danger-dim: rgba(192, 0, 42, 0.10);
-  --warning: #a86b00;
-  --warning-dim: rgba(168, 107, 0, 0.10);
-  --info: #1f5fb0;
-  --info-dim: rgba(31, 95, 176, 0.10);
+  --accent: oklch(0.592 0.240 359);         /* accent-magenta (Light single-shot) */
+  --accent-hover: oklch(0.532 0.216 359);
+  --accent-dim: oklch(0.592 0.240 359 / 0.12);
+  --accent-glow: oklch(0.592 0.240 359 / 0.08);
+  --success: oklch(0.508 0.134 151);
+  --success-dim: oklch(0.508 0.134 151 / 0.10);
+  --danger: oklch(0.510 0.205 22);
+  --danger-dim: oklch(0.510 0.205 22 / 0.10);
+  --warning: oklch(0.580 0.125 71);
+  --warning-dim: oklch(0.580 0.125 71 / 0.10);
+  --info: oklch(0.491 0.144 256);
+  --info-dim: oklch(0.491 0.144 256 / 0.10);
   --overlay-scrim: rgba(0, 0, 0, 0.60);
 
   /* Light block palette — pastels on cream canvas. */
