@@ -230,9 +230,13 @@ function DelegatedTaskCard({ task, expanded, onToggle, onOpenTrace, agentName }:
               <div className="font-medium text-[var(--color-danger)]">
                 {task.errorCode || t('taskPanel.taskFailed', { code: '' })}
               </div>
-              {task.result?.error?.message && (
+              {task.result?.error?.message ? (
                 <div className="text-[10px] text-[var(--color-danger)] opacity-80 leading-relaxed">
                   {task.result.error.message}
+                </div>
+              ) : (
+                <div className="text-[10px] text-[var(--color-danger)] opacity-80 leading-relaxed">
+                  {t('taskPanel.subagentCallIntercepted')}
                 </div>
               )}
             </div>
@@ -371,11 +375,16 @@ function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
               <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryFailed')}</div>
             </div>
           </div>
-          {toolSummary.failed.slice(0, 3).map((toolCall) => (
-            <div key={toolCall.id} className="text-[11px] text-[var(--color-danger)]">
-              {toolCall.tool_name}: {toolCall.error || t('taskPanel.toolCallFailed')}
-            </div>
-          ))}
+          {toolSummary.failed.slice(0, 3).map((toolCall) => {
+            const errorText = toolCall.tool_name === 'task'
+              ? t('taskPanel.subagentCallIntercepted')
+              : (toolCall.error || t('taskPanel.toolCallFailed'));
+            return (
+              <div key={toolCall.id} className="text-[11px] text-[var(--color-danger)]">
+                {toolCall.tool_name}: {errorText}
+              </div>
+            );
+          })}
         </div>
       )}
 

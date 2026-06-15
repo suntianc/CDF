@@ -140,7 +140,8 @@
     "taskCompleted": "Task completed",
     "viewTrace": "View execution trace",
     "chunkUnit": "chunks",
-    "tokenUnit": "tokens"
+    "tokenUnit": "tokens",
+    "subagentCallIntercepted": "Sub-agent tool call intercepted"
   },
   "traceModal": {
     "title": "{{name}} execution trace",

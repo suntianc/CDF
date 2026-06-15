@@ -140,7 +140,8 @@
     "taskCompleted": "任务执行完成",
     "viewTrace": "查看执行轨迹",
     "chunkUnit": "块",
-    "tokenUnit": "tokens"
+    "tokenUnit": "tokens",
+    "subagentCallIntercepted": "子 Agent 工具调用被拦截"
   },
   "traceModal": {
     "title": "{{name}} 执行轨迹",
