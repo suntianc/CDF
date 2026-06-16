@@ -36,7 +36,7 @@
   --warning-dim: oklch(0.769 0.165 70 / 0.12);
   --info: oklch(0.623 0.188 260);
   --info-dim: oklch(0.623 0.188 260 / 0.12);
-  --overlay-scrim: rgba(0, 0, 0, 0.80);
+  --overlay-scrim: oklch(0 0 0 / 0.80);
 
   /* 7 color block palette (DESIGN.md §2.2 — closed set, declared only;
      consumers per Phase 2-6 design. One block per viewport, no drop shadow.) */
@@ -107,7 +107,7 @@ html[data-theme="light"] {
   --warning-dim: oklch(0.580 0.125 71 / 0.10);
   --info: oklch(0.491 0.144 256);
   --info-dim: oklch(0.491 0.144 256 / 0.10);
-  --overlay-scrim: rgba(0, 0, 0, 0.60);
+  --overlay-scrim: oklch(0 0 0 / 0.60);
 
   /* Light block palette — pastels on cream canvas. */
   --block-lime:  #e0f0c2;
@@ -189,17 +189,17 @@ html, body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: oklch(1 0 0 / 0.08);
   border-radius: 3px;
 }
 html[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.08);
+  background: oklch(0 0 0 / 0.08);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: oklch(1 0 0 / 0.15);
 }
 html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.15);
+  background: oklch(0 0 0 / 0.15);
 }
 
 /* ═══ Center Onboarding Styles ═══ */
@@ -253,7 +253,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
     0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
     0 0 12px 0 color-mix(in srgb, var(--accent) 10%, transparent),
     0 0 32px -4px color-mix(in srgb, var(--accent) 8%, transparent),
-    0 4px 20px rgba(0, 0, 0, 0.2);
+    0 4px 20px oklch(0 0 0 / 0.2);
 }
 
 .dialog-input {
@@ -388,7 +388,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   padding: 6px 0;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 20px oklch(0 0 0 / 0.4);
   z-index: var(--z-dropdown);
   display: none;
   animation: fadeUp 0.18s ease-out;
@@ -475,7 +475,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   border-color: var(--border-strong);
   background: var(--bg-hover);
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.15);
 }
 
 .feature-card-icon {
@@ -514,7 +514,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .dialog-footer-hint kbd {
-  background: rgba(255,255,255,0.06);
+  background: oklch(1 0 0 / 0.06);
   border: 1px solid var(--border);
   padding: 1px 4px;
   border-radius: 3px;
@@ -535,7 +535,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: flex;
   align-items: center;
   padding: 0px 24px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.06);
+  border-bottom: 1px solid oklch(0.6 0 0 / 0.06);
   gap: 12px;
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -790,7 +790,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   align-items: center;
   gap: 5px;
   padding: 3px 10px;
-  background: rgba(255,255,255,0.05);
+  background: oklch(1 0 0 / 0.05);
   border: 1px solid var(--border);
   border-radius: 20px;
   font-size: 12px;
@@ -850,7 +850,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: oklch(0 0 0 / 0.6);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -931,7 +931,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255,255,255,0.2);
+  border: 2px solid oklch(1 0 0 / 0.2);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -1073,7 +1073,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .message-row code {
   font-family: var(--font-mono);
   font-size: 13px;
-  background: rgba(255,255,255,0.06);
+  background: oklch(1 0 0 / 0.06);
   padding: 1px 5px;
   border-radius: 3px;
 }
@@ -1147,7 +1147,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   padding: 12px 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.20), 0 8px 10px -6px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 25px -5px oklch(0 0 0 / 0.20), 0 8px 10px -6px oklch(0 0 0 / 0.15);
   background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1159,20 +1159,20 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 /* Theme differences */
 html[data-theme="light"] .toast {
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+  background: oklch(1 0 0 / 0.85);
+  box-shadow: 0 10px 25px -5px oklch(0 0 0 / 0.08), 0 8px 10px -6px oklch(0 0 0 / 0.08);
 }
 
 .toast.success {
-  border-color: rgba(34, 197, 94, 0.25);
+  border-color: oklch(from var(--success) l c h / 0.25);
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.25);
+  border-color: oklch(from var(--danger) l c h / 0.25);
 }
 
 .toast.info {
-  border-color: rgba(59, 130, 246, 0.25);
+  border-color: oklch(from var(--info) l c h / 0.25);
 }
 
 @keyframes toastSlideIn {
@@ -1240,7 +1240,7 @@ html[data-theme="light"] .toast {
 }
 
 .streamdown-renderer th {
-  background: rgba(255,255,255,0.04);
+  background: oklch(1 0 0 / 0.04);
   font-weight: 600;
 }
 
@@ -1251,8 +1251,8 @@ html[data-theme="light"] .toast {
 }
 
 .streamdown-renderer details {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  background: oklch(1 0 0 / 0.02);
   padding: 10px 16px;
   border-radius: var(--radius-md);
   margin: 12px 0;
@@ -1274,12 +1274,12 @@ html[data-theme="light"] .toast {
 }
 
 .streamdown-renderer details[open] {
-  background: rgba(255, 255, 255, 0.03);
+  background: oklch(1 0 0 / 0.03);
 }
 
 .streamdown-renderer blockquote {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  background: oklch(1 0 0 / 0.03);
   padding: 10px 16px;
   border-radius: var(--radius-md);
   margin: 8px 0;
@@ -1288,7 +1288,7 @@ html[data-theme="light"] .toast {
 
 .streamdown-renderer blockquote blockquote {
   margin-top: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: oklch(1 0 0 / 0.05);
 }
 
 
