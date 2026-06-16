@@ -61,7 +61,7 @@ export function TodoList({ todos, isExpanded, onToggleExpanded }: TodoListProps)
           <span className="text-xs font-semibold text-[var(--color-text-primary)]">
             Todo List
           </span>
-          <span className="rounded bg-[var(--color-bg-active)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]">
+          <span className="rounded bg-[var(--color-bg-active)] px-1.5 py-0.5 text-xs font-medium text-[var(--color-text-secondary)]">
             {t('todo.completedCount', { completed: completedCount, total: todos.length })}
           </span>
         </div>

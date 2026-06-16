@@ -52,7 +52,7 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
         aria-expanded={expanded}
         className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
       >
-        <span aria-hidden="true" className="text-[10px]">{expanded ? '▼' : '▶'}</span>
+        <span aria-hidden="true" className="text-xs">{expanded ? '▼' : '▶'}</span>
         <span>{headerText}</span>
       </button>
       
@@ -99,7 +99,7 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onO
           type="button"
           onClick={() => setExpanded(!expanded)}
           aria-expanded={expanded}
-          className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
+          className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
         >
           <span aria-hidden="true" className="flex items-center justify-center shrink-0">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-warning)]" />
@@ -109,7 +109,7 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onO
             {t('chat.awaitingApproval')}{actions.map((act: any) => translateToolAction(act.name, act.args, t)).join(', ')}
           </span>
 
-          <span aria-hidden="true" className="text-[9px] opacity-60 font-mono ml-0.5">
+          <span aria-hidden="true" className="text-xs opacity-60 font-mono ml-0.5">
             {expanded ? '▼' : '▶'}
           </span>
         </button>
@@ -119,11 +119,11 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onO
           <div className="mt-1.5 pl-4 pb-2 flex flex-col gap-3 border-l border-[var(--color-warning)]/20 ml-1.5 animate-slide-down">
             {actions.map((action: any, idx: number) => (
               <div key={idx} className="flex flex-col gap-1">
-                <span className="text-[10px] font-medium text-[var(--color-warning)]">
+                <span className="text-xs font-medium text-[var(--color-warning)]">
                   {t('chat.pendingExecute', { name: action.name })}
                 </span>
                 {action.args && (
-                  <pre className="p-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-[10.5px] font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
+                  <pre className="p-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-xs font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
                     <code>{typeof action.args === 'string' ? action.args : JSON.stringify(action.args, null, 2)}</code>
                   </pre>
                 )}

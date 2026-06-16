@@ -30,7 +30,7 @@ export function CodeBlock({ lang, code }: CodeBlockProps) {
         <button
           type="button"
           onClick={handleCopy}
-          className={`transition-all duration-200 text-[11px] font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${
+          className={`transition-all duration-200 text-xs font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${
             copied 
               ? 'text-[var(--color-success)] bg-[var(--color-success-dim)]/20' 
               : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
@@ -155,14 +155,14 @@ function MathFallback({ math, block, errorMessage }: { math: string; block: bool
           {math}
         </pre>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-[var(--color-text-muted)] truncate" title={errorMessage}>
+          <span className="text-xs text-[var(--color-text-muted)] truncate" title={errorMessage}>
             {errorMessage}
           </span>
           <button
             type="button"
             onClick={handleCopy}
             aria-label="复制公式源码"
-            className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded transition-colors ${
+            className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded transition-colors ${
               copied
                 ? 'text-[var(--color-success)] bg-[var(--color-success)]/10'
                 : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
