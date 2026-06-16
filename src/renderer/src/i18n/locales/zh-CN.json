@@ -144,6 +144,7 @@
     "backToMaster": "返回主对话",
     "waiting": "等待 Agent 输出...",
     "noOutput": "该 Agent 无输出记录",
+    "noOutputFailure": "该 Agent 在失败前无输出记录",
     "masterUpdating": "主对话正在更新，点击返回",
     "expandGoal": "展开目标",
     "collapseGoal": "收起目标"

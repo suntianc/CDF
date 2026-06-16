@@ -125,7 +125,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
           </div>
         ) : (
           <div className="max-w-[760px] mx-auto text-xs text-[var(--color-text-muted)] font-mono">
-            {isRunning ? t('subagentView.waiting') : t('subagentView.noOutput')}
+            {isRunning ? t('subagentView.waiting') : isFailure ? t('subagentView.noOutputFailure') : t('subagentView.noOutput')}
           </div>
         )}
       </div>
