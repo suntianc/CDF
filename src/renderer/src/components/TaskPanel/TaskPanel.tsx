@@ -158,7 +158,7 @@ function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
         type="button"
         aria-label={`${agentName} (${statusText})`}
         onClick={onSelect}
-        className={`flex items-center gap-1.5 w-full py-1.5 min-h-9 text-left rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
+        className={`flex items-center gap-1.5 w-full py-1.5 min-h-11 text-left rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
           isActive ? 'bg-[var(--color-accent-dim)]' : 'hover:bg-[var(--color-bg-hover)]'
         }`}
       >
@@ -300,10 +300,10 @@ function TaskPanelContent() {
             <ApprovalActionCard key={`${action.name}-${index}`} action={action} />
           ))}
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-primary text-xs" onClick={() => resolveApproval('approve')}>
+            <button type="button" className="btn btn-primary text-xs min-h-11" onClick={() => resolveApproval('approve')}>
               {t('common.approve')}
             </button>
-            <button type="button" className="btn btn-secondary text-xs text-[var(--color-danger)]" onClick={() => resolveApproval('reject')}>
+            <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" onClick={() => resolveApproval('reject')}>
               {t('common.reject')}
             </button>
           </div>
@@ -363,7 +363,7 @@ function TaskPanelContent() {
                 {/* Vertical timeline rail */}
                 {sortedTasks.length > 1 && (
                   <div
-                    className="absolute left-[3px] top-3 bottom-3 w-px bg-[var(--color-border)]"
+                    className="absolute left-0.5 top-3 bottom-3 w-px bg-[var(--color-border)]"
                     aria-hidden="true"
                   />
                 )}
@@ -441,7 +441,7 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
         <>
           <div
             onMouseDown={handleMouseDown}
-            className="absolute left-[-22px] top-0 bottom-0 w-11 cursor-col-resize z-50 flex justify-center"
+            className="absolute -left-6 top-0 bottom-0 w-11 cursor-col-resize z-50 flex justify-center"
           >
             <div
               role="separator"

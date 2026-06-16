@@ -49,7 +49,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          className="flex items-center gap-1.5 text-xs min-h-11 py-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           {t('subagentView.backToMaster')}
@@ -64,7 +64,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
         />
         <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{task.agentName}</span>
         <span className="text-xs font-mono text-[var(--color-text-secondary)] tabular-nums ml-auto">
-          {tokenDisplay} tokens{elapsed ? ` · ${elapsed}` : ''}
+          {tokenDisplay} {t('taskPanel.tokenUnit')}{elapsed ? ` · ${elapsed}` : ''}
         </span>
       </div>
 
@@ -72,7 +72,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
       {task.goal && (
         <div className="px-6 pt-3 pb-1 shrink-0 border-b border-[var(--color-border)]/40">
           <div className="text-xs font-semibold text-[var(--color-text-muted)] mb-1">{t('taskPanel.taskGoal')}:</div>
-          <div className={`relative text-xs text-[var(--color-text-secondary)] leading-relaxed max-w-[65ch] ${
+          <div className={`relative text-xs text-[var(--color-text-secondary)] leading-relaxed ${
             goalNeedsCollapse
               ? goalExpanded ? 'max-h-[40vh] overflow-y-auto' : `${GOAL_COLLAPSED_MAX_H} overflow-hidden`
               : ''
@@ -86,6 +86,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
             <button
               type="button"
               onClick={() => setGoalExpanded(!goalExpanded)}
+              aria-expanded={goalExpanded}
               className="flex items-center gap-0.5 mt-1 text-xs text-[var(--color-accent)] hover:underline"
             >
               {goalExpanded ? (

@@ -27,6 +27,7 @@ import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { GoalSystemBubble } from './GoalSystemBubble';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ContextButton } from '@/components/Composer/ContextButton';
+import { SubagentView } from './SubagentView';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -218,6 +219,13 @@ export function ChatArea({
   const { agents, fetchAgents } = useAgentStore();
   const { status: goalStatus, goal: activeGoal } = useGoalJudgeStatus(activeSessionId || '');
   const hasActiveGoal = !!(activeSessionId && goalStatus && activeGoal);
+  const viewingSubagentId = useSessionStore((s) => s.viewingSubagentId);
+  const setViewingSubagent = useSessionStore((s) => s.setViewingSubagent);
+  const delegatedTasks = useSessionStore((s) => s.delegatedTasks);
+  const viewingTask = useMemo(
+    () => viewingSubagentId ? delegatedTasks.find((t) => t.taskId === viewingSubagentId) ?? null : null,
+    [viewingSubagentId, delegatedTasks],
+  );
 
   const [inputVal, setInputVal] = useState('');
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
@@ -1389,7 +1397,7 @@ export function ChatArea({
           <div className="main-topbar-right flex items-center gap-2 ml-auto no-drag">
             <button
               onClick={onToggleTaskPanel}
-              className={`w-6 h-6 flex items-center justify-center cursor-pointer rounded-md transition-all ${
+              className={`w-11 h-11 flex items-center justify-center cursor-pointer rounded-md transition-all ${
                 taskPanelOpen 
                   ? 'text-[var(--color-accent)]' 
                   : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
@@ -1402,106 +1410,112 @@ export function ChatArea({
           </div>
         </header>
 
-        {/* Messages Viewport */}
+        {/* Messages Viewport — sub-agent view or master conversation */}
         <div className="flex-1 relative overflow-hidden">
-          {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
+          {viewingTask ? (
+            <SubagentView task={viewingTask} onBack={() => setViewingSubagent(null)} />
+          ) : (
+            <>
+              {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
 
-          <div
-            ref={scrollContainerRef}
-            onScroll={handleScroll}
-            className="messages absolute inset-0 overflow-y-auto"
-            style={{ 
-              paddingBottom: '180px',
-              paddingTop: hasActiveGoal ? '64px' : '0px'
-            }}
-          >
-            {/* Messages List */}
-            {processedItems.map((item, idx) => {
-              if (item.type === 'pending_approval_block') {
-                return (
-                  <PendingApprovalCard
-                    key={item.id}
-                    approval={item.approval}
-                    onOpenTaskPanel={onOpenTaskPanel}
-                  />
-                );
-              }
-              if (item.type === 'folded_block') {
-                return (
-                  <FoldedBlockCard
-                    key={item.id}
-                    duration={item.duration}
-                    items={item.foldedItems}
-                  />
-                );
-              }
-              if (item.type === 'tool_group') {
-                return (
-                  <ToolGroupCard
-                    key={item.id}
-                    tools={item.tools}
-                  />
-                );
-              }
-              if (item.type === 'message' && item.message) {
-                return (
-                  <MessageItem
-                    key={item.id}
-                    message={item.message}
-                    isLast={idx === processedItems.length - 1}
-                    isStreaming={isStreaming}
-                  />
-                );
-              }
-              return null;
-            })}
+              <div
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="messages absolute inset-0 overflow-y-auto"
+                style={{
+                  paddingBottom: '180px',
+                  paddingTop: hasActiveGoal ? '64px' : '0px'
+                }}
+              >
+                {/* Messages List */}
+                {processedItems.map((item, idx) => {
+                  if (item.type === 'pending_approval_block') {
+                    return (
+                      <PendingApprovalCard
+                        key={item.id}
+                        approval={item.approval}
+                        onOpenTaskPanel={onOpenTaskPanel}
+                      />
+                    );
+                  }
+                  if (item.type === 'folded_block') {
+                    return (
+                      <FoldedBlockCard
+                        key={item.id}
+                        duration={item.duration}
+                        items={item.foldedItems}
+                      />
+                    );
+                  }
+                  if (item.type === 'tool_group') {
+                    return (
+                      <ToolGroupCard
+                        key={item.id}
+                        tools={item.tools}
+                      />
+                    );
+                  }
+                  if (item.type === 'message' && item.message) {
+                    return (
+                      <MessageItem
+                        key={item.id}
+                        message={item.message}
+                        isLast={idx === processedItems.length - 1}
+                        isStreaming={isStreaming}
+                      />
+                    );
+                  }
+                  return null;
+                })}
 
-            {/* Typing Indicator while streaming empty block */}
-            {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
-              <div className="message assistant" role="status" aria-label={t('chat.generating')}>
-                <div className="message-row">
-                  <div className="flex items-center gap-1 py-1.5" aria-hidden="true">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '150ms' }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Error Banner */}
-            {error && (
-              <div role="alert" aria-live="assertive" className="p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-xl flex items-start gap-2.5 text-xs text-[var(--color-danger)] shadow-sm animate-shake">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
-                <div className="flex-1 min-w-0">
-                  <div>{error.message}</div>
-                  {error.recoverableActions && error.recoverableActions.length > 0 && (
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      {error.recoverableActions.map((a) => (
-                        <button key={a.label} type="button" onClick={() => { a.action(); clearError(); }} className="text-[var(--color-danger)] underline underline-offset-2 hover:no-underline font-medium cursor-pointer">
-                          {a.label}
-                        </button>
-                      ))}
+                {/* Typing Indicator while streaming empty block */}
+                {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
+                  <div className="message assistant" role="status" aria-label={t('chat.generating')}>
+                    <div className="message-row">
+                      <div className="flex items-center gap-1 py-1.5" aria-hidden="true">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '0ms' }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '150ms' }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '300ms' }} />
+                      </div>
                     </div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={clearError}
-                  className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-danger)]"
-                  aria-label={t('chat.dismissError')}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+                  </div>
+                )}
 
-            <div ref={messagesEndRef} />
-          </div>
+                {/* Error Banner */}
+                {error && (
+                  <div role="alert" aria-live="assertive" className="p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-xl flex items-start gap-2.5 text-xs text-[var(--color-danger)] shadow-sm animate-shake">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                    <div className="flex-1 min-w-0">
+                      <div>{error.message}</div>
+                      {error.recoverableActions && error.recoverableActions.length > 0 && (
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          {error.recoverableActions.map((a) => (
+                            <button key={a.label} type="button" onClick={() => { a.action(); clearError(); }} className="text-[var(--color-danger)] underline underline-offset-2 hover:no-underline font-medium cursor-pointer">
+                              {a.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearError}
+                      className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-danger)]"
+                      aria-label={t('chat.dismissError')}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Input Composer Panel */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 z-10 pointer-events-none">
+        {/* Input Composer Panel — hidden when viewing sub-agent */}
+        <div className={`absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 z-10 pointer-events-none ${viewingTask ? 'hidden' : ''}`}>
           {/* Background gradient overlay with fixed height to prevent compression when todo list collapses */}
           <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/85 to-transparent z-0 pointer-events-none" />
           <div className="relative z-10 w-full max-w-[760px] mx-auto flex flex-col gap-3 pointer-events-auto">
