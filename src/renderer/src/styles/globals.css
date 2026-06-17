@@ -419,7 +419,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 .model-group-name {
   padding: 4px 12px;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -508,7 +508,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .dialog-footer-hint {
-  font-size: 11px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   user-select: none;
 }
@@ -519,7 +519,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   padding: 1px 4px;
   border-radius: 3px;
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 /* ═══ Window Drag Regions ═══ */
@@ -561,7 +561,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   color: var(--text-primary);
 }
 .main-topbar-left .project-badge {
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 500;
   padding: 2px 10px;
   border-radius: 10px;
@@ -742,7 +742,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .provider-type {
-  font-size: 11px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   margin-top: 2px;
 }
@@ -771,7 +771,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .models-label {
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -916,7 +916,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .form-hint {
-  font-size: 11px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -1091,7 +1091,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .message-time {
-  font-size: 10px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   margin-top: 4px;
   font-family: var(--font-mono);
