@@ -138,7 +138,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
           <button
             type="button"
             onClick={onBack}
-            className="rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] shadow-lg px-4 py-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+            className="rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] shadow-lg min-h-11 px-4 py-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
           >
             {t('subagentView.masterUpdating')}
           </button>
