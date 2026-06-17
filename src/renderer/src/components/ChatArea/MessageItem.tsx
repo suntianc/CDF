@@ -129,26 +129,36 @@ const parseThinkBlocks = (content: string): ThinkBlocks => {
   return { thinkParts, mainContent: mainContent.trim(), isThinkingFinished };
 };
 
-interface MessageItemProps {
+export interface MessageItemProps {
   message: any;
   isLast: boolean;
   isStreaming: boolean;
 }
 
-export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemProps) => {
-  const isFinished = useMemo(() => checkThinkingFinished(message.content), [message.content]);
+export interface MessageContentRendererProps {
+  content: string;
+  isLast: boolean;
+  isStreaming: boolean;
+  messageId?: string;
+  thinkDurationSeconds?: number;
+  thinkRecent?: boolean;
+}
 
-  // 刚刚生成的消息（2分钟以内创建），在流式或刚结束时默认保持展开，防止意外重装折叠
-  const isRecent = useMemo(() => {
-    return (Date.now() - message.created_at) < 120 * 1000;
-  }, [message.created_at]);
+export const MessageContentRenderer = memo(({
+  content,
+  isLast,
+  isStreaming,
+  messageId,
+  thinkDurationSeconds,
+  thinkRecent = false,
+}: MessageContentRendererProps) => {
+  const isFinished = useMemo(() => checkThinkingFinished(content), [content]);
 
   const [thinkExpanded, setThinkExpanded] = useState(() => {
-    if (isRecent) return true;
+    if (thinkRecent) return true;
     return !isFinished;
   });
 
-  // 计时的 React 状态
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [finalDuration, setFinalDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -172,36 +182,17 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
   useEffect(() => {
     if (isFinished && elapsedSeconds > 0 && finalDuration === null) {
       setFinalDuration(elapsedSeconds);
-      // Persist real think duration so historical reloads show accurate timing
-      if (message.id && !message.think_duration_seconds) {
-        useSessionStore.getState().updateMessageThinkDuration(message.id, elapsedSeconds);
+      if (messageId && !thinkDurationSeconds) {
+        useSessionStore.getState().updateMessageThinkDuration(messageId, elapsedSeconds);
       }
     }
-  }, [isFinished, elapsedSeconds, finalDuration, message.id, message.think_duration_seconds]);
+  }, [isFinished, elapsedSeconds, finalDuration, messageId, thinkDurationSeconds]);
 
-  // === 平滑打字机调度（rAF 驱动，自适应步长） ===
   const { displayedContent, isTypewriting } = useTypewriter(
-    message.content,
+    content,
     isStreaming && isLast
   );
 
-  // Helper to parse tool JSON
-  const toolInfo = useMemo(() => {
-    if (message.role !== 'system') return null;
-    try {
-      const parsed = JSON.parse(message.content);
-      if (parsed && parsed.type === 'tool') {
-        return parsed;
-      }
-    } catch (e) {
-      // Not a JSON tool message, treat as regular system message
-    }
-    return null;
-  }, [message.content, message.role]);
-
-  // Render a non-code markdown segment with at-token substitution.
-  // Caller is responsible for splitting on code blocks so that `@` inside
-  // backticks is never tokenized — markdown code renders literally.
   const renderAtSegment = (segment: string, baseKey: number): React.ReactNode[] => {
     if (!segment) return [];
     const atTokens = parseAtTokens(segment);
@@ -236,13 +227,6 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return parts;
   };
 
-  // Render markdown content with at-token substitution. Walks the string once
-  // with a tiny state machine so:
-  //   1. `@` inside fenced ``` or inline `…` code is never tokenized.
-  //   2. Unbalanced backticks (LLM streamed a stray ` mid-response) do not
-  //      swallow the rest of the message.
-  //   3. Unreasonably large payloads skip the scan and fall through to a
-  //      single StreamdownRenderer to avoid freezing the main thread.
   const AT_TOKEN_SCAN_LIMIT = 50_000;
 
   const renderContentWithAtTokens = (text: string): React.ReactNode => {
@@ -261,13 +245,11 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       const tick = text.indexOf('`', cursor);
 
       if (!fenceOpen && tick === -1) {
-        // No more code spans — rest is plain prose, scan for at-tokens.
         segments.push(...renderAtSegment(text.slice(cursor), key++));
         break;
       }
 
       if (fenceOpen && (tick === -1 || cursor === tick)) {
-        // Fenced code block: advance until the matching closing ``` (or EOS).
         const close = text.indexOf('```', cursor + 3);
         const end = close === -1 ? len : close + 3;
         segments.push(
@@ -278,11 +260,9 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       }
 
       if (!fenceOpen && tick !== -1) {
-        // Prose gap before the inline backtick: scan for at-tokens.
         if (tick > cursor) {
           segments.push(...renderAtSegment(text.slice(cursor, tick), key++));
         }
-        // Inline code: advance to the matching closing ` (same length) or EOS.
         const tickLen = countBackticks(text, tick);
         const closer = findInlineCodeClose(text, tick, tickLen);
         const end = closer === -1 ? len : closer + tickLen;
@@ -318,11 +298,10 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return -1;
   }
 
-  const renderMessageContent = (content: string) => {
-    if (!content) return null;
+  const renderMessageContent = (contentString: string) => {
+    if (!contentString) return null;
 
-    // 清洗多余的 </think> 标签（例如由于主进程补发与大模型输出重叠产生的冗余闭合标签）
-    let cleanContent = content;
+    let cleanContent = contentString;
     const thinkCount = (cleanContent.match(/<think>/g) || []).length;
     const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
     if (thinkEndCount > thinkCount) {
@@ -347,7 +326,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         const getThinkingTime = () => {
           if (!finished) return elapsedSeconds;
           if (finalDuration !== null) return finalDuration;
-          if (message.think_duration_seconds) return message.think_duration_seconds;
+          if (thinkDurationSeconds) return thinkDurationSeconds;
           return null;
         };
 
@@ -380,7 +359,6 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       );
     }
 
-    // Finished path: folded think block + main, both routed through StreamdownRenderer.
     const firstThink = cleanContent.indexOf('<think>');
     if (firstThink === -1) {
       return (
@@ -390,29 +368,17 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       );
     }
 
-    // Delegate to the shared parser, then split its pre/post/main
-    // segments into the three pieces the folded block needs:
-    //   - preContentTrimmed  → main rendered above the fold
-    //   - postContentTrimmed → main rendered below the fold
-    //   - foldedContent      → the think trace, concatenated
     const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
     const foldedContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
 
-    // Locate the segments around the first <think> fence so the folded
-    // block sits between pre-content and post-content.
     const firstClose = cleanContent.indexOf('</think>', firstThink);
     const preContentTrimmed = cleanContent.substring(0, firstThink).trim();
     const postContentTrimmed = (firstClose === -1
       ? ''
       : cleanContent.substring(firstClose + 8)
     ).trim();
-    void mainContent; // pre/post already slice the right segments
 
-    const resolvedSeconds = finalDuration ?? message.think_duration_seconds ?? null;
-    // Honest header: if the LLM is still emitting the trace (the
-    // unclosed-`<think>` case), do not claim "思考完成". The folded
-    // block appears for any message with a non-empty think trace, so
-    // it can render while the stream is still in progress.
+    const resolvedSeconds = finalDuration ?? thinkDurationSeconds ?? null;
     const headerText = isThinkingFinished
       ? resolvedSeconds !== null
         ? `思考完成 (用时 ${formatDuration(resolvedSeconds)})`
@@ -441,6 +407,36 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     );
   };
 
+  return <>{renderMessageContent(displayedContent)}</>;
+}, (prevProps, nextProps) => {
+  if (nextProps.isLast && nextProps.isStreaming) {
+    return false;
+  }
+  return prevProps.content === nextProps.content &&
+         prevProps.isLast === nextProps.isLast &&
+         prevProps.isStreaming === nextProps.isStreaming &&
+         prevProps.messageId === nextProps.messageId &&
+         prevProps.thinkDurationSeconds === nextProps.thinkDurationSeconds &&
+         prevProps.thinkRecent === nextProps.thinkRecent;
+});
+
+export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemProps) => {
+  const isRecent = useMemo(() => {
+    return (Date.now() - message.created_at) < 120 * 1000;
+  }, [message.created_at]);
+
+  const toolInfo = useMemo(() => {
+    if (message.role !== 'system') return null;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.type === 'tool') {
+        return parsed;
+      }
+    } catch (e) {
+    }
+    return null;
+  }, [message.content, message.role]);
+
   if (toolInfo) {
     return <ToolMessageCard toolInfo={toolInfo} createdAt={message.created_at} />;
   }
@@ -448,7 +444,14 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
   return (
     <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
       <div className="message-row">
-        {renderMessageContent(displayedContent)}
+        <MessageContentRenderer
+          content={message.content}
+          isLast={isLast}
+          isStreaming={isStreaming}
+          messageId={message.id}
+          thinkDurationSeconds={message.think_duration_seconds}
+          thinkRecent={isRecent}
+        />
         <div className="message-time">
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}
@@ -457,12 +460,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     </div>
   );
 }, (prevProps, nextProps) => {
-  // During active streaming of the last message, content changes on every
-  // chunk. We MUST re-render when the message object changes (each chunk
-  // produces a new object via .map() in sessionStore). For non-streaming
-  // historical messages, content is stable so identity comparison is fine.
   if (nextProps.isLast && nextProps.isStreaming) {
-    // Always re-render the actively-streaming message — content is updating
     return false;
   }
   return prevProps.message === nextProps.message &&

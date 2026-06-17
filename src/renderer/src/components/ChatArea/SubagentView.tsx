@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { DelegatedTask } from '../../stores/sessionStore';
 import { StreamdownRenderer } from './StreamdownRenderer';
+import { MessageContentRenderer } from './MessageItem';
 
 const GOAL_COLLAPSED_MAX_H = 'max-h-[4.5em]';
 
@@ -118,10 +119,13 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
       >
         {totalText ? (
           <div className="max-w-[760px] mx-auto pb-20">
-            <StreamdownRenderer text={totalText} isTypewriting={isRunning} />
-            {isRunning && (
-              <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none align-middle" />
-            )}
+            <MessageContentRenderer
+              content={totalText}
+              isLast={isRunning}
+              isStreaming={isRunning}
+              messageId={task.taskId}
+              thinkRecent={isRunning}
+            />
           </div>
         ) : (
           <div className={`max-w-[760px] mx-auto text-xs font-mono ${
