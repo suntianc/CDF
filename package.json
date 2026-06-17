@@ -23,6 +23,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
     "@assistant-ui/react": "^0.14.5",
+    "@fontsource-variable/plus-jakarta-sans": "^5.2.8",
     "@langchain/anthropic": "^1.4.0",
     "@langchain/core": "^1.1.48",
     "@langchain/langgraph": "^1.3.2",

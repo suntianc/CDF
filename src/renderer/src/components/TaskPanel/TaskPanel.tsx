@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
+import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { DelegatedTask } from '../../stores/sessionStore';
@@ -144,28 +144,38 @@ function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
   }, [tokenDisplay, isRunning, task.startedAt, task.completedAt, t]);
 
   return (
-    <div className="relative pl-4">
-      <div className="absolute left-0 top-3 flex items-center justify-center w-2 h-2" aria-hidden="true">
-        {isRunning
-          ? <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none" />
-          : isFailure
-            ? <span className="w-2 h-2 rounded-full bg-[var(--color-danger)]" />
-            : <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
-        }
+    <div className="relative pl-7 pb-3 last:pb-0">
+      {/* Masking container for status icon to align with timeline rail */}
+      <div 
+        className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 bg-[var(--color-bg-sidebar)] rounded-full z-10" 
+        aria-hidden="true"
+      >
+        {isRunning ? (
+          <Loader className="w-4 h-4 animate-spin text-[var(--color-accent)] motion-reduce:animate-none" />
+        ) : isFailure ? (
+          <XCircle className="w-4 h-4 text-[var(--color-danger)]" />
+        ) : (
+          <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />
+        )}
       </div>
 
       <button
         type="button"
         aria-label={`${agentName} (${statusText})`}
         onClick={onSelect}
-        className={`flex items-center gap-1.5 w-full py-1.5 min-h-11 text-left rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
-          isActive ? 'bg-[var(--color-accent-dim)]' : 'hover:bg-[var(--color-bg-hover)]'
+        className={`w-full text-left p-2.5 rounded-md border transition-all duration-150 ease-out focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+          isActive
+            ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30 shadow-sm'
+            : 'bg-[var(--color-bg-surface)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
         }`}
       >
-        <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{agentName}</span>
-        <span className="text-xs font-mono text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap ml-auto shrink-0">
-          {metricsText}
-        </span>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{agentName}</span>
+          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px] text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
+            <span>{metricsText}</span>
+            <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)]" aria-hidden="true" />
+          </div>
+        </div>
       </button>
     </div>
   );
@@ -296,14 +306,16 @@ function TaskPanelContent() {
               </div>
             </div>
           </div>
-          {pendingApproval.actions.map((action, index) => (
-            <ApprovalActionCard key={`${action.name}-${index}`} action={action} />
-          ))}
+          <div id="pending-approval-actions" className="space-y-3 w-full">
+            {pendingApproval.actions.map((action, index) => (
+              <ApprovalActionCard key={`${action.name}-${index}`} action={action} />
+            ))}
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-primary text-xs min-h-11" onClick={() => resolveApproval('approve')}>
+            <button type="button" className="btn btn-primary text-xs min-h-11" aria-describedby="pending-approval-actions" onClick={() => resolveApproval('approve')}>
               {t('common.approve')}
             </button>
-            <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" onClick={() => resolveApproval('reject')}>
+            <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" aria-describedby="pending-approval-actions" onClick={() => resolveApproval('reject')}>
               {t('common.reject')}
             </button>
           </div>
@@ -348,7 +360,7 @@ function TaskPanelContent() {
             {/* Synthesis indicator */}
             {allSubagentsComplete && isMasterRunning && (
               // [P1-A] motion-reduce on both pulse and spin
-              <div className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-xs text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
+              <div aria-live="polite" className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-xs text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
                 <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 <span>{t('taskPanel.synthesizing', { count: total })}</span>
               </div>
@@ -363,11 +375,11 @@ function TaskPanelContent() {
                 {/* Vertical timeline rail */}
                 {sortedTasks.length > 1 && (
                   <div
-                    className="absolute left-0.5 top-3 bottom-3 w-px bg-[var(--color-border)]"
+                    className="absolute left-2 top-3 bottom-3 w-px bg-[var(--color-border)]"
                     aria-hidden="true"
                   />
                 )}
-                <div className="space-y-0.5">
+                <div className="space-y-0">
                   {sortedTasks.map((task) => (
                     <DelegatedTaskCard
                       key={task.taskId}
@@ -454,7 +466,7 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
                 if (e.key === 'ArrowLeft') { onResize(Math.max(300, width - 40)); }
                 if (e.key === 'ArrowRight') { onResize(Math.min(600, width + 40)); }
               }}
-              className={`w-1.5 h-full transition-colors duration-150 motion-reduce:transition-none outline-none ${isResizing ? 'bg-[var(--color-accent)]/80' : 'hover:bg-[var(--color-accent)]/40'}`}
+              className={`w-1.5 h-full transition-colors duration-150 motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ${isResizing ? 'bg-[var(--color-accent)]/80' : 'hover:bg-[var(--color-accent)]/40'}`}
             />
           </div>
 

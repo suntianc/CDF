@@ -381,6 +381,37 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           },
         }
       );
+
+      // Correlation between toolStreamPromise and subagentsStreamPromise:
+      // toolStreamPromise registers taskId per agent slug; subagentsStreamPromise claims it.
+      const _subagentTaskIdsReady = new Map<string, string[]>();
+      const _subagentTaskIdWaiters = new Map<string, ((id: string) => void)[]>();
+      const registerSubagentTaskId = (slug: string, taskId: string): void => {
+        const waiters = _subagentTaskIdWaiters.get(slug);
+        if (waiters?.length) {
+          const resolve = waiters.shift()!;
+          if (!waiters.length) _subagentTaskIdWaiters.delete(slug);
+          resolve(taskId);
+        } else {
+          const queue = _subagentTaskIdsReady.get(slug) ?? [];
+          queue.push(taskId);
+          _subagentTaskIdsReady.set(slug, queue);
+        }
+      };
+      const claimSubagentTaskId = (slug: string): Promise<string> => {
+        const queue = _subagentTaskIdsReady.get(slug);
+        if (queue?.length) {
+          const id = queue.shift()!;
+          if (!queue.length) _subagentTaskIdsReady.delete(slug);
+          return Promise.resolve(id);
+        }
+        return new Promise<string>((resolve) => {
+          const waiters = _subagentTaskIdWaiters.get(slug) ?? [];
+          waiters.push(resolve);
+          _subagentTaskIdWaiters.set(slug, waiters);
+        });
+      };
+
       const messageStreamPromise = (async () => {
         for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
@@ -518,6 +549,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               agentName,
               goal,
             });
+            registerSubagentTaskId(agentSlug, taskId);
+          }
+
+          if (call.name === 'task') {
+            accumulator.onText = (text: string) => {
+              sender.send(channel, { type: 'delegated_task_chunk', taskId: toolCallId, text });
+            };
           }
 
           try {
@@ -650,6 +688,29 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 });
               }
             }
+          } finally {
+            if (call.name === 'task') {
+              accumulator.onText = undefined;
+            }
+          }
+        }
+      })();
+
+      // Consume run.subagents to stream sub-agent LLM tokens as delegated_task_chunk events
+      const subagentsStreamPromise = (async () => {
+        const subagents = (run as any).subagents;
+        if (!subagents || typeof subagents[Symbol.asyncIterator] !== 'function') return;
+        for await (const sub of subagents as AsyncIterable<{ name: string; messages: AsyncIterable<{ text: AsyncIterable<string> }> }>) {
+          if (controller.signal.aborted) break;
+          const taskId = await claimSubagentTaskId(sub.name);
+          for await (const message of sub.messages) {
+            if (controller.signal.aborted) break;
+            for await (const textDelta of message.text) {
+              if (controller.signal.aborted) break;
+              if (textDelta) {
+                sender.send(channel, { type: 'delegated_task_chunk', taskId, text: textDelta });
+              }
+            }
           }
         }
       })();
@@ -682,7 +743,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       })();
 
+      // subagentsStreamPromise is intentionally non-blocking: the SDK's
+      // StreamChannel may not close when the run ends, and a slug mismatch
+      // between registerSubagentTaskId (uses input.name fallback) and
+      // claimSubagentTaskId (SDK uses subagent_type only) can deadlock.
+      // Letting it race against the core promises ensures message_done fires.
       await Promise.all([messageStreamPromise, toolStreamPromise, valuesStreamPromise]);
+      subagentsStreamPromise.catch(() => {});
 
       let interruptValue = getStreamInterruptValue(run);
       let output: any;

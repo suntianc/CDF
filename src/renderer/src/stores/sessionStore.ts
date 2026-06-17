@@ -96,6 +96,8 @@ interface SessionState {
   setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => void;
   getGoalJudgeStatus: (sessionId: string) => GoalJudgeStatusEntry | undefined;
   clearGoalJudgeStatus: (sessionId: string) => void;
+  viewingSubagentId: string | null;
+  setViewingSubagent: (id: string | null) => void;
   resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
@@ -153,6 +155,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return {};
     }
   })(),
+
+  viewingSubagentId: null,
+  setViewingSubagent: (id) => set({ viewingSubagentId: id }),
 
   setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
     set((state) => {
@@ -275,7 +280,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   selectSession: async (sessionId: string | null) => {
     const requestId = ++latestSelectSessionRequestId;
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null, viewingSubagentId: null });
       return;
     }
     try {
@@ -293,6 +298,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           isStreaming: cached.isStreaming,
           streamingMessageId: cached.streamingMessageId,
           error: null,
+          viewingSubagentId: null,
         });
       } else {
         set({ error: null });

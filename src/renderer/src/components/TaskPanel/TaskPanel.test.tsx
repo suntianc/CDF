@@ -20,10 +20,6 @@ vi.mock('../../stores/agentStore', () => ({
   useAgentStore: () => [],
 }));
 
-vi.mock('./AgentTraceModal', () => ({
-  AgentTraceModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="trace-modal-open" /> : null,
-}));
 
 beforeEach(() => {
   fetchAgentActivity.mockReset();
@@ -37,6 +33,8 @@ beforeEach(() => {
     pendingApproval: null,
     fetchAgentActivity,
     resolveApproval: vi.fn(),
+    viewingSubagentId: null,
+    setViewingSubagent: vi.fn(),
   };
 });
 
@@ -175,9 +173,11 @@ describe('TaskPanel — Activity Trail', () => {
     expect(resolveApproval).toHaveBeenCalledWith('approve');
   });
 
-  it('D-09: failure expanded body contains error summary with no recoverable action buttons', async () => {
+  it('D-09: clicking a delegated task card selects it for viewing', async () => {
+    const setViewingSubagent = vi.fn();
     sessionState = {
       ...sessionState,
+      setViewingSubagent,
       delegatedTasks: [
         {
           taskId: 'fail-task', agentName: 'FailAgent', agentSlug: 'fail',
@@ -191,20 +191,10 @@ describe('TaskPanel — Activity Trail', () => {
       <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
     );
 
-    // Failure tasks don't auto-expand; click toggle to open
     const toggleBtn = getByText('FailAgent').closest('button') as Element;
     fireEvent.click(toggleBtn);
 
-    await waitFor(() => expect(getByText('request timed out after 30s')).toBeTruthy());
-    expect(getByText('ERR_TIMEOUT')).toBeTruthy();
-
-    // The expanded body should have no retry / action buttons — only toggle + trace buttons
-    const failCard = getByText('FailAgent').closest('.relative') as Element;
-    const buttons = Array.from(failCard?.querySelectorAll('button') ?? []);
-    const actionButtonLabels = buttons.map((b) =>
-      (b.textContent?.trim() || b.getAttribute('aria-label') || '').toLowerCase()
-    );
-    expect(actionButtonLabels.some((label) => /retry|重试|再试|try again/.test(label))).toBe(false);
+    expect(setViewingSubagent).toHaveBeenCalledWith('fail-task');
   });
 
   it('D-10: task entry remains visible in timeline after transitioning out of waiting_approval', () => {
@@ -224,23 +214,4 @@ describe('TaskPanel — Activity Trail', () => {
     expect(getByText('ApprovedAgent')).toBeTruthy();
   });
 
-  it('AgentTraceModal: clicking view-trace button opens the modal', () => {
-    sessionState = {
-      ...sessionState,
-      delegatedTasks: [
-        {
-          taskId: 'trace-task', agentName: 'TraceAgent', agentSlug: 'trace',
-          status: 'running', startedAt: Date.now(), chunks: ['work in progress'],
-        },
-      ],
-    };
-    const { getByLabelText, getByTestId } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
-    );
-
-    const traceBtn = getByLabelText('taskPanel.viewTrace');
-    fireEvent.click(traceBtn);
-
-    expect(getByTestId('trace-modal-open')).toBeTruthy();
-  });
 });

@@ -9,6 +9,7 @@ export class LLMStreamAccumulator {
   isInPatchedInvoke = false;
   sender?: any;
   channel?: string;
+  onText?: (text: string) => void;
 
   appendReasoning(text: string): void {
     this.reasoningText += text;
@@ -23,6 +24,10 @@ export class LLMStreamAccumulator {
 
   appendText(text: string): void {
     this.normalText += text;
+    if (this.onText) {
+      this.onText(text);
+      return;
+    }
     if (this.isInPatchedInvoke && this.sender && this.channel) {
       if (this.hasSentReasoning && !this.hasSentReasoningClosed) {
         this.sender.send(this.channel, { type: 'message_chunk', text: '</think>\n\n' });
