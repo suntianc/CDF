@@ -100,7 +100,7 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
       {summary.preview && (
         <div className="bg-[var(--color-bg-app)] px-2 py-1.5">
           <div className="text-xs text-[var(--color-text-secondary)]">{summary.previewLabel}</div>
-          <pre className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--color-text-primary)]">
+          <pre className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--color-text-primary)]" title={summary.preview}>
             {summary.preview}
           </pre>
         </div>
