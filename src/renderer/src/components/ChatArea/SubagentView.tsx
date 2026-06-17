@@ -87,7 +87,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
               type="button"
               onClick={() => setGoalExpanded(!goalExpanded)}
               aria-expanded={goalExpanded}
-              className="flex items-center gap-0.5 mt-1 text-xs text-[var(--color-accent)] hover:underline"
+              className="flex items-center gap-0.5 mt-1 min-h-8 py-1.5 text-xs text-[var(--color-accent)] hover:underline"
             >
               {goalExpanded ? (
                 <><ChevronUp className="w-3 h-3" />{t('subagentView.collapseGoal')}</>
