@@ -7,13 +7,15 @@ const {
   createLangChainModelMock,
   loadMcpToolsMock,
   resolveAgentSkillsConfigMock,
+  toolStrategyMock,
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   decryptApiKeyMock: vi.fn((value: string) => `decrypted:${value}`),
   createLangChainModelMock: vi.fn(() => ({ model: 'mock-model' })),
   loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
-  resolveAgentSkillsConfigMock: vi.fn(() => ({ skillsSources: [] })),
+  resolveAgentSkillsConfigMock: vi.fn(() => ({ skillsSources: [], permissions: [] })),
+  toolStrategyMock: vi.fn((schema: any) => ({ type: 'tool_strategy', schema })),
 }));
 
 vi.mock('deepagents', () => ({
@@ -43,6 +45,10 @@ vi.mock('../deepagent/mcp-connector', () => ({
 
 vi.mock('../deepagent/skill-manager', () => ({
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
+}));
+
+vi.mock('langchain', () => ({
+  toolStrategy: toolStrategyMock,
 }));
 
 vi.mock('fs', () => ({
@@ -388,6 +394,78 @@ describe('createAgentNodeExecutor', () => {
       position: { x: 0, y: 0 },
       data: { agentId: '', label: 'Bad' },
     })).toThrow('Node node-1 has no agentId configured');
+  });
+
+  // ---- Review 节点 responseFormat 测试 ----
+
+  it('should use responseFormat with toolStrategy for review nodes', async () => {
+    const invokeMock = vi.fn(async () => ({
+      messages: [{ role: 'assistant', content: '审查完成' }],
+      structuredResponse: {
+        routing: { 'review-1': '通过' },
+        reasoning: '代码质量符合标准',
+      },
+    }));
+    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
+
+    const executor = createAgentNodeExecutor({
+      id: 'review-1',
+      type: 'review',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'Review',
+        nodeKind: 'review',
+        reviewSpec: 'check quality',
+      },
+    });
+
+    const result = await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(createDeepAgentMock).toHaveBeenCalledWith(expect.objectContaining({
+      responseFormat: expect.anything(),
+    }));
+    expect(toolStrategyMock).toHaveBeenCalled();
+    expect(result.routing).toEqual({ 'review-1': '通过' });
+    expect(result.result).toContain('代码质量符合标准');
+  });
+
+  it('should fallback to extractWorkflowRouting when review node structuredResponse is null', async () => {
+    const invokeMock = vi.fn(async () => ({
+      messages: [{ role: 'assistant', content: '{"routing":{"review-1":"拒绝"}}' }],
+    }));
+    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
+
+    const executor = createAgentNodeExecutor({
+      id: 'review-1',
+      type: 'review',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'Review',
+        nodeKind: 'review',
+        reviewSpec: 'check quality',
+      },
+    });
+
+    const result = await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(result.routing).toEqual({ 'review-1': '拒绝' });
+  });
+
+  it('should not pass responseFormat for non-review nodes', async () => {
+    const executor = createAgentNodeExecutor({
+      id: 'task-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Task', nodeKind: 'task' },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(createDeepAgentMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({ responseFormat: expect.anything() }),
+    );
   });
 
   it('should propagate execution errors from agent.invoke (not retried by validator)', async () => {
