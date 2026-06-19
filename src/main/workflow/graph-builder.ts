@@ -52,12 +52,18 @@ export function createConditionalRouter(
 
     const decision = routing[condition];
     if (decision === undefined || decision === null || decision === '') {
-      console.warn(`[graph-builder] No routing decision found for condition "${condition}", returning default`);
-      return '__default__';
+      throw new Error(
+        `[workflow-routing] 路由条件 "${condition}" 未找到决策值。节点必须在输出中设置 routing["${condition}"]。当前 routing 状态: ${JSON.stringify(routing)}`,
+      );
     }
 
     if (routeMatchers?.length) {
       const matched = routeMatchers.find((matcher) => matchesCondition(decision, matcher.operator, matcher.expected));
+      if (!matched) {
+        console.warn(
+          `[graph-builder] routing["${condition}"]="${decision}" 不匹配任何配置的条件边，fallback 到 END。已配置的匹配值: ${routeMatchers.map((m) => m.expected).join(', ')}`,
+        );
+      }
       return matched?.routeKey ?? '__default__';
     }
 
