@@ -7,6 +7,8 @@
 
 import fs from 'fs';
 import path from 'path';
+import { z } from 'zod';
+import { toolStrategy } from 'langchain';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import db from '../database';
 import { decryptApiKey } from '../security';
@@ -357,7 +359,14 @@ export function createAgentNodeExecutor(
         createFetchTool()
       ];
 
+      const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
+
       // 2. 创建 DeepAgent（整合 backend, permissions, builtInTools）
+      const reviewRoutingSchema = z.object({
+        routing: z.record(z.string(), z.string()).describe('路由决策，key 为条件键如节点 ID，value 为匹配值如通过/拒绝'),
+        reasoning: z.string().describe('审查推理说明'),
+      });
+
       const agent = createDeepAgent({
         model,
         backend,
@@ -365,9 +374,8 @@ export function createAgentNodeExecutor(
         skills: skillsSources.length > 0 ? skillsSources : undefined,
         permissions,
         tools: [...mcpRuntime.tools, ...builtInTools],
+        ...(nodeKind === 'review' ? { responseFormat: toolStrategy(reviewRoutingSchema) } : {}),
       });
-
-      const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
       const taskDescription = node.data.taskDescription || node.data.description || '';
       const nodeSpecificContext = [
         nodeKind === 'task' ? `## 普通任务节点\n任务描述: ${taskDescription || '未填写'}` : '',
@@ -384,9 +392,7 @@ export function createAgentNodeExecutor(
               `## 审查节点`,
               `规范: ${node.data.reviewSpec || taskDescription || '未填写'}`,
               node.data.reviewRules ? `条件规则:\n${node.data.reviewRules}` : '',
-              `请根据上游输出和规范给出审查描述，并在最终回复中包含 JSON 路由片段。`,
-              `默认路由条件键使用当前节点 ID: ${node.id}`,
-              `示例: {"routing":{"${node.id}":"通过"}}`,
+              `请根据上游输出和规范进行审查。系统会自动收集你的路由决策，无需在回复中手动嵌入 JSON。路由条件键默认使用当前节点 ID: ${node.id}`,
             ].filter(Boolean).join('\n')
           : '',
         nodeKind === 'foreach'
@@ -406,8 +412,10 @@ export function createAgentNodeExecutor(
         agentRow.description ? `节点描述: ${agentRow.description}` : '',
         nodeSpecificContext,
         '',
-        `如果该节点需要决定条件分支，请在最终回复中包含 JSON 片段：`,
-        `{"routing":{"路由条件键":"匹配值"}}`,
+        ...(nodeKind !== 'review' ? [
+          `如果该节点需要决定条件分支，请在最终回复中包含 JSON 片段：`,
+          `{"routing":{"路由条件键":"匹配值"}}`,
+        ] : []),
         '',
         `## 输入参数`,
         JSON.stringify(inputs, null, 2),
@@ -636,12 +644,88 @@ export function createAgentNodeExecutor(
         };
       }
 
-      // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
+      // 4. 审查节点使用 structuredResponse 获取路由决策
+      if (nodeKind === 'review') {
+        onStep?.({ ts: Date.now(), type: 'task_start', label: '[Review] 开始执行审查节点' });
+
+        const toolRunNames = new Map<string, string>();
+        const toolRunStartedAt = new Map<string, number>();
+        const push = (step: Omit<ExecutionStep, 'ts'> & { ts?: number }) => {
+          onStep?.({ ts: Date.now(), ...step });
+        };
+
+        const reviewResult = await agent.invoke(
+          { messages: [{ role: 'user', content: taskContext }] },
+          {
+            callbacks: [
+              {
+                handleLLMStart() {},
+                handleLLMEnd(output: any) {
+                  const text = extractThinkingText(output);
+                  if (text && text.trim()) push({ type: 'thinking', content: text });
+                },
+                handleToolStart(tool: any, toolInput: any, runId: string, _parentRunId: any, _tags: any, _metadata: any, name: string) {
+                  const rawId = tool?.id;
+                  const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
+                  const toolName = name || tool?.name || toolId || 'unknown';
+                  toolRunNames.set(runId, toolName);
+                  toolRunStartedAt.set(runId, Date.now());
+                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
+                },
+                handleToolEnd(output: any, runId: string) {
+                  const toolName = toolRunNames.get(runId) || 'unknown';
+                  toolRunNames.delete(runId);
+                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
+                  toolRunStartedAt.delete(runId);
+                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: Date.now() - startedAt });
+                },
+                handleToolError(err: any, runId: string) {
+                  const toolName = toolRunNames.get(runId) || 'unknown';
+                  toolRunNames.delete(runId);
+                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
+                  toolRunStartedAt.delete(runId);
+                  push({ type: 'tool_result', tool: toolName, success: false, error: err instanceof Error ? err.message : String(err), duration_ms: Date.now() - startedAt });
+                },
+              },
+            ],
+          },
+        );
+
+        onStep?.({ ts: Date.now(), type: 'task_end', label: '[Review] 审查节点执行完毕' });
+
+        const duration = Date.now() - startTime;
+        const structured = (reviewResult as any).structuredResponse;
+
+        if (structured && typeof structured === 'object' && structured.routing) {
+          return {
+            result: structured.reasoning || JSON.stringify(structured),
+            routing: structured.routing,
+            nodeId: node.id,
+            agentId,
+            duration_ms: duration,
+          };
+        }
+
+        // fallback: structuredResponse 为 null 时（provider 不支持 tool_use），回退到文本正则解析
+        console.warn(`[node-executor] review 节点 ${node.id} 未返回 structuredResponse，回退到文本正则解析`);
+        const fallbackText = getLastMessageText(reviewResult);
+        const fallbackRouting = extractWorkflowRouting(fallbackText);
+
+        return {
+          result: fallbackText,
+          nodeId: node.id,
+          agentId,
+          duration_ms: duration,
+          ...(fallbackRouting ? { routing: fallbackRouting } : {}),
+        };
+      }
+
+      // 5. 执行 DeepAgent（普通任务节点为单次调用）
       onStep?.({ ts: Date.now(), type: 'task_start', label: '[Task] 开始执行节点任务' });
       const resultText = await invokeAgent(taskContext);
       onStep?.({ ts: Date.now(), type: 'task_end', label: '[Task] 节点任务执行完毕' });
 
-      // 5. 收集结果（routing 从原始文本提取）
+      // 6. 收集结果（routing 从原始文本提取）
       const duration = Date.now() - startTime;
       const routing = extractWorkflowRouting(resultText);
 
