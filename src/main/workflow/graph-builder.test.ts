@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildWorkflowGraph, matchesCondition } from './graph-builder';
 import type { WorkflowDefinition, WorkflowNode } from '../../shared/types';
 
@@ -203,6 +203,79 @@ describe('buildWorkflowGraph', () => {
     // 不匹配 → 默认路由到 END，known 节点不执行
     expect(result.nodeOutputs.router).toBeDefined();
     expect(result.nodeOutputs.known).toBeUndefined();
+  });
+
+  it('should throw when routing decision is completely missing for a conditional edge', async () => {
+    const workflow: WorkflowDefinition = {
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: '开始' } },
+        { id: 'router', type: 'agent', position: { x: 0, y: 120 }, data: { label: 'Router', agentId: 'router-agent' } },
+        { id: 'approved', type: 'agent', position: { x: -120, y: 240 }, data: { label: 'Approved', agentId: 'approved-agent' } },
+        { id: 'rejected', type: 'agent', position: { x: 120, y: 240 }, data: { label: 'Rejected', agentId: 'rejected-agent' } },
+        { id: 'end', type: 'end', position: { x: 0, y: 360 }, data: { label: '结束' } },
+      ],
+      edges: [
+        { id: 'start-router', source: 'start', target: 'router' },
+        {
+          id: 'router-approved',
+          source: 'router',
+          target: 'approved',
+          metadata: { condition: 'review_result', routeValue: 'approved' },
+        },
+        {
+          id: 'router-rejected',
+          source: 'router',
+          target: 'rejected',
+          metadata: { condition: 'review_result', routeValue: 'rejected' },
+        },
+        { id: 'approved-end', source: 'approved', target: 'end' },
+        { id: 'rejected-end', source: 'rejected', target: 'end' },
+      ],
+    };
+
+    const builder = buildWorkflowGraph(workflow, (node: WorkflowNode) => async () => {
+      if (node.id === 'router') return { result: 'done' };
+      return { result: `ran:${node.id}` };
+    });
+    const graph = builder.compile();
+
+    await expect(graph.invoke({ inputs: {}, messages: [] })).rejects.toThrow(/路由条件.*未找到决策值/);
+  });
+
+  it('should fallback to END with warning when routing decision exists but does not match any configured edge', async () => {
+    const workflow: WorkflowDefinition = {
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+        { id: 'router', type: 'agent', position: { x: 0, y: 120 }, data: { label: 'Router', agentId: 'r' } },
+        { id: 'known', type: 'task', position: { x: -100, y: 240 }, data: { label: 'Known', agentId: 'k', taskDescription: 'known' } },
+        { id: 'end', type: 'end', position: { x: 0, y: 360 }, data: { label: 'End' } },
+      ],
+      edges: [
+        { id: 's-r', source: 'start', target: 'router' },
+        {
+          id: 'r-known',
+          source: 'router',
+          target: 'known',
+          metadata: { condition: 'result', routeValue: 'known' },
+        },
+        { id: 'known-e', source: 'known', target: 'end' },
+      ],
+    };
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const builder = buildWorkflowGraph(workflow, (node: WorkflowNode) => async () => {
+      if (node.id === 'router') return { result: 'unknown', routing: { result: 'whatever' } };
+      return { result: `ran:${node.id}` };
+    });
+    const graph = builder.compile();
+    const result = await graph.invoke({ inputs: {}, messages: [] });
+
+    expect(result.nodeOutputs.router).toBeDefined();
+    expect(result.nodeOutputs.known).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('不匹配任何配置的条件边'));
+
+    warnSpy.mockRestore();
   });
 
   it('should handle fan-out: multiple parallel edges from same source', async () => {
