@@ -5,6 +5,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Maximize2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
+import { ApprovalModeSelector } from '../shared/ApprovalModeSelector';
 
 interface NodeConfigDrawerProps {
   isOpen: boolean;
@@ -249,6 +250,10 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                       <Maximize2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('approvalMode.label')}</label>
+                  <ApprovalModeSelector className="mt-1" />
                 </div>
               </>
             )}
