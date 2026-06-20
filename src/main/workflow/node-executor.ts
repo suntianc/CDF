@@ -470,6 +470,7 @@ export function createAgentNodeExecutor(
         const agentPromise = agent.invoke(
           { messages: [{ role: 'user', content }] },
           {
+            configurable: { thread_id: `workflow-node-${node.id}-${Date.now()}` },
             callbacks: [
               {
                 handleLLMStart() {
@@ -688,6 +689,7 @@ export function createAgentNodeExecutor(
         const reviewResult = await agent.invoke(
           { messages: [{ role: 'user', content: taskContext }] },
           {
+            configurable: { thread_id: `workflow-review-${node.id}-${Date.now()}` },
             callbacks: [
               {
                 handleLLMStart() {},
