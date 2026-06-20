@@ -451,7 +451,7 @@ export interface WorkflowExecution {
   ended_at?: number;
 }
 
-export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
+export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped' | 'waiting';
 
 // ===== 时序执行轨迹 =====
 
