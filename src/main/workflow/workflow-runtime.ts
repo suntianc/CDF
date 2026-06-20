@@ -10,7 +10,6 @@
 import crypto from 'crypto';
 import path from 'path';
 import { app, BrowserWindow } from 'electron';
-import { isGraphInterrupt, Command } from '@langchain/langgraph';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
 import store from '../store';
@@ -293,13 +292,51 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     const nodeTraceMap = new Map<string, ExecutionStep[]>();
 
     // 3. 构建图
-    // Phase 14: 追踪当前正在执行的节点 ID（用于 GraphInterrupt 捕获时确定 nodeId）
-    let currentRunningNodeId: string | null = null;
-
     const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) => {
-      const executeNode = createAgentNodeExecutor(node, upstreamNodeIds, approvalMode);
+      const onApprovalNeeded = async (interruptValue: unknown): Promise<WorkflowApprovalResolution> => {
+        const approvalId = crypto.randomUUID();
+        const approvalRequest: WorkflowApprovalRequest = {
+          id: approvalId,
+          executionId,
+          nodeId: node.id,
+          actions: Array.isArray((interruptValue as any)?.actions)
+            ? (interruptValue as any).actions
+            : [{ name: String(interruptValue ?? 'unknown'), args: interruptValue }],
+        };
+
+        const waitingEvent: WorkflowStreamEvent = {
+          type: 'node_waiting_approval',
+          executionId,
+          nodeId: node.id,
+          nodeName: nodeNames.get(node.id) || node.id,
+          approval: approvalRequest,
+        };
+        pushWorkflowEvent(executionId, waitingEvent);
+        params.onEvent?.(waitingEvent);
+
+        const approvalKey = `${executionId}:${approvalId}`;
+        const resolution = await new Promise<WorkflowApprovalResolution>((resolve, reject) => {
+          pendingWorkflowApprovals.set(approvalKey, resolve);
+          pendingWorkflowRejects.set(approvalKey, reject);
+        });
+        pendingWorkflowApprovals.delete(approvalKey);
+        pendingWorkflowRejects.delete(approvalKey);
+
+        const hasRejection = resolution.decisions.some(d => d.type === 'reject');
+        const resolvedEvent: WorkflowStreamEvent = {
+          type: 'node_approval_resolved',
+          executionId,
+          nodeId: node.id,
+          status: hasRejection ? 'rejected' : 'approved',
+        };
+        pushWorkflowEvent(executionId, resolvedEvent);
+        params.onEvent?.(resolvedEvent);
+
+        return resolution;
+      };
+
+      const executeNode = createAgentNodeExecutor(node, upstreamNodeIds, approvalMode, onApprovalNeeded);
       return async (state) => {
-        currentRunningNodeId = node.id;
         nodeStartTimes.set(node.id, Date.now());
         nodeTraceMap.set(node.id, []);
         const nodeStartEvent: WorkflowStreamEvent = {
@@ -324,7 +361,6 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           pushWorkflowEvent(executionId, logEvent);
           params.onEvent?.(logEvent);
         });
-        currentRunningNodeId = null;
         return result;
       };
     });
@@ -333,40 +369,31 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     const checkpointer = getWorkflowCheckpointSaver();
     const graph = builder.compile({ checkpointer });
 
-    // 5. 流式执行（Phase 14: while loop 支持 GraphInterrupt resume）
+    // 5. 流式执行（审批中断由 node executor 内部处理，此处不需要 while loop）
     const threadId = `workflow-${executionId}`;
-    let nextInput: unknown = { inputs: executionInput, messages: [] };
 
     const allNodeOutputs: Record<string, unknown> = {};
     const allErrors: Array<{ nodeId: string; error: string; timestamp: number }> = [];
 
-    while (true) {
-      const stream = await graph.stream(
-        nextInput as any,
-        {
-          configurable: { thread_id: threadId },
-          streamMode: 'updates',
-        },
-      );
+    const stream = await graph.stream(
+      { inputs: executionInput, messages: [] } as any,
+      {
+        configurable: { thread_id: threadId },
+        streamMode: 'updates',
+      },
+    );
 
-      let interrupted = false;
+    for await (const chunk of stream) {
+      if (activeExecutions.get(executionId)?.aborted) {
+        break;
+      }
 
-      try {
-        for await (const chunk of stream) {
-          // 检查是否被中止
-          if (activeExecutions.get(executionId)?.aborted) {
-            break;
-          }
+      for (const [nodeId, stateUpdate] of Object.entries(chunk)) {
+        const update = stateUpdate as Record<string, unknown>;
+        const nodeOutputs = update.nodeOutputs as Record<string, unknown> | undefined;
+        const errors = update.errors as Array<{ nodeId: string; error: string; timestamp: number }> | undefined;
 
-          // chunk 格式: { [nodeId]: stateUpdate }
-          for (const [nodeId, stateUpdate] of Object.entries(chunk)) {
-            const update = stateUpdate as Record<string, unknown>;
-            const nodeOutputs = update.nodeOutputs as Record<string, unknown> | undefined;
-            const errors = update.errors as Array<{ nodeId: string; error: string; timestamp: number }> | undefined;
-
-        // CR-03: 错误路径和成功路径互斥，各自生成独立 ID
         if (errors && errors.length > 0) {
-          // 错误路径：只记录失败
           allErrors.push(...errors);
           for (const err of errors) {
             const errorRunId = crypto.randomUUID();
@@ -391,7 +418,6 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
             params.onEvent?.(nodeErrorEvent);
           }
         } else if (nodeOutputs?.[nodeId]) {
-          // 成功路径：只记录成功
           allNodeOutputs[nodeId] = nodeOutputs[nodeId];
           const successRunId = crypto.randomUUID();
           const nodeName = nodeNames.get(nodeId) || nodeId;
@@ -414,71 +440,8 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           pushWorkflowEvent(executionId, nodeEndEvent);
           params.onEvent?.(nodeEndEvent);
         }
-          } // end for (const [nodeId,...] of Object.entries(chunk))
-        } // end for await (const chunk of stream)
-      } catch (streamErr) {
-        if (isGraphInterrupt(streamErr)) {
-          interrupted = true;
-
-          // 构造审批请求
-          const interruptErr = streamErr as { interrupts?: Array<{ value: unknown }> };
-          const interruptValue = interruptErr.interrupts?.[0]?.value;
-          const interruptedNodeId = currentRunningNodeId || 'unknown';
-          const interruptedNodeName = nodeNames.get(interruptedNodeId) || interruptedNodeId;
-
-          const approvalId = crypto.randomUUID();
-          const approvalRequest: WorkflowApprovalRequest = {
-            id: approvalId,
-            executionId,
-            nodeId: interruptedNodeId,
-            actions: Array.isArray((interruptValue as any)?.actions)
-              ? (interruptValue as any).actions
-              : [{ name: String(interruptValue ?? 'unknown'), args: interruptValue }],
-          };
-
-          // 推送 node_waiting_approval 事件
-          const waitingEvent: WorkflowStreamEvent = {
-            type: 'node_waiting_approval',
-            executionId,
-            nodeId: interruptedNodeId,
-            nodeName: interruptedNodeName,
-            approval: approvalRequest,
-          };
-          pushWorkflowEvent(executionId, waitingEvent);
-          params.onEvent?.(waitingEvent);
-
-          // 等待用户决策
-          const approvalKey = `${executionId}:${approvalId}`;
-          const resolution = await new Promise<WorkflowApprovalResolution>((resolve, reject) => {
-            pendingWorkflowApprovals.set(approvalKey, resolve);
-            pendingWorkflowRejects.set(approvalKey, reject);
-          });
-
-          // 清理 Map
-          pendingWorkflowApprovals.delete(approvalKey);
-          pendingWorkflowRejects.delete(approvalKey);
-
-          // 推送 node_approval_resolved 事件
-          const hasRejection = resolution.decisions.some(d => d.type === 'reject');
-          const resolvedEvent: WorkflowStreamEvent = {
-            type: 'node_approval_resolved',
-            executionId,
-            nodeId: interruptedNodeId,
-            status: hasRejection ? 'rejected' : 'approved',
-          };
-          pushWorkflowEvent(executionId, resolvedEvent);
-          params.onEvent?.(resolvedEvent);
-
-          // 设置 resume input — LangGraph 从 checkpointer 恢复状态继续
-          nextInput = new Command({ resume: { decisions: resolution.decisions } });
-        } else {
-          throw streamErr;
-        }
       }
-
-      // 若未中断（或已中止），退出 while 循环
-      if (!interrupted || activeExecutions.get(executionId)?.aborted) break;
-    } // end while(true)
+    }
 
     // 6. 完成
     const finalStatus = activeExecutions.get(executionId)?.aborted ? 'stopped' : 'completed';

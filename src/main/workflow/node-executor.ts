@@ -10,7 +10,7 @@ import path from 'path';
 import { z } from 'zod';
 import { toolStrategy } from 'langchain';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
-import { MemorySaver } from '@langchain/langgraph';
+import { MemorySaver, isGraphInterrupt, Command } from '@langchain/langgraph';
 import db from '../database';
 import { decryptApiKey } from '../security';
 import { createLangChainModel } from '../deepagent/llm-adapter';
@@ -19,7 +19,9 @@ import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
 import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
-import type { ApprovalMode, ExecutionStep, MCPServer, WorkflowNode } from '../../shared/types';
+import type { ApprovalMode, ExecutionStep, MCPServer, WorkflowApprovalResolution, WorkflowNode } from '../../shared/types';
+
+export type ApprovalNeededCallback = (interruptValue: unknown) => Promise<WorkflowApprovalResolution>;
 
 // ===== Phase 14: DEFAULT_INTERRUPT_ON + resolveInterruptOn =====
 // 与 Chat 路径 (src/main/deepagent/runtime.ts:55-81) 完全一致 (D-01)
@@ -318,6 +320,7 @@ export function createAgentNodeExecutor(
   node: WorkflowNode,
   upstreamNodeIds: string[] = [],
   approvalMode: ApprovalMode = 'strict',
+  onApprovalNeeded?: ApprovalNeededCallback,
 ) {
   const agentId = node.data.agentId;
   if (!agentId) {
@@ -457,83 +460,102 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       const invokeAgent = async (content: string): Promise<string> => {
-        // 临时存储每个工具运行 of runId 对应的工具名称
         const toolRunNames = new Map<string, string>();
-        // 临时存储每个工具开始时间(用于计算 duration_ms)
         const toolRunStartedAt = new Map<string, number>();
 
-        // 统一推送 step(自动打 ts)
         const push = (step: Omit<ExecutionStep, 'ts'> & { ts?: number }) => {
           onStep?.({ ts: Date.now(), ...step });
         };
 
-        const agentPromise = agent.invoke(
-          { messages: [{ role: 'user', content }] },
+        const threadId = `workflow-node-${node.id}-${Date.now()}`;
+        const callbacks = [
           {
-            configurable: { thread_id: `workflow-node-${node.id}-${Date.now()}` },
-            callbacks: [
-              {
-                handleLLMStart() {
-                  // 不再产生 thinking 占位 step;真正的思考由 handleLLMEnd 产出
-                },
-                handleLLMEnd(output: any) {
-                  // 提取 LLM 自然语言思考,剔除 tool_calls JSON 尾巴
-                  const text = extractThinkingText(output);
-                  if (text && text.trim()) {
-                    push({ type: 'thinking', content: text });
-                  }
-                },
-                handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
-                  const rawId = tool?.id;
-                  const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
-                  const toolName = name || tool?.name || toolId || 'unknown';
-                  toolRunNames.set(runId, toolName);
-                  toolRunStartedAt.set(runId, Date.now());
-                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
-                },
-                handleToolEnd(output, runId) {
-                  const toolName = toolRunNames.get(runId) || 'unknown';
-                  toolRunNames.delete(runId);
-                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
-                  toolRunStartedAt.delete(runId);
-                  const durationMs = Date.now() - startedAt;
-                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs });
-                },
-                handleToolError(err, runId) {
-                  const toolName = toolRunNames.get(runId) || 'unknown';
-                  toolRunNames.delete(runId);
-                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
-                  toolRunStartedAt.delete(runId);
-                  const durationMs = Date.now() - startedAt;
-                  const errMsg = err instanceof Error ? err.message : String(err);
-                  push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs });
-                }
+            handleLLMStart() {},
+            handleLLMEnd(output: any) {
+              const text = extractThinkingText(output);
+              if (text && text.trim()) {
+                push({ type: 'thinking', content: text });
               }
-            ]
+            },
+            handleToolStart(tool: any, toolInput: any, runId: string, _parentRunId: any, _tags: any, _metadata: any, name: string) {
+              const rawId = tool?.id;
+              const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
+              const toolName = name || tool?.name || toolId || 'unknown';
+              toolRunNames.set(runId, toolName);
+              toolRunStartedAt.set(runId, Date.now());
+              push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
+            },
+            handleToolEnd(output: any, runId: string) {
+              const toolName = toolRunNames.get(runId) || 'unknown';
+              toolRunNames.delete(runId);
+              const startedAt = toolRunStartedAt.get(runId) || Date.now();
+              toolRunStartedAt.delete(runId);
+              const durationMs = Date.now() - startedAt;
+              push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs });
+            },
+            handleToolError(err: any, runId: string) {
+              const toolName = toolRunNames.get(runId) || 'unknown';
+              toolRunNames.delete(runId);
+              const startedAt = toolRunStartedAt.get(runId) || Date.now();
+              toolRunStartedAt.delete(runId);
+              const durationMs = Date.now() - startedAt;
+              const errMsg = err instanceof Error ? err.message : String(err);
+              push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs });
+            }
           }
-        );
+        ];
 
-        if (nodeKind === 'foreach') {
-          const result = await agentPromise;
+        let nextInput: unknown = { messages: [{ role: 'user', content }] };
+        const startTime = Date.now();
+
+        while (true) {
+          const elapsed = Date.now() - startTime;
+          const remaining = DEFAULT_TIMEOUT_MS - elapsed;
+          if (remaining <= 0 && nodeKind !== 'foreach') {
+            throw new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS);
+          }
+
+          let result: unknown;
+          try {
+            const invokePromise = agent.invoke(nextInput as any, {
+              configurable: { thread_id: threadId },
+              callbacks,
+            });
+
+            if (nodeKind === 'foreach') {
+              result = await invokePromise;
+            } else {
+              let timeoutId: NodeJS.Timeout | undefined;
+              const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(
+                  () => reject(new AgentTimeoutError(agentId, remaining)),
+                  remaining,
+                );
+              });
+              try {
+                result = await Promise.race([invokePromise, timeoutPromise]);
+              } finally {
+                if (timeoutId !== undefined) clearTimeout(timeoutId);
+              }
+            }
+          } catch (err) {
+            if (isGraphInterrupt(err) && onApprovalNeeded) {
+              const interruptErr = err as { interrupts?: Array<{ value: unknown }> };
+              const interruptValue = interruptErr.interrupts?.[0]?.value;
+              push({ type: 'system' as const, content: '等待用户审批...' });
+              const resolution = await onApprovalNeeded(interruptValue);
+              const rejected = resolution.decisions.some(d => d.type === 'reject');
+              if (rejected) {
+                push({ type: 'system' as const, content: '用户拒绝了操作' });
+                return '用户拒绝了该操作，任务已终止。';
+              }
+              nextInput = new Command({ resume: { decisions: resolution.decisions } });
+              continue;
+            }
+            throw err;
+          }
+
           return getLastMessageText(result);
-        }
-
-        let timeoutId: NodeJS.Timeout | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)),
-            DEFAULT_TIMEOUT_MS,
-          );
-        });
-
-        try {
-          const result = await Promise.race([
-            agentPromise,
-            timeoutPromise,
-          ]);
-          return getLastMessageText(result);
-        } finally {
-          if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
       };
 
