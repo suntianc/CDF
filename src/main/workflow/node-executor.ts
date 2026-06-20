@@ -18,7 +18,29 @@ import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
 import { createDeleteFileTool } from '../deepagent/file-tools';
 import { createBashTool } from '../deepagent/bash-tool';
 import { createFetchTool } from '../deepagent/fetch-tool';
-import type { ExecutionStep, MCPServer, WorkflowNode } from '../../shared/types';
+import type { ApprovalMode, ExecutionStep, MCPServer, WorkflowNode } from '../../shared/types';
+
+// ===== Phase 14: DEFAULT_INTERRUPT_ON + resolveInterruptOn =====
+// 与 Chat 路径 (src/main/deepagent/runtime.ts:55-81) 完全一致 (D-01)
+
+export const DEFAULT_INTERRUPT_ON = {
+  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
+  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
+  delete_file: { allowedDecisions: ['approve', 'reject'] as const },
+  delete_agent: { allowedDecisions: ['approve', 'reject'] as const },
+  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
+  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
+};
+
+/**
+ * 根据审批模式决定 createDeepAgent 的 interruptOn 值
+ * - strict / agent_decides: 返回 DEFAULT_INTERRUPT_ON（全量拦截）
+ * - bypass: 返回 {}（不拦截）
+ */
+export function resolveInterruptOn(mode: ApprovalMode): typeof DEFAULT_INTERRUPT_ON | Record<string, never> {
+  if (mode === 'bypass') return {};
+  return DEFAULT_INTERRUPT_ON;
+}
 
 // ---- Error Types ----
 
@@ -294,6 +316,7 @@ function tryParseJson(value: string): unknown {
 export function createAgentNodeExecutor(
   node: WorkflowNode,
   upstreamNodeIds: string[] = [],
+  approvalMode: ApprovalMode = 'strict',
 ) {
   const agentId = node.data.agentId;
   if (!agentId) {
@@ -374,6 +397,7 @@ export function createAgentNodeExecutor(
         skills: skillsSources.length > 0 ? skillsSources : undefined,
         permissions,
         tools: [...mcpRuntime.tools, ...builtInTools],
+        interruptOn: resolveInterruptOn(approvalMode),
         ...(nodeKind === 'review' ? { responseFormat: toolStrategy(reviewRoutingSchema) } : {}),
       });
       const taskDescription = node.data.taskDescription || node.data.description || '';
@@ -405,7 +429,12 @@ export function createAgentNodeExecutor(
           : '',
       ].filter(Boolean).join('\n\n');
 
+      const agentDecidesPreamble = approvalMode === 'agent_decides'
+        ? `## 工具使用审批判断\n你拥有对受保护工具（write_file, edit_file, delete_file 等）的执行权限。在调用这些工具前，请评估操作风险：如果操作不可撤销、影响范围大或修改关键文件，请先用 ask_user 工具征求用户确认。低风险的常规操作可以直接执行。`
+        : '';
+
       const taskContext = [
+        agentDecidesPreamble,
         `## 工作流节点任务`,
         `节点名称: ${node.data.label || node.id}`,
         `节点类型: ${nodeKind}`,

@@ -58,7 +58,7 @@ vi.mock('fs', () => ({
   },
 }));
 
-import { createAgentNodeExecutor, extractWorkflowRouting } from './node-executor';
+import { createAgentNodeExecutor, extractWorkflowRouting, DEFAULT_INTERRUPT_ON } from './node-executor';
 import fs from 'fs';
 
 const VALID_TASK_JSON = '{"summary":"done","status":"success"}';
@@ -483,6 +483,91 @@ describe('createAgentNodeExecutor', () => {
     await expect(executor({ inputs: {}, nodeOutputs: {} }))
       .rejects.toThrow('Agent node node-1 execution failed: LLM connection timeout');
     expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---- Phase 14: interruptOn 注入测试 ----
+
+describe('interruptOn injection by approvalMode', () => {
+  const baseNode = {
+    id: 'node-1',
+    type: 'agent' as const,
+    position: { x: 0, y: 0 },
+    data: { agentId: 'agent-1', label: 'Node 1' },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createDeepAgentMock.mockReturnValue({
+      invoke: vi.fn(async () => ({
+        messages: [{ role: 'assistant', content: '{"summary":"done","status":"success"}' }],
+      })),
+    });
+
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM agents WHERE id')) {
+          return {
+            id: arg,
+            project_id: 'project-1',
+            name: 'Workflow Agent',
+            provider_id: 'provider-1',
+            description: 'does work',
+            system_prompt: 'system',
+          };
+        }
+        if (sql.includes('FROM llm_providers')) {
+          return {
+            id: 'provider-1',
+            provider_type: 'minimax',
+            api_key: 'encrypted-key',
+            api_url: 'https://api.minimaxi.com/anthropic/v1',
+            default_model: 'MiniMax-M2.7',
+          };
+        }
+        if (sql.includes('FROM projects')) {
+          return { id: 'project-1', name: 'Project', path: '/tmp/project' };
+        }
+        return undefined;
+      },
+      all: () => [],
+    }));
+  });
+
+  it('strict mode passes DEFAULT_INTERRUPT_ON to createDeepAgent', async () => {
+    const executor = createAgentNodeExecutor(baseNode, [], 'strict');
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(createDeepAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ interruptOn: DEFAULT_INTERRUPT_ON }),
+    );
+  });
+
+  it('bypass mode passes empty interruptOn to createDeepAgent', async () => {
+    const executor = createAgentNodeExecutor(baseNode, [], 'bypass');
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(createDeepAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ interruptOn: {} }),
+    );
+  });
+
+  it('agent_decides mode passes DEFAULT_INTERRUPT_ON to createDeepAgent', async () => {
+    const executor = createAgentNodeExecutor(baseNode, [], 'agent_decides');
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(createDeepAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ interruptOn: DEFAULT_INTERRUPT_ON }),
+    );
+  });
+
+  it('default approvalMode is strict when not specified', async () => {
+    const executor = createAgentNodeExecutor(baseNode, []);
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(createDeepAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ interruptOn: DEFAULT_INTERRUPT_ON }),
+    );
   });
 });
 
