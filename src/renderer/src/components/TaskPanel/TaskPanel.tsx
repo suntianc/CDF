@@ -7,6 +7,7 @@ import type { DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
+import { ApprovalModeSelector } from '../shared/ApprovalModeSelector';
 
 export interface TaskPanelProps {
   isOpen: boolean;
@@ -517,6 +518,7 @@ export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) 
 
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-14 shrink-0 select-none">
             <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
+            <ApprovalModeSelector />
           </div>
 
           <div className="flex-1 p-4 overflow-y-auto space-y-4">
