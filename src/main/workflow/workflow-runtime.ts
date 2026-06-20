@@ -10,11 +10,13 @@
 import crypto from 'crypto';
 import path from 'path';
 import { app, BrowserWindow } from 'electron';
+import { isGraphInterrupt, Command } from '@langchain/langgraph';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import db from '../database';
+import store from '../store';
 import { buildWorkflowGraph } from './graph-builder';
 import { createAgentNodeExecutor } from './node-executor';
-import type { ExecutionStep, WorkflowDefinition, WorkflowStreamEvent } from '../../shared/types';
+import type { ApprovalMode, ExecutionStep, WorkflowDefinition, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution } from '../../shared/types';
 
 // ---- Checkpoint Saver (独立 namespace，D-16a) ----
 
@@ -116,6 +118,13 @@ function enrichWorkflowInput(input: Record<string, unknown>, graphData: Workflow
 // ---- Active Executions Tracker ----
 
 const activeExecutions = new Map<string, { aborted: boolean }>();
+
+// ---- Pending Workflow Approvals (Phase 14: HITL) ----
+// Key 格式: `${executionId}:${approvalId}`
+// stopWorkflow 时遍历并 reject 所有匹配 executionId 的 Promise（Pitfall 3）
+
+const pendingWorkflowApprovals = new Map<string, (resolution: WorkflowApprovalResolution) => void>();
+const pendingWorkflowRejects = new Map<string, (reason: Error) => void>();
 
 // ---- Config Snapshot (导出用) ----
 
@@ -221,6 +230,7 @@ export interface RunWorkflowParams {
   triggerSource: 'editor' | 'chat' | 'schedule';
   input?: Record<string, unknown>;
   onEvent?: (event: WorkflowStreamEvent) => void;
+  approvalMode?: ApprovalMode;
 }
 
 /**
@@ -235,6 +245,8 @@ export interface RunWorkflowParams {
  */
 export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
   const { workflowId, projectId, triggerSource, input = {} } = params;
+  // Phase 14: 若调用方未指定 approvalMode，从 electron-store 读取全局默认值
+  const approvalMode: ApprovalMode = params.approvalMode ?? (store.get('approvalMode') as ApprovalMode) ?? 'strict';
   const executionId = crypto.randomUUID();
   const now = Date.now();
 
@@ -281,9 +293,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     const nodeTraceMap = new Map<string, ExecutionStep[]>();
 
     // 3. 构建图
+    // Phase 14: 追踪当前正在执行的节点 ID（用于 GraphInterrupt 捕获时确定 nodeId）
+    let currentRunningNodeId: string | null = null;
+
     const builder = buildWorkflowGraph(graphData, (node, upstreamNodeIds) => {
-      const executeNode = createAgentNodeExecutor(node, upstreamNodeIds);
+      const executeNode = createAgentNodeExecutor(node, upstreamNodeIds, approvalMode);
       return async (state) => {
+        currentRunningNodeId = node.id;
         nodeStartTimes.set(node.id, Date.now());
         nodeTraceMap.set(node.id, []);
         const nodeStartEvent: WorkflowStreamEvent = {
@@ -294,7 +310,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
-        return executeNode(state, (step: ExecutionStep) => {
+        const result = await executeNode(state, (step: ExecutionStep) => {
           const arr = nodeTraceMap.get(node.id) || [];
           arr.push(step);
           nodeTraceMap.set(node.id, arr);
@@ -308,6 +324,8 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           pushWorkflowEvent(executionId, logEvent);
           params.onEvent?.(logEvent);
         });
+        currentRunningNodeId = null;
+        return result;
       };
     });
 
@@ -315,30 +333,36 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     const checkpointer = getWorkflowCheckpointSaver();
     const graph = builder.compile({ checkpointer });
 
-    // 5. 流式执行
+    // 5. 流式执行（Phase 14: while loop 支持 GraphInterrupt resume）
     const threadId = `workflow-${executionId}`;
-    const stream = await graph.stream(
-      { inputs: executionInput, messages: [] },
-      {
-        configurable: { thread_id: threadId },
-        streamMode: 'updates',
-      },
-    );
+    let nextInput: unknown = { inputs: executionInput, messages: [] };
 
     const allNodeOutputs: Record<string, unknown> = {};
     const allErrors: Array<{ nodeId: string; error: string; timestamp: number }> = [];
 
-    for await (const chunk of stream) {
-      // 检查是否被中止
-      if (activeExecutions.get(executionId)?.aborted) {
-        break;
-      }
+    while (true) {
+      const stream = await graph.stream(
+        nextInput as any,
+        {
+          configurable: { thread_id: threadId },
+          streamMode: 'updates',
+        },
+      );
 
-      // chunk 格式: { [nodeId]: stateUpdate }
-      for (const [nodeId, stateUpdate] of Object.entries(chunk)) {
-        const update = stateUpdate as Record<string, unknown>;
-        const nodeOutputs = update.nodeOutputs as Record<string, unknown> | undefined;
-        const errors = update.errors as Array<{ nodeId: string; error: string; timestamp: number }> | undefined;
+      let interrupted = false;
+
+      try {
+        for await (const chunk of stream) {
+          // 检查是否被中止
+          if (activeExecutions.get(executionId)?.aborted) {
+            break;
+          }
+
+          // chunk 格式: { [nodeId]: stateUpdate }
+          for (const [nodeId, stateUpdate] of Object.entries(chunk)) {
+            const update = stateUpdate as Record<string, unknown>;
+            const nodeOutputs = update.nodeOutputs as Record<string, unknown> | undefined;
+            const errors = update.errors as Array<{ nodeId: string; error: string; timestamp: number }> | undefined;
 
         // CR-03: 错误路径和成功路径互斥，各自生成独立 ID
         if (errors && errors.length > 0) {
@@ -390,8 +414,71 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           pushWorkflowEvent(executionId, nodeEndEvent);
           params.onEvent?.(nodeEndEvent);
         }
+          } // end for (const [nodeId,...] of Object.entries(chunk))
+        } // end for await (const chunk of stream)
+      } catch (streamErr) {
+        if (isGraphInterrupt(streamErr)) {
+          interrupted = true;
+
+          // 构造审批请求
+          const interruptErr = streamErr as { interrupts?: Array<{ value: unknown }> };
+          const interruptValue = interruptErr.interrupts?.[0]?.value;
+          const interruptedNodeId = currentRunningNodeId || 'unknown';
+          const interruptedNodeName = nodeNames.get(interruptedNodeId) || interruptedNodeId;
+
+          const approvalId = crypto.randomUUID();
+          const approvalRequest: WorkflowApprovalRequest = {
+            id: approvalId,
+            executionId,
+            nodeId: interruptedNodeId,
+            actions: Array.isArray((interruptValue as any)?.actions)
+              ? (interruptValue as any).actions
+              : [{ name: String(interruptValue ?? 'unknown'), args: interruptValue }],
+          };
+
+          // 推送 node_waiting_approval 事件
+          const waitingEvent: WorkflowStreamEvent = {
+            type: 'node_waiting_approval',
+            executionId,
+            nodeId: interruptedNodeId,
+            nodeName: interruptedNodeName,
+            approval: approvalRequest,
+          };
+          pushWorkflowEvent(executionId, waitingEvent);
+          params.onEvent?.(waitingEvent);
+
+          // 等待用户决策
+          const approvalKey = `${executionId}:${approvalId}`;
+          const resolution = await new Promise<WorkflowApprovalResolution>((resolve, reject) => {
+            pendingWorkflowApprovals.set(approvalKey, resolve);
+            pendingWorkflowRejects.set(approvalKey, reject);
+          });
+
+          // 清理 Map
+          pendingWorkflowApprovals.delete(approvalKey);
+          pendingWorkflowRejects.delete(approvalKey);
+
+          // 推送 node_approval_resolved 事件
+          const hasRejection = resolution.decisions.some(d => d.type === 'reject');
+          const resolvedEvent: WorkflowStreamEvent = {
+            type: 'node_approval_resolved',
+            executionId,
+            nodeId: interruptedNodeId,
+            status: hasRejection ? 'rejected' : 'approved',
+          };
+          pushWorkflowEvent(executionId, resolvedEvent);
+          params.onEvent?.(resolvedEvent);
+
+          // 设置 resume input — LangGraph 从 checkpointer 恢复状态继续
+          nextInput = new Command({ resume: { decisions: resolution.decisions } });
+        } else {
+          throw streamErr;
+        }
       }
-    }
+
+      // 若未中断（或已中止），退出 while 循环
+      if (!interrupted || activeExecutions.get(executionId)?.aborted) break;
+    } // end while(true)
 
     // 6. 完成
     const finalStatus = activeExecutions.get(executionId)?.aborted ? 'stopped' : 'completed';
@@ -451,12 +538,24 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
 
 /**
  * 停止正在执行的工作流
+ * Phase 14 Pitfall 3: 同时 reject 所有匹配该 executionId 的 pending approval Promises，防止内存泄漏
  */
 export function stopWorkflow(executionId: string): void {
   const execution = activeExecutions.get(executionId);
   if (execution) {
     execution.aborted = true;
   }
+
+  // Phase 14: 清理 pending approvals（Pitfall 3）
+  const prefix = `${executionId}:`;
+  for (const [key, reject] of pendingWorkflowRejects) {
+    if (key.startsWith(prefix)) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      pendingWorkflowApprovals.delete(key);
+      pendingWorkflowRejects.delete(key);
+    }
+  }
+
   // 更新 DB 状态
   db.prepare(`
     UPDATE workflow_executions SET status = 'stopped', ended_at = ? WHERE id = ? AND status = 'running'
@@ -469,12 +568,13 @@ export function stopWorkflow(executionId: string): void {
  * 注册工作流相关的 IPC handlers
  */
 export function registerWorkflowIpcHandlers(): void {
-  ipcMain.handle('workflow:run', async (_, workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
+  ipcMain.handle('workflow:run', async (_, workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>, approvalMode?: string) => {
     const executionId = await runWorkflow({
       workflowId,
       projectId,
       triggerSource: triggerSource as 'editor' | 'chat' | 'schedule',
       input,
+      approvalMode: (approvalMode as ApprovalMode) || undefined,
     });
     return executionId;
   });
@@ -485,6 +585,18 @@ export function registerWorkflowIpcHandlers(): void {
 
   ipcMain.handle('workflow:getEvents', (_, executionId: string) => {
     return eventBuffers.get(executionId) || [];
+  });
+
+  // Phase 14: HITL 审批 resolve
+  ipcMain.handle('workflow:approve', async (_, executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) => {
+    const key = `${executionId}:${approvalId}`;
+    const resolve = pendingWorkflowApprovals.get(key);
+    if (resolve) {
+      pendingWorkflowApprovals.delete(key);
+      pendingWorkflowRejects.delete(key);
+      resolve(resolution);
+    }
+    // T-14-01: key 不存在时静默忽略，不 throw
   });
 
   // 历史执行记录：列表 / 删除 / 导出

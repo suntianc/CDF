@@ -491,6 +491,29 @@ export interface WorkflowNodeRun {
   execution_trace?: ExecutionStep[]; // 新增:时序执行轨迹
 }
 
+// ===== Phase 14: 审批模式 =====
+
+/** 全局审批模式：strict = 全量 DEFAULT_INTERRUPT_ON；agent_decides = 提示词引导；bypass = 不拦截 */
+export type ApprovalMode = 'strict' | 'agent_decides' | 'bypass';
+
+/** 工作流审批请求 */
+export interface WorkflowApprovalRequest {
+  id: string;
+  executionId: string;
+  nodeId: string;
+  actions: AgentApprovalAction[];
+}
+
+/** 工作流审批决策 */
+export interface WorkflowApprovalResolution {
+  approvalId: string;
+  decisions: Array<{
+    type: AgentApprovalDecisionType;
+    editedAction?: unknown;
+    message?: string;
+  }>;
+}
+
 export type WorkflowStreamEvent = (
   | { type: 'workflow_start'; executionId: string; workflowId: string }
   | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string }
@@ -499,6 +522,9 @@ export type WorkflowStreamEvent = (
   | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }
   | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
   | { type: 'node_log'; executionId: string; nodeId: string; step: ExecutionStep }
+  // ===== Phase 14 新增：HITL 审批事件 =====
+  | { type: 'node_waiting_approval'; executionId: string; nodeId: string; nodeName: string; approval: WorkflowApprovalRequest }
+  | { type: 'node_approval_resolved'; executionId: string; nodeId: string; status: 'approved' | 'rejected' }
 ) & { seq?: number };
 
 export interface ElectronAPI {
@@ -574,7 +600,7 @@ export interface ElectronAPI {
     createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) => Promise<{ agentId: string }>;
   };
   workflow: {
-    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
+    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>, approvalMode?: string) => Promise<string>;
     stopWorkflow: (executionId: string) => Promise<void>;
     getWorkflowEvents: (executionId: string) => Promise<WorkflowStreamEvent[]>;
     onWorkflowEvent: (executionId: string, callback: (event: any, data: WorkflowStreamEvent) => void) => () => void;
@@ -582,6 +608,8 @@ export interface ElectronAPI {
     listExecutions: (workflowId: string) => Promise<WorkflowExecution[]>;
     deleteExecution: (executionId: string) => Promise<void>;
     exportExecution: (executionId: string) => Promise<{ saved: boolean; path?: string; canceled?: boolean; error?: string }>;
+    // Phase 14: HITL 审批
+    resolveApproval: (executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) => Promise<void>;
   };
   // ===== Phase 6 Plan 02: Slash Command Registry Bridge (D-15) =====
   commands: {
