@@ -426,6 +426,13 @@
   "app": {
     "expandSidebar": "Expand sidebar"
   },
+  "approvalMode": {
+    "label": "Approval Mode",
+    "strict": "Strict",
+    "agentDecides": "Agent Decides",
+    "bypass": "Auto (Bypass)",
+    "bypassWarning": "All tool calls will execute automatically without confirmation"
+  },
   "workflow": {
     "editor": {
       "back": "Back",
@@ -594,6 +601,14 @@
       "reveal": "Reveal",
       "cannotOpenFile": "Cannot open file",
       "cannotRevealFile": "Cannot reveal file"
+    },
+    "approval": {
+      "title": "Workflow Approval Required",
+      "description": "The following tool calls need your confirmation",
+      "toolAction": "Tool: {{tool}}"
+    },
+    "node": {
+      "waitingApproval": "Waiting for Approval"
     },
     "history": {
       "title": "Run history",

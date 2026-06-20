@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Loader2 } from 'lucide-react';
+import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Loader2, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
@@ -24,6 +24,7 @@ const statusStyles: Record<string, { border: string; glow: string; dot: string }
   completed: { border: 'var(--color-success)', glow: 'none', dot: 'bg-[var(--color-success)]' },
   failed: { border: 'var(--color-danger)', glow: 'none', dot: 'bg-[var(--color-danger)]' },
   skipped: { border: 'var(--color-warning)', glow: 'none', dot: 'bg-[var(--color-warning)]' },
+  waiting: { border: 'var(--color-warning)', glow: '0 0 12px var(--color-warning-dim)', dot: 'bg-[var(--color-warning)] animate-pulse' },
 };
 
 // Stable icon constants to avoid creating new JSX on each render (memo best practice)
@@ -93,6 +94,8 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
         </div>
         {status === 'running' ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-accent)] shrink-0" />
+        ) : status === 'waiting' ? (
+          <Clock className="w-3.5 h-3.5 text-[var(--color-warning)] shrink-0" aria-label={t('workflow.node.waitingApproval')} />
         ) : (
           <div aria-hidden="true" className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
         )}

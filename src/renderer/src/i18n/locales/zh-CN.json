@@ -426,6 +426,13 @@
   "app": {
     "expandSidebar": "展开侧边栏"
   },
+  "approvalMode": {
+    "label": "审批模式",
+    "strict": "严格审批",
+    "agentDecides": "Agent 自行判断",
+    "bypass": "全自动（跳过审批）",
+    "bypassWarning": "所有工具调用将自动执行，不经确认"
+  },
   "workflow": {
     "editor": {
       "back": "返回",
@@ -594,6 +601,14 @@
       "reveal": "定位",
       "cannotOpenFile": "无法打开文件",
       "cannotRevealFile": "无法定位文件"
+    },
+    "approval": {
+      "title": "工作流审批请求",
+      "description": "以下工具调用需要您的确认",
+      "toolAction": "工具: {{tool}}"
+    },
+    "node": {
+      "waitingApproval": "等待审批"
     },
     "history": {
       "title": "历史执行记录",

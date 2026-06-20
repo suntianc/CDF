@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ExecutionStep, Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent } from '../../../shared/types';
+import { ExecutionStep, Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution } from '../../../shared/types';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -12,6 +12,7 @@ interface WorkflowState {
   error: string | null;
   activeExecutionId: string | null;
   processedSeqs: Set<number>;
+  pendingWorkflowApproval: WorkflowApprovalRequest | null;
 
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
@@ -24,6 +25,7 @@ interface WorkflowState {
   runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
   stopWorkflow: (executionId: string) => Promise<void>;
   subscribeToExecution: (executionId: string) => () => void;
+  resolveWorkflowApproval: (decision: 'approve' | 'reject') => Promise<void>;
 
   // 历史执行记录
   historyExecutions: WorkflowExecution[];
@@ -43,6 +45,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   error: null,
   activeExecutionId: null,
   processedSeqs: new Set<number>(),
+  pendingWorkflowApproval: null,
   historyExecutions: [],
 
   fetchWorkflows: async (projectId: string) => {
@@ -163,12 +166,24 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               ? { ...r, status: 'stopped', ended_at: Date.now() }
               : r
           ),
+          pendingWorkflowApproval: null,
         });
       }
     } catch (err: unknown) {
       set({ error: err instanceof Error ? err.message : 'Failed to stop workflow' });
       throw err;
     }
+  },
+
+  resolveWorkflowApproval: async (decision: 'approve' | 'reject') => {
+    const approval = get().pendingWorkflowApproval;
+    if (!approval) return;
+    const resolution: WorkflowApprovalResolution = {
+      approvalId: approval.id,
+      decisions: [{ type: decision === 'approve' ? 'approve' : 'reject' }],
+    };
+    await window.electronAPI.workflow.resolveApproval(approval.executionId, approval.id, resolution);
+    set({ pendingWorkflowApproval: null });
   },
 
   subscribeToExecution: (executionId: string) => {
@@ -215,7 +230,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             status: data.status,
             ended_at: Date.now(),
           } as WorkflowExecution,
+          pendingWorkflowApproval: null,
         });
+      } else if (data.type === 'node_waiting_approval') {
+        set({ pendingWorkflowApproval: data.approval });
+        // 追加系统步骤到节点轨迹
+        const arr = get().nodeTrace[data.nodeId] || [];
+        set({
+          nodeTrace: {
+            ...get().nodeTrace,
+            [data.nodeId]: [...arr, { type: 'system' as const, content: '等待用户审批...', ts: Date.now() }],
+          },
+        });
+      } else if (data.type === 'node_approval_resolved') {
+        set({ pendingWorkflowApproval: null });
       } else if (data.type === 'node_start') {
         const currentRuns = get().nodeRuns;
         const exists = currentRuns.some((r) => r.node_id === data.nodeId && r.status === 'running');

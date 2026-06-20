@@ -5,6 +5,7 @@ import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, Shield
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { DelegatedTask } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
 
 export interface TaskPanelProps {
@@ -191,6 +192,8 @@ function TaskPanelContent() {
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
+  const pendingWorkflowApproval = useWorkflowStore((state) => state.pendingWorkflowApproval);
+  const resolveWorkflowApproval = useWorkflowStore((state) => state.resolveWorkflowApproval);
   const viewingSubagentId = useSessionStore((state) => state.viewingSubagentId);
   const setViewingSubagent = useSessionStore((state) => state.setViewingSubagent);
   const agents = useAgentStore((state) => state.agents);
@@ -316,6 +319,48 @@ function TaskPanelContent() {
               {t('common.approve')}
             </button>
             <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" aria-describedby="pending-approval-actions" onClick={() => resolveApproval('reject')}>
+              {t('common.reject')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pendingWorkflowApproval && (
+        <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-warning-dim)] text-[var(--color-warning)]">
+              <ShieldAlert className="w-4 h-4" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('workflow.approval.title')}</h3>
+              <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">{t('workflow.approval.description')}</div>
+            </div>
+          </div>
+          <div id="pending-workflow-approval-actions" className="space-y-2 w-full">
+            {pendingWorkflowApproval.actions.map((action, index) => (
+              <div key={`${action.name}-${index}`} className="flex items-center gap-2 border-t border-[var(--color-border)] pt-2 first:border-t-0 first:pt-0">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+                <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">
+                  {t('workflow.approval.toolAction', { tool: action.name })}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="btn btn-primary text-xs min-h-11"
+              aria-describedby="pending-workflow-approval-actions"
+              onClick={() => resolveWorkflowApproval('approve')}
+            >
+              {t('common.approve')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]"
+              aria-describedby="pending-workflow-approval-actions"
+              onClick={() => resolveWorkflowApproval('reject')}
+            >
               {t('common.reject')}
             </button>
           </div>
