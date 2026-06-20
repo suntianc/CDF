@@ -18,7 +18,8 @@ import { createArxivTool } from './arxiv-tool';
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { generateSlug } from './agent-slug';
-import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
+import store from '../store';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
 
@@ -79,6 +80,16 @@ const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['
   update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
   create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
 };
+
+/**
+ * Phase 14: 根据全局审批模式决定 Chat 路径主 Agent 的 interruptOn
+ * - strict / agent_decides: 全量 DEFAULT_INTERRUPT_ON
+ * - bypass: {}（不拦截任何工具）
+ */
+function resolveInterruptOnForChat(mode: ApprovalMode): NonNullable<Parameters<typeof createDeepAgent>[0]>['interruptOn'] {
+  if (mode === 'bypass') return {};
+  return DEFAULT_INTERRUPT_ON;
+}
 
 let checkpointSaver: SqliteSaver | null = null;
 
@@ -616,6 +627,9 @@ export async function createDeepAgentRuntime(
     }
   }
 
+  // Phase 14 (D-02): 根据全局审批模式动态决定主 Agent 的 interruptOn
+  const chatApprovalMode = store.get('approvalMode') as ApprovalMode ?? 'strict';
+
   const deepAgent = createDeepAgent({
     model,
     backend,
@@ -627,7 +641,7 @@ export async function createDeepAgentRuntime(
     tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     middleware: [createRecoverableToolErrorMiddleware()],
-    interruptOn: DEFAULT_INTERRUPT_ON,
+    interruptOn: resolveInterruptOnForChat(chatApprovalMode),
     checkpointer,
     memory: memory.length ? memory : undefined,
   });
