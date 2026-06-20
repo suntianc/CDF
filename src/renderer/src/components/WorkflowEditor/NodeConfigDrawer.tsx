@@ -117,7 +117,8 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setItemPrompt(node.data.itemPrompt || '');
       setTemperature(node.data.temperature === undefined ? '' : String(node.data.temperature));
     }
-  }, [node]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when selecting a different node, not on every parent re-render
+  }, [node?.id]);
 
   const nodeType = node?.type || 'task';
   const isStartNode = nodeType === 'start';
