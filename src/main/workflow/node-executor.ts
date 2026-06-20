@@ -10,6 +10,7 @@ import path from 'path';
 import { z } from 'zod';
 import { toolStrategy } from 'langchain';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
+import { MemorySaver } from '@langchain/langgraph';
 import db from '../database';
 import { decryptApiKey } from '../security';
 import { createLangChainModel } from '../deepagent/llm-adapter';
@@ -398,6 +399,7 @@ export function createAgentNodeExecutor(
         permissions,
         tools: [...mcpRuntime.tools, ...builtInTools],
         interruptOn: resolveInterruptOn(approvalMode),
+        checkpointer: new MemorySaver(),
         ...(nodeKind === 'review' ? { responseFormat: toolStrategy(reviewRoutingSchema) } : {}),
       });
       const taskDescription = node.data.taskDescription || node.data.description || '';
