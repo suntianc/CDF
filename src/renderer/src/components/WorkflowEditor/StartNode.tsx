@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
+import { ApprovalModeSelector } from '../shared/ApprovalModeSelector';
 
 type StartFlowNode = Node<{ label: string; workspace?: string; workArea?: string; bgColor?: string }, 'start'>;
 
@@ -28,6 +29,9 @@ export function StartNode({ data, selected }: NodeProps<StartFlowNode>) {
           {folderName}
         </div>
       )}
+      <div className="mt-2">
+        <ApprovalModeSelector />
+      </div>
       <Handle
         type="source"
         position={Position.Right}
