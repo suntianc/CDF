@@ -81,8 +81,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('deepagents:createAgent', config),
   },
   workflow: {
-    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) =>
-      ipcRenderer.invoke('workflow:run', workflowId, projectId, triggerSource, input),
+    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>, approvalMode?: string) =>
+      ipcRenderer.invoke('workflow:run', workflowId, projectId, triggerSource, input, approvalMode),
     stopWorkflow: (executionId: string) =>
       ipcRenderer.invoke('workflow:stop', executionId),
     getWorkflowEvents: (executionId: string) =>
@@ -102,6 +102,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('workflow:deleteExecution', executionId),
     exportExecution: (executionId: string) =>
       ipcRenderer.invoke('workflow:exportExecution', executionId),
+    // Phase 14: HITL 审批
+    resolveApproval: (executionId: string, approvalId: string, resolution: any) =>
+      ipcRenderer.invoke('workflow:approve', executionId, approvalId, resolution),
   },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {
