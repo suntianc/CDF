@@ -23,13 +23,13 @@ import type { ApprovalMode, ExecutionStep, MCPServer, WorkflowNode } from '../..
 // ===== Phase 14: DEFAULT_INTERRUPT_ON + resolveInterruptOn =====
 // 与 Chat 路径 (src/main/deepagent/runtime.ts:55-81) 完全一致 (D-01)
 
-export const DEFAULT_INTERRUPT_ON = {
-  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
-  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
-  delete_file: { allowedDecisions: ['approve', 'reject'] as const },
-  delete_agent: { allowedDecisions: ['approve', 'reject'] as const },
-  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
-  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] as const },
+export const DEFAULT_INTERRUPT_ON: Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }> = {
+  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  delete_file: { allowedDecisions: ['approve', 'reject'] },
+  delete_agent: { allowedDecisions: ['approve', 'reject'] },
+  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
 };
 
 /**
@@ -37,7 +37,7 @@ export const DEFAULT_INTERRUPT_ON = {
  * - strict / agent_decides: 返回 DEFAULT_INTERRUPT_ON（全量拦截）
  * - bypass: 返回 {}（不拦截）
  */
-export function resolveInterruptOn(mode: ApprovalMode): typeof DEFAULT_INTERRUPT_ON | Record<string, never> {
+export function resolveInterruptOn(mode: ApprovalMode): Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }> | Record<string, never> {
   if (mode === 'bypass') return {};
   return DEFAULT_INTERRUPT_ON;
 }
