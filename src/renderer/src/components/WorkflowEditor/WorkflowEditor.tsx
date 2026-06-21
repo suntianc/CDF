@@ -56,6 +56,7 @@ const nodeTypes = {
   task: AgentNode,
   loop: AgentNode,
   foreach: AgentNode,
+  parallel: AgentNode,
   review: AgentNode,
   end: EndNode,
 } satisfies NodeTypes;

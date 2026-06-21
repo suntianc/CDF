@@ -1,4 +1,4 @@
-import { ListTodo, Repeat2, ShieldCheck, Layers } from 'lucide-react';
+import { ListTodo, Repeat2, ShieldCheck, Layers, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 interface NodePaletteProps {
@@ -53,6 +53,7 @@ export function NodePalette({ onDragStart, onAddNode }: NodePaletteProps) {
         { type: 'task', label: t('workflow.nodeTypes.task.label'), icon: ListTodo, color: 'var(--color-accent)' },
         { type: 'loop', label: t('workflow.nodeTypes.loop.label'), icon: Repeat2, color: 'var(--color-info)' },
         { type: 'foreach', label: t('workflow.nodeTypes.foreach.label'), icon: Layers, color: 'var(--color-success)' },
+        { type: 'parallel', label: t('workflow.nodeTypes.parallel.label'), icon: Zap, color: 'var(--color-warning)' },
         { type: 'review', label: t('workflow.nodeTypes.review.label'), icon: ShieldCheck, color: 'var(--color-warning)' },
       ].map((n) => (
         <div

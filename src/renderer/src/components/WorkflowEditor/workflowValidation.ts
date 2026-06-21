@@ -23,6 +23,7 @@ export function getDefaultNodeData(type: string): Record<string, unknown> {
   if (type === 'loop') return { label: t('workflow.nodeTypes.loop.label'), nodeKind: 'loop', taskDescription: '', loopCount: 3, failureStrategy: 'stop', retryCount: 3 };
   if (type === 'review') return { label: t('workflow.nodeTypes.review.label'), nodeKind: 'review', reviewSpec: '', reviewRules: '', failureStrategy: 'stop', retryCount: 3 };
   if (type === 'foreach') return { label: t('workflow.nodeTypes.foreach.label'), nodeKind: 'foreach', taskDescription: '', dataSource: '', itemPrompt: '', failureStrategy: 'stop', retryCount: 3 };
+  if (type === 'parallel') return { label: t('workflow.nodeTypes.parallel.label'), nodeKind: 'parallel', taskDescription: '', dataSource: '', itemPrompt: '', concurrencyLimit: 0, failureStrategy: 'stop', retryCount: 3 };
   return { label: t('workflow.nodeTypes.task.label'), nodeKind: 'task', taskDescription: '', failureStrategy: 'stop', retryCount: 3 };
 }
 

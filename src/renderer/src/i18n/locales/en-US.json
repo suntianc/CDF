@@ -521,6 +521,8 @@
       "promptTemplatePlaceholder": "Leave empty to auto JSON.stringify the current item. Supports {item} placeholder.",
       "editPromptTemplate": "Edit prompt template",
       "promptTemplateDesc": "Use {item} as a placeholder for the current data item. e.g. \"Please complete this task: {item}\"",
+      "concurrencyLimit": "Concurrency Limit",
+      "concurrencyLimitPlaceholder": "0 means unlimited (max 50)",
       "loopCount": "Loop count",
       "reviewSpec": "Specification",
       "reviewSpecPlaceholder": "Fill in review standards, acceptance criteria or judgment basis",
@@ -641,6 +643,10 @@
       },
       "foreach": {
         "label": "For-Each node"
+      },
+      "parallel": {
+        "label": "Parallel",
+        "description": "Distribute data items to multiple Agents for parallel execution"
       },
       "review": {
         "label": "Review node"

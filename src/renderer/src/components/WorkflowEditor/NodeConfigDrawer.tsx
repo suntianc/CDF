@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Maximize2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Zap, Maximize2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import { ApprovalModeSelector } from '../shared/ApprovalModeSelector';
 
@@ -29,6 +29,7 @@ interface NodeConfigDrawerProps {
       taskGoal?: string;
       dataSource?: string;
       itemPrompt?: string;
+      concurrencyLimit?: number;
       temperature?: number;
     };
   } | null;
@@ -67,6 +68,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [bgColor, setBgColor] = useState('');
   const [dataSource, setDataSource] = useState('');
   const [itemPrompt, setItemPrompt] = useState('');
+  const [concurrencyLimit, setConcurrencyLimit] = useState(0);
   const [temperature, setTemperature] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -115,6 +117,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setBgColor(node.data.bgColor || '');
       setDataSource(node.data.dataSource || '');
       setItemPrompt(node.data.itemPrompt || '');
+      setConcurrencyLimit(node.data.concurrencyLimit ?? 0);
       setTemperature(node.data.temperature === undefined ? '' : String(node.data.temperature));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when selecting a different node, not on every parent re-render
@@ -124,14 +127,16 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const isStartNode = nodeType === 'start';
   const isLoopNode = nodeType === 'loop';
   const isForeachNode = nodeType === 'foreach';
+  const isParallelNode = nodeType === 'parallel';
   const isReviewNode = nodeType === 'review';
   const isTaskNode = nodeType === 'task' || nodeType === 'agent';
-  const needsAgent = isTaskNode || isLoopNode || isReviewNode || isForeachNode;
+  const needsAgent = isTaskNode || isLoopNode || isReviewNode || isForeachNode || isParallelNode;
   const titleIcon = isStartNode ? <PlayCircle className="w-5 h-5 text-[var(--color-success)]" />
     : isLoopNode ? <Repeat2 className="w-5 h-5 text-[var(--color-info)]" />
       : isForeachNode ? <Layers className="w-5 h-5 text-[var(--color-success)]" />
-        : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
-          : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
+        : isParallelNode ? <Zap className="w-5 h-5 text-[var(--color-warning)]" />
+          : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
+            : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
 
   const handleSave = () => {
     if (!node) return;
@@ -151,6 +156,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       bgColor,
       dataSource,
       itemPrompt,
+      concurrencyLimit,
       ...(temperatureNum !== undefined && !Number.isNaN(temperatureNum) ? { temperature: temperatureNum } : {}),
     });
     onClose();
@@ -259,7 +265,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </>
             )}
 
-            {(isTaskNode || isLoopNode || isForeachNode) && (
+            {(isTaskNode || isLoopNode || isForeachNode || isParallelNode) && (
               <div className="form-group">
                 <label className="form-label">{t('workflow.nodeConfig.taskDescription')}</label>
                 <div className="relative group">
@@ -281,7 +287,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </div>
             )}
 
-            {isForeachNode && (
+            {(isForeachNode || isParallelNode) && (
               <>
                 <div className="form-group">
                   <label className="form-label">{t('workflow.nodeConfig.dataSourceFile')}</label>
@@ -318,6 +324,24 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                   </p>
                 </div>
               </>
+            )}
+
+            {isParallelNode && (
+              <div className="form-group">
+                <label className="form-label">{t('workflow.nodeConfig.concurrencyLimit')}</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  value={concurrencyLimit}
+                  onChange={(e) => setConcurrencyLimit(Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))}
+                  min={0}
+                  max={50}
+                  placeholder={t('workflow.nodeConfig.concurrencyLimitPlaceholder')}
+                />
+                <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                  {t('workflow.nodeConfig.concurrencyLimitPlaceholder')}
+                </p>
+              </div>
             )}
 
             {isLoopNode && (

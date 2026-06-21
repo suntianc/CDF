@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Loader2, Clock } from 'lucide-react';
+import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Zap, Loader2, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
@@ -32,6 +32,7 @@ const LOOP_ICON = <Repeat2 className="w-3.5 h-3.5 text-[var(--color-info)]" />;
 const REVIEW_ICON = <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-warning)]" />;
 const TASK_ICON = <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" />;
 const FOREACH_ICON = <Layers className="w-3.5 h-3.5 text-[var(--color-success)]" />;
+const ZAP_ICON = <Zap className="w-3.5 h-3.5 text-[var(--color-warning)]" />;
 
 export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const { t } = useTranslation();
@@ -44,7 +45,9 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
       ? { title: data.label || t('workflow.nodeTypes.review.label'), badge: 'Review', icon: REVIEW_ICON, bg: 'var(--color-warning-dim)' }
       : kind === 'foreach'
         ? { title: data.label || t('workflow.nodeTypes.foreach.label'), badge: 'For-Each', icon: FOREACH_ICON, bg: 'var(--color-success-dim)' }
-        : { title: data.label || t('workflow.nodeTypes.task.label'), badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
+        : kind === 'parallel'
+          ? { title: data.label || t('workflow.nodeTypes.parallel.label'), badge: 'Parallel', icon: ZAP_ICON, bg: 'var(--color-warning-dim)' }
+          : { title: data.label || t('workflow.nodeTypes.task.label'), badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
   const rawSummary = kind === 'review'
     ? data.reviewSpec
     : data.taskDescription || data.description;

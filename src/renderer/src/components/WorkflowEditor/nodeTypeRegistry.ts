@@ -85,6 +85,18 @@ export const NODE_TYPE_CONFIGS: Record<WorkflowNodeType, WorkflowNodeConfig> = {
     icon: 'Layers',
     color: '#22c55e',
   },
+  parallel: {
+    category: 'agent',
+    inputs: [
+      { id: 'context', label: '上下文', type: 'string' },
+      { id: 'task', label: '任务描述', type: 'string' },
+    ],
+    outputs: [
+      { id: 'result', label: '执行结果', type: 'string' },
+    ],
+    icon: 'Zap',
+    color: '#f97316',
+  },
 };
 
 /** Get node category for palette grouping */
@@ -101,7 +113,7 @@ export function getNodeTypesByCategory(category: WorkflowNodeCategory): Workflow
 
 /** Check if a node type is executable (runs Agent logic) */
 export function isExecutableNodeType(type?: string | null): boolean {
-  return type === 'agent' || type === 'task' || type === 'loop' || type === 'review' || type === 'foreach';
+  return type === 'agent' || type === 'task' || type === 'loop' || type === 'review' || type === 'foreach' || type === 'parallel';
 }
 
 /** Category display names */

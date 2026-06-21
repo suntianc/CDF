@@ -521,6 +521,8 @@
       "promptTemplatePlaceholder": "留空则自动 JSON.stringify 当前项。支持 {item} 占位符。",
       "editPromptTemplate": "编辑提示词模板",
       "promptTemplateDesc": "使用 {item} 作为当前数据项的占位符。例如: \"请完成以下任务：{item}\"",
+      "concurrencyLimit": "并行度限制",
+      "concurrencyLimitPlaceholder": "0 表示不限制（最大 50）",
       "loopCount": "循环次数",
       "reviewSpec": "规范",
       "reviewSpecPlaceholder": "填写审查标准、验收规范或判断依据",
@@ -641,6 +643,10 @@
       },
       "foreach": {
         "label": "For-Each 节点"
+      },
+      "parallel": {
+        "label": "并行处理",
+        "description": "将数据项分发给多个 Agent 并行执行"
       },
       "review": {
         "label": "审查节点"
