@@ -15,7 +15,25 @@ import db from '../database';
 import store from '../store';
 import { buildWorkflowGraph } from './graph-builder';
 import { createAgentNodeExecutor } from './node-executor';
-import type { ApprovalMode, ExecutionStep, WorkflowDefinition, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution } from '../../shared/types';
+import type { AgentApprovalAction, ApprovalMode, ExecutionStep, WorkflowDefinition, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution } from '../../shared/types';
+
+function parseInterruptActions(interruptValue: unknown): AgentApprovalAction[] {
+  const iv = interruptValue as any;
+  const requests = Array.isArray(iv?.actionRequests) ? iv.actionRequests : [];
+  if (requests.length > 0) {
+    const configs = Array.isArray(iv?.reviewConfigs) ? iv.reviewConfigs : [];
+    return requests.map((action: any, i: number) => ({
+      name: action?.name || action?.action || action?.tool || `tool-${i + 1}`,
+      args: action?.args,
+      description: configs[i]?.description || action?.description,
+      allowedDecisions: configs[i]?.allowedDecisions,
+    }));
+  }
+  if (typeof iv === 'object' && iv !== null && (iv.name || iv.tool)) {
+    return [{ name: iv.name || iv.tool, args: iv.args }];
+  }
+  return [{ name: String(interruptValue ?? 'unknown'), args: interruptValue }];
+}
 
 // ---- Checkpoint Saver (独立 namespace，D-16a) ----
 
@@ -299,9 +317,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           id: approvalId,
           executionId,
           nodeId: node.id,
-          actions: Array.isArray((interruptValue as any)?.actions)
-            ? (interruptValue as any).actions
-            : [{ name: String(interruptValue ?? 'unknown'), args: interruptValue }],
+          actions: parseInterruptActions(interruptValue),
         };
 
         const waitingEvent: WorkflowStreamEvent = {
