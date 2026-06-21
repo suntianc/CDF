@@ -45,6 +45,11 @@ export function resolveInterruptOn(mode: ApprovalMode): Record<string, { allowed
   return DEFAULT_INTERRUPT_ON;
 }
 
+function getInterruptValue(output: unknown): unknown {
+  const o = output as any;
+  return o?.__interrupt__?.[0]?.value || o?.interrupts?.[0]?.value || null;
+}
+
 // ---- Error Types ----
 
 export class AgentNotFoundError extends Error {
@@ -553,6 +558,19 @@ export function createAgentNodeExecutor(
               continue;
             }
             throw err;
+          }
+
+          const interruptValue = getInterruptValue(result);
+          if (interruptValue && onApprovalNeeded) {
+            push({ type: 'system' as const, content: '等待用户审批...' });
+            const resolution = await onApprovalNeeded(interruptValue);
+            const rejected = resolution.decisions.some(d => d.type === 'reject');
+            if (rejected) {
+              push({ type: 'system' as const, content: '用户拒绝了操作' });
+              return '用户拒绝了该操作，任务已终止。';
+            }
+            nextInput = new Command({ resume: { decisions: resolution.decisions } });
+            continue;
           }
 
           return getLastMessageText(result);
