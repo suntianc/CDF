@@ -458,6 +458,9 @@ export interface ExecutionStep {
   output?: unknown;     // tool_result(成功)
   error?: string;       // tool_result(失败)
   duration_ms?: number; // tool_result
+  // Phase 16 Plan 01: span trace 字段（用于关联 subagent 执行链）
+  spanId?: string;       // 当前步骤的 span 标识
+  parentSpanId?: string; // 父级 span 标识
 }
 
 export interface WorkflowNodeRun {
