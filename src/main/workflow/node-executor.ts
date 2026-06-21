@@ -9,14 +9,18 @@ import fs from 'fs';
 import path from 'path';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import db from '../database';
-import { decryptApiKey } from '../security';
 import { createLangChainModel } from '../deepagent/llm-adapter';
-import { loadMcpTools } from '../deepagent/mcp-connector';
 import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
-import { createDeleteFileTool } from '../deepagent/file-tools';
-import { createBashTool } from '../deepagent/bash-tool';
-import { createFetchTool } from '../deepagent/fetch-tool';
-import type { ExecutionStep, MCPServer, WorkflowNode } from '../../shared/types';
+import {
+  getAgentRow,
+  getProvider,
+  getAgentMcpServers,
+  getAgentSkillNames,
+  createBuiltInTools,
+  loadRegistryTools,
+  loadMcpTools,
+} from '../deepagent/shared-infra';
+import type { ExecutionStep, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -34,77 +38,10 @@ export class AgentTimeoutError extends Error {
   }
 }
 
-// ---- DB Helpers (mirrored from runtime.ts) ----
-
-interface AgentRow {
-  id: string;
-  project_id: string;
-  name: string;
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: string | null;
-}
-
-interface ProviderRow {
-  id: string;
-  provider_type: string;
-  api_key?: string | null;
-  api_url?: string | null;
-  default_model: string;
-}
-
 interface ProjectRow {
   id: string;
   name: string;
   path: string;
-}
-
-function getAgent(agentId: string): AgentRow {
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined;
-  if (!agent) throw new AgentNotFoundError(agentId);
-  return agent;
-}
-
-function getProvider(providerId: string | null | undefined): ProviderRow {
-  const id = providerId?.trim();
-  if (!id) throw new Error('Agent has no provider configured');
-  const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(id) as ProviderRow | undefined;
-  if (!provider) throw new Error(`LLM provider not found: ${id}`);
-  return {
-    ...provider,
-    api_key: provider.api_key ? decryptApiKey(provider.api_key) : undefined,
-  };
-}
-
-interface MCPServerRow {
-  id: string;
-  name: string;
-  server_type: 'stdio' | 'sse' | 'http';
-  config: string | null;
-  is_connected: number;
-  last_health_check?: number;
-  created_at: number;
-  updated_at: number;
-}
-
-function getAgentMcpServers(agentId: string): MCPServer[] {
-  const rows = db.prepare(`
-    SELECT m.* FROM mcp_servers m
-    INNER JOIN agent_mcp_servers ams ON ams.mcp_server_id = m.id
-    WHERE ams.agent_id = ?
-  `).all(agentId) as MCPServerRow[];
-
-  return rows.map((row) => ({
-    ...row,
-    config: row.config ? JSON.parse(row.config) : {},
-    is_connected: !!row.is_connected,
-  }));
-}
-
-function getAgentSkillNames(agentId: string): string[] {
-  const rows = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agentId) as Array<{ skill_name: string }>;
-  return rows.map((r) => r.skill_name);
 }
 
 // ---- State Extraction (D-16b: 防止上下文窗口溢出) ----
@@ -299,7 +236,12 @@ export function createAgentNodeExecutor(
   }
 
   // 预加载 Agent 定义（在图构建时，而非执行时）
-  const agentRow = getAgent(agentId);
+  let agentRow;
+  try {
+    agentRow = getAgentRow(agentId);
+  } catch {
+    throw new AgentNotFoundError(agentId);
+  }
   const provider = getProvider(agentRow.provider_id);
   const mcpServers = getAgentMcpServers(agentId);
   const skillNames = getAgentSkillNames(agentId);
@@ -350,11 +292,9 @@ export function createAgentNodeExecutor(
       });
 
       // 加载内建工具（delete_file, bash, fetch）并绑定到当前工作区目录
-      const builtInTools: any[] = [
-        createDeleteFileTool(workingDir),
-        createBashTool({ workingDir }),
-        createFetchTool()
-      ];
+      const builtInTools: any[] = createBuiltInTools(workingDir);
+      // 加载搜索工具（tavily/anysearch/arxiv），与 Chat 路径保持一致
+      builtInTools.push(...loadRegistryTools());
 
       // 2. 创建 DeepAgent（整合 backend, permissions, builtInTools）
       const agent = createDeepAgent({
