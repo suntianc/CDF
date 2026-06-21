@@ -610,6 +610,7 @@ export interface ElectronAPI {
     exportExecution: (executionId: string) => Promise<{ saved: boolean; path?: string; canceled?: boolean; error?: string }>;
     // Phase 14: HITL 审批
     resolveApproval: (executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) => Promise<void>;
+    onExecutionStarted: (callback: (data: { executionId: string; workflowId: string; triggerSource: string }) => void) => () => void;
   };
   // ===== Phase 6 Plan 02: Slash Command Registry Bridge (D-15) =====
   commands: {

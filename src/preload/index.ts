@@ -105,6 +105,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Phase 14: HITL 审批
     resolveApproval: (executionId: string, approvalId: string, resolution: any) =>
       ipcRenderer.invoke('workflow:approve', executionId, approvalId, resolution),
+    onExecutionStarted: (callback: (data: { executionId: string; workflowId: string; triggerSource: string }) => void) => {
+      const listener = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('workflow:execution-started', listener);
+      return () => { ipcRenderer.removeListener('workflow:execution-started', listener); };
+    },
   },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {

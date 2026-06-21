@@ -295,6 +295,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
   pushWorkflowEvent(executionId, startEvent);
   params.onEvent?.(startEvent);
 
+  // 广播执行启动事件（让所有渲染进程都能感知新的 workflow 执行）
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && win.webContents) {
+      win.webContents.send('workflow:execution-started', { executionId, workflowId, triggerSource });
+    }
+  }
+
   // 标记为活跃执行
   activeExecutions.set(executionId, { aborted: false });
 

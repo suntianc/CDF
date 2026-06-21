@@ -318,3 +318,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     return window.electronAPI.workflow.exportExecution(executionId);
   },
 }));
+
+// Chat 路径触发的 workflow 执行：自动订阅事件流（审批、进度）
+let _chatExecutionUnsub: (() => void) | null = null;
+if (typeof window !== 'undefined' && window.electronAPI?.workflow?.onExecutionStarted) {
+  window.electronAPI.workflow.onExecutionStarted(({ executionId }) => {
+    if (_chatExecutionUnsub) _chatExecutionUnsub();
+    _chatExecutionUnsub = useWorkflowStore.getState().subscribeToExecution(executionId);
+  });
+}
