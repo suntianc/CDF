@@ -5,18 +5,21 @@ import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
-import { decryptApiKey } from '../security';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
-import { loadMcpTools } from './mcp-connector';
 import { resolveAgentSkillsConfig } from './skill-manager';
-import { createDeleteFileTool } from './file-tools';
-import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
-import { createBashTool } from './bash-tool';
-import { createFetchTool } from './fetch-tool';
-import { createArxivTool } from './arxiv-tool';
+import {
+  getProvider,
+  getAgentMcpServers,
+  getAgentSkillNames,
+  normalizeProviderId,
+  DEFAULT_INTERRUPT_ON,
+  createBuiltInTools,
+  loadRegistryTools,
+  loadMcpTools,
+} from './shared-infra';
 import { createWorkflowTools } from '../workflow/tools';
-import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA, type ChatRuntimeOverrides } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
 
@@ -50,12 +53,6 @@ interface RuntimeInputMessage {
 
 export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
 
-const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['interruptOn'] = {
-  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  delete_file: { allowedDecisions: ['approve', 'reject'] },
-};
-
 let checkpointSaver: SqliteSaver | null = null;
 
 function getCheckpointSaver(): SqliteSaver {
@@ -63,15 +60,6 @@ function getCheckpointSaver(): SqliteSaver {
     checkpointSaver = SqliteSaver.fromConnString(path.join(app.getPath('userData'), 'deepagents-checkpoints.db'));
   }
   return checkpointSaver;
-}
-
-function normalizeProviderId(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') {
-    return null;
-  }
-  return trimmed;
 }
 
 function getFallbackProviderId(): string {
@@ -172,11 +160,6 @@ function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
   return agent;
 }
 
-function getAgentSkillNames(agentId: string): string[] {
-  const rows = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agentId) as Array<{ skill_name: string }>;
-  return rows.map((row) => row.skill_name);
-}
-
 function getRuntimeAgent(projectId: string, agentId?: string | null): RuntimeAgentRow {
   if (agentId) {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as RuntimeAgentRow | undefined;
@@ -189,28 +172,6 @@ function getRuntimeAgent(projectId: string, agentId?: string | null): RuntimeAge
     }
   }
   return ensureDefaultAgent(projectId);
-}
-
-function getProvider(providerId: string | null | undefined) {
-  const normalizedProviderId = normalizeProviderId(providerId);
-  if (!normalizedProviderId) {
-    throw new Error('默认 Agent 尚未绑定模型提供商。');
-  }
-  let provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(normalizedProviderId) as any;
-  if (!provider) {
-    // 指定的 provider 已被删除，自动 fallback 到活跃 provider
-    provider = db.prepare('SELECT * FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1').get() as any;
-    if (!provider) {
-      provider = db.prepare('SELECT * FROM llm_providers ORDER BY updated_at DESC LIMIT 1').get() as any;
-    }
-    if (!provider) {
-      throw new Error('请先在模型设置中配置并激活一个 LLM 提供商。');
-    }
-  }
-  return {
-    ...provider,
-    api_key: provider.api_key ? decryptApiKey(provider.api_key) : undefined,
-  };
 }
 
 function registerCdfHarnessProfile(providerType: string, modelName: string): void {
@@ -271,24 +232,6 @@ async function buildInputMessages(sessionId: string, currentMessage: RuntimeInpu
     })),
     ...(hasCurrent ? [] : [{ role: 'user' as const, content: currentMessage.content }]),
   ];
-}
-
-function getAgentMcpServers(agentId: string): MCPServer[] {
-  const rows = db
-    .prepare(`
-      SELECT m.*
-      FROM mcp_servers m
-      INNER JOIN agent_mcp_servers ams ON ams.mcp_server_id = m.id
-      WHERE ams.agent_id = ?
-      ORDER BY m.updated_at DESC
-    `)
-    .all(agentId) as Array<Omit<MCPServer, 'config' | 'is_connected'> & { config: string | null; is_connected: number }>;
-
-  return rows.map((row) => ({
-    ...row,
-    config: row.config ? JSON.parse(row.config) : {},
-    is_connected: !!row.is_connected,
-  }));
 }
 
 function buildProjectContext(project: RuntimeProjectRow): string {
@@ -483,41 +426,10 @@ export async function createDeepAgentRuntime(
 
   const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
 
-  const builtInTools: any[] = [
-    createFetchTool(),
-    createDeleteFileTool(project.path),
-    createBashTool({ workingDir: project.path }),
-  ];
-
-  // ---- Tool Registry: 注册新工具只需在此添加一行 ----
-  const TOOL_REGISTRY = [
-    { toolType: 'tavily',    requiresApiKey: true,  create: createTavilyTool },
-    { toolType: 'anysearch', requiresApiKey: true,  create: createAnysearchTool },
-    { toolType: 'arxiv',     requiresApiKey: false, create: createArxivTool },
-  ];
-
-  function loadToolConfig(toolType: string, requiresApiKey: boolean): SearchProviderConfig | null {
-    const row = db.prepare(
-      requiresApiKey
-        ? "SELECT api_key, config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
-        : "SELECT config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
-    ).get(toolType) as { api_key?: string | null; config: string | null } | undefined;
-    if (!row) return null;
-    if (requiresApiKey && !row.api_key) return null;
-    return {
-      decryptedKey: row.api_key ? decryptApiKey(row.api_key) : '',
-      config: row.config ? JSON.parse(row.config) : {},
-    };
-  }
+  const builtInTools: any[] = createBuiltInTools(project.path);
 
   try {
-    for (const entry of TOOL_REGISTRY) {
-      const config = loadToolConfig(entry.toolType, entry.requiresApiKey);
-      if (config) {
-        const createdTools = entry.create(config);
-        builtInTools.push(...(Array.isArray(createdTools) ? createdTools : [createdTools]));
-      }
-    }
+    builtInTools.push(...loadRegistryTools());
   } catch (err) {
     console.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
   }
