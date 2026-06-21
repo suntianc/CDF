@@ -3,7 +3,7 @@ import { Drawer } from 'vaul';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Maximize2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Zap, Maximize2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface NodeConfigDrawerProps {
@@ -28,6 +28,7 @@ interface NodeConfigDrawerProps {
       taskGoal?: string;
       dataSource?: string;
       itemPrompt?: string;
+      concurrencyLimit?: number;
       temperature?: number;
     };
   } | null;
@@ -64,6 +65,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const [bgColor, setBgColor] = useState('');
   const [dataSource, setDataSource] = useState('');
   const [itemPrompt, setItemPrompt] = useState('');
+  const [concurrencyLimit, setConcurrencyLimit] = useState(0);
   const [temperature, setTemperature] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -112,6 +114,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       setBgColor(node.data.bgColor || '');
       setDataSource(node.data.dataSource || '');
       setItemPrompt(node.data.itemPrompt || '');
+      setConcurrencyLimit(node.data.concurrencyLimit ?? 0);
       setTemperature(node.data.temperature === undefined ? '' : String(node.data.temperature));
     }
   }, [node]);
@@ -120,14 +123,16 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
   const isStartNode = nodeType === 'start';
   const isLoopNode = nodeType === 'loop';
   const isForeachNode = nodeType === 'foreach';
+  const isParallelNode = nodeType === 'parallel';
   const isReviewNode = nodeType === 'review';
   const isTaskNode = nodeType === 'task' || nodeType === 'agent';
-  const needsAgent = isTaskNode || isLoopNode || isReviewNode || isForeachNode;
+  const needsAgent = isTaskNode || isLoopNode || isReviewNode || isForeachNode || isParallelNode;
   const titleIcon = isStartNode ? <PlayCircle className="w-5 h-5 text-[var(--color-success)]" />
     : isLoopNode ? <Repeat2 className="w-5 h-5 text-[var(--color-info)]" />
       : isForeachNode ? <Layers className="w-5 h-5 text-[var(--color-success)]" />
-        : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
-          : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
+        : isParallelNode ? <Zap className="w-5 h-5 text-[var(--color-warning)]" />
+          : isReviewNode ? <ShieldCheck className="w-5 h-5 text-[var(--color-warning)]" />
+            : <Bot className="w-5 h-5 text-[var(--color-accent)]" />;
 
   const handleSave = () => {
     if (!node) return;
@@ -147,6 +152,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
       bgColor,
       dataSource,
       itemPrompt,
+      concurrencyLimit,
       ...(temperatureNum !== undefined && !Number.isNaN(temperatureNum) ? { temperature: temperatureNum } : {}),
     });
     onClose();
@@ -275,7 +281,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </>
             )}
 
-            {(isTaskNode || isLoopNode || isForeachNode) && (
+            {(isTaskNode || isLoopNode || isForeachNode || isParallelNode) && (
               <div className="form-group">
                 <label className="form-label">任务描述</label>
                 <div className="relative group">
@@ -297,7 +303,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
               </div>
             )}
 
-            {isForeachNode && (
+            {(isForeachNode || isParallelNode) && (
               <>
                 <div className="form-group">
                   <label className="form-label">数据源文件 (JSON)</label>
@@ -308,7 +314,7 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                     placeholder="例如: data/tasks/train.json"
                   />
                   <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
-                    相对于工作目录的 JSON 文件路径，文件内容须为 JSON 数组。For-Each 节点会对数组中的每个元素执行一次 Agent。
+                    相对于工作目录的 JSON 文件路径，文件内容须为 JSON 数组。
                   </p>
                 </div>
                 <div className="form-group">
@@ -334,6 +340,24 @@ export function NodeConfigDrawer({ isOpen, onClose, node, onUpdateNode, onDelete
                   </p>
                 </div>
               </>
+            )}
+
+            {isParallelNode && (
+              <div className="form-group">
+                <label className="form-label">并行度限制</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  value={concurrencyLimit}
+                  onChange={(e) => setConcurrencyLimit(Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))}
+                  min={0}
+                  max={50}
+                  placeholder="0 表示不限制（最大 50）"
+                />
+                <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                  0 表示不限制（最大 50）
+                </p>
+              </div>
             )}
 
             {isLoopNode && (

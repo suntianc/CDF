@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Loader2 } from 'lucide-react';
+import { Bot, ListTodo, Repeat2, ShieldCheck, Layers, Zap, Loader2 } from 'lucide-react';
 import type { WorkflowNodeRunStatus } from '../../../../shared/types';
 
 interface AgentNodeData extends Record<string, unknown> {
@@ -30,6 +30,7 @@ const LOOP_ICON = <Repeat2 className="w-3.5 h-3.5 text-[var(--color-info)]" />;
 const REVIEW_ICON = <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-warning)]" />;
 const TASK_ICON = <ListTodo className="w-3.5 h-3.5 text-[var(--color-accent)]" />;
 const FOREACH_ICON = <Layers className="w-3.5 h-3.5 text-[var(--color-success)]" />;
+const ZAP_ICON = <Zap className="w-3.5 h-3.5 text-[var(--color-warning)]" />;
 
 export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const status = data.status || 'pending';
@@ -41,7 +42,9 @@ export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps<A
       ? { title: data.label || '审查节点', badge: 'Review', icon: REVIEW_ICON, bg: 'var(--color-warning-dim)' }
       : kind === 'foreach'
         ? { title: data.label || 'For-Each 节点', badge: 'For-Each', icon: FOREACH_ICON, bg: 'var(--color-success-dim)' }
-        : { title: data.label || '普通任务节点', badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
+        : kind === 'parallel'
+          ? { title: data.label || '并行处理', badge: 'Parallel', icon: ZAP_ICON, bg: 'var(--color-warning-dim)' }
+          : { title: data.label || '普通任务节点', badge: 'Task', icon: TASK_ICON, bg: 'var(--color-accent-dim)' };
   const rawSummary = kind === 'review'
     ? data.reviewSpec
     : data.taskDescription || data.description;
