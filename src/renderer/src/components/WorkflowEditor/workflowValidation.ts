@@ -21,6 +21,7 @@ export function getDefaultNodeData(type: string): Record<string, unknown> {
   if (type === 'loop') return { label: 'Loop 节点', nodeKind: 'loop', taskDescription: '', loopCount: 3, failureStrategy: 'stop', retryCount: 3 };
   if (type === 'review') return { label: '审查节点', nodeKind: 'review', reviewSpec: '', reviewRules: '', failureStrategy: 'stop', retryCount: 3 };
   if (type === 'foreach') return { label: 'For-Each 节点', nodeKind: 'foreach', taskDescription: '', dataSource: '', itemPrompt: '', failureStrategy: 'stop', retryCount: 3 };
+  if (type === 'parallel') return { label: '并行处理', nodeKind: 'parallel', taskDescription: '', dataSource: '', itemPrompt: '', concurrencyLimit: 0, failureStrategy: 'stop', retryCount: 3 };
   return { label: '普通任务节点', nodeKind: 'task', taskDescription: '', failureStrategy: 'stop', retryCount: 3 };
 }
 
