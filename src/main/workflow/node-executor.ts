@@ -524,7 +524,7 @@ export function createAgentNodeExecutor(
         while (true) {
           const elapsed = Date.now() - startTime;
           const remaining = DEFAULT_TIMEOUT_MS - elapsed;
-          if (remaining <= 0 && nodeKind !== 'foreach') {
+          if (remaining <= 0 && nodeKind !== 'foreach' && nodeKind !== 'parallel') {
             throw new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS);
           }
 
