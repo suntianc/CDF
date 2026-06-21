@@ -8,7 +8,7 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import db from '../database';
-import { runWorkflow } from './workflow-runtime';
+import { runWorkflow, waitForWorkflowCompletion } from './workflow-runtime';
 
 /**
  * 创建工作流工具集
@@ -41,11 +41,15 @@ export function createWorkflowTools(projectId: string) {
           triggerSource: 'chat',
           input: input ?? {},
         });
-        return JSON.stringify({ executionId, status: 'started' });
+        const result = await waitForWorkflowCompletion(executionId);
+        const nodeRuns = db.prepare(
+          'SELECT node_id, node_name, status, error, output FROM workflow_node_runs WHERE execution_id = ? ORDER BY started_at ASC',
+        ).all(executionId) as Array<{ node_id: string; node_name: string; status: string; error?: string; output?: string }>;
+        return JSON.stringify({ executionId, ...result, nodeRuns });
       },
       {
         name: 'run_workflow',
-        description: '执行指定的工作流。返回执行 ID。可通过 get_workflow_status 查询执行状态。',
+        description: '执行指定的工作流并等待完成。返回执行结果、各节点状态和输出。如果工作流包含需要审批的操作，会等待用户审批后继续。',
         schema: z.object({
           workflowId: z.string().describe('要执行的工作流 ID'),
           input: z.record(z.string(), z.unknown()).optional().describe('可选的输入参数'),

@@ -71,6 +71,26 @@ function pushWorkflowEvent(executionId: string, event: WorkflowStreamEvent) {
   }
 }
 
+// ---- Completion waiters ----
+
+const completionWaiters = new Map<string, Array<(result: { status: string; output?: unknown; error?: string }) => void>>();
+
+export function waitForWorkflowCompletion(executionId: string): Promise<{ status: string; output?: unknown; error?: string }> {
+  return new Promise((resolve) => {
+    const waiters = completionWaiters.get(executionId) || [];
+    waiters.push(resolve);
+    completionWaiters.set(executionId, waiters);
+  });
+}
+
+function notifyCompletion(executionId: string, result: { status: string; output?: unknown; error?: string }) {
+  const waiters = completionWaiters.get(executionId);
+  if (waiters) {
+    for (const resolve of waiters) resolve(result);
+    completionWaiters.delete(executionId);
+  }
+}
+
 // ---- DB Helpers ----
 
 interface WorkflowRow {
@@ -486,6 +506,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     };
     pushWorkflowEvent(executionId, endEvent);
     params.onEvent?.(endEvent);
+    notifyCompletion(executionId, { status: finalStatus, output: allNodeOutputs });
 
   } catch (err) {
     // 失败
@@ -508,6 +529,7 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
     };
     pushWorkflowEvent(executionId, failEvent);
     params.onEvent?.(failEvent);
+    notifyCompletion(executionId, { status: 'failed', error: errorMessage });
 
   } finally {
     activeExecutions.delete(executionId);
