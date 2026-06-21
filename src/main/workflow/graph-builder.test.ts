@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildWorkflowGraph, matchesCondition } from './graph-builder';
+import { buildWorkflowGraph, matchesCondition, createFanOutRouter } from './graph-builder';
 import type { WorkflowDefinition, WorkflowNode } from '../../shared/types';
 
 describe('buildWorkflowGraph', () => {
@@ -305,5 +305,154 @@ describe('buildWorkflowGraph', () => {
     // fan-out: 两条路径都执行
     expect(result.nodeOutputs['path-a']).toBeDefined();
     expect(result.nodeOutputs['path-b']).toBeDefined();
+  });
+});
+
+// ---- Phase 15: Send API fan-out/fan-in 测试 ----
+
+describe('createFanOutRouter', () => {
+  it('should return Send[] for each item in nodeOutputs', () => {
+    const router = createFanOutRouter('parallel-1', 'parallel-1__worker');
+    const state = {
+      nodeOutputs: {
+        'parallel-1': { items: ['a', 'b', 'c'], count: 3 },
+      },
+    };
+    const result = router(state as any);
+    expect(Array.isArray(result)).toBe(true);
+    const sends = result as any[];
+    expect(sends).toHaveLength(3);
+    expect(sends[0].node).toBe('parallel-1__worker');
+    expect(sends[0].args.__fanout_item).toBe('a');
+    expect(sends[0].args.__fanout_index).toBe(0);
+    expect(sends[1].args.__fanout_item).toBe('b');
+    expect(sends[1].args.__fanout_index).toBe(1);
+    expect(sends[2].args.__fanout_item).toBe('c');
+    expect(sends[2].args.__fanout_index).toBe(2);
+  });
+
+  it('should return END for empty items array', () => {
+    const router = createFanOutRouter('parallel-1', 'parallel-1__worker');
+    const state = {
+      nodeOutputs: {
+        'parallel-1': { items: [], count: 0 },
+      },
+    };
+    const result = router(state as any);
+    expect(result).toBe('__end__');
+  });
+
+  it('should respect concurrencyLimit', () => {
+    const router = createFanOutRouter('parallel-1', 'parallel-1__worker', 2);
+    const state = {
+      nodeOutputs: {
+        'parallel-1': { items: ['a', 'b', 'c', 'd', 'e'], count: 5 },
+      },
+    };
+    const result = router(state as any);
+    expect(Array.isArray(result)).toBe(true);
+    expect((result as any[]).length).toBe(2);
+  });
+});
+
+describe('buildWorkflowGraph parallel node (Send fan-out/fan-in)', () => {
+  it('should fan-out parallel node via Send API and collect all worker outputs', async () => {
+    const workflow: WorkflowDefinition = {
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+        { id: 'p1', type: 'parallel', position: { x: 0, y: 120 }, data: { label: 'Parallel', nodeKind: 'parallel', agentId: 'a' } },
+        { id: 'end', type: 'end', position: { x: 0, y: 240 }, data: { label: 'End' } },
+      ],
+      edges: [
+        { id: 's-p', source: 'start', target: 'p1' },
+        { id: 'p-e', source: 'p1', target: 'end' },
+      ],
+    };
+
+    const builder = buildWorkflowGraph(workflow, (node: WorkflowNode) => async (state) => {
+      const fanoutItem = state.__fanout_item;
+      if (fanoutItem !== undefined) {
+        // worker 角色
+        return { result: `processed:${fanoutItem}`, item: fanoutItem };
+      }
+      // dispatcher 角色
+      return { items: ['a', 'b', 'c'], count: 3 };
+    });
+    const graph = builder.compile();
+    const result = await graph.invoke({ inputs: {}, messages: [] });
+
+    // dispatcher output
+    expect(result.nodeOutputs['p1']).toMatchObject({ items: ['a', 'b', 'c'], count: 3 });
+    // worker outputs（fan-in via spread-merge reducer）
+    expect(result.nodeOutputs['p1__worker:0']).toMatchObject({ result: 'processed:a' });
+    expect(result.nodeOutputs['p1__worker:1']).toMatchObject({ result: 'processed:b' });
+    expect(result.nodeOutputs['p1__worker:2']).toMatchObject({ result: 'processed:c' });
+  });
+
+  it('should fan-in: downstream node can read all worker outputs after parallel completes', async () => {
+    const workflow: WorkflowDefinition = {
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+        { id: 'p1', type: 'parallel', position: { x: 0, y: 120 }, data: { label: 'Parallel', nodeKind: 'parallel', agentId: 'a' } },
+        { id: 'agg', type: 'agent', position: { x: 0, y: 240 }, data: { label: 'Aggregator', agentId: 'b' } },
+        { id: 'end', type: 'end', position: { x: 0, y: 360 }, data: { label: 'End' } },
+      ],
+      edges: [
+        { id: 's-p', source: 'start', target: 'p1' },
+        { id: 'p-a', source: 'p1', target: 'agg' },
+        { id: 'a-e', source: 'agg', target: 'end' },
+      ],
+    };
+
+    let aggInputNodeOutputs: Record<string, unknown> = {};
+
+    const builder = buildWorkflowGraph(workflow, (node: WorkflowNode) => async (state) => {
+      if (node.id === 'p1') {
+        const fanoutItem = state.__fanout_item;
+        if (fanoutItem !== undefined) {
+          return { result: `done:${fanoutItem}` };
+        }
+        return { items: ['x', 'y'], count: 2 };
+      }
+      if (node.id === 'agg') {
+        aggInputNodeOutputs = (state.nodeOutputs as Record<string, unknown>) ?? {};
+        return { result: 'aggregated' };
+      }
+      return { result: `ran:${node.id}` };
+    });
+    const graph = builder.compile();
+    await graph.invoke({ inputs: {}, messages: [] });
+
+    // aggregator 应能看到所有 worker 输出
+    expect(aggInputNodeOutputs['p1__worker:0']).toMatchObject({ result: 'done:x' });
+    expect(aggInputNodeOutputs['p1__worker:1']).toMatchObject({ result: 'done:y' });
+  });
+
+  it('should handle empty items array gracefully without error', async () => {
+    const workflow: WorkflowDefinition = {
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+        { id: 'p1', type: 'parallel', position: { x: 0, y: 120 }, data: { label: 'Parallel', nodeKind: 'parallel', agentId: 'a' } },
+        { id: 'end', type: 'end', position: { x: 0, y: 240 }, data: { label: 'End' } },
+      ],
+      edges: [
+        { id: 's-p', source: 'start', target: 'p1' },
+        { id: 'p-e', source: 'p1', target: 'end' },
+      ],
+    };
+
+    const builder = buildWorkflowGraph(workflow, (_node: WorkflowNode) => async (state) => {
+      const fanoutItem = state.__fanout_item;
+      if (fanoutItem !== undefined) {
+        return { result: `processed:${fanoutItem}` };
+      }
+      // dispatcher 返回空 items
+      return { items: [], count: 0 };
+    });
+    const graph = builder.compile();
+    // 空 items 不应报错，直接结束
+    const result = await graph.invoke({ inputs: {}, messages: [] });
+    expect(result.nodeOutputs['p1']).toMatchObject({ items: [], count: 0 });
+    expect(result.nodeOutputs['p1__worker:0']).toBeUndefined();
   });
 });
