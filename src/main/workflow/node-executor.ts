@@ -7,48 +7,20 @@
 
 import fs from 'fs';
 import path from 'path';
-import { z } from 'zod';
-import { toolStrategy } from 'langchain';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
-import { MemorySaver, isGraphInterrupt, Command } from '@langchain/langgraph';
 import db from '../database';
-import { decryptApiKey } from '../security';
 import { createLangChainModel } from '../deepagent/llm-adapter';
-import { loadMcpTools } from '../deepagent/mcp-connector';
 import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
-import { createDeleteFileTool } from '../deepagent/file-tools';
-import { createBashTool } from '../deepagent/bash-tool';
-import { createFetchTool } from '../deepagent/fetch-tool';
-import type { ApprovalMode, ExecutionStep, MCPServer, WorkflowApprovalResolution, WorkflowNode } from '../../shared/types';
-
-export type ApprovalNeededCallback = (interruptValue: unknown) => Promise<WorkflowApprovalResolution>;
-
-// ===== Phase 14: DEFAULT_INTERRUPT_ON + resolveInterruptOn =====
-// 与 Chat 路径 (src/main/deepagent/runtime.ts:55-81) 完全一致 (D-01)
-
-export const DEFAULT_INTERRUPT_ON: Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }> = {
-  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  delete_file: { allowedDecisions: ['approve', 'reject'] },
-  delete_agent: { allowedDecisions: ['approve', 'reject'] },
-  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
-};
-
-/**
- * 根据审批模式决定 createDeepAgent 的 interruptOn 值
- * - strict / agent_decides: 返回 DEFAULT_INTERRUPT_ON（全量拦截）
- * - bypass: 返回 {}（不拦截）
- */
-export function resolveInterruptOn(mode: ApprovalMode): Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }> | Record<string, never> {
-  if (mode === 'bypass') return {};
-  return DEFAULT_INTERRUPT_ON;
-}
-
-function getInterruptValue(output: unknown): unknown {
-  const o = output as any;
-  return o?.__interrupt__?.[0]?.value || o?.interrupts?.[0]?.value || null;
-}
+import {
+  getAgentRow,
+  getProvider,
+  getAgentMcpServers,
+  getAgentSkillNames,
+  createBuiltInTools,
+  loadRegistryTools,
+  loadMcpTools,
+} from '../deepagent/shared-infra';
+import type { ExecutionStep, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -66,77 +38,10 @@ export class AgentTimeoutError extends Error {
   }
 }
 
-// ---- DB Helpers (mirrored from runtime.ts) ----
-
-interface AgentRow {
-  id: string;
-  project_id: string;
-  name: string;
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: string | null;
-}
-
-interface ProviderRow {
-  id: string;
-  provider_type: string;
-  api_key?: string | null;
-  api_url?: string | null;
-  default_model: string;
-}
-
 interface ProjectRow {
   id: string;
   name: string;
   path: string;
-}
-
-function getAgent(agentId: string): AgentRow {
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined;
-  if (!agent) throw new AgentNotFoundError(agentId);
-  return agent;
-}
-
-function getProvider(providerId: string | null | undefined): ProviderRow {
-  const id = providerId?.trim();
-  if (!id) throw new Error('Agent has no provider configured');
-  const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(id) as ProviderRow | undefined;
-  if (!provider) throw new Error(`LLM provider not found: ${id}`);
-  return {
-    ...provider,
-    api_key: provider.api_key ? decryptApiKey(provider.api_key) : undefined,
-  };
-}
-
-interface MCPServerRow {
-  id: string;
-  name: string;
-  server_type: 'stdio' | 'sse' | 'http';
-  config: string | null;
-  is_connected: number;
-  last_health_check?: number;
-  created_at: number;
-  updated_at: number;
-}
-
-function getAgentMcpServers(agentId: string): MCPServer[] {
-  const rows = db.prepare(`
-    SELECT m.* FROM mcp_servers m
-    INNER JOIN agent_mcp_servers ams ON ams.mcp_server_id = m.id
-    WHERE ams.agent_id = ?
-  `).all(agentId) as MCPServerRow[];
-
-  return rows.map((row) => ({
-    ...row,
-    config: row.config ? JSON.parse(row.config) : {},
-    is_connected: !!row.is_connected,
-  }));
-}
-
-function getAgentSkillNames(agentId: string): string[] {
-  const rows = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agentId) as Array<{ skill_name: string }>;
-  return rows.map((r) => r.skill_name);
 }
 
 // ---- State Extraction (D-16b: 防止上下文窗口溢出) ----
@@ -324,8 +229,6 @@ function tryParseJson(value: string): unknown {
 export function createAgentNodeExecutor(
   node: WorkflowNode,
   upstreamNodeIds: string[] = [],
-  approvalMode: ApprovalMode = 'strict',
-  onApprovalNeeded?: ApprovalNeededCallback,
 ) {
   const agentId = node.data.agentId;
   if (!agentId) {
@@ -333,7 +236,12 @@ export function createAgentNodeExecutor(
   }
 
   // 预加载 Agent 定义（在图构建时，而非执行时）
-  const agentRow = getAgent(agentId);
+  let agentRow;
+  try {
+    agentRow = getAgentRow(agentId);
+  } catch {
+    throw new AgentNotFoundError(agentId);
+  }
   const provider = getProvider(agentRow.provider_id);
   const mcpServers = getAgentMcpServers(agentId);
   const skillNames = getAgentSkillNames(agentId);
@@ -355,7 +263,6 @@ export function createAgentNodeExecutor(
         apiUrl: provider.api_url ?? undefined,
         defaultModel: provider.default_model,
         providerType: provider.provider_type as any,
-        contextLimit: provider.context_limit,
       });
 
       const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?')
@@ -385,20 +292,11 @@ export function createAgentNodeExecutor(
       });
 
       // 加载内建工具（delete_file, bash, fetch）并绑定到当前工作区目录
-      const builtInTools: any[] = [
-        createDeleteFileTool(workingDir),
-        createBashTool({ workingDir }),
-        createFetchTool()
-      ];
-
-      const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
+      const builtInTools: any[] = createBuiltInTools(workingDir);
+      // 加载搜索工具（tavily/anysearch/arxiv），与 Chat 路径保持一致
+      builtInTools.push(...loadRegistryTools());
 
       // 2. 创建 DeepAgent（整合 backend, permissions, builtInTools）
-      const reviewRoutingSchema = z.object({
-        routing: z.record(z.string(), z.string()).describe('路由决策，key 为条件键如节点 ID，value 为匹配值如通过/拒绝'),
-        reasoning: z.string().describe('审查推理说明'),
-      });
-
       const agent = createDeepAgent({
         model,
         backend,
@@ -406,10 +304,9 @@ export function createAgentNodeExecutor(
         skills: skillsSources.length > 0 ? skillsSources : undefined,
         permissions,
         tools: [...mcpRuntime.tools, ...builtInTools],
-        interruptOn: resolveInterruptOn(approvalMode),
-        checkpointer: new MemorySaver(),
-        ...(nodeKind === 'review' ? { responseFormat: toolStrategy(reviewRoutingSchema) } : {}),
       });
+
+      const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
       const taskDescription = node.data.taskDescription || node.data.description || '';
       const nodeSpecificContext = [
         nodeKind === 'task' ? `## 普通任务节点\n任务描述: ${taskDescription || '未填写'}` : '',
@@ -426,7 +323,9 @@ export function createAgentNodeExecutor(
               `## 审查节点`,
               `规范: ${node.data.reviewSpec || taskDescription || '未填写'}`,
               node.data.reviewRules ? `条件规则:\n${node.data.reviewRules}` : '',
-              `请根据上游输出和规范进行审查。系统会自动收集你的路由决策，无需在回复中手动嵌入 JSON。路由条件键默认使用当前节点 ID: ${node.id}`,
+              `请根据上游输出和规范给出审查描述，并在最终回复中包含 JSON 路由片段。`,
+              `默认路由条件键使用当前节点 ID: ${node.id}`,
+              `示例: {"routing":{"${node.id}":"通过"}}`,
             ].filter(Boolean).join('\n')
           : '',
         nodeKind === 'foreach'
@@ -437,32 +336,17 @@ export function createAgentNodeExecutor(
               `该节点会对 JSON 数组中的每个元素执行一次 Agent。请完成当前项的任务。`,
             ].join('\n')
           : '',
-        nodeKind === 'parallel'
-          ? [
-              `## 并行任务节点`,
-              `任务描述: ${taskDescription || '未填写'}`,
-              `数据源: ${node.data.dataSource || '来自上游节点输出'}`,
-              `该节点会对 JSON 数组中的每个元素并行执行 Agent Worker。请完成当前项的任务。`,
-            ].join('\n')
-          : '',
       ].filter(Boolean).join('\n\n');
 
-      const agentDecidesPreamble = approvalMode === 'agent_decides'
-        ? `## 工具使用审批判断\n你拥有对受保护工具（write_file, edit_file, delete_file 等）的执行权限。在调用这些工具前，请评估操作风险：如果操作不可撤销、影响范围大或修改关键文件，请先用 ask_user 工具征求用户确认。低风险的常规操作可以直接执行。`
-        : '';
-
       const taskContext = [
-        agentDecidesPreamble,
         `## 工作流节点任务`,
         `节点名称: ${node.data.label || node.id}`,
         `节点类型: ${nodeKind}`,
         agentRow.description ? `节点描述: ${agentRow.description}` : '',
         nodeSpecificContext,
         '',
-        ...(nodeKind !== 'review' ? [
-          `如果该节点需要决定条件分支，请在最终回复中包含 JSON 片段：`,
-          `{"routing":{"路由条件键":"匹配值"}}`,
-        ] : []),
+        `如果该节点需要决定条件分支，请在最终回复中包含 JSON 片段：`,
+        `{"routing":{"路由条件键":"匹配值"}}`,
         '',
         `## 输入参数`,
         JSON.stringify(inputs, null, 2),
@@ -473,115 +357,82 @@ export function createAgentNodeExecutor(
       ].filter(Boolean).join('\n');
 
       const invokeAgent = async (content: string): Promise<string> => {
+        // 临时存储每个工具运行 of runId 对应的工具名称
         const toolRunNames = new Map<string, string>();
+        // 临时存储每个工具开始时间(用于计算 duration_ms)
         const toolRunStartedAt = new Map<string, number>();
 
+        // 统一推送 step(自动打 ts)
         const push = (step: Omit<ExecutionStep, 'ts'> & { ts?: number }) => {
           onStep?.({ ts: Date.now(), ...step });
         };
 
-        const threadId = `workflow-node-${node.id}-${Date.now()}`;
-        const callbacks = [
+        const agentPromise = agent.invoke(
+          { messages: [{ role: 'user', content }] },
           {
-            handleLLMStart() {},
-            handleLLMEnd(output: any) {
-              const text = extractThinkingText(output);
-              if (text && text.trim()) {
-                push({ type: 'thinking', content: text });
+            callbacks: [
+              {
+                handleLLMStart() {
+                  // 不再产生 thinking 占位 step;真正的思考由 handleLLMEnd 产出
+                },
+                handleLLMEnd(output: any) {
+                  // 提取 LLM 自然语言思考,剔除 tool_calls JSON 尾巴
+                  const text = extractThinkingText(output);
+                  if (text && text.trim()) {
+                    push({ type: 'thinking', content: text });
+                  }
+                },
+                handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
+                  const rawId = tool?.id;
+                  const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
+                  const toolName = name || tool?.name || toolId || 'unknown';
+                  toolRunNames.set(runId, toolName);
+                  toolRunStartedAt.set(runId, Date.now());
+                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
+                },
+                handleToolEnd(output, runId) {
+                  const toolName = toolRunNames.get(runId) || 'unknown';
+                  toolRunNames.delete(runId);
+                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
+                  toolRunStartedAt.delete(runId);
+                  const durationMs = Date.now() - startedAt;
+                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs });
+                },
+                handleToolError(err, runId) {
+                  const toolName = toolRunNames.get(runId) || 'unknown';
+                  toolRunNames.delete(runId);
+                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
+                  toolRunStartedAt.delete(runId);
+                  const durationMs = Date.now() - startedAt;
+                  const errMsg = err instanceof Error ? err.message : String(err);
+                  push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs });
+                }
               }
-            },
-            handleToolStart(tool: any, toolInput: any, runId: string, _parentRunId: any, _tags: any, _metadata: any, name: string) {
-              const rawId = tool?.id;
-              const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
-              const toolName = name || tool?.name || toolId || 'unknown';
-              toolRunNames.set(runId, toolName);
-              toolRunStartedAt.set(runId, Date.now());
-              push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
-            },
-            handleToolEnd(output: any, runId: string) {
-              const toolName = toolRunNames.get(runId) || 'unknown';
-              toolRunNames.delete(runId);
-              const startedAt = toolRunStartedAt.get(runId) || Date.now();
-              toolRunStartedAt.delete(runId);
-              const durationMs = Date.now() - startedAt;
-              push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs });
-            },
-            handleToolError(err: any, runId: string) {
-              const toolName = toolRunNames.get(runId) || 'unknown';
-              toolRunNames.delete(runId);
-              const startedAt = toolRunStartedAt.get(runId) || Date.now();
-              toolRunStartedAt.delete(runId);
-              const durationMs = Date.now() - startedAt;
-              const errMsg = err instanceof Error ? err.message : String(err);
-              push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs });
-            }
+            ]
           }
-        ];
+        );
 
-        let nextInput: unknown = { messages: [{ role: 'user', content }] };
-        const startTime = Date.now();
-
-        while (true) {
-          const elapsed = Date.now() - startTime;
-          const remaining = DEFAULT_TIMEOUT_MS - elapsed;
-          if (remaining <= 0 && nodeKind !== 'foreach' && nodeKind !== 'parallel') {
-            throw new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS);
-          }
-
-          let result: unknown;
-          try {
-            const invokePromise = agent.invoke(nextInput as any, {
-              configurable: { thread_id: threadId },
-              callbacks,
-            });
-
-            if (nodeKind === 'foreach') {
-              result = await invokePromise;
-            } else {
-              let timeoutId: NodeJS.Timeout | undefined;
-              const timeoutPromise = new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(
-                  () => reject(new AgentTimeoutError(agentId, remaining)),
-                  remaining,
-                );
-              });
-              try {
-                result = await Promise.race([invokePromise, timeoutPromise]);
-              } finally {
-                if (timeoutId !== undefined) clearTimeout(timeoutId);
-              }
-            }
-          } catch (err) {
-            if (isGraphInterrupt(err) && onApprovalNeeded) {
-              const interruptErr = err as { interrupts?: Array<{ value: unknown }> };
-              const interruptValue = interruptErr.interrupts?.[0]?.value;
-              push({ type: 'system' as const, content: '等待用户审批...' });
-              const resolution = await onApprovalNeeded(interruptValue);
-              const rejected = resolution.decisions.some(d => d.type === 'reject');
-              if (rejected) {
-                push({ type: 'system' as const, content: '用户拒绝了操作' });
-                return '用户拒绝了该操作，任务已终止。';
-              }
-              nextInput = new Command({ resume: { decisions: resolution.decisions } });
-              continue;
-            }
-            throw err;
-          }
-
-          const interruptValue = getInterruptValue(result);
-          if (interruptValue && onApprovalNeeded) {
-            push({ type: 'system' as const, content: '等待用户审批...' });
-            const resolution = await onApprovalNeeded(interruptValue);
-            const rejected = resolution.decisions.some(d => d.type === 'reject');
-            if (rejected) {
-              push({ type: 'system' as const, content: '用户拒绝了操作' });
-              return '用户拒绝了该操作，任务已终止。';
-            }
-            nextInput = new Command({ resume: { decisions: resolution.decisions } });
-            continue;
-          }
-
+        if (nodeKind === 'foreach') {
+          const result = await agentPromise;
           return getLastMessageText(result);
+        }
+
+        let timeoutId: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS)),
+            DEFAULT_TIMEOUT_MS,
+          );
+        });
+
+        try {
+          const result = await Promise.race([
+            agentPromise,
+            timeoutPromise,
+          ]);
+          return getLastMessageText(result);
+        } finally {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
       };
 
@@ -724,176 +575,12 @@ export function createAgentNodeExecutor(
         };
       }
 
-      // Parallel 节点：dispatcher（读取 items）或 worker（执行单 item）
-      if (nodeKind === 'parallel') {
-        const fanoutItem = state.__fanout_item;
-        const fanoutIndex = state.__fanout_index as number | undefined;
-        const fanoutTotal = state.__fanout_total as number | undefined;
-
-        if (fanoutItem !== undefined) {
-          // Worker 角色：执行单个 item
-          const itemContext = [
-            taskDescription
-              ? `## 并行任务节点\n任务描述: ${taskDescription}`
-              : `## 并行任务节点`,
-            '',
-            `## 当前项 (${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'})`,
-            node.data.itemPrompt
-              ? node.data.itemPrompt.replace(/\{item\}/g, JSON.stringify(fanoutItem, null, 2))
-              : JSON.stringify(fanoutItem, null, 2),
-            '',
-            `## 输入参数`,
-            JSON.stringify(inputs, null, 2),
-          ].filter(Boolean).join('\n');
-
-          onStep?.({ ts: Date.now(), type: 'system', content: `[Parallel] 正在执行第 ${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'} 个 worker...` });
-          const resultText = await invokeAgent(itemContext);
-          onStep?.({ ts: Date.now(), type: 'system', content: `[Parallel] 第 ${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'} 个 worker 执行完成` });
-          const routing = extractWorkflowRouting(resultText);
-          const duration = Date.now() - startTime;
-
-          return {
-            result: resultText,
-            item: fanoutItem,
-            index: fanoutIndex ?? 0,
-            nodeId: node.id,
-            agentId,
-            duration_ms: duration,
-            ...(routing ? { routing } : {}),
-          };
-        } else {
-          // Dispatcher 角色：读取 items 数据源，写入 nodeOutputs[node.id] = { items, count }
-          const dataSource = node.data.dataSource;
-          let items: unknown[] = [];
-
-          if (dataSource) {
-            // 从文件系统读取（与 foreach 一致）
-            const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
-            const workspacePath = (workflowStart?.workspace as string)?.trim();
-            const baseDir = workspacePath || project.path;
-            const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
-
-            if (!fs.existsSync(filePath)) {
-              throw new Error(`数据源文件不存在: ${filePath}`);
-            }
-
-            const raw = fs.readFileSync(filePath, 'utf-8');
-            let parsed: unknown;
-            try {
-              parsed = JSON.parse(raw);
-            } catch {
-              throw new Error(`数据源文件不是合法的 JSON: ${filePath}`);
-            }
-            if (!Array.isArray(parsed)) {
-              throw new Error(`数据源文件内容不是 JSON 数组: ${filePath}`);
-            }
-            items = parsed;
-          } else {
-            // 从上游 nodeOutputs 中寻找 items/results 数组
-            for (const upstreamId of upstreamNodeIds) {
-              const upstreamOutput = (state.nodeOutputs as Record<string, unknown>)?.[upstreamId] as Record<string, unknown> | undefined;
-              const candidates = upstreamOutput?.items ?? upstreamOutput?.results;
-              if (Array.isArray(candidates)) {
-                items = candidates;
-                break;
-              }
-            }
-          }
-
-          const duration = Date.now() - startTime;
-          return {
-            items,
-            count: items.length,
-            nodeId: node.id,
-            agentId,
-            duration_ms: duration,
-          };
-        }
-      }
-
-      // 4. 审查节点使用 structuredResponse 获取路由决策
-      if (nodeKind === 'review') {
-        onStep?.({ ts: Date.now(), type: 'task_start', label: '[Review] 开始执行审查节点' });
-
-        const toolRunNames = new Map<string, string>();
-        const toolRunStartedAt = new Map<string, number>();
-        const push = (step: Omit<ExecutionStep, 'ts'> & { ts?: number }) => {
-          onStep?.({ ts: Date.now(), ...step });
-        };
-
-        const reviewResult = await agent.invoke(
-          { messages: [{ role: 'user', content: taskContext }] },
-          {
-            configurable: { thread_id: `workflow-review-${node.id}-${Date.now()}` },
-            callbacks: [
-              {
-                handleLLMStart() {},
-                handleLLMEnd(output: any) {
-                  const text = extractThinkingText(output);
-                  if (text && text.trim()) push({ type: 'thinking', content: text });
-                },
-                handleToolStart(tool: any, toolInput: any, runId: string, _parentRunId: any, _tags: any, _metadata: any, name: string) {
-                  const rawId = tool?.id;
-                  const toolId: string = Array.isArray(rawId) ? rawId[rawId.length - 1] : (rawId as string);
-                  const toolName = name || tool?.name || toolId || 'unknown';
-                  toolRunNames.set(runId, toolName);
-                  toolRunStartedAt.set(runId, Date.now());
-                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
-                },
-                handleToolEnd(output: any, runId: string) {
-                  const toolName = toolRunNames.get(runId) || 'unknown';
-                  toolRunNames.delete(runId);
-                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
-                  toolRunStartedAt.delete(runId);
-                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: Date.now() - startedAt });
-                },
-                handleToolError(err: any, runId: string) {
-                  const toolName = toolRunNames.get(runId) || 'unknown';
-                  toolRunNames.delete(runId);
-                  const startedAt = toolRunStartedAt.get(runId) || Date.now();
-                  toolRunStartedAt.delete(runId);
-                  push({ type: 'tool_result', tool: toolName, success: false, error: err instanceof Error ? err.message : String(err), duration_ms: Date.now() - startedAt });
-                },
-              },
-            ],
-          },
-        );
-
-        onStep?.({ ts: Date.now(), type: 'task_end', label: '[Review] 审查节点执行完毕' });
-
-        const duration = Date.now() - startTime;
-        const structured = (reviewResult as any).structuredResponse;
-
-        if (structured && typeof structured === 'object' && structured.routing) {
-          return {
-            result: structured.reasoning || JSON.stringify(structured),
-            routing: structured.routing,
-            nodeId: node.id,
-            agentId,
-            duration_ms: duration,
-          };
-        }
-
-        // fallback: structuredResponse 为 null 时（provider 不支持 tool_use），回退到文本正则解析
-        console.warn(`[node-executor] review 节点 ${node.id} 未返回 structuredResponse，回退到文本正则解析`);
-        const fallbackText = getLastMessageText(reviewResult);
-        const fallbackRouting = extractWorkflowRouting(fallbackText);
-
-        return {
-          result: fallbackText,
-          nodeId: node.id,
-          agentId,
-          duration_ms: duration,
-          ...(fallbackRouting ? { routing: fallbackRouting } : {}),
-        };
-      }
-
-      // 5. 执行 DeepAgent（普通任务节点为单次调用）
+      // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
       onStep?.({ ts: Date.now(), type: 'task_start', label: '[Task] 开始执行节点任务' });
       const resultText = await invokeAgent(taskContext);
       onStep?.({ ts: Date.now(), type: 'task_end', label: '[Task] 节点任务执行完毕' });
 
-      // 6. 收集结果（routing 从原始文本提取）
+      // 5. 收集结果（routing 从原始文本提取）
       const duration = Date.now() - startTime;
       const routing = extractWorkflowRouting(resultText);
 

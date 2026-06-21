@@ -1,0 +1,12 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"/Users/suntc/.nvm/versions/node/v22.21.0/bin/node\" \"/Users/suntc/.codex/hooks/gsd-check-update.js\""
+        }
+      ]
+    }
+  ]
+}

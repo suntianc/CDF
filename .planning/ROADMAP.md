@@ -25,12 +25,19 @@ v0.2.2 是动态维修里程碑。修复 phase 根据用户反馈逐步通过 `/
   - [x] 11-01-PLAN.md — 架构分析报告：业界 Agent 工作流编排方案与 CDF 比对
 
 - [ ] Phase 12: deepagents SDK 能力探针 — 1 plan
-- [ ] Phase 13: Workflow 路由机制修复 — 2 plans
+- [x] Phase 13: Workflow 路由机制修复 (2/2 plans) — completed 2026-06-19
   - [x] 13-01-PLAN.md — createConditionalRouter 路由缺失显式抛错 + 测试
   - [x] 13-02-PLAN.md — review 节点 responseFormat 结构化输出 + 测试
-- [ ] Phase 14: 审批机制统一设计（HITL + bypass 开关） — pending (depends: 12)
-- [ ] Phase 15: 并行 Agent 执行（fan-out/fan-in） — pending (depends: 12)
-- [ ] Phase 16: 基础设施统一 + 可观测性 — pending (depends: 13, 14)
+- [x] Phase 14: 审批机制统一设计（HITL + bypass 开关） — 2 plans — completed 2026-06-20
+  - [x] 14-01-PLAN.md — 后端 HITL 机制（interruptOn 注入 + GraphInterrupt 处理 + resume IPC）
+  - [x] 14-02-PLAN.md — 前端审批 UI（审批卡片 + AgentNode waiting + 审批模式选择器 + i18n）
+- [x] Phase 15: 并行 Agent 执行（fan-out/fan-in） — 2 plans — completed 2026-06-21
+  - [x] 15-01-PLAN.md — 后端 Send API fan-out 实现（types + graph-builder + node-executor + 测试）
+  - [x] 15-02-PLAN.md — 前端 parallel 节点 UI（注册表 + 面板 + 配置 + AgentNode + i18n）
+- [ ] Phase 16: 基础设施统一 + 可观测性 — 3 plans
+  - [x] 16-01-PLAN.md — shared-infra 共享能力层提取 + span trace 类型 + 测试
+  - [ ] 16-02-PLAN.md — runtime.ts 和 node-executor.ts 迁移到共享层
+  - [ ] 16-03-PLAN.md — 后端 span trace 注入 + 前端 ExecutionPanel 层级渲染
 
 ## Progress
 
@@ -40,9 +47,9 @@ v0.2.2 是动态维修里程碑。修复 phase 根据用户反馈逐步通过 `/
 | 11. 网络调研 agent 工作流比对 | v0.2.2 | 1/1 | ✅ Complete | 2026-06-19 |
 | 12. SDK 能力探针 | v0.2.2 | 1/1 | Complete   | 2026-06-19 |
 | 13. Workflow 路由机制修复 | v0.2.2 | 2/2 | Complete    | 2026-06-19 |
-| 14. 审批机制统一设计 | v0.2.2 | — | ⏳ Pending | — |
-| 15. 并行 Agent 执行 | v0.2.2 | — | ⏳ Pending | — |
-| 16. 基础设施统一 + 可观测性 | v0.2.2 | — | ⏳ Pending | — |
+| 14. 审批机制统一设计 | v0.2.2 | 2/2 | Complete   | 2026-06-20 |
+| 15. 并行 Agent 执行 | v0.2.2 | 2/2 | Complete   | 2026-06-21 |
+| 16. 基础设施统一 + 可观测性 | v0.2.2 | 1/3 | In Progress|  |
 
 <details>
 <summary>✅ v0.2.1 本地多领域 Agent 工作站重设计 (Phases 1-8) — SHIPPED 2026-06-14</summary>
@@ -165,7 +172,13 @@ Plans:
 
 **依赖:** Phase 12（确认 interrupt() 可用性）
 
-**关键文件:** `node-executor.ts`、`runtime.ts`、审批相关 IPC
+**关键文件:** `node-executor.ts`、`workflow-runtime.ts`、审批相关 IPC
+
+**Plans:** 1/2 plans executed
+
+Plans:
+- [ ] 14-01-PLAN.md — 后端 HITL 机制（interruptOn 注入 + GraphInterrupt 处理 + resume IPC）
+- [ ] 14-02-PLAN.md — 前端审批 UI（审批卡片 + AgentNode waiting + 审批模式选择器 + i18n）
 
 **Success criteria:**
 1. Workflow 路径的工具调用（write_file、delete_file、bash 等）触发用户审批
@@ -183,12 +196,18 @@ Plans:
 
 **依赖:** Phase 12（确认 Send API 可用性）
 
-**关键文件:** `runtime.ts`、`agent-tools.ts`（task tool）、状态合并逻辑
+**关键文件:** `graph-builder.ts`、`node-executor.ts`、`state-schema.ts`、前端节点注册表
+
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 15-01-PLAN.md — 后端 Send API fan-out 实现（types + graph-builder + node-executor + 测试）
+- [ ] 15-02-PLAN.md — 前端 parallel 节点 UI（注册表 + 面板 + 配置 + AgentNode + i18n）
 
 **Success criteria:**
-1. task tool 支持并行委派多个子 Agent
-2. 并行子任务的结果能正确聚合返回
-3. 并行执行中的进度和错误能回传到 UI
+1. parallel 节点通过 LangGraph Send API 并行委派多个 worker Agent
+2. 并行子任务的结果通过 nodeOutputs spread-merge reducer 正确聚合返回
+3. 并行执行中的进度和错误能回传到 UI（复用现有 node_start/node_log/node_end 事件）
 4. 全部测试通过
 
 ---
@@ -202,6 +221,13 @@ Plans:
 **依赖:** Phase 13、14（路由和审批机制稳定后再统一）
 
 **关键文件:** `runtime.ts`、`node-executor.ts`、`workflow-runtime.ts`
+
+**Plans:** 1/3 plans executed
+
+Plans:
+- [ ] 16-01-PLAN.md — shared-infra 共享能力层提取 + span trace 类型 + 测试
+- [ ] 16-02-PLAN.md — runtime.ts 和 node-executor.ts 迁移到共享层
+- [ ] 16-03-PLAN.md — 后端 span trace 注入 + 前端 ExecutionPanel 层级渲染
 
 **Success criteria:**
 1. `node-executor.ts` 不再 mirror `runtime.ts` 的代码，共享能力层提取为独立模块
@@ -223,3 +249,6 @@ Plans:
 *Phase 11 planned: 2026-06-17 — 1 plan, 1 wave*
 *Phase 12-16 planned: 2026-06-19 — 基于 Phase 11 架构分析报告拆分的 5 个改造 phase*
 *Phase 13 planned: 2026-06-19 — 2 plans, 2 waves*
+*Phase 14 planned: 2026-06-19 — 2 plans, 2 waves*
+*Phase 15 planned: 2026-06-20 — 2 plans, 2 waves*
+*Phase 16 planned: 2026-06-21 — 3 plans, 3 waves*

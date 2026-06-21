@@ -7,15 +7,13 @@ const {
   createLangChainModelMock,
   loadMcpToolsMock,
   resolveAgentSkillsConfigMock,
-  toolStrategyMock,
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   decryptApiKeyMock: vi.fn((value: string) => `decrypted:${value}`),
   createLangChainModelMock: vi.fn(() => ({ model: 'mock-model' })),
   loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
-  resolveAgentSkillsConfigMock: vi.fn(() => ({ skillsSources: [], permissions: [] })),
-  toolStrategyMock: vi.fn((schema: any) => ({ type: 'tool_strategy', schema })),
+  resolveAgentSkillsConfigMock: vi.fn(() => ({ skillsSources: [] })),
 }));
 
 vi.mock('deepagents', () => ({
@@ -47,10 +45,6 @@ vi.mock('../deepagent/skill-manager', () => ({
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
 }));
 
-vi.mock('langchain', () => ({
-  toolStrategy: toolStrategyMock,
-}));
-
 vi.mock('fs', () => ({
   default: {
     existsSync: vi.fn(() => true),
@@ -58,7 +52,7 @@ vi.mock('fs', () => ({
   },
 }));
 
-import { createAgentNodeExecutor, extractWorkflowRouting, DEFAULT_INTERRUPT_ON } from './node-executor';
+import { createAgentNodeExecutor, extractWorkflowRouting } from './node-executor';
 import fs from 'fs';
 
 const VALID_TASK_JSON = '{"summary":"done","status":"success"}';
@@ -396,78 +390,6 @@ describe('createAgentNodeExecutor', () => {
     })).toThrow('Node node-1 has no agentId configured');
   });
 
-  // ---- Review 节点 responseFormat 测试 ----
-
-  it('should use responseFormat with toolStrategy for review nodes', async () => {
-    const invokeMock = vi.fn(async () => ({
-      messages: [{ role: 'assistant', content: '审查完成' }],
-      structuredResponse: {
-        routing: { 'review-1': '通过' },
-        reasoning: '代码质量符合标准',
-      },
-    }));
-    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
-
-    const executor = createAgentNodeExecutor({
-      id: 'review-1',
-      type: 'review',
-      position: { x: 0, y: 0 },
-      data: {
-        agentId: 'agent-1',
-        label: 'Review',
-        nodeKind: 'review',
-        reviewSpec: 'check quality',
-      },
-    });
-
-    const result = await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(createDeepAgentMock).toHaveBeenCalledWith(expect.objectContaining({
-      responseFormat: expect.anything(),
-    }));
-    expect(toolStrategyMock).toHaveBeenCalled();
-    expect(result.routing).toEqual({ 'review-1': '通过' });
-    expect(result.result).toContain('代码质量符合标准');
-  });
-
-  it('should fallback to extractWorkflowRouting when review node structuredResponse is null', async () => {
-    const invokeMock = vi.fn(async () => ({
-      messages: [{ role: 'assistant', content: '{"routing":{"review-1":"拒绝"}}' }],
-    }));
-    createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
-
-    const executor = createAgentNodeExecutor({
-      id: 'review-1',
-      type: 'review',
-      position: { x: 0, y: 0 },
-      data: {
-        agentId: 'agent-1',
-        label: 'Review',
-        nodeKind: 'review',
-        reviewSpec: 'check quality',
-      },
-    });
-
-    const result = await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(result.routing).toEqual({ 'review-1': '拒绝' });
-  });
-
-  it('should not pass responseFormat for non-review nodes', async () => {
-    const executor = createAgentNodeExecutor({
-      id: 'task-1',
-      type: 'agent',
-      position: { x: 0, y: 0 },
-      data: { agentId: 'agent-1', label: 'Task', nodeKind: 'task' },
-    });
-
-    await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(createDeepAgentMock).toHaveBeenCalledWith(
-      expect.not.objectContaining({ responseFormat: expect.anything() }),
-    );
-  });
-
   it('should propagate execution errors from agent.invoke (not retried by validator)', async () => {
     const invokeMock = vi.fn().mockRejectedValue(new Error('LLM connection timeout'));
     createDeepAgentMock.mockReturnValue({ invoke: invokeMock });
@@ -483,91 +405,6 @@ describe('createAgentNodeExecutor', () => {
     await expect(executor({ inputs: {}, nodeOutputs: {} }))
       .rejects.toThrow('Agent node node-1 execution failed: LLM connection timeout');
     expect(invokeMock).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ---- Phase 14: interruptOn 注入测试 ----
-
-describe('interruptOn injection by approvalMode', () => {
-  const baseNode = {
-    id: 'node-1',
-    type: 'agent' as const,
-    position: { x: 0, y: 0 },
-    data: { agentId: 'agent-1', label: 'Node 1' },
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    createDeepAgentMock.mockReturnValue({
-      invoke: vi.fn(async () => ({
-        messages: [{ role: 'assistant', content: '{"summary":"done","status":"success"}' }],
-      })),
-    });
-
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      get: (arg?: string) => {
-        if (sql.includes('FROM agents WHERE id')) {
-          return {
-            id: arg,
-            project_id: 'project-1',
-            name: 'Workflow Agent',
-            provider_id: 'provider-1',
-            description: 'does work',
-            system_prompt: 'system',
-          };
-        }
-        if (sql.includes('FROM llm_providers')) {
-          return {
-            id: 'provider-1',
-            provider_type: 'minimax',
-            api_key: 'encrypted-key',
-            api_url: 'https://api.minimaxi.com/anthropic/v1',
-            default_model: 'MiniMax-M2.7',
-          };
-        }
-        if (sql.includes('FROM projects')) {
-          return { id: 'project-1', name: 'Project', path: '/tmp/project' };
-        }
-        return undefined;
-      },
-      all: () => [],
-    }));
-  });
-
-  it('strict mode passes DEFAULT_INTERRUPT_ON to createDeepAgent', async () => {
-    const executor = createAgentNodeExecutor(baseNode, [], 'strict');
-    await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(createDeepAgentMock).toHaveBeenCalledWith(
-      expect.objectContaining({ interruptOn: DEFAULT_INTERRUPT_ON }),
-    );
-  });
-
-  it('bypass mode passes empty interruptOn to createDeepAgent', async () => {
-    const executor = createAgentNodeExecutor(baseNode, [], 'bypass');
-    await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(createDeepAgentMock).toHaveBeenCalledWith(
-      expect.objectContaining({ interruptOn: {} }),
-    );
-  });
-
-  it('agent_decides mode passes DEFAULT_INTERRUPT_ON to createDeepAgent', async () => {
-    const executor = createAgentNodeExecutor(baseNode, [], 'agent_decides');
-    await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(createDeepAgentMock).toHaveBeenCalledWith(
-      expect.objectContaining({ interruptOn: DEFAULT_INTERRUPT_ON }),
-    );
-  });
-
-  it('default approvalMode is strict when not specified', async () => {
-    const executor = createAgentNodeExecutor(baseNode, []);
-    await executor({ inputs: {}, nodeOutputs: {} });
-
-    expect(createDeepAgentMock).toHaveBeenCalledWith(
-      expect.objectContaining({ interruptOn: DEFAULT_INTERRUPT_ON }),
-    );
   });
 });
 

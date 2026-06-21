@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.2.2
 milestone_name: 现有版本能力维修
-status: milestone_complete
-last_updated: 2026-06-19T15:46:35.739Z
-last_activity: 2026-06-19 -- Phase 13 execution started
+status: executing
+last_updated: "2026-06-21T12:52:45.333Z"
+last_activity: 2026-06-21 -- Phase 16 execution started
 progress:
-  total_phases: 13
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 14
-  percent: 31
-stopped_at: Milestone complete (Phase 13 was final phase)
+  total_phases: 16
+  completed_phases: 7
+  total_plans: 15
+  completed_plans: 18
+  percent: 44
 ---
 
 # Project State: CDF — Agent 开发工作站
@@ -21,14 +20,14 @@ stopped_at: Milestone complete (Phase 13 was final phase)
 See: .planning/PROJECT.md (updated 2026-06-15)
 
 **Core value:** 用户可以用自然语言在本地组织多领域 Agent 工作，并能清楚看到上下文、Agent、能力、过程与产物。
-**Current focus:** Milestone complete
+**Current focus:** Phase 16 — infra-unification-observability
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Executing Phase 13
-Last activity: 2026-06-19
+Phase: 16 (infra-unification-observability) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 16
+Last activity: 2026-06-21 -- Phase 16 execution started
 
 ## Current Status
 
@@ -44,7 +43,7 @@ Last activity: 2026-06-19
 
 **Goal:** 调研业界主流 agent 工作流编排方案，与 CDF 当前基于 deepagents SDK 的工作流进行架构比对，识别差距与改进方向。
 
-**Status:** Milestone complete
+**Status:** Executing Phase 16
 
 **Report:** `.planning/phases/11-agent-workflow-research/11-ARCHITECTURE-ANALYSIS.md`（616 行）
 
@@ -104,4 +103,4 @@ Last activity: 2026-06-19
 - This milestone uses dynamic phases — new phases are added via `/gsd-phase` as testing reveals issues.
 
 ---
-*Last activity: 2026-06-19 - Phase 12-16 planned — 基于 Phase 11 架构分析报告拆分 5 个改造 phase。*
+*Last activity: 2026-06-19 - Phase 14 context gathered — 审批机制统一设计讨论完成。*
