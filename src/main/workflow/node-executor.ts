@@ -437,6 +437,14 @@ export function createAgentNodeExecutor(
               `该节点会对 JSON 数组中的每个元素执行一次 Agent。请完成当前项的任务。`,
             ].join('\n')
           : '',
+        nodeKind === 'parallel'
+          ? [
+              `## 并行任务节点`,
+              `任务描述: ${taskDescription || '未填写'}`,
+              `数据源: ${node.data.dataSource || '来自上游节点输出'}`,
+              `该节点会对 JSON 数组中的每个元素并行执行 Agent Worker。请完成当前项的任务。`,
+            ].join('\n')
+          : '',
       ].filter(Boolean).join('\n\n');
 
       const agentDecidesPreamble = approvalMode === 'agent_decides'
@@ -516,7 +524,7 @@ export function createAgentNodeExecutor(
         while (true) {
           const elapsed = Date.now() - startTime;
           const remaining = DEFAULT_TIMEOUT_MS - elapsed;
-          if (remaining <= 0 && nodeKind !== 'foreach') {
+          if (remaining <= 0 && nodeKind !== 'foreach' && nodeKind !== 'parallel') {
             throw new AgentTimeoutError(agentId, DEFAULT_TIMEOUT_MS);
           }
 
@@ -714,6 +722,93 @@ export function createAgentNodeExecutor(
           duration_ms: duration,
           ...(finalRouting ? { routing: finalRouting } : {}),
         };
+      }
+
+      // Parallel 节点：dispatcher（读取 items）或 worker（执行单 item）
+      if (nodeKind === 'parallel') {
+        const fanoutItem = state.__fanout_item;
+        const fanoutIndex = state.__fanout_index as number | undefined;
+        const fanoutTotal = state.__fanout_total as number | undefined;
+
+        if (fanoutItem !== undefined) {
+          // Worker 角色：执行单个 item
+          const itemContext = [
+            taskDescription
+              ? `## 并行任务节点\n任务描述: ${taskDescription}`
+              : `## 并行任务节点`,
+            '',
+            `## 当前项 (${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'})`,
+            node.data.itemPrompt
+              ? node.data.itemPrompt.replace(/\{item\}/g, JSON.stringify(fanoutItem, null, 2))
+              : JSON.stringify(fanoutItem, null, 2),
+            '',
+            `## 输入参数`,
+            JSON.stringify(inputs, null, 2),
+          ].filter(Boolean).join('\n');
+
+          onStep?.({ ts: Date.now(), type: 'system', content: `[Parallel] 正在执行第 ${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'} 个 worker...` });
+          const resultText = await invokeAgent(itemContext);
+          onStep?.({ ts: Date.now(), type: 'system', content: `[Parallel] 第 ${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'} 个 worker 执行完成` });
+          const routing = extractWorkflowRouting(resultText);
+          const duration = Date.now() - startTime;
+
+          return {
+            result: resultText,
+            item: fanoutItem,
+            index: fanoutIndex ?? 0,
+            nodeId: node.id,
+            agentId,
+            duration_ms: duration,
+            ...(routing ? { routing } : {}),
+          };
+        } else {
+          // Dispatcher 角色：读取 items 数据源，写入 nodeOutputs[node.id] = { items, count }
+          const dataSource = node.data.dataSource;
+          let items: unknown[] = [];
+
+          if (dataSource) {
+            // 从文件系统读取（与 foreach 一致）
+            const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
+            const workspacePath = (workflowStart?.workspace as string)?.trim();
+            const baseDir = workspacePath || project.path;
+            const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
+
+            if (!fs.existsSync(filePath)) {
+              throw new Error(`数据源文件不存在: ${filePath}`);
+            }
+
+            const raw = fs.readFileSync(filePath, 'utf-8');
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              throw new Error(`数据源文件不是合法的 JSON: ${filePath}`);
+            }
+            if (!Array.isArray(parsed)) {
+              throw new Error(`数据源文件内容不是 JSON 数组: ${filePath}`);
+            }
+            items = parsed;
+          } else {
+            // 从上游 nodeOutputs 中寻找 items/results 数组
+            for (const upstreamId of upstreamNodeIds) {
+              const upstreamOutput = (state.nodeOutputs as Record<string, unknown>)?.[upstreamId] as Record<string, unknown> | undefined;
+              const candidates = upstreamOutput?.items ?? upstreamOutput?.results;
+              if (Array.isArray(candidates)) {
+                items = candidates;
+                break;
+              }
+            }
+          }
+
+          const duration = Date.now() - startTime;
+          return {
+            items,
+            count: items.length,
+            nodeId: node.id,
+            agentId,
+            duration_ms: duration,
+          };
+        }
       }
 
       // 4. 审查节点使用 structuredResponse 获取路由决策
