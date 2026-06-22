@@ -100,7 +100,8 @@ export function createFanOutRouter(
       return END;
     }
 
-    const limit = Math.min(items.length, concurrencyLimit);
+    const effectiveLimit = concurrencyLimit > 0 ? concurrencyLimit : MAX_PARALLEL_ITEMS;
+    const limit = Math.min(items.length, effectiveLimit);
     const sends: Send[] = [];
     for (let i = 0; i < limit; i++) {
       sends.push(new Send(workerNodeId, {

@@ -463,8 +463,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
             pushWorkflowEvent(executionId, nodeErrorEvent);
             params.onEvent?.(nodeErrorEvent);
           }
-        } else if (nodeOutputs?.[nodeId]) {
-          allNodeOutputs[nodeId] = nodeOutputs[nodeId];
+        } else if (nodeOutputs && Object.keys(nodeOutputs).length > 0) {
+          for (const [outputKey, outputValue] of Object.entries(nodeOutputs)) {
+            allNodeOutputs[outputKey] = outputValue;
+          }
+          // Ordinary node: nodeOutputs = { [nodeId]: result } → persist result directly
+          // Worker node: nodeOutputs = { [id__worker:0]: ..., ... } → persist full map
+          const persistedOutput = nodeOutputs[nodeId] ?? nodeOutputs;
           const successRunId = crypto.randomUUID();
           const nodeName = nodeNames.get(nodeId) || nodeId;
           const nodeStartTime = nodeStartTimes.get(nodeId) || Date.now();
@@ -474,14 +479,14 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
           db.prepare(`
             INSERT INTO workflow_node_runs (id, execution_id, node_id, node_name, status, output, started_at, ended_at, logs, execution_trace)
             VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
-          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(nodeOutputs[nodeId]), nodeStartTime, Date.now(), JSON.stringify(fallbackLogs), JSON.stringify(accumulatedTrace));
+          `).run(successRunId, executionId, nodeId, nodeName, JSON.stringify(persistedOutput), nodeStartTime, Date.now(), JSON.stringify(fallbackLogs), JSON.stringify(accumulatedTrace));
 
           const nodeEndEvent: WorkflowStreamEvent = {
             type: 'node_end',
             executionId,
             nodeId,
             duration_ms: Date.now() - nodeStartTime,
-            outputKeys: Object.keys(nodeOutputs[nodeId] as object),
+            outputKeys: Object.keys(persistedOutput as object),
           };
           pushWorkflowEvent(executionId, nodeEndEvent);
           params.onEvent?.(nodeEndEvent);

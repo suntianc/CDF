@@ -34,10 +34,10 @@ v0.2.2 是动态维修里程碑。修复 phase 根据用户反馈逐步通过 `/
 - [x] Phase 15: 并行 Agent 执行（fan-out/fan-in） — 2 plans — completed 2026-06-21
   - [x] 15-01-PLAN.md — 后端 Send API fan-out 实现（types + graph-builder + node-executor + 测试）
   - [x] 15-02-PLAN.md — 前端 parallel 节点 UI（注册表 + 面板 + 配置 + AgentNode + i18n）
-- [ ] Phase 16: 基础设施统一 + 可观测性 — 3 plans
+- [x] Phase 16: 基础设施统一 + 可观测性 — 3 plans — completed 2026-06-21
   - [x] 16-01-PLAN.md — shared-infra 共享能力层提取 + span trace 类型 + 测试
-  - [ ] 16-02-PLAN.md — runtime.ts 和 node-executor.ts 迁移到共享层
-  - [ ] 16-03-PLAN.md — 后端 span trace 注入 + 前端 ExecutionPanel 层级渲染
+  - [x] 16-02-PLAN.md — runtime.ts 和 node-executor.ts 迁移到共享层
+  - [x] 16-03-PLAN.md — 后端 span trace 注入 + 前端 ExecutionPanel 层级渲染
 
 ## Progress
 
@@ -49,7 +49,7 @@ v0.2.2 是动态维修里程碑。修复 phase 根据用户反馈逐步通过 `/
 | 13. Workflow 路由机制修复 | v0.2.2 | 2/2 | Complete    | 2026-06-19 |
 | 14. 审批机制统一设计 | v0.2.2 | 2/2 | Complete   | 2026-06-20 |
 | 15. 并行 Agent 执行 | v0.2.2 | 2/2 | Complete   | 2026-06-21 |
-| 16. 基础设施统一 + 可观测性 | v0.2.2 | 1/3 | In Progress|  |
+| 16. 基础设施统一 + 可观测性 | v0.2.2 | 3/3 | ✅ Complete | 2026-06-21 |
 
 <details>
 <summary>✅ v0.2.1 本地多领域 Agent 工作站重设计 (Phases 1-8) — SHIPPED 2026-06-14</summary>
@@ -222,10 +222,10 @@ Plans:
 
 **关键文件:** `runtime.ts`、`node-executor.ts`、`workflow-runtime.ts`
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
-- [ ] 16-01-PLAN.md — shared-infra 共享能力层提取 + span trace 类型 + 测试
+- [x] 16-01-PLAN.md — shared-infra 共享能力层提取 + span trace 类型 + 测试
 - [ ] 16-02-PLAN.md — runtime.ts 和 node-executor.ts 迁移到共享层
 - [ ] 16-03-PLAN.md — 后端 span trace 注入 + 前端 ExecutionPanel 层级渲染
 

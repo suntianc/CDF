@@ -339,6 +339,14 @@ export function createAgentNodeExecutor(
               `该节点会对 JSON 数组中的每个元素执行一次 Agent。请完成当前项的任务。`,
             ].join('\n')
           : '',
+        nodeKind === 'parallel'
+          ? [
+              `## 并行任务节点`,
+              `任务描述: ${taskDescription || '未填写'}`,
+              `数据源: ${node.data.dataSource || '来自上游节点输出'}`,
+              `该节点会对 JSON 数组中的每个元素并行执行 Agent Worker。请完成当前项的任务。`,
+            ].join('\n')
+          : '',
       ].filter(Boolean).join('\n\n');
 
       const taskContext = [
@@ -593,7 +601,103 @@ export function createAgentNodeExecutor(
         };
       }
 
-      // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
+      // 4a. Parallel 节点：dispatcher（读取 items）或 worker（执行单 item）
+      if (nodeKind === 'parallel') {
+        const fanoutItem = state.__fanout_item;
+        const fanoutIndex = state.__fanout_index as number | undefined;
+        const fanoutTotal = state.__fanout_total as number | undefined;
+
+        if (fanoutItem !== undefined) {
+          const itemContext = [
+            taskContext,
+            '',
+            `## 当前项 (${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'})`,
+            node.data.itemPrompt
+              ? node.data.itemPrompt.replace(/\{item\}/g, JSON.stringify(fanoutItem, null, 2))
+              : JSON.stringify(fanoutItem, null, 2),
+          ].filter(Boolean).join('\n');
+
+          const workerSpan = createChildSpan(nodeSpanId);
+          onStep?.({ ts: Date.now(), type: 'system', content: `[Parallel] 正在执行第 ${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'} 个 worker...`, spanId: workerSpan.spanId, parentSpanId: workerSpan.parentSpanId });
+          const resultText = await invokeAgent(itemContext, workerSpan.spanId);
+          onStep?.({ ts: Date.now(), type: 'system', content: `[Parallel] 第 ${(fanoutIndex ?? 0) + 1}/${fanoutTotal ?? '?'} 个 worker 执行完成`, spanId: workerSpan.spanId, parentSpanId: workerSpan.parentSpanId });
+          const routing = extractWorkflowRouting(resultText);
+          const duration = Date.now() - startTime;
+
+          return {
+            result: resultText,
+            item: fanoutItem,
+            index: fanoutIndex ?? 0,
+            nodeId: node.id,
+            agentId,
+            duration_ms: duration,
+            ...(routing ? { routing } : {}),
+          };
+        } else {
+          const dataSource = node.data.dataSource;
+          let items: unknown[] = [];
+
+          if (dataSource) {
+            const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
+            const workspacePath = (workflowStart?.workspace as string)?.trim();
+            const baseDir = workspacePath || project.path;
+            const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
+
+            if (!fs.existsSync(filePath)) {
+              throw new Error(`数据源文件不存在: ${filePath}`);
+            }
+
+            const raw = fs.readFileSync(filePath, 'utf-8');
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              throw new Error(`数据源文件不是合法的 JSON: ${filePath}`);
+            }
+            if (!Array.isArray(parsed)) {
+              throw new Error(`数据源文件内容不是 JSON 数组: ${filePath}`);
+            }
+            items = parsed;
+          } else {
+            const allOutputs = (state.nodeOutputs ?? {}) as Record<string, unknown>;
+            for (const upstreamId of upstreamNodeIds) {
+              // Prefer worker results over dispatcher's raw items
+              const workerResults: unknown[] = [];
+              for (const [key, val] of Object.entries(allOutputs)) {
+                if (key.startsWith(`${upstreamId}__worker:`)) {
+                  workerResults.push(val);
+                }
+              }
+              if (workerResults.length > 0) {
+                workerResults.sort((a, b) => {
+                  const ai = (a as Record<string, unknown>)?.index as number ?? 0;
+                  const bi = (b as Record<string, unknown>)?.index as number ?? 0;
+                  return ai - bi;
+                });
+                items = workerResults;
+                break;
+              }
+              const upstreamOutput = allOutputs[upstreamId] as Record<string, unknown> | undefined;
+              const candidates = upstreamOutput?.items ?? upstreamOutput?.results;
+              if (Array.isArray(candidates)) {
+                items = candidates;
+                break;
+              }
+            }
+          }
+
+          const duration = Date.now() - startTime;
+          return {
+            items,
+            count: items.length,
+            nodeId: node.id,
+            agentId,
+            duration_ms: duration,
+          };
+        }
+      }
+
+      // 4b. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
       onStep?.({ ts: Date.now(), type: 'task_start', label: '[Task] 开始执行节点任务', spanId: nodeSpanId });
       const resultText = await invokeAgent(taskContext);
       onStep?.({ ts: Date.now(), type: 'task_end', label: '[Task] 节点任务执行完毕', spanId: nodeSpanId });

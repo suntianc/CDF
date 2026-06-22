@@ -18,6 +18,7 @@ import {
   loadRegistryTools,
   loadMcpTools,
 } from './shared-infra';
+import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { DELEGATED_TASK_RESULT_SCHEMA, type ChatRuntimeOverrides } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
@@ -501,13 +502,15 @@ export async function createDeepAgentRuntime(
     }
   }
 
+  const masterAgentTools = createAgentTools(projectId, { activeAgentId: agentRow.id });
+
   const deepAgent = createDeepAgent({
     model,
     backend,
     systemPrompt: systemPrompt || undefined,
     skills: skillsSources,
     permissions,
-    tools: [...mcpRuntime.tools, ...builtInTools],
+    tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     middleware: [createRecoverableToolErrorMiddleware()],
     interruptOn: DEFAULT_INTERRUPT_ON,
@@ -524,4 +527,23 @@ export async function createDeepAgentRuntime(
       // MCP 连接由 mcpCache 管理，此处不关闭
     },
   };
+}
+
+export function createRuntimeModel(
+  projectId: string,
+  agentId?: string | null,
+  overrides?: RuntimeModelOverrides
+) {
+  const agentRow = getRuntimeAgent(projectId, agentId);
+  const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
+  const modelName = overrides?.model || provider.default_model;
+  registerCdfHarnessProfile(provider.provider_type, modelName);
+  return createLangChainModel({
+    apiKey: provider.api_key,
+    apiUrl: provider.api_url,
+    defaultModel: provider.default_model,
+    providerType: provider.provider_type,
+    model: modelName,
+    contextLimit: provider.context_limit,
+  });
 }
