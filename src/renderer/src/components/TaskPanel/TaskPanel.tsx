@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
-import type { DelegatedTask } from '../../stores/sessionStore';
+import type { DelegatedTask, ParallelBatch } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
@@ -183,6 +183,52 @@ function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
   );
 }
 
+function ParallelBatchSection({ batches }: { batches: ParallelBatch[] }) {
+  const { t } = useTranslation();
+  const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
+  const viewingParallelWorker = useSessionStore((s) => s.viewingParallelWorker);
+
+  if (batches.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">并行任务</h3>
+      {batches.map((batch) => (
+        <div key={batch.batchId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-1.5">
+          {batch.workers.map((worker) => {
+            const isActive = viewingParallelWorker?.batchId === batch.batchId && viewingParallelWorker?.agentSlug === worker.agentSlug;
+            const displayName = worker.agentName ?? worker.agentSlug;
+            const tokenCount = estimateTokens(worker.textBuffer);
+            const tokenDisplay = tokenCount > 1000 ? `${(tokenCount / 1000).toFixed(1)}k` : `${tokenCount}`;
+            return (
+              <button
+                key={worker.agentSlug}
+                type="button"
+                onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug })}
+                className={`w-full flex items-center justify-between gap-2 p-2 rounded-md border transition-all text-left focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+                  isActive
+                    ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
+                    : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)]'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {worker.status === 'running'
+                    ? <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none text-[var(--color-accent)]" aria-hidden="true" />
+                    : worker.status === 'failure'
+                      ? <XCircle className="w-3.5 h-3.5 text-[var(--color-danger)]" aria-hidden="true" />
+                      : <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" aria-hidden="true" />
+                  }
+                  <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{displayName}</span>
+                </div>
+                <span className="text-[10px] tabular-nums text-[var(--color-text-muted)] shrink-0 font-mono">{tokenDisplay} {t('taskPanel.tokenUnit')}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TaskPanelContent() {
   const { t } = useTranslation();
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
@@ -190,6 +236,7 @@ function TaskPanelContent() {
   const agentRuns = useSessionStore((state) => state.agentRuns);
   const agentToolCalls = useSessionStore((state) => state.agentToolCalls);
   const delegatedTasks = useSessionStore((state) => state.delegatedTasks);
+  const parallelBatches = useSessionStore((state) => state.parallelBatches);
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
@@ -445,6 +492,8 @@ function TaskPanelContent() {
       {sortedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
         <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
       )}
+
+      <ParallelBatchSection batches={parallelBatches} />
 
     </>
   );

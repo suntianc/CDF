@@ -5,6 +5,7 @@ import {
   AgentRun,
   AgentToolCall,
   ChatRuntimeOverrides,
+  ExecutionStep,
   LLMStreamEvent,
   Message,
   Session,
@@ -29,6 +30,23 @@ export function estimateTokens(text: string): number {
 export interface SessionError {
   message: string;
   recoverableActions?: { label: string; action: () => void }[];
+}
+
+export interface ParallelWorker {
+  agentSlug: string;
+  agentName?: string;   // 来自 task_start.label
+  goal?: string;        // 来自 task_start.goal（原始任务描述）
+  status: 'running' | 'success' | 'failure';
+  steps: ExecutionStep[];
+  textBuffer: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
+export interface ParallelBatch {
+  batchId: string;
+  workers: ParallelWorker[];
+  startedAt: number;
 }
 
 export interface DelegatedTask {
@@ -72,6 +90,7 @@ interface SessionState {
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
   delegatedTasks: DelegatedTask[];
+  parallelBatches: ParallelBatch[];
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
   error: SessionError | null;
@@ -98,6 +117,8 @@ interface SessionState {
   clearGoalJudgeStatus: (sessionId: string) => void;
   viewingSubagentId: string | null;
   setViewingSubagent: (id: string | null) => void;
+  viewingParallelWorker: { batchId: string; agentSlug: string } | null;
+  setViewingParallelWorker: (key: { batchId: string; agentSlug: string } | null) => void;
   resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
@@ -109,6 +130,7 @@ interface StreamingSessionState {
   messages: Message[];
   todos: TodoItem[];
   delegatedTasks: DelegatedTask[];
+  parallelBatches: ParallelBatch[];
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
   activeRunId: string | null;
@@ -141,6 +163,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   agentRuns: [],
   agentToolCalls: [],
   delegatedTasks: [],
+  parallelBatches: [],
   todos: [],
   pendingApproval: null,
   error: null,
@@ -157,7 +180,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   })(),
 
   viewingSubagentId: null,
-  setViewingSubagent: (id) => set({ viewingSubagentId: id }),
+  setViewingSubagent: (id) => set({ viewingSubagentId: id, viewingParallelWorker: null }),
+  viewingParallelWorker: null,
+  setViewingParallelWorker: (key) => set({ viewingParallelWorker: key, viewingSubagentId: null }),
 
   setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
     set((state) => {
@@ -270,7 +295,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (activeSessionId) {
         await get().selectSession(activeSessionId);
       } else {
-        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null });
+        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null });
       }
     } catch (err: any) {
       set({ error: { message: err.message || 'Failed to delete session' } });
@@ -280,7 +305,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   selectSession: async (sessionId: string | null) => {
     const requestId = ++latestSelectSessionRequestId;
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null, viewingSubagentId: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null, viewingSubagentId: null, viewingParallelWorker: null });
       return;
     }
     try {
@@ -291,6 +316,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           messages: cached.messages,
           todos: cached.todos,
           delegatedTasks: cached.delegatedTasks,
+          parallelBatches: cached.parallelBatches,
           agentRuns: cached.agentRuns,
           agentToolCalls: cached.agentToolCalls,
           activeRunId: cached.activeRunId,
@@ -323,6 +349,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               messages: cachedDuringLoad.messages,
               todos: cachedDuringLoad.todos,
               delegatedTasks: cachedDuringLoad.delegatedTasks,
+              parallelBatches: cachedDuringLoad.parallelBatches,
               agentRuns: cachedDuringLoad.agentRuns,
               agentToolCalls: cachedDuringLoad.agentToolCalls,
               activeRunId: cachedDuringLoad.activeRunId,
@@ -330,6 +357,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               isStreaming: cachedDuringLoad.isStreaming,
               streamingMessageId: cachedDuringLoad.streamingMessageId,
               error: null,
+              viewingSubagentId: null,
+              viewingParallelWorker: null,
             });
           } else if (messagesChangedDuringLoad) {
             set({
@@ -343,6 +372,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               agentRuns: [],
               agentToolCalls: [],
               delegatedTasks: [],
+              parallelBatches: [],
               todos: [],
               error: null,
               isStreaming: false,
@@ -388,7 +418,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           typeof window.electronAPI.db.getAgentToolCalls !== 'function'
         ) {
           if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
-            set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
+            set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], activeRunId: null });
           }
           return;
         }
@@ -675,6 +705,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ],
         todos: [],
         delegatedTasks: [],
+        parallelBatches: [],
         agentRuns: [],
         agentToolCalls: [],
         activeRunId: null,
@@ -691,8 +722,94 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       let accumulatedContent = '';
       let cleanup = () => {};
+      let parallelCleanup = () => {};
       const pendingToolMessages = new Map<string, string[]>();
       let currentAssistantMsgId = assistantMsgId;
+
+      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; agentSlug: string; step: ExecutionStep }) => {
+        const cached = streamingSessionsCache.get(sessionId);
+        if (!cached) return;
+        const { batchId, agentSlug, step } = data;
+        const batchIdx = cached.parallelBatches.findIndex((b) => b.batchId === batchId);
+
+        if (step.type === 'task_end') {
+          // 立即更新该 worker 状态，不等 tool_end 全部完成
+          if (batchIdx !== -1) {
+            const batch = { ...cached.parallelBatches[batchIdx] };
+            const workerIdx = batch.workers.findIndex((w) => w.agentSlug === agentSlug);
+            if (workerIdx !== -1) {
+              const workers = [...batch.workers];
+              const status = step.success !== false ? 'success' : 'failure';
+              workers[workerIdx] = { ...workers[workerIdx], status, completedAt: Date.now() };
+              batch.workers = workers;
+              const batches = [...cached.parallelBatches];
+              batches[batchIdx] = batch;
+              cached.parallelBatches = batches;
+            }
+          }
+          if (get().activeSessionId === sessionId) {
+            set({ parallelBatches: cached.parallelBatches });
+          }
+          return;
+        }
+
+        if (step.type === 'task_start') {
+          // 创建 worker，携带 agentName 和 goal 元数据
+          const newWorker: ParallelWorker = {
+            agentSlug,
+            agentName: step.label,
+            goal: step.goal,
+            status: 'running',
+            steps: [],
+            textBuffer: '',
+            startedAt: Date.now(),
+          };
+          if (batchIdx === -1) {
+            cached.parallelBatches = [...cached.parallelBatches, { batchId, startedAt: Date.now(), workers: [newWorker] }];
+          } else {
+            const batch = { ...cached.parallelBatches[batchIdx] };
+            const workerIdx = batch.workers.findIndex((w) => w.agentSlug === agentSlug);
+            if (workerIdx === -1) {
+              batch.workers = [...batch.workers, newWorker];
+              const batches = [...cached.parallelBatches];
+              batches[batchIdx] = batch;
+              cached.parallelBatches = batches;
+            }
+          }
+          if (get().activeSessionId === sessionId) {
+            set({ parallelBatches: cached.parallelBatches });
+          }
+          return;
+        }
+
+        const isTextChunk = step.type === 'text_chunk';
+        const chunk = isTextChunk ? (step.content ?? '') : '';
+
+        if (batchIdx === -1) {
+          const newWorker: ParallelWorker = { agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
+          cached.parallelBatches = [...cached.parallelBatches, { batchId, startedAt: Date.now(), workers: [newWorker] }];
+        } else {
+          const batch = { ...cached.parallelBatches[batchIdx] };
+          const workerIdx = batch.workers.findIndex((w) => w.agentSlug === agentSlug);
+          if (workerIdx === -1) {
+            const newWorker: ParallelWorker = { agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
+            batch.workers = [...batch.workers, newWorker];
+          } else {
+            const workers = [...batch.workers];
+            const w = workers[workerIdx];
+            workers[workerIdx] = isTextChunk
+              ? { ...w, textBuffer: (w.textBuffer ?? '') + chunk }
+              : { ...w, steps: [...w.steps, step] };
+            batch.workers = workers;
+          }
+          const batches = [...cached.parallelBatches];
+          batches[batchIdx] = batch;
+          cached.parallelBatches = batches;
+        }
+        if (get().activeSessionId === sessionId) {
+          set({ parallelBatches: cached.parallelBatches });
+        }
+      });
 
       const streamPromise = new Promise<void>((resolve, reject) => {
         cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event: unknown, data: LLMStreamEvent) => {
@@ -891,6 +1008,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               pendingToolMessages.set(data.name, queue);
             }
 
+            if (data.type === 'tool_end' && data.name === 'parallel_tasks') {
+              try {
+                const raw = typeof data.output === 'string' ? data.output : JSON.stringify(data.output ?? '{}');
+                const parsed = JSON.parse(raw) as { batchId: string; results: Array<{ name: string; status: 'success' | 'failure' }> };
+                if (parsed.batchId) {
+                  cached.parallelBatches = cached.parallelBatches.map((batch) =>
+                    batch.batchId !== parsed.batchId ? batch : {
+                      ...batch,
+                      workers: batch.workers.map((w) => {
+                        const r = parsed.results.find((x) => x.name === w.agentSlug);
+                        return r ? { ...w, status: r.status, completedAt: Date.now() } : w;
+                      }),
+                    }
+                  );
+                }
+              } catch {
+                // parse error — workers stay 'running', acceptable degradation
+              }
+            }
+
             if (data.type === 'tool_end' && data.name === 'write_todos') {
               try {
                 const outputObj = typeof data.output === 'string' ? JSON.parse(data.output) : data.output;
@@ -971,6 +1108,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
           else if (data.type === 'message_done') {
             cleanup();
+            parallelCleanup();
             try {
               if (accumulatedContent.trim()) {
                 const assistantTokens = estimateTokens(accumulatedContent);
@@ -1004,6 +1142,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   pendingApproval: null,
                   todos: cached.todos,
                   delegatedTasks: cached.delegatedTasks,
+                  parallelBatches: cached.parallelBatches,
                   agentRuns: cached.agentRuns,
                   agentToolCalls: cached.agentToolCalls,
                   activeRunId: cached.activeRunId,
@@ -1035,6 +1174,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
           else if (data.type === 'runtime_error') {
             cleanup();
+            parallelCleanup();
             const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
             cached.messages = cached.messages.filter(
               (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
@@ -1063,6 +1203,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               messages: cached.messages,
               todos: cached.todos,
               delegatedTasks: cached.delegatedTasks,
+              parallelBatches: cached.parallelBatches,
               agentRuns: cached.agentRuns,
               agentToolCalls: cached.agentToolCalls,
               activeRunId: cached.activeRunId,
@@ -1095,6 +1236,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         await streamPromise;
       } catch (err: any) {
         cleanup();
+        parallelCleanup();
         // 移除未持久化的 assistant 占位和工具消息
         const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
         pendingToolMessages.clear();

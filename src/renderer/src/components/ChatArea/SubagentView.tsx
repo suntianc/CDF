@@ -2,24 +2,99 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
-import type { DelegatedTask } from '../../stores/sessionStore';
+import type { DelegatedTask, ParallelWorker } from '../../stores/sessionStore';
+import type { ExecutionStep } from '../../../../shared/types';
 import { StreamdownRenderer } from './StreamdownRenderer';
 import { MessageContentRenderer } from './MessageItem';
 
 const GOAL_COLLAPSED_MAX_H = 'max-h-[4.5em]';
 
-export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: () => void }) {
+type SubagentInput = DelegatedTask | ParallelWorker;
+
+function isDelegatedTask(t: SubagentInput): t is DelegatedTask {
+  return 'chunks' in t;
+}
+
+function toDisplayText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+}
+
+function WorkerToolList({ steps }: { steps: ExecutionStep[] }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const toolSteps = steps.filter((s) => s.type === 'tool_call' || s.type === 'tool_result');
+  if (toolSteps.length === 0) return null;
+  return (
+    <div className="space-y-2 mt-4">
+      {toolSteps.map((step, i) => {
+        if (step.type === 'tool_call') {
+          const isOpen = expandedIdx === i;
+          return (
+            <div key={i} className="rounded border border-[var(--color-info)]/20 bg-[var(--color-info)]/5">
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-2 py-1 text-left"
+                onClick={() => setExpandedIdx(isOpen ? null : i)}
+              >
+                <span className="text-[8px] px-1 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)] shrink-0">CALL</span>
+                <span className="font-semibold text-[var(--color-text-primary)] truncate">{step.tool}</span>
+                <span className="ml-auto text-[var(--color-text-muted)]">{isOpen ? '▲' : '▼'}</span>
+              </button>
+              {isOpen && (
+                <pre className="px-2 pb-1.5 text-[10px] text-[var(--color-text-secondary)] whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                  {toDisplayText(step.args)}
+                </pre>
+              )}
+            </div>
+          );
+        }
+        if (step.type === 'tool_result') {
+          const isOpen = expandedIdx === i;
+          const failed = step.success === false;
+          return (
+            <div key={i} className={`rounded border ${failed ? 'border-[var(--color-danger)]/20 bg-[var(--color-danger)]/5' : 'border-[var(--color-success)]/20 bg-[var(--color-success)]/5'}`}>
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-2 py-1 text-left"
+                onClick={() => setExpandedIdx(isOpen ? null : i)}
+              >
+                <span className={`text-[8px] px-1 rounded font-bold shrink-0 ${failed ? 'bg-[var(--color-danger)]/20 text-[var(--color-danger)]' : 'bg-[var(--color-success)]/20 text-[var(--color-success)]'}`}>{failed ? 'ERR' : 'OK'}</span>
+                <span className="font-semibold text-[var(--color-text-primary)] truncate">{step.tool}</span>
+                {step.duration_ms != null && <span className="ml-auto text-[var(--color-text-muted)]">{step.duration_ms}ms {isOpen ? '▲' : '▼'}</span>}
+              </button>
+              {isOpen && (
+                <pre className="px-2 pb-1.5 text-[10px] text-[var(--color-text-secondary)] whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                  {failed ? (step.error ?? '') : toDisplayText(step.output)}
+                </pre>
+              )}
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: () => void }) {
   const { t } = useTranslation();
   const isStreaming = useSessionStore((s) => s.isStreaming);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [goalExpanded, setGoalExpanded] = useState(false);
 
+  const isDelegate = isDelegatedTask(task);
   const isRunning = task.status === 'running';
   const isFailure = task.status === 'failure';
+  const agentName = isDelegate ? task.agentName : (task.agentName ?? task.agentSlug);
+  const taskKey = isDelegate ? task.taskId : task.agentSlug;
 
   const totalText = useMemo(
-    () => task.chunks.length > 0 ? task.chunks.join('') : (task.result?.summary || ''),
-    [task.chunks, task.result?.summary],
+    () => isDelegate
+      ? (task.chunks.length > 0 ? task.chunks.join('') : (task.result?.summary || ''))
+      : ((task as ParallelWorker).textBuffer ?? ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isDelegate, isDelegate ? (task as DelegatedTask).chunks.join('') : (task as ParallelWorker).textBuffer],
   );
   const tokenEstimate = useMemo(() => estimateTokens(totalText), [totalText]);
   const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
@@ -31,11 +106,12 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
   }, [isRunning, task.startedAt, task.completedAt]);
 
-  const goalNeedsCollapse = (task.goal?.length ?? 0) > 200;
+  const goal = task.goal;
+  const goalNeedsCollapse = (goal?.length ?? 0) > 200;
 
   useEffect(() => {
     setGoalExpanded(false);
-  }, [task.taskId]);
+  }, [taskKey]);
 
   useEffect(() => {
     if (isRunning && scrollRef.current) {
@@ -63,14 +139,14 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
             : 'bg-[var(--color-success)]'
           }`}
         />
-        <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{task.agentName}</span>
+        <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{agentName}</span>
         <span className="text-xs font-mono text-[var(--color-text-secondary)] tabular-nums ml-auto">
           {tokenDisplay} {t('taskPanel.tokenUnit')}{elapsed ? ` · ${elapsed}` : ''}
         </span>
       </div>
 
-      {/* Goal — collapsible when long */}
-      {task.goal && (
+      {/* Goal — collapsible when long (DelegatedTask only) */}
+      {goal && (
         <div className="px-6 pt-3 pb-1 shrink-0 border-b border-[var(--color-border)]/40">
           <div className="text-xs font-semibold text-[var(--color-text-muted)] mb-1">{t('taskPanel.taskGoal')}:</div>
           <div className={`relative text-xs text-[var(--color-text-secondary)] leading-relaxed ${
@@ -78,7 +154,7 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
               ? goalExpanded ? 'max-h-[40vh] overflow-y-auto' : `${GOAL_COLLAPSED_MAX_H} overflow-hidden`
               : ''
           }`}>
-            <StreamdownRenderer text={task.goal} isTypewriting={false} />
+            <StreamdownRenderer text={goal} isTypewriting={false} />
             {goalNeedsCollapse && !goalExpanded && (
               <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[var(--color-bg-app)] to-transparent" />
             )}
@@ -104,35 +180,51 @@ export function SubagentView({ task, onBack }: { task: DelegatedTask; onBack: ()
       {isFailure && (
         <div className="mx-6 mt-2 rounded-md bg-[var(--color-danger)]/8 border border-[var(--color-danger)]/25 p-2.5 space-y-1 shrink-0" role="alert">
           <div className="text-xs text-[var(--color-danger)]">
-            <span className="font-semibold">{task.errorCode || t('taskPanel.taskFailed', { code: '' })}</span>
+            <span className="font-semibold">{isDelegate ? (task.errorCode || t('taskPanel.taskFailed', { code: '' })) : t('taskPanel.taskFailed', { code: '' })}</span>
           </div>
-          {task.result?.error?.message && (
+          {isDelegate && task.result?.error?.message && (
             <div className="text-xs text-[var(--color-danger)] leading-relaxed">{task.result.error.message}</div>
           )}
         </div>
       )}
 
-      {/* Streaming content — scrollable */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto min-h-0 px-6 py-4"
-      >
-        {totalText ? (
-          <div className="max-w-[760px] mx-auto pb-20">
-            <MessageContentRenderer
-              content={totalText}
-              isLast={isRunning}
-              isStreaming={isRunning}
-              messageId={task.taskId}
-              thinkRecent={isRunning}
-            />
-          </div>
+      {/* Content — scrollable */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
+        {isDelegate ? (
+          totalText ? (
+            <div className="max-w-[760px] mx-auto pb-20">
+              <MessageContentRenderer
+                content={totalText}
+                isLast={isRunning}
+                isStreaming={isRunning}
+                messageId={task.taskId}
+                thinkRecent={isRunning}
+              />
+            </div>
+          ) : (
+            <div className={`max-w-[760px] mx-auto text-xs font-mono ${isFailure ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'}`}>
+              {isRunning ? t('subagentView.waiting') : isFailure ? t('subagentView.noOutputFailure') : t('subagentView.noOutput')}
+            </div>
+          )
         ) : (
-          <div className={`max-w-[760px] mx-auto text-xs font-mono ${
-            isFailure ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'
-          }`}>
-            {isRunning ? t('subagentView.waiting') : isFailure ? t('subagentView.noOutputFailure') : t('subagentView.noOutput')}
-          </div>
+          totalText || task.steps.length > 0 ? (
+            <div className="max-w-[760px] mx-auto pb-20">
+              {totalText ? (
+                <MessageContentRenderer
+                  content={totalText}
+                  isLast={isRunning}
+                  isStreaming={isRunning}
+                  messageId={task.agentSlug}
+                  thinkRecent={isRunning}
+                />
+              ) : null}
+              <WorkerToolList steps={task.steps} />
+            </div>
+          ) : (
+            <div className="max-w-[760px] mx-auto text-xs font-mono text-[var(--color-text-muted)]">
+              {isRunning ? t('subagentView.waiting') : t('subagentView.noOutput')}
+            </div>
+          )
         )}
       </div>
 

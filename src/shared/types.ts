@@ -459,13 +459,16 @@ export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'faile
 export type ExecutionStepType =
   | 'task_start' | 'task_end'
   | 'thinking'
+  | 'text'
+  | 'text_chunk'
   | 'tool_call' | 'tool_result'
   | 'system' | 'validation';
 
 export interface ExecutionStep {
   type: ExecutionStepType;
   ts: number;
-  label?: string;       // task_start / task_end / system
+  label?: string;       // task_start: agent 显示名
+  goal?: string;        // task_start: 任务描述（原始 description，不含附加上下文）
   content?: string;     // thinking / system
   tool?: string;        // tool_call / tool_result
   args?: unknown;       // tool_call
