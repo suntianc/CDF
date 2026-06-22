@@ -19,6 +19,8 @@ import {
   createBuiltInTools,
   loadRegistryTools,
   loadMcpTools,
+  createSpanId,
+  createChildSpan,
 } from '../deepagent/shared-infra';
 import type { ExecutionStep, WorkflowNode } from '../../shared/types';
 
@@ -255,6 +257,7 @@ export function createAgentNodeExecutor(
     onStep?: (step: ExecutionStep) => void
   ): Promise<Record<string, unknown>> => {
     const startTime = Date.now();
+    const nodeSpanId = createSpanId();
 
     try {
       // 1. 创建 DeepAgent 实例（每次执行独立创建，不共享 chat runtime）
@@ -356,11 +359,18 @@ export function createAgentNodeExecutor(
           : '',
       ].filter(Boolean).join('\n');
 
-      const invokeAgent = async (content: string): Promise<string> => {
+      const invokeAgent = async (content: string, invocationSpanId?: string): Promise<string> => {
+        // 当前 agent 调用的 span：若外部指定（loop/foreach 迭代），用外部的；否则创建子 span
+        const agentSpan = invocationSpanId
+          ? { spanId: invocationSpanId, parentSpanId: nodeSpanId }
+          : createChildSpan(nodeSpanId);
+
         // 临时存储每个工具运行 of runId 对应的工具名称
         const toolRunNames = new Map<string, string>();
         // 临时存储每个工具开始时间(用于计算 duration_ms)
         const toolRunStartedAt = new Map<string, number>();
+        // 临时存储每个工具调用的 span
+        const toolRunSpans = new Map<string, { spanId: string; parentSpanId: string }>();
 
         // 统一推送 step(自动打 ts)
         const push = (step: Omit<ExecutionStep, 'ts'> & { ts?: number }) => {
@@ -379,7 +389,7 @@ export function createAgentNodeExecutor(
                   // 提取 LLM 自然语言思考,剔除 tool_calls JSON 尾巴
                   const text = extractThinkingText(output);
                   if (text && text.trim()) {
-                    push({ type: 'thinking', content: text });
+                    push({ type: 'thinking', content: text, spanId: agentSpan.spanId, parentSpanId: agentSpan.parentSpanId });
                   }
                 },
                 handleToolStart(tool, toolInput, runId, _parentRunId, _tags, _metadata, name) {
@@ -388,24 +398,30 @@ export function createAgentNodeExecutor(
                   const toolName = name || tool?.name || toolId || 'unknown';
                   toolRunNames.set(runId, toolName);
                   toolRunStartedAt.set(runId, Date.now());
-                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput) });
+                  const toolSpan = createChildSpan(agentSpan.spanId);
+                  toolRunSpans.set(runId, toolSpan);
+                  push({ type: 'tool_call', tool: toolName, args: normalizeToolArgs(toolInput), spanId: toolSpan.spanId, parentSpanId: toolSpan.parentSpanId });
                 },
                 handleToolEnd(output, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
                   toolRunNames.delete(runId);
                   const startedAt = toolRunStartedAt.get(runId) || Date.now();
                   toolRunStartedAt.delete(runId);
+                  const toolSpan = toolRunSpans.get(runId);
+                  toolRunSpans.delete(runId);
                   const durationMs = Date.now() - startedAt;
-                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs });
+                  push({ type: 'tool_result', tool: toolName, success: true, output: unwrapToolOutput(output), duration_ms: durationMs, spanId: toolSpan?.spanId, parentSpanId: toolSpan?.parentSpanId });
                 },
                 handleToolError(err, runId) {
                   const toolName = toolRunNames.get(runId) || 'unknown';
                   toolRunNames.delete(runId);
                   const startedAt = toolRunStartedAt.get(runId) || Date.now();
                   toolRunStartedAt.delete(runId);
+                  const toolSpan = toolRunSpans.get(runId);
+                  toolRunSpans.delete(runId);
                   const durationMs = Date.now() - startedAt;
                   const errMsg = err instanceof Error ? err.message : String(err);
-                  push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs });
+                  push({ type: 'tool_result', tool: toolName, success: false, error: errMsg, duration_ms: durationMs, spanId: toolSpan?.spanId, parentSpanId: toolSpan?.parentSpanId });
                 }
               }
             ]
@@ -444,6 +460,7 @@ export function createAgentNodeExecutor(
 
         for (let iteration = 1; iteration <= loopCount; iteration += 1) {
           const iterationStart = Date.now();
+          const iterationSpan = createChildSpan(nodeSpanId);
           const iterationContext = [
             taskContext,
             '',
@@ -456,8 +473,8 @@ export function createAgentNodeExecutor(
             `如果已经满足任务目标，可以在最终回复中包含 JSON：{"routing":{"${node.id}":"done"}} 来提前结束 Loop。`,
           ].filter(Boolean).join('\n');
 
-          onStep?.({ ts: Date.now(), type: 'system', content: `[Loop] 正在执行第 ${iteration}/${loopCount} 轮循环...` });
-          const resultText = await invokeAgent(iterationContext);
+          onStep?.({ ts: Date.now(), type: 'system', content: `[Loop] 正在执行第 ${iteration}/${loopCount} 轮循环...`, spanId: iterationSpan.spanId, parentSpanId: iterationSpan.parentSpanId });
+          const resultText = await invokeAgent(iterationContext, iterationSpan.spanId);
           const routing = extractWorkflowRouting(resultText);
           finalRouting = routing ?? finalRouting;
           iterations.push({
@@ -522,6 +539,7 @@ export function createAgentNodeExecutor(
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const itemStart = Date.now();
+          const itemSpan = createChildSpan(nodeSpanId);
           const itemContext = [
             taskContext,
             '',
@@ -531,10 +549,10 @@ export function createAgentNodeExecutor(
               : JSON.stringify(item, null, 2),
           ].filter(Boolean).join('\n');
 
-          onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 正在执行第 ${i + 1}/${items.length} 项子任务...` });
+          onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 正在执行第 ${i + 1}/${items.length} 项子任务...`, spanId: itemSpan.spanId, parentSpanId: itemSpan.parentSpanId });
           try {
-            const resultText = await invokeAgent(itemContext);
-            onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 第 ${i + 1}/${items.length} 项子任务执行成功` });
+            const resultText = await invokeAgent(itemContext, itemSpan.spanId);
+            onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 第 ${i + 1}/${items.length} 项子任务执行成功`, spanId: itemSpan.spanId, parentSpanId: itemSpan.parentSpanId });
             const routing = extractWorkflowRouting(resultText);
             finalRouting = routing ?? finalRouting;
             results.push({
@@ -546,7 +564,7 @@ export function createAgentNodeExecutor(
             });
           } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
-            onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 第 ${i + 1}/${items.length} 项子任务执行失败: ${errorMessage}` });
+            onStep?.({ ts: Date.now(), type: 'system', content: `[For-Each] 第 ${i + 1}/${items.length} 项子任务执行失败: ${errorMessage}`, spanId: itemSpan.spanId, parentSpanId: itemSpan.parentSpanId });
             results.push({
               index: i,
               item,
@@ -576,9 +594,9 @@ export function createAgentNodeExecutor(
       }
 
       // 4. 执行 DeepAgent（普通任务 / 审查节点为单次调用）
-      onStep?.({ ts: Date.now(), type: 'task_start', label: '[Task] 开始执行节点任务' });
+      onStep?.({ ts: Date.now(), type: 'task_start', label: '[Task] 开始执行节点任务', spanId: nodeSpanId });
       const resultText = await invokeAgent(taskContext);
-      onStep?.({ ts: Date.now(), type: 'task_end', label: '[Task] 节点任务执行完毕' });
+      onStep?.({ ts: Date.now(), type: 'task_end', label: '[Task] 节点任务执行完毕', spanId: nodeSpanId });
 
       // 5. 收集结果（routing 从原始文本提取）
       const duration = Date.now() - startTime;

@@ -473,7 +473,6 @@ export interface ExecutionStep {
   output?: unknown;     // tool_result(成功)
   error?: string;       // tool_result(失败)
   duration_ms?: number; // tool_result
-  // Phase 16 Plan 01: span trace 字段（用于关联 subagent 执行链）
   spanId?: string;       // 当前步骤的 span 标识
   parentSpanId?: string; // 父级 span 标识
 }
@@ -520,7 +519,7 @@ export interface WorkflowApprovalResolution {
 
 export type WorkflowStreamEvent = (
   | { type: 'workflow_start'; executionId: string; workflowId: string }
-  | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string }
+  | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string; spanId?: string }
   | { type: 'node_end'; executionId: string; nodeId: string; duration_ms: number; outputKeys: string[] }
   | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
   | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }

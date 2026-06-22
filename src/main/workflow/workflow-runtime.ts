@@ -15,6 +15,7 @@ import db from '../database';
 import store from '../store';
 import { buildWorkflowGraph } from './graph-builder';
 import { createAgentNodeExecutor } from './node-executor';
+import { createSpanId } from '../deepagent/shared-infra';
 import type { AgentApprovalAction, ApprovalMode, ExecutionStep, WorkflowDefinition, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution } from '../../shared/types';
 
 function parseInterruptActions(interruptValue: unknown): AgentApprovalAction[] {
@@ -382,11 +383,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
       return async (state) => {
         nodeStartTimes.set(node.id, Date.now());
         nodeTraceMap.set(node.id, []);
+        const nodeStartSpanId = createSpanId();
         const nodeStartEvent: WorkflowStreamEvent = {
           type: 'node_start',
           executionId,
           nodeId: node.id,
           nodeName: node.data.label || node.id,
+          spanId: nodeStartSpanId,
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);

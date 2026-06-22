@@ -63,58 +63,79 @@ function formatTs(ts: number): string {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
+function SpanBadge({ spanId }: { spanId?: string }) {
+  if (!spanId) return null;
+  return (
+    <span className="text-[7px] font-mono text-[var(--color-text-muted)] opacity-60 ml-1">
+      {spanId.slice(0, 4)}
+    </span>
+  );
+}
+
 function RenderStep({ step, isLatest, isNodeRunning, t }: { step: ExecutionStep; isLatest: boolean; isNodeRunning: boolean; t: (key: string) => string }) {
+  const isChild = !!step.parentSpanId;
+  const indentClass = isChild ? 'pl-4 border-l-2 border-[var(--color-border)]' : '';
+
   switch (step.type) {
     case 'thinking': {
       const showSpinner = isLatest && isNodeRunning;
       return (
-        <div className="flex items-start gap-2 py-1 px-1.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10 mb-1">
-          {showSpinner && <Loader2 className="w-3 h-3 animate-spin mt-0.5 shrink-0" />}
-          <pre className="text-[10px] whitespace-pre-wrap break-words flex-1 m-0 font-mono leading-relaxed">
-            {step.content}
-          </pre>
+        <div className={`${indentClass} mb-1`}>
+          <div className="flex items-start gap-2 py-1 px-1.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10">
+            {showSpinner && <Loader2 className="w-3 h-3 animate-spin mt-0.5 shrink-0" />}
+            <pre className="text-[10px] whitespace-pre-wrap break-words flex-1 m-0 font-mono leading-relaxed">
+              {step.content}
+            </pre>
+            <SpanBadge spanId={step.spanId} />
+          </div>
         </div>
       );
     }
     case 'tool_call':
       return (
-        <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-info-dim)]/30 border border-[var(--color-info)]/10 mb-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)]">{t('workflow.execution.stepCall')}</span>
-            <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
-            <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{formatTs(step.ts)}</span>
+        <div className={`${indentClass} mb-1`}>
+          <div className="flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-info-dim)]/30 border border-[var(--color-info)]/10">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)]">{t('workflow.execution.stepCall')}</span>
+              <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
+              <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{formatTs(step.ts)}</span>
+              <SpanBadge spanId={step.spanId} />
+            </div>
+            {step.args !== undefined && (
+              <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
+                {formatJson(step.args)}
+              </pre>
+            )}
           </div>
-          {step.args !== undefined && (
-            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
-              {formatJson(step.args)}
-            </pre>
-          )}
         </div>
       );
     case 'tool_result': {
       const isSuccess = !!step.success;
       const color = isSuccess ? 'success' : 'danger';
       return (
-        <div className={`flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-${color}-dim)]/30 border border-[var(--color-${color})]/10 mb-1`}>
-          <div className="flex items-center gap-1.5">
-            <span className={`text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-${color})]/20 text-[var(--color-${color})]`}>
-              {isSuccess ? t('workflow.execution.stepResult') : t('workflow.execution.stepFailed')}
-            </span>
-            <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
-            {step.duration_ms !== undefined && (
-              <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{step.duration_ms}ms</span>
+        <div className={`${indentClass} mb-1`}>
+          <div className={`flex flex-col gap-1 py-1 px-1.5 rounded bg-[var(--color-${color}-dim)]/30 border border-[var(--color-${color})]/10`}>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-[8px] px-1 py-0.2 rounded font-bold bg-[var(--color-${color})]/20 text-[var(--color-${color})]`}>
+                {isSuccess ? t('workflow.execution.stepResult') : t('workflow.execution.stepFailed')}
+              </span>
+              <span className="text-[9px] font-semibold font-mono">{step.tool}</span>
+              {step.duration_ms !== undefined && (
+                <span className="text-[8px] text-[var(--color-text-muted)] ml-auto font-mono">{step.duration_ms}ms</span>
+              )}
+              <SpanBadge spanId={step.spanId} />
+            </div>
+            {isSuccess && step.output !== undefined && (
+              <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
+                {formatJson(step.output)}
+              </pre>
+            )}
+            {!isSuccess && step.error && (
+              <pre className="text-[9px] font-mono text-[var(--color-danger)] whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
+                {step.error}
+              </pre>
             )}
           </div>
-          {isSuccess && step.output !== undefined && (
-            <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
-              {formatJson(step.output)}
-            </pre>
-          )}
-          {!isSuccess && step.error && (
-            <pre className="text-[9px] font-mono text-[var(--color-danger)] whitespace-pre-wrap bg-[var(--color-bg-sunken)] p-1 rounded max-h-[80px] overflow-y-auto">
-              {step.error}
-            </pre>
-          )}
         </div>
       );
     }
@@ -125,8 +146,9 @@ function RenderStep({ step, isLatest, isNodeRunning, t }: { step: ExecutionStep;
     default: {
       const label = step.label || step.content || step.type;
       return (
-        <div className="text-[9px] py-0.5 text-[var(--color-text-muted)] pl-1 border-l border-[var(--color-border)]/50 font-mono mb-1">
-          {label}
+        <div className={`flex items-center gap-1 text-[9px] py-0.5 text-[var(--color-text-muted)] pl-1 border-l border-[var(--color-border)]/50 font-mono mb-1 ${isChild ? 'ml-4' : ''}`}>
+          <span className="flex-1">{label}</span>
+          <SpanBadge spanId={step.spanId} />
         </div>
       );
     }
