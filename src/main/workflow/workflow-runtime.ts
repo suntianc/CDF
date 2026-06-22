@@ -286,11 +286,13 @@ export async function runWorkflow(params: RunWorkflowParams): Promise<string> {
       return async (state) => {
         nodeStartTimes.set(node.id, Date.now());
         nodeTraceMap.set(node.id, []);
+        const nodeStartSpanId = crypto.randomBytes(4).toString('hex');
         const nodeStartEvent: WorkflowStreamEvent = {
           type: 'node_start',
           executionId,
           nodeId: node.id,
           nodeName: node.data.label || node.id,
+          spanId: nodeStartSpanId,
         };
         pushWorkflowEvent(executionId, nodeStartEvent);
         params.onEvent?.(nodeStartEvent);
