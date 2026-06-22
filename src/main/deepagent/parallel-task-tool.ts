@@ -281,6 +281,7 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
 
           return {
             name: task.name,
+            agentName: agentRow.name,
             status: 'success' as const,
             output,
             duration_ms: Date.now() - startTime,
@@ -294,6 +295,7 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
           });
           return {
             name: task.name,
+            agentName: agentRow.name,
             status: 'failure' as const,
             error: errMsg,
             duration_ms: Date.now() - startTime,

@@ -552,6 +552,45 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           });
         }
       }
+      // Reconstruct parallelBatches from parallel_tasks tool calls stored in DB
+      const restoredBatches: ParallelBatch[] = [];
+      for (const call of toolCalls) {
+        if (call.tool_name === 'parallel_tasks') {
+          try {
+            const input = call.input ? JSON.parse(call.input) : {};
+            const rawOutput = typeof call.output === 'string' ? call.output : JSON.stringify(call.output ?? '{}');
+            const output = rawOutput ? JSON.parse(rawOutput) : {};
+            const batchId: string = output.batchId ?? call.id;
+            const inputTasks: Array<{ name: string; description?: string }> = input.tasks ?? [];
+            const results: Array<{ name: string; agentName?: string; status: string; output?: string; error?: string }> = output.results ?? [];
+
+            const workers: ParallelWorker[] = inputTasks.map((t) => {
+              const result = results.find((r) => r.name === t.name);
+              let status: 'running' | 'success' | 'failure' = 'success';
+              if (call.status === 'running') {
+                status = isSessionStreaming ? 'running' : 'failure';
+              } else if (result?.status === 'failure' || call.status === 'error') {
+                status = 'failure';
+              }
+              return {
+                agentSlug: t.name,
+                agentName: result?.agentName,
+                goal: t.description,
+                status,
+                steps: [],
+                textBuffer: result?.output ?? '',
+                startedAt: call.started_at ?? Date.now(),
+                completedAt: call.ended_at || undefined,
+              };
+            });
+
+            restoredBatches.push({ batchId, workers, startedAt: call.started_at ?? Date.now() });
+          } catch (e) {
+            console.warn('[sessionStore] Failed to parse parallel_tasks call:', e);
+          }
+        }
+      }
+
       // Reconstruct the latest successful todos from database history on session switch
       let latestTodos: TodoItem[] = [];
       try {
@@ -620,6 +659,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           agentRuns: runs,
           agentToolCalls: toolCalls,
           delegatedTasks: tasks,
+          parallelBatches: restoredBatches,
           todos: latestTodos,
           activeRunId: activeRun?.id || null,
         });
