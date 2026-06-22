@@ -10,9 +10,18 @@ export class LLMStreamAccumulator {
   sender?: any;
   channel?: string;
   onText?: (text: string) => void;
+  onChunk?: (text: string) => void;
 
   appendReasoning(text: string): void {
     this.reasoningText += text;
+    if (this.onChunk) {
+      if (!this.hasSentReasoning) {
+        this.hasSentReasoning = true;
+        this.onChunk('<think>');
+      }
+      this.onChunk(text);
+      return;
+    }
     if (this.isInPatchedInvoke && this.sender && this.channel) {
       if (!this.hasSentReasoning) {
         this.hasSentReasoning = true;
@@ -26,6 +35,15 @@ export class LLMStreamAccumulator {
     this.normalText += text;
     if (this.onText) {
       this.onText(text);
+      return;
+    }
+    if (this.onChunk) {
+      if (this.hasSentReasoning && !this.hasSentReasoningClosed) {
+        this.hasSentReasoningClosed = true;
+        this.onChunk('</think>\n\n');
+      }
+      this.hasSentText = true;
+      this.onChunk(text);
       return;
     }
     if (this.isInPatchedInvoke && this.sender && this.channel) {

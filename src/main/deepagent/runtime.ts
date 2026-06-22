@@ -20,6 +20,7 @@ import {
 } from './shared-infra';
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
+import { createParallelTaskTool } from './parallel-task-tool';
 import { DELEGATED_TASK_RESULT_SCHEMA, type ChatRuntimeOverrides } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
@@ -441,6 +442,13 @@ export async function createDeepAgentRuntime(
     builtInTools.push(...workflowTools);
   } catch (err) {
     console.warn('[RUNTIME] Failed to load workflow tools:', err);
+  }
+
+  // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
+  try {
+    builtInTools.push(createParallelTaskTool(projectId, sessionId));
+  } catch (err) {
+    console.warn('[RUNTIME] Failed to load parallel task tool:', err);
   }
 
   console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);

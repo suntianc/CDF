@@ -79,6 +79,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deepagents: {
     createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) =>
       ipcRenderer.invoke('deepagents:createAgent', config),
+    onParallelTaskStep: (sessionId: string, callback: (event: any, data: any) => void) => {
+      const channel = `agent:parallel-task-step-${sessionId}`;
+      const listener = (event: any, data: any) => callback(event, data);
+      ipcRenderer.on(channel, listener);
+      return () => { ipcRenderer.removeListener(channel, listener); };
+    },
   },
   workflow: {
     runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>, approvalMode?: string) =>

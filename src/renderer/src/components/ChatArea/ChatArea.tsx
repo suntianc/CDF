@@ -226,6 +226,14 @@ export function ChatArea({
     () => viewingSubagentId ? delegatedTasks.find((t) => t.taskId === viewingSubagentId) ?? null : null,
     [viewingSubagentId, delegatedTasks],
   );
+  const viewingParallelWorker = useSessionStore((s) => s.viewingParallelWorker);
+  const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
+  const parallelBatches = useSessionStore((s) => s.parallelBatches);
+  const viewingWorkerData = useMemo(() => {
+    if (!viewingParallelWorker) return null;
+    const batch = parallelBatches.find((b) => b.batchId === viewingParallelWorker.batchId);
+    return batch?.workers.find((w) => w.agentSlug === viewingParallelWorker.agentSlug) ?? null;
+  }, [viewingParallelWorker, parallelBatches]);
 
   const [inputVal, setInputVal] = useState('');
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
@@ -1414,6 +1422,8 @@ export function ChatArea({
         <div className="flex-1 relative overflow-hidden">
           {viewingTask ? (
             <SubagentView task={viewingTask} onBack={() => setViewingSubagent(null)} />
+          ) : viewingWorkerData ? (
+            <SubagentView task={viewingWorkerData} onBack={() => setViewingParallelWorker(null)} />
           ) : (
             <>
               {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
@@ -1515,7 +1525,7 @@ export function ChatArea({
         </div>
 
         {/* Input Composer Panel — hidden when viewing sub-agent */}
-        <div className={`absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 z-10 pointer-events-none ${viewingTask ? 'hidden' : ''}`}>
+        <div className={`absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 z-10 pointer-events-none ${(viewingTask || viewingWorkerData) ? 'hidden' : ''}`}>
           {/* Background gradient overlay with fixed height to prevent compression when todo list collapses */}
           <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/85 to-transparent z-0 pointer-events-none" />
           <div className="relative z-10 w-full max-w-[760px] mx-auto flex flex-col gap-3 pointer-events-auto">
