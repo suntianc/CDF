@@ -66,7 +66,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-<!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
 **CDF — 本地多领域 Agent 工作站**
@@ -86,9 +85,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **技术栈**：Electron + React + Vite | **streamdown**（流式 markdown 渲染 + KaTeX 公式）| ReactFlow（工作流组件）| Tailwind + Shadcn UI | Zustand
 - **双主题**：Light（奶白画布 + 粉彩 color block + accent-magenta #e2007a）/ Dark（冷黑画布 + 同一套 block + Intelligence Violet #7c3aed）。两主题共享 ink 角色、状态色、组件语法、spacing
 - **设计语言**：Task Surface · Activity Trail · Agent Bench · Capability Shelf · Artifact Space · Workflow Canvas。不用 chat bubble、icon-card 网格、紫色 SaaS Dashboard、hero-metric 模板、玻璃拟态默认
-<!-- GSD:project-end -->
 
-<!-- GSD:stack-start source:research/STACK.md -->
 ## Technology Stack
 
 ## Recommended Stack
@@ -186,9 +183,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - [ ] electron-vite v3 stability and current best practices
 - [ ] Tailwind v4 production readiness
 ## Architecture Implications
-<!-- GSD:stack-end -->
 
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
 ### 版本号管理
@@ -200,42 +195,20 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - tag 只打在 `master` 分支，**先合入 master 再打 tag**（不在 dev 上打发布 tag）。
   - patch：bug 修复 / 小调整；minor：新能力 / 新 phase 交付；major：方向性重写。
   - `package.json` 的 `version` 字段当前未与发布版本同步维护（默认 `1.0.0`），发布版本以 git tag 为准，不强制 bump package.json。
-- **GSD 里程碑版本（`.planning/` 内部）**：GSD 工作流自身的规划版本号，出现在 `STATE.md`、`ROADMAP.md`、`PROJECT.md`、`milestones/` 归档文件名等。
-  - 形如 `v0.2.1`，由 `/gsd:new-milestone` 定义，与产品发布版本**互相独立**（例如 GSD `v0.2.1` 里程碑对应产品发布 `v0.1.2`）。
-  - 仅存在于 gitignored 的 `.planning/`，不进 git，不对外可见。
-  - 里程碑归档文件命名用 GSD 版本（`milestones/v0.2.1-ROADMAP.md`），git tag 用产品版本（`v0.1.2`）。
 
-**关键区分：** 涉及 git tag / release / 用户可见版本时用产品版本号；涉及 `.planning/` 规划产物时用 GSD 里程碑版本号。两者不要互相替换。
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
 Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
 
-<!-- GSD:skills-start source:skills/ -->
-## Project Skills
+## gstack (recommended)
 
-No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
-<!-- GSD:skills-end -->
+This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted workflows.
+Install it for the best experience:
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
+```bash
+git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack && ./setup --team
+```
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
+Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.
