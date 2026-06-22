@@ -232,7 +232,10 @@ export function ChatArea({
   const viewingWorkerData = useMemo(() => {
     if (!viewingParallelWorker) return null;
     const batch = parallelBatches.find((b) => b.batchId === viewingParallelWorker.batchId);
-    return batch?.workers.find((w) => w.agentSlug === viewingParallelWorker.agentSlug) ?? null;
+    if (!batch) return null;
+    return batch.workers.find((w) =>
+      viewingParallelWorker.workerId ? w.workerId === viewingParallelWorker.workerId : w.agentSlug === viewingParallelWorker.agentSlug
+    ) ?? null;
   }, [viewingParallelWorker, parallelBatches]);
 
   const [inputVal, setInputVal] = useState('');

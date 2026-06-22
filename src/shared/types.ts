@@ -469,12 +469,13 @@ export interface ExecutionStep {
   ts: number;
   label?: string;       // task_start: agent 显示名
   goal?: string;        // task_start: 任务描述（原始 description，不含附加上下文）
+  summary?: string;     // task_end: worker 最终输出的简短摘要
   content?: string;     // thinking / system
   tool?: string;        // tool_call / tool_result
   args?: unknown;       // tool_call
-  success?: boolean;    // tool_result
+  success?: boolean;    // tool_result / task_end
   output?: unknown;     // tool_result(成功)
-  error?: string;       // tool_result(失败)
+  error?: string;       // tool_result(失败) / task_end(失败)
   duration_ms?: number; // tool_result
   spanId?: string;       // 当前步骤的 span 标识
   parentSpanId?: string; // 父级 span 标识

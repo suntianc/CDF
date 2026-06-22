@@ -25,6 +25,7 @@ const WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 export interface ParallelTaskStepEvent {
   batchId: string;
   agentSlug: string;
+  workerId: string;
   step: ExecutionStep;
 }
 
@@ -243,6 +244,7 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
 
       const workerPromises = tasks.map(async (task) => {
         const startTime = Date.now();
+        const workerId = crypto.randomUUID();
         const agentRow = allAgents.find((row) => resolveAgentSlug(row) === task.name);
 
         if (!agentRow) {
@@ -259,10 +261,10 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
             ? `${task.description}\n\n## 附加上下文\n${JSON.stringify(task.input, null, 2)}`
             : task.description;
 
-          // emit task_start 在此处，以便使用 task.description（纯任务目标，不含附加上下文）
           pushParallelTaskStep(sessionId, {
             batchId,
             agentSlug: task.name,
+            workerId,
             step: { type: 'task_start', ts: Date.now(), label: agentRow.name, goal: task.description },
           });
 
@@ -270,13 +272,15 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
             agentRow,
             taskContext,
             projectPath,
-            (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, step }),
+            (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, workerId, step }),
           );
 
+          const summary = output.slice(0, 300);
           pushParallelTaskStep(sessionId, {
             batchId,
             agentSlug: task.name,
-            step: { type: 'task_end', ts: Date.now(), success: true },
+            workerId,
+            step: { type: 'task_end', ts: Date.now(), success: true, summary },
           });
 
           return {
@@ -291,6 +295,7 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
           pushParallelTaskStep(sessionId, {
             batchId,
             agentSlug: task.name,
+            workerId,
             step: { type: 'task_end', ts: Date.now(), success: false, error: errMsg },
           });
           return {

@@ -195,31 +195,42 @@ function ParallelBatchSection({ batches }: { batches: ParallelBatch[] }) {
       {batches.map((batch) => (
         <div key={batch.batchId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-1.5">
           {batch.workers.map((worker) => {
-            const isActive = viewingParallelWorker?.batchId === batch.batchId && viewingParallelWorker?.agentSlug === worker.agentSlug;
+            const workerKey = worker.workerId ?? `${worker.agentSlug}-${worker.startedAt}`;
+            const isActive = viewingParallelWorker?.batchId === batch.batchId && (
+              worker.workerId
+                ? viewingParallelWorker?.workerId === worker.workerId
+                : viewingParallelWorker?.agentSlug === worker.agentSlug
+            );
             const displayName = worker.agentName ?? worker.agentSlug;
             const tokenCount = estimateTokens(worker.textBuffer);
             const tokenDisplay = tokenCount > 1000 ? `${(tokenCount / 1000).toFixed(1)}k` : `${tokenCount}`;
+            const previewText = worker.status !== 'running' && (worker.summary ?? worker.textBuffer.slice(0, 80)) || null;
             return (
               <button
-                key={worker.agentSlug}
+                key={workerKey}
                 type="button"
-                onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug })}
-                className={`w-full flex items-center justify-between gap-2 p-2 rounded-md border transition-all text-left focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+                onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug, workerId: worker.workerId })}
+                className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-all text-left focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
                   isActive
                     ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
                     : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)]'
                 }`}
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  {worker.status === 'running'
-                    ? <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none text-[var(--color-accent)]" aria-hidden="true" />
-                    : worker.status === 'failure'
-                      ? <XCircle className="w-3.5 h-3.5 text-[var(--color-danger)]" aria-hidden="true" />
-                      : <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" aria-hidden="true" />
-                  }
-                  <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{displayName}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {worker.status === 'running'
+                      ? <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none text-[var(--color-accent)]" aria-hidden="true" />
+                      : worker.status === 'failure'
+                        ? <XCircle className="w-3.5 h-3.5 text-[var(--color-danger)]" aria-hidden="true" />
+                        : <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" aria-hidden="true" />
+                    }
+                    <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{displayName}</span>
+                  </div>
+                  <span className="text-[10px] tabular-nums text-[var(--color-text-muted)] shrink-0 font-mono">{tokenDisplay} {t('taskPanel.tokenUnit')}</span>
                 </div>
-                <span className="text-[10px] tabular-nums text-[var(--color-text-muted)] shrink-0 font-mono">{tokenDisplay} {t('taskPanel.tokenUnit')}</span>
+                {previewText && (
+                  <p className="text-[10px] text-[var(--color-text-muted)] leading-relaxed line-clamp-2 pl-5">{previewText}</p>
+                )}
               </button>
             );
           })}

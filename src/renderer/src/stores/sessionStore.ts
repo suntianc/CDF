@@ -33,9 +33,11 @@ export interface SessionError {
 }
 
 export interface ParallelWorker {
+  workerId?: string;    // 运行时唯一 ID，解决同 batch 同 agentSlug 碰撞
   agentSlug: string;
   agentName?: string;   // 来自 task_start.label
   goal?: string;        // 来自 task_start.goal（原始任务描述）
+  summary?: string;     // 来自 task_end.summary（完成后的输出摘要）
   status: 'running' | 'success' | 'failure';
   steps: ExecutionStep[];
   textBuffer: string;
@@ -117,8 +119,8 @@ interface SessionState {
   clearGoalJudgeStatus: (sessionId: string) => void;
   viewingSubagentId: string | null;
   setViewingSubagent: (id: string | null) => void;
-  viewingParallelWorker: { batchId: string; agentSlug: string } | null;
-  setViewingParallelWorker: (key: { batchId: string; agentSlug: string } | null) => void;
+  viewingParallelWorker: { batchId: string; agentSlug: string; workerId?: string } | null;
+  setViewingParallelWorker: (key: { batchId: string; agentSlug: string; workerId?: string } | null) => void;
   resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
@@ -766,21 +768,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const pendingToolMessages = new Map<string, string[]>();
       let currentAssistantMsgId = assistantMsgId;
 
-      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; agentSlug: string; step: ExecutionStep }) => {
+      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; agentSlug: string; workerId: string; step: ExecutionStep }) => {
         const cached = streamingSessionsCache.get(sessionId);
         if (!cached) return;
-        const { batchId, agentSlug, step } = data;
+        const { batchId, agentSlug, workerId, step } = data;
         const batchIdx = cached.parallelBatches.findIndex((b) => b.batchId === batchId);
 
+        // 用 workerId 精确定位 worker（兼容无 workerId 的 restore 路径）
+        const findWorker = (workers: ParallelWorker[]) =>
+          workers.findIndex((w) => (workerId ? w.workerId === workerId : w.agentSlug === agentSlug));
+
         if (step.type === 'task_end') {
-          // 立即更新该 worker 状态，不等 tool_end 全部完成
           if (batchIdx !== -1) {
             const batch = { ...cached.parallelBatches[batchIdx] };
-            const workerIdx = batch.workers.findIndex((w) => w.agentSlug === agentSlug);
+            const workerIdx = findWorker(batch.workers);
             if (workerIdx !== -1) {
               const workers = [...batch.workers];
               const status = step.success !== false ? 'success' : 'failure';
-              workers[workerIdx] = { ...workers[workerIdx], status, completedAt: Date.now() };
+              workers[workerIdx] = { ...workers[workerIdx], status, completedAt: Date.now(), summary: step.summary };
               batch.workers = workers;
               const batches = [...cached.parallelBatches];
               batches[batchIdx] = batch;
@@ -794,8 +799,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
 
         if (step.type === 'task_start') {
-          // 创建 worker，携带 agentName 和 goal 元数据
           const newWorker: ParallelWorker = {
+            workerId,
             agentSlug,
             agentName: step.label,
             goal: step.goal,
@@ -808,7 +813,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             cached.parallelBatches = [...cached.parallelBatches, { batchId, startedAt: Date.now(), workers: [newWorker] }];
           } else {
             const batch = { ...cached.parallelBatches[batchIdx] };
-            const workerIdx = batch.workers.findIndex((w) => w.agentSlug === agentSlug);
+            // workerId 唯一，不会碰撞；只有 workerId 相同时才跳过
+            const workerIdx = findWorker(batch.workers);
             if (workerIdx === -1) {
               batch.workers = [...batch.workers, newWorker];
               const batches = [...cached.parallelBatches];
@@ -826,13 +832,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const chunk = isTextChunk ? (step.content ?? '') : '';
 
         if (batchIdx === -1) {
-          const newWorker: ParallelWorker = { agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
+          const newWorker: ParallelWorker = { workerId, agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
           cached.parallelBatches = [...cached.parallelBatches, { batchId, startedAt: Date.now(), workers: [newWorker] }];
         } else {
           const batch = { ...cached.parallelBatches[batchIdx] };
-          const workerIdx = batch.workers.findIndex((w) => w.agentSlug === agentSlug);
+          const workerIdx = findWorker(batch.workers);
           if (workerIdx === -1) {
-            const newWorker: ParallelWorker = { agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
+            const newWorker: ParallelWorker = { workerId, agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
             batch.workers = [...batch.workers, newWorker];
           } else {
             const workers = [...batch.workers];
