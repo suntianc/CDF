@@ -40,6 +40,7 @@ export interface Message {
   created_at: number;
   tokens?: number | null;
   think_duration_seconds?: number | null;
+  imageBase64?: string[];
 }
 
 export interface LLMProvider {

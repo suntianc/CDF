@@ -58,6 +58,7 @@ type RuntimeModelOverrides = ChatRuntimeOverrides;
 interface RuntimeInputMessage {
   id: string;
   content: string;
+  imageBase64?: string[];
 }
 
 export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
@@ -228,8 +229,19 @@ async function hasCheckpoint(sessionId: string, checkpointer: SqliteSaver): Prom
 }
 
 async function buildInputMessages(sessionId: string, currentMessage: RuntimeInputMessage, checkpointer: SqliteSaver) {
+  const currentContent: string | Array<{ type: string; [key: string]: unknown }> =
+    currentMessage.imageBase64?.length
+      ? [
+          ...currentMessage.imageBase64.map((dataUrl) => ({
+            type: 'image_url',
+            image_url: { url: dataUrl },
+          })),
+          { type: 'text', text: currentMessage.content },
+        ]
+      : currentMessage.content;
+
   if (await hasCheckpoint(sessionId, checkpointer)) {
-    return [{ role: 'user' as const, content: currentMessage.content }];
+    return [{ role: 'user' as const, content: currentContent }];
   }
 
   const history = getSessionMessages(sessionId);
@@ -239,7 +251,7 @@ async function buildInputMessages(sessionId: string, currentMessage: RuntimeInpu
       role: message.role,
       content: message.content,
     })),
-    ...(hasCurrent ? [] : [{ role: 'user' as const, content: currentMessage.content }]),
+    ...(hasCurrent ? [] : [{ role: 'user' as const, content: currentContent }]),
   ];
 }
 

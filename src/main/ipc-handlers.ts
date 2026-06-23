@@ -198,26 +198,33 @@ export function registerIpcHandlers() {
 
   // Database handlers: Messages
   ipcMain.handle('db:getMessages', (_, sessionId: string) => {
-    return db.prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId);
+    const rows = db.prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as any[];
+    return rows.map((row) => {
+      if (row.image_data) {
+        try { row.imageBase64 = JSON.parse(row.image_data); } catch { /* ignore */ }
+      }
+      return row;
+    });
   });
 
   ipcMain.handle('db:saveMessage', (_, message: any) => {
-    const { id, session_id, role, content, tokens, think_duration_seconds } = message;
+    const { id, session_id, role, content, tokens, think_duration_seconds, imageBase64 } = message;
     const now = Date.now();
+    const imageData = imageBase64?.length ? JSON.stringify(imageBase64) : null;
 
     const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
     if (existing) {
       db.prepare(`
-        UPDATE messages SET content = ?, tokens = ? WHERE id = ?
-      `).run(content, tokens || null, id);
+        UPDATE messages SET content = ?, tokens = ?, image_data = COALESCE(?, image_data) WHERE id = ?
+      `).run(content, tokens || null, imageData, id);
     } else {
       db.prepare(`
-        INSERT INTO messages (id, session_id, role, content, created_at, tokens, think_duration_seconds)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, session_id, role, content, now, tokens || null, think_duration_seconds || null);
+        INSERT INTO messages (id, session_id, role, content, created_at, tokens, think_duration_seconds, image_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, session_id, role, content, now, tokens || null, think_duration_seconds || null, imageData);
     }
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, session_id);
-    return { id, session_id, role, content, created_at: now, tokens };
+    return { id, session_id, role, content, created_at: now, tokens, imageBase64 };
   });
 
   ipcMain.handle('db:updateMessageThinkDuration', (_, id: string, seconds: number) => {

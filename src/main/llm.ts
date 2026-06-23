@@ -38,6 +38,7 @@ export interface ChatPayload {
   message: {
     id: string;
     content: string;
+    imageBase64?: string[];
   };
   overrides?: ChatRuntimeOverrides;
 }
