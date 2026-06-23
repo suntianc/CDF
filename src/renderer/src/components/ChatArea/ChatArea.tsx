@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, memo } from 'react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -148,7 +148,7 @@ interface LeadingToken {
   type: 'slash' | 'at';
   name: string;
   raw: string;
-  source?: 'system' | 'mcp' | 'skill';
+  source?: 'system' | 'mcp' | 'skill' | 'skill:project' | 'skill:global';
   kind?: 'file' | 'dir';
 }
 
@@ -156,9 +156,12 @@ function parseLeadingTokens(text: string, commands: any[]): { tokens: LeadingTok
   const tokens: LeadingToken[] = [];
   let remaining = text;
 
-  // 1. Parse optional leading slash command
+  // 1. Parse optional leading slash command.
+  // Require a trailing space after the command name (mirrors at-token's (?=\s)
+  // lookahead). Bare `/commandName` without a space means the user is still
+  // typing — the popup should stay open; the capsule must not render yet.
   if (remaining.startsWith('/')) {
-    const match = remaining.match(/^\/([\w-]+)/);
+    const match = remaining.match(/^\/([\w-]+)(?=\s)/);
     if (match) {
       const name = match[1];
       const cmd = commands.find((c) => c.name === name);
@@ -198,6 +201,26 @@ function parseLeadingTokens(text: string, commands: any[]): { tokens: LeadingTok
   }
 
   return { tokens, tail: remaining };
+}
+
+function getTokenColorClass(t: LeadingToken): string {
+  if (t.type === 'at') {
+    return 'text-[var(--color-info)]';
+  }
+  switch (t.source) {
+    case 'mcp':
+      return 'text-[var(--color-success)]';
+    case 'skill:project':
+    case 'skill:global':
+      return 'text-[var(--color-warning)]';
+    case 'workflow':
+      return 'text-[var(--color-danger)]';
+    case 'system':
+    case 'cmd:project':
+    case 'cmd:system':
+    default:
+      return 'text-[var(--color-accent)]';
+  }
 }
 
 export function ChatArea({
@@ -260,6 +283,11 @@ export function ChatArea({
   // (Pitfall P7-4 — must be bound to the <textarea> JSX ref attribute).
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousSessionIdRef = useRef<string | null>(null);
+
+  const welcomeTokensRef = useRef<HTMLDivElement>(null);
+  const [welcomeIndentWidth, setWelcomeIndentWidth] = useState(0);
+  const composerTokensRef = useRef<HTMLDivElement>(null);
+  const [composerIndentWidth, setComposerIndentWidth] = useState(0);
 
   const isAtMentionOpen = useAtMentionStore((s) => s.isOpen);
   const atMentionQuery = useAtMentionStore((s) => s.query);
@@ -932,6 +960,48 @@ export function ChatArea({
     [inputVal, registry.commands]
   );
 
+  useLayoutEffect(() => {
+    const el = welcomeTokensRef.current;
+    if (!el) {
+      setWelcomeIndentWidth(0);
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+        setWelcomeIndentWidth(width > 0 ? width + 6 : 0);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [leadingTokens]);
+
+  useLayoutEffect(() => {
+    const el = composerTokensRef.current;
+    if (!el) {
+      setComposerIndentWidth(0);
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+        setComposerIndentWidth(width > 0 ? width + 6 : 0);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [leadingTokens]);
+
+  // Auto-resize the composer textarea: fires synchronously before paint so the
+  // user never sees a flash of the wrong height. height:'auto' resets constraints
+  // so scrollHeight reflects true content height; we then pin it to that value.
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  }, [visibleInputTail]);
+
   // D-07: insert highlighted command text + trailing space, close popup, do NOT call handleSend
   // Phase 6: route through dispatcher.resolve when the command resolves to a plan
   // (Enter path). Tab / unknown commands fall back to text-insert.
@@ -1159,99 +1229,110 @@ export function ChatArea({
               modal={false}
             >
               <PopoverAnchor asChild>
-                <div className="flex flex-wrap items-start gap-1.5 w-full relative z-0" style={{ fontSize: '15px' }}>
-                  {leadingTokens.map((t, idx) => (
-                    <div key={idx} className="flex-shrink-0 pt-[5px]">
-                      {t.type === 'slash' ? (
-                        <SlashToken name={t.name} source={t.source} />
-                      ) : (
-                        <AtToken path={t.name} kind={t.kind!} />
-                      )}
-                    </div>
-                  ))}
-                  <textarea
-                    className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5 flex-1 min-w-[120px] !w-auto"
-                    placeholder={leadingTokens.length > 0 ? '' : t('chat.welcomePlaceholder')}
-                    rows={1}
-                    value={visibleInputTail}
-                    onChange={(e) => {
-                      const tail = e.target.value;
-                      const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
-                      const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
-                      setInputVal(value);
-                      if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
-                      // Mirror the composer's slash-open predicate so the popup
-                      // also triggers when typing `/` in the welcome textarea.
-                      const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
-                      setSlashOpen(shouldOpen);
-                      // Phase 08.3 A-01: at-mention trigger — only when a project root exists
-                      // and the cursor sits at a standalone `@` followed by 0+ path chars.
-                      if (!isComposingRef.current && currentProjectRoot) {
-                        const cursor = e.target.selectionStart + prefix.length;
-                        const textBeforeCursor = value.slice(0, cursor);
-                        const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
-                        if (atMatch) {
-                          const state = useAtMentionStore.getState();
-                          if (!state.isOpen) {
-                            state.open(cursor);
+                <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '15px' }}>
+                  <div className="relative overflow-hidden flex-1 min-w-0">
+                    {leadingTokens.length > 0 && (
+                      <div
+                        ref={welcomeTokensRef}
+                        className="absolute left-0 top-0 flex items-center gap-1.5 pointer-events-none select-none"
+                        style={{ height: '36px' }}
+                      >
+                        {leadingTokens.map((t, idx) => (
+                          <span
+                            key={idx}
+                            className={`shrink-0 font-semibold select-none leading-none ${getTokenColorClass(t)}`}
+                          >
+                            {t.type === 'at' ? '@' : ''}{t.name}
+                          </span>
+                        ))}
+                        <span className="shrink-0 text-[var(--color-text-muted)] select-none leading-none">·</span>
+                      </div>
+                    )}
+                    <textarea
+                      className="dialog-input animate-fade-in caret-[var(--color-text-primary)] py-1.5 w-full"
+                      style={{ paddingLeft: welcomeIndentWidth ? `${welcomeIndentWidth}px` : undefined }}
+                      placeholder={leadingTokens.length > 0 ? '' : t('chat.welcomePlaceholder')}
+                      rows={1}
+                      value={visibleInputTail}
+                      onChange={(e) => {
+                        const tail = e.target.value;
+                        const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
+                        const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
+                        setInputVal(value);
+                        if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
+                        // Mirror the composer's slash-open predicate so the popup
+                        // also triggers when typing `/` in the welcome textarea.
+                        const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
+                        setSlashOpen(shouldOpen);
+                        // Phase 08.3 A-01: at-mention trigger — only when a project root exists
+                        // and the cursor sits at a standalone `@` followed by 0+ path chars.
+                        if (!isComposingRef.current && currentProjectRoot) {
+                          const cursor = e.target.selectionStart + prefix.length;
+                          const textBeforeCursor = value.slice(0, cursor);
+                          const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
+                          if (atMatch) {
+                            const state = useAtMentionStore.getState();
+                            if (!state.isOpen) {
+                              state.open(cursor);
+                            } else {
+                              useAtMentionStore.setState({ cursorPos: cursor });
+                            }
+                            state.setQuery(atMatch[1]);
                           } else {
-                            useAtMentionStore.setState({ cursorPos: cursor });
+                            useAtMentionStore.getState().close();
                           }
-                          state.setQuery(atMatch[1]);
                         } else {
                           useAtMentionStore.getState().close();
                         }
-                      } else {
-                        useAtMentionStore.getState().close();
-                      }
-                    }}
-                    onCompositionStart={handleCompositionStart}
-                    onCompositionEnd={handleCompositionEnd}
-                    onKeyDown={(e) => {
-                      if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
-                      // Slash popup navigation (mirrors handleKeyDown on composer).
-                      if (slashOpen) {
-                        if (e.key === 'Backspace' && inputVal === '/') {
-                          e.preventDefault();
-                          setSlashOpen(false);
-                          return;
-                        }
-                        const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
-                        if (handled) return;
-                      }
-                      // Phase 08.3 fix #3: at-mention popup nav (welcome mirror).
-                      if (useAtMentionStore.getState().isOpen) {
-                        const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
-                        if (atHandled) return;
-                      }
-                      
-                      // Unified Backspace deletion of leading pills
-                      if (e.key === 'Backspace') {
-                        if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
-                          if (leadingTokens.length > 0) {
+                      }}
+                      onCompositionStart={handleCompositionStart}
+                      onCompositionEnd={handleCompositionEnd}
+                      onKeyDown={(e) => {
+                        if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
+                        // Slash popup navigation (mirrors handleKeyDown on composer).
+                        if (slashOpen) {
+                          if (e.key === 'Backspace' && inputVal === '/') {
                             e.preventDefault();
-                            const newTokens = leadingTokens.slice(0, -1);
-                            const newPrefix = newTokens.map((t) => t.raw).join(' ') + (newTokens.length > 0 ? ' ' : '');
-                            const newTail = e.currentTarget.value;
-                            setInputVal(newPrefix + newTail);
-                            useAtMentionStore.getState().close();
                             setSlashOpen(false);
                             return;
                           }
+                          const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+                          if (handled) return;
                         }
-                      }
+                        // Phase 08.3 fix #3: at-mention popup nav (welcome mirror).
+                        if (useAtMentionStore.getState().isOpen) {
+                          const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
+                          if (atHandled) return;
+                        }
+                        
+                        // Unified Backspace deletion of leading pills
+                        if (e.key === 'Backspace') {
+                          if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+                            if (leadingTokens.length > 0) {
+                              e.preventDefault();
+                              const newTokens = leadingTokens.slice(0, -1);
+                              const newPrefix = newTokens.map((t) => t.raw).join(' ') + (newTokens.length > 0 ? ' ' : '');
+                              const newTail = e.currentTarget.value;
+                              setInputVal(newPrefix + newTail);
+                              useAtMentionStore.getState().close();
+                              setSlashOpen(false);
+                              return;
+                            }
+                          }
+                        }
 
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        if (justFinishedComposingRef.current) {
-                          consumeJustFinishedComposing();
-                          e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
-                          return;
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          if (justFinishedComposingRef.current) {
+                            consumeJustFinishedComposing();
+                            e.preventDefault(); // 阻止输入法合成结束瞬间产生的回车事件冒泡提交易引发误发
+                            return;
+                          }
+                          e.preventDefault();
+                          handleWelcomeSend();
                         }
-                        e.preventDefault();
-                        handleWelcomeSend();
-                      }
-                    }}
-                  />
+                      }}
+                    />
+                  </div>
                 </div>
               </PopoverAnchor>
               <PopoverContent
@@ -1560,54 +1641,65 @@ export function ChatArea({
                       in SlashToken's `min-width` then matches the textarea's
                       per-character width so the cursor lands at the right
                       edge of the pill, not inside it. */}
-                  <div className="flex flex-wrap items-start gap-1.5 w-full relative z-0" style={{ fontSize: '14px' }}>
-                    {leadingTokens.map((t, idx) => (
-                      <div key={idx} className="flex-shrink-0 pt-[2px]">
-                        {t.type === 'slash' ? (
-                          <SlashToken name={t.name} source={t.source} />
-                        ) : (
-                          <AtToken path={t.name} kind={t.kind!} />
-                        )}
-                      </div>
-                    ))}
-                    <textarea
-                      ref={textareaRef}
-                      value={visibleInputTail}
-                      onChange={(e) => {
-                        const tail = e.target.value;
-                        const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
-                        const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
-                        setInputVal(value);
-                        if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
-                        const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32 && !parsedToken?.token;
-                        setSlashOpen(shouldOpen);
-                        // Phase 08.3 A-01: at-mention trigger (composer) — mirrors welcome onChange.
-                        if (!isComposingRef.current && currentProjectRoot) {
-                          const cursor = e.target.selectionStart + prefix.length;
-                          const textBeforeCursor = value.slice(0, cursor);
-                          const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
-                          if (atMatch) {
-                            const state = useAtMentionStore.getState();
-                            if (!state.isOpen) {
-                              state.open(cursor);
+                  <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '14px' }}>
+                    <div className="relative overflow-hidden flex-1 min-w-0">
+                      {leadingTokens.length > 0 && (
+                        <div
+                          ref={composerTokensRef}
+                          className="absolute left-0 top-0 flex items-center gap-1.5 pointer-events-none select-none"
+                          style={{ height: '28px' }}
+                        >
+                          {leadingTokens.map((t, idx) => (
+                            <span
+                              key={idx}
+                              className={`shrink-0 font-semibold select-none leading-none ${getTokenColorClass(t)}`}
+                            >
+                              {t.type === 'at' ? '@' : ''}{t.name}
+                            </span>
+                          ))}
+                          <span className="shrink-0 text-[var(--color-text-muted)] select-none leading-none">·</span>
+                        </div>
+                      )}
+                      <textarea
+                        ref={textareaRef}
+                        style={{ paddingLeft: composerIndentWidth ? `${composerIndentWidth}px` : undefined }}
+                        value={visibleInputTail}
+                        onChange={(e) => {
+                          const tail = e.target.value;
+                          const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
+                          const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
+                          setInputVal(value);
+                          if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
+                          const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
+                          setSlashOpen(shouldOpen);
+                          // Phase 08.3 A-01: at-mention trigger (composer) — mirrors welcome onChange.
+                          if (!isComposingRef.current && currentProjectRoot) {
+                            const cursor = e.target.selectionStart + prefix.length;
+                            const textBeforeCursor = value.slice(0, cursor);
+                            const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
+                            if (atMatch) {
+                              const state = useAtMentionStore.getState();
+                              if (!state.isOpen) {
+                                state.open(cursor);
+                              } else {
+                                useAtMentionStore.setState({ cursorPos: cursor });
+                              }
+                              state.setQuery(atMatch[1]);
                             } else {
-                              useAtMentionStore.setState({ cursorPos: cursor });
+                              useAtMentionStore.getState().close();
                             }
-                            state.setQuery(atMatch[1]);
                           } else {
                             useAtMentionStore.getState().close();
                           }
-                        } else {
-                          useAtMentionStore.getState().close();
-                        }
-                      }}
-                      onCompositionStart={handleCompositionStart}
-                      onCompositionEnd={handleCompositionEnd}
-                      onKeyDown={handleKeyDown}
-                      placeholder={leadingTokens.length > 0 ? '' : t('chat.composerPlaceholder')}
-                      rows={2}
-                      className="flex-1 min-w-[120px] !w-auto bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm min-h-[56px] max-h-40 py-1"
-                    />
+                        }}
+                        onCompositionStart={handleCompositionStart}
+                        onCompositionEnd={handleCompositionEnd}
+                        onKeyDown={handleKeyDown}
+                        placeholder={leadingTokens.length > 0 ? '' : t('chat.composerPlaceholder')}
+                        rows={1}
+                        className="w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm max-h-40 overflow-y-auto py-1"
+                      />
+                    </div>
                   </div>
               
                   {/* Lower: Toolbar Row */}
