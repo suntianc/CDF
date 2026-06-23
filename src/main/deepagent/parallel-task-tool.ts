@@ -149,18 +149,57 @@ async function invokeWorker(
 
   // task_start 已由 createParallelTaskTool 在 invokeWorker 调用前 emit
 
-  let tokensSent = 0;
+  // Per-LLM-call token buffer: flush only if the call produced text, discard if it
+  // produced tool calls. LangChain streams tool-call arguments via handleLLMNewToken
+  // the same way it streams text tokens, so we must defer the push until handleLLMEnd
+  // tells us whether this call was a tool-call or a text response.
+  let callTokenBuffer: string[] = [];
+  let callTokenCount = 0;
 
   const agentPromise = agent.invoke(
     { messages: [{ role: 'user', content: taskDescription }] },
     {
       callbacks: [{
+        handleLLMStart() {
+          callTokenBuffer = [];
+          callTokenCount = 0;
+        },
         handleLLMNewToken(token: string) {
-          tokensSent++;
-          push({ type: 'text_chunk', content: token, spanId: nodeSpanId });
+          callTokenCount++;
+          callTokenBuffer.push(token);
         },
         handleLLMEnd(output: any) {
-          if (tokensSent > 0) return;
+          const gen = output?.generations?.[0]?.[0];
+          // Detect tool-calling responses across providers:
+          //   OpenAI-style: additional_kwargs.tool_calls array
+          //   Anthropic-style: content array with tool_use blocks
+          const toolCalls = gen?.message?.additional_kwargs?.tool_calls
+            ?? gen?.message?.tool_calls
+            ?? [];
+          const isToolCallResponse =
+            (Array.isArray(toolCalls) && toolCalls.length > 0) ||
+            (Array.isArray(gen?.message?.content) &&
+              gen.message.content.some((p: any) => p?.type === 'tool_use'));
+
+          if (isToolCallResponse) {
+            // Tool-call LLM step: arg tokens must not appear in textBuffer
+            callTokenBuffer = [];
+            callTokenCount = 0;
+            return;
+          }
+
+          if (callTokenCount > 0) {
+            // Streaming text response: flush buffered tokens
+            for (const token of callTokenBuffer) {
+              push({ type: 'text_chunk', content: token, spanId: nodeSpanId });
+            }
+            callTokenBuffer = [];
+            callTokenCount = 0;
+            return;
+          }
+
+          // Non-streaming fallback (model didn't emit tokens)
+          callTokenBuffer = [];
           const text = extractThinkingText(output);
           if (!text || !text.trim()) return;
           const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
