@@ -88,7 +88,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
-  const { setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const [taskPanelWidth, setTaskPanelWidth] = useState(340);
   const [taskPanelMounted, setTaskPanelMounted] = useState(false);
@@ -193,7 +193,7 @@ export default function App() {
           <PanelLeft className="w-4 h-4" />
         </button>
       )}
-      <Toaster richColors position="bottom-right" theme="dark" />
+      <Toaster richColors position="bottom-right" theme={theme === 'system' ? 'system' : theme} />
       <ContextModal />
 
       {taskPanelMounted && (

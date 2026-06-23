@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { ToolMessageCard } from './ToolMessageCard';
 import { StreamdownRenderer } from './StreamdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
@@ -421,6 +422,16 @@ export const MessageContentRenderer = memo(({
 });
 
 export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemProps) => {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lightboxUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxUrl(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [lightboxUrl]);
   const isRecent = useMemo(() => {
     return (Date.now() - message.created_at) < 120 * 1000;
   }, [message.created_at]);
@@ -444,6 +455,50 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
   return (
     <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
       <div className="message-row">
+        {message.imageBase64 && message.imageBase64.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap mb-2">
+            {message.imageBase64.map((dataUrl, idx) => (
+              <img
+                key={idx}
+                src={dataUrl}
+                alt={`image_${idx + 1}`}
+                className="max-w-[200px] max-h-[150px] object-contain rounded cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => setLightboxUrl(dataUrl)}
+              />
+            ))}
+          </div>
+        )}
+        {lightboxUrl && createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center"
+            style={{ background: 'var(--color-overlay-scrim)' }}
+            onClick={() => setLightboxUrl(null)}
+          >
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={lightboxUrl}
+                alt="preview"
+                className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
+                style={{ borderRadius: 'var(--radius-lg)' }}
+              />
+              <button
+                className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors"
+                style={{
+                  background: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-muted)',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
+                onClick={() => setLightboxUrl(null)}
+                aria-label="Close preview"
+              >
+                &times;
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
         <MessageContentRenderer
           content={message.content}
           isLast={isLast}

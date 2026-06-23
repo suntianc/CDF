@@ -154,6 +154,7 @@ let nextActivityFetchRequestId = 0;
 
 interface SendMessageOptions {
   hiddenUserMessage?: boolean;
+  imageBase64?: string[];
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -729,6 +730,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       content,
       tokens: userTokens,
       created_at: Date.now(),
+      ...(options?.imageBase64?.length ? { imageBase64: options.imageBase64 } : {}),
     };
 
     try {
@@ -1294,6 +1296,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           message: {
             id: userMsgId,
             content,
+            ...(options?.imageBase64?.length ? { imageBase64: options.imageBase64 } : {}),
           },
           overrides: finalOverrides,
         });

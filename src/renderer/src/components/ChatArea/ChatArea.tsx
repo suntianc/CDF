@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, memo } from 'react';
+import { toast } from 'sonner';
 import { useTranslation, Trans } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -262,6 +263,7 @@ export function ChatArea({
   }, [viewingParallelWorker, parallelBatches]);
 
   const [inputVal, setInputVal] = useState('');
+  const [pastedImages, setPastedImages] = useState<string[]>([]);
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
@@ -885,15 +887,17 @@ export function ChatArea({
       // D-15 case 3 (A7 in RESEARCH): dispatcher.resolve returned null (e.g. `/  foo`),
       // fall through to regular sendMessage path.
     }
-    if (!inputVal.trim() || !currentProjectId || isStreaming) return;
+    if ((!inputVal.trim() && pastedImages.length === 0) || !currentProjectId || isStreaming) return;
 
-    const value = inputVal;
+    const value = inputVal.trim() || '请描述这张图片';
+    const images = pastedImages;
     setInputVal('');
+    setPastedImages([]);
 
     await sendMessage(currentProjectId, value, {
       providerId: selectedProviderId || undefined,
       model: selectedModel || undefined,
-    });
+    }, undefined, { imageBase64: images.length ? images : undefined });
   };
 
   const handleCompositionStart = () => {
@@ -1045,6 +1049,37 @@ export function ChatArea({
     useAtMentionStore.getState().close();
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const MAX_IMAGES = 5;
+    const MAX_SIZE_BYTES = 5 * 1024 * 1024;
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter((item) => item.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    if (pastedImages.length >= MAX_IMAGES) {
+      toast.warning(`最多添加 ${MAX_IMAGES} 张图片`);
+      return;
+    }
+    imageItems.forEach((item) => {
+      const file = item.getAsFile();
+      if (!file) return;
+      if (file.size > MAX_SIZE_BYTES) {
+        toast.warning(`图片过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大 5MB`);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (!dataUrl) return;
+        setPastedImages((prev) => {
+          if (prev.length >= MAX_IMAGES) return prev;
+          return [...prev, dataUrl];
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
     if (slashOpen) {
@@ -1095,7 +1130,7 @@ export function ChatArea({
 
   const handleWelcomeSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputVal.trim() || isStreaming) return;
+    if ((!inputVal.trim() && pastedImages.length === 0) || isStreaming) return;
 
     if (
       inputVal.startsWith('/') ||
@@ -1113,7 +1148,7 @@ export function ChatArea({
     let projectId = currentProjectId || 'default-project';
     try {
       // Create new session
-      const sessionName = inputVal.trim().slice(0, 15) || t('chat.newSessionFallback');
+      const sessionName = inputVal.trim().slice(0, 15) || (pastedImages.length > 0 ? '图片对话' : t('chat.newSessionFallback'));
       const newSession = await createSession(projectId, sessionName);
       
       // Copy welcome override to new session
@@ -1131,14 +1166,16 @@ export function ChatArea({
       await selectSession(newSession.id);
       await fetchSessions(projectId); // Move before selectSession or await it
 
-      const promptText = inputVal;
+      const promptText = inputVal.trim() || '请描述这张图片';
+      const images = pastedImages;
       setInputVal('');
-      
+      setPastedImages([]);
+
       // Send message
       await sendMessage(projectId, promptText, {
         providerId: selectedProviderId || undefined,
         model: selectedModel || undefined,
-      });
+      }, undefined, { imageBase64: images.length ? images : undefined });
     } catch (err) {
       console.error('Failed to send from welcome:', err);
     }
@@ -1229,6 +1266,28 @@ export function ChatArea({
               modal={false}
             >
               <PopoverAnchor asChild>
+                <div className="w-full">
+                {pastedImages.length > 0 && (
+                  <div className="flex gap-1.5 overflow-x-auto pb-1.5 pt-0.5 w-full" style={{ height: '88px' }}>
+                    {pastedImages.map((b64, idx) => (
+                      <div key={idx} className="relative shrink-0 group">
+                        <img
+                          src={b64}
+                          alt={`image_${idx + 1}`}
+                          className="w-[72px] h-[72px] object-cover rounded"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPastedImages((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          aria-label={`Remove image ${idx + 1}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '15px' }}>
                   <div className="relative overflow-hidden flex-1 min-w-0">
                     {leadingTokens.length > 0 && (
@@ -1287,6 +1346,7 @@ export function ChatArea({
                       }}
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
+                      onPaste={handlePaste}
                       onKeyDown={(e) => {
                         if (isComposingKeyEvent(e)) return; // 允许输入法底层在合成中进行正常的字符处理
                         // Slash popup navigation (mirrors handleKeyDown on composer).
@@ -1333,6 +1393,7 @@ export function ChatArea({
                       }}
                     />
                   </div>
+                </div>
                 </div>
               </PopoverAnchor>
               <PopoverContent
@@ -1641,6 +1702,27 @@ export function ChatArea({
                       in SlashToken's `min-width` then matches the textarea's
                       per-character width so the cursor lands at the right
                       edge of the pill, not inside it. */}
+                  {pastedImages.length > 0 && (
+                    <div className="flex gap-1.5 overflow-x-auto pb-1.5 pt-0.5 w-full" style={{ height: '88px' }}>
+                      {pastedImages.map((b64, idx) => (
+                        <div key={idx} className="relative shrink-0 group">
+                          <img
+                            src={b64}
+                            alt={`image_${idx + 1}`}
+                            className="w-[72px] h-[72px] object-cover rounded"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPastedImages((prev) => prev.filter((_, i) => i !== idx))}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                            aria-label={`Remove image ${idx + 1}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-start gap-1.5 w-full relative z-0" style={{ fontSize: '14px' }}>
                     <div className="relative overflow-hidden flex-1 min-w-0">
                       {leadingTokens.length > 0 && (
@@ -1695,6 +1777,7 @@ export function ChatArea({
                         onCompositionStart={handleCompositionStart}
                         onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder={leadingTokens.length > 0 ? '' : t('chat.composerPlaceholder')}
                         rows={1}
                         className="w-full bg-transparent caret-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none resize-none text-sm max-h-40 overflow-y-auto py-1"
