@@ -6,6 +6,8 @@ import type { DelegatedTask, ParallelWorker } from '../../stores/sessionStore';
 import type { ExecutionStep } from '../../../../shared/types';
 import { StreamdownRenderer } from './StreamdownRenderer';
 import { MessageContentRenderer } from './MessageItem';
+import { ToolMessageCard } from './ToolMessageCard';
+import type { ToolInfo } from './ToolMessageCard';
 
 const GOAL_COLLAPSED_MAX_H = 'max-h-[4.5em]';
 
@@ -15,64 +17,67 @@ function isDelegatedTask(t: SubagentInput): t is DelegatedTask {
   return 'chunks' in t;
 }
 
-function toDisplayText(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value == null) return '';
-  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+function pairToolSteps(steps: ExecutionStep[]): Array<{ info: ToolInfo; createdAt: number }> {
+  const pairs: Array<{ info: ToolInfo; createdAt: number }> = [];
+  const pendingBySpan = new Map<string, number>();
+
+  for (const step of steps) {
+    if (step.type === 'tool_call') {
+      const idx = pairs.length;
+      pairs.push({
+        info: { type: 'tool', name: step.tool || 'unknown', status: 'running', input: step.args },
+        createdAt: step.ts,
+      });
+      if (step.spanId) pendingBySpan.set(step.spanId, idx);
+    } else if (step.type === 'tool_result') {
+      if (step.spanId && pendingBySpan.has(step.spanId)) {
+        const idx = pendingBySpan.get(step.spanId)!;
+        pendingBySpan.delete(step.spanId);
+        pairs[idx] = {
+          ...pairs[idx],
+          info: {
+            ...pairs[idx].info,
+            status: step.success !== false ? 'success' : 'error',
+            output: step.success !== false ? step.output : undefined,
+            error: step.success === false ? step.error : undefined,
+          },
+        };
+      }
+    }
+  }
+
+  return pairs;
 }
 
-function WorkerToolList({ steps }: { steps: ExecutionStep[] }) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const toolSteps = steps.filter((s) => s.type === 'tool_call' || s.type === 'tool_result');
-  if (toolSteps.length === 0) return null;
+function StepTimeline({ steps, textBuffer, isRunning, messageId }: {
+  steps: ExecutionStep[];
+  textBuffer: string;
+  isRunning: boolean;
+  messageId: string;
+}) {
+  const pairs = useMemo(() => pairToolSteps(steps), [steps]);
+
   return (
-    <div className="space-y-2 mt-4">
-      {toolSteps.map((step, i) => {
-        if (step.type === 'tool_call') {
-          const isOpen = expandedIdx === i;
-          return (
-            <div key={i} className="rounded border border-[var(--color-info)]/20 bg-[var(--color-info)]/5">
-              <button
-                type="button"
-                className="w-full flex items-center gap-2 px-2 py-1 text-left"
-                onClick={() => setExpandedIdx(isOpen ? null : i)}
-              >
-                <span className="text-[8px] px-1 rounded font-bold bg-[var(--color-info)]/20 text-[var(--color-info)] shrink-0">CALL</span>
-                <span className="font-semibold text-[var(--color-text-primary)] truncate">{step.tool}</span>
-                <span className="ml-auto text-[var(--color-text-muted)]">{isOpen ? '▲' : '▼'}</span>
-              </button>
-              {isOpen && (
-                <pre className="px-2 pb-1.5 text-[10px] text-[var(--color-text-secondary)] whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                  {toDisplayText(step.args)}
-                </pre>
-              )}
-            </div>
-          );
-        }
-        if (step.type === 'tool_result') {
-          const isOpen = expandedIdx === i;
-          const failed = step.success === false;
-          return (
-            <div key={i} className={`rounded border ${failed ? 'border-[var(--color-danger)]/20 bg-[var(--color-danger)]/5' : 'border-[var(--color-success)]/20 bg-[var(--color-success)]/5'}`}>
-              <button
-                type="button"
-                className="w-full flex items-center gap-2 px-2 py-1 text-left"
-                onClick={() => setExpandedIdx(isOpen ? null : i)}
-              >
-                <span className={`text-[8px] px-1 rounded font-bold shrink-0 ${failed ? 'bg-[var(--color-danger)]/20 text-[var(--color-danger)]' : 'bg-[var(--color-success)]/20 text-[var(--color-success)]'}`}>{failed ? 'ERR' : 'OK'}</span>
-                <span className="font-semibold text-[var(--color-text-primary)] truncate">{step.tool}</span>
-                {step.duration_ms != null && <span className="ml-auto text-[var(--color-text-muted)]">{step.duration_ms}ms {isOpen ? '▲' : '▼'}</span>}
-              </button>
-              {isOpen && (
-                <pre className="px-2 pb-1.5 text-[10px] text-[var(--color-text-secondary)] whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                  {failed ? (step.error ?? '') : toDisplayText(step.output)}
-                </pre>
-              )}
-            </div>
-          );
-        }
-        return null;
-      })}
+    <div>
+      {pairs.length > 0 && (
+        <div className="mb-4">
+          {pairs.map((p, i) => (
+            <ToolMessageCard key={i} toolInfo={p.info} createdAt={p.createdAt} />
+          ))}
+        </div>
+      )}
+      {pairs.length > 0 && textBuffer && (
+        <div className="h-px bg-[var(--color-border)]/30 mb-3" />
+      )}
+      {textBuffer ? (
+        <MessageContentRenderer
+          content={textBuffer}
+          isLast={isRunning}
+          isStreaming={isRunning}
+          messageId={messageId}
+          thinkRecent={isRunning}
+        />
+      ) : null}
     </div>
   );
 }
@@ -87,7 +92,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
   const isRunning = task.status === 'running';
   const isFailure = task.status === 'failure';
   const agentName = isDelegate ? task.agentName : (task.agentName ?? task.agentSlug);
-  const taskKey = isDelegate ? task.taskId : task.agentSlug;
+  const taskKey = isDelegate ? task.taskId : ((task as ParallelWorker).workerId ?? task.agentSlug);
 
   const totalText = useMemo(
     () => isDelegate
@@ -119,6 +124,14 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
     }
   }, [totalText, isRunning]);
 
+  const hasContent = totalText.length > 0 || task.steps.length > 0;
+
+  const emptyLabel = isRunning
+    ? t('subagentView.waiting')
+    : (isFailure && isDelegate)
+      ? t('subagentView.noOutputFailure')
+      : t('subagentView.noOutput');
+
   return (
     <div className="absolute inset-0 flex flex-col">
       {/* Nav bar */}
@@ -126,29 +139,35 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-xs min-h-11 py-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          className="group flex items-center gap-1.5 text-xs min-h-11 py-2 rounded-md px-2 -ml-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-surface)] active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <ArrowLeft className="w-3.5 h-3.5 transition-transform duration-150 group-hover:-translate-x-0.5" />
           {t('subagentView.backToMaster')}
         </button>
-        <span className="text-[var(--color-border)]">·</span>
-        <span
-          className={`w-2 h-2 rounded-full shrink-0 ${
-            isRunning ? 'bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none'
+        <div className="w-px h-3.5 bg-[var(--color-border)] shrink-0" />
+        <span className={`relative flex shrink-0 w-2 h-2`}>
+          {isRunning && (
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-accent)] opacity-50 motion-reduce:hidden" />
+          )}
+          <span className={`relative inline-flex rounded-full w-2 h-2 ${
+            isRunning ? 'bg-[var(--color-accent)]'
             : isFailure ? 'bg-[var(--color-danger)]'
             : 'bg-[var(--color-success)]'
-          }`}
-        />
+          }`} />
+        </span>
         <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{agentName}</span>
-        <span className="text-xs font-mono text-[var(--color-text-secondary)] tabular-nums ml-auto">
+        <span className="shrink-0 ml-auto bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-xs font-mono text-[var(--color-text-secondary)] tabular-nums">
           {tokenDisplay} {t('taskPanel.tokenUnit')}{elapsed ? ` · ${elapsed}` : ''}
         </span>
       </div>
 
-      {/* Goal — collapsible when long (DelegatedTask only) */}
+      {/* Goal — collapsible when long */}
       {goal && (
         <div className="px-6 pt-3 pb-1 shrink-0 border-b border-[var(--color-border)]/40">
-          <div className="text-xs font-semibold text-[var(--color-text-muted)] mb-1">{t('taskPanel.taskGoal')}:</div>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-muted)] mb-1">
+            <span className="w-px h-3 rounded-full bg-[var(--color-accent)] opacity-40 shrink-0" />
+            {t('taskPanel.taskGoal')}:
+          </div>
           <div className={`relative text-xs text-[var(--color-text-secondary)] leading-relaxed ${
             goalNeedsCollapse
               ? goalExpanded ? 'max-h-[40vh] overflow-y-auto' : `${GOAL_COLLAPSED_MAX_H} overflow-hidden`
@@ -164,7 +183,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
               type="button"
               onClick={() => setGoalExpanded(!goalExpanded)}
               aria-expanded={goalExpanded}
-              className="flex items-center gap-0.5 mt-1 min-h-8 py-1.5 text-xs text-[var(--color-accent)] hover:underline"
+              className="flex items-center gap-0.5 mt-1 min-h-8 py-0.5 px-1.5 -mx-1.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent)]/8 rounded active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             >
               {goalExpanded ? (
                 <><ChevronUp className="w-3 h-3" />{t('subagentView.collapseGoal')}</>
@@ -178,7 +197,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
 
       {/* Failure alert */}
       {isFailure && (
-        <div className="mx-6 mt-2 rounded-md bg-[var(--color-danger)]/8 border border-[var(--color-danger)]/25 p-2.5 space-y-1 shrink-0" role="alert">
+        <div className="mx-6 mt-2 rounded-md bg-[var(--color-danger)]/8 ring-1 ring-[var(--color-danger)]/25 border-l-2 border-[var(--color-danger)]/60 p-2.5 space-y-1 shrink-0" role="alert">
           <div className="text-xs text-[var(--color-danger)]">
             <span className="font-semibold">{isDelegate ? (task.errorCode || t('taskPanel.taskFailed', { code: '' })) : t('taskPanel.taskFailed', { code: '' })}</span>
           </div>
@@ -190,41 +209,19 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
 
       {/* Content — scrollable */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
-        {isDelegate ? (
-          totalText ? (
-            <div className="max-w-[760px] mx-auto pb-20">
-              <MessageContentRenderer
-                content={totalText}
-                isLast={isRunning}
-                isStreaming={isRunning}
-                messageId={task.taskId}
-                thinkRecent={isRunning}
-              />
-            </div>
-          ) : (
-            <div className={`max-w-[760px] mx-auto text-xs font-mono ${isFailure ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'}`}>
-              {isRunning ? t('subagentView.waiting') : isFailure ? t('subagentView.noOutputFailure') : t('subagentView.noOutput')}
-            </div>
-          )
+        {hasContent ? (
+          <div className="max-w-[760px] mx-auto pb-20">
+            <StepTimeline
+              steps={task.steps}
+              textBuffer={totalText}
+              isRunning={isRunning}
+              messageId={taskKey}
+            />
+          </div>
         ) : (
-          totalText || task.steps.length > 0 ? (
-            <div className="max-w-[760px] mx-auto pb-20">
-              {totalText ? (
-                <MessageContentRenderer
-                  content={totalText}
-                  isLast={isRunning}
-                  isStreaming={isRunning}
-                  messageId={task.agentSlug}
-                  thinkRecent={isRunning}
-                />
-              ) : null}
-              <WorkerToolList steps={task.steps} />
-            </div>
-          ) : (
-            <div className="max-w-[760px] mx-auto text-xs font-mono text-[var(--color-text-muted)]">
-              {isRunning ? t('subagentView.waiting') : t('subagentView.noOutput')}
-            </div>
-          )
+          <div className={`max-w-[760px] mx-auto text-xs font-mono ${isFailure ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'}`}>
+            {emptyLabel}
+          </div>
         )}
       </div>
 
@@ -234,7 +231,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
           <button
             type="button"
             onClick={onBack}
-            className="rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] shadow-lg min-h-11 px-4 py-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+            className="rounded-full backdrop-blur-md bg-[var(--color-bg-surface)]/90 border border-[var(--color-border)] shadow-lg min-h-11 px-4 py-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           >
             {t('subagentView.masterUpdating')}
           </button>

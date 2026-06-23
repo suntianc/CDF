@@ -2,13 +2,14 @@ import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
-import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel } from './deepagent/runtime';
+import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, subagentStepStorage } from './deepagent/runtime';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
   AgentRunStatus,
   AgentToolCallStatus,
   ChatRuntimeOverrides,
+  ExecutionStep,
 } from '../shared/types';
 
 /**
@@ -559,7 +560,17 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           }
 
           try {
-            const output = await call.output;
+            const taskId = toolCallId;
+            const output = call.name === 'task'
+              ? await subagentStepStorage.run(
+                  {
+                    onStep: (step: ExecutionStep) => {
+                      sender.send(channel, { type: 'delegated_task_step', taskId, step });
+                    },
+                  },
+                  () => call.output,
+                )
+              : await call.output;
             updateToolCall(toolCallId, 'success', output);
             sender.send(channel, {
               type: 'tool_end',

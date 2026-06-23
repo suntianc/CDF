@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { AsyncLocalStorage } from 'async_hooks';
 import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
@@ -21,9 +22,15 @@ import {
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { createParallelTaskTool } from './parallel-task-tool';
-import { DELEGATED_TASK_RESULT_SCHEMA, type ChatRuntimeOverrides } from '../../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
+
+interface SubagentStepContext {
+  onStep: (step: ExecutionStep) => void;
+}
+
+export const subagentStepStorage = new AsyncLocalStorage<SubagentStepContext>();
 
 interface RuntimeAgentRow {
   id: string;
@@ -377,8 +384,50 @@ function formatRecoverableModelErrorObservation(error: Error): string {
   ].join('\n');
 }
 
+function extractStepOutput(output: unknown): unknown {
+  if (output == null) return output;
+  const obj = output as any;
+  if (obj?.kwargs?.content !== undefined) return obj.kwargs.content;
+  if (typeof obj?.content !== 'undefined') return obj.content;
+  return output;
+}
+
+function createSubagentStepMiddleware() {
+  return createMiddleware({
+    name: 'SubagentStepMiddleware',
+    wrapToolCall: async (request, handler) => {
+      const ctx = subagentStepStorage.getStore();
+      if (!ctx) return handler(request);
+
+      const toolName: string = request.toolCall?.name || 'unknown';
+      const startedAt = Date.now();
+      ctx.onStep({ type: 'tool_call', tool: toolName, args: (request.toolCall as any)?.args ?? (request.toolCall as any)?.input, ts: startedAt });
+
+      try {
+        const result = await handler(request);
+        ctx.onStep({
+          type: 'tool_result',
+          tool: toolName,
+          success: true,
+          output: extractStepOutput(result),
+          ts: Date.now(),
+          duration_ms: Date.now() - startedAt,
+        });
+        return result;
+      } catch (error) {
+        if (!isAbortError(error)) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          ctx.onStep({ type: 'tool_result', tool: toolName, success: false, error: errMsg, ts: Date.now(), duration_ms: Date.now() - startedAt });
+        }
+        throw error;
+      }
+    },
+  });
+}
+
 function createSubagentResilienceMiddleware() {
   return [
+    createSubagentStepMiddleware(),
     createRecoverableToolErrorMiddleware(),
     toolRetryMiddleware({
       maxRetries: 2,

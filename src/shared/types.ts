@@ -136,6 +136,7 @@ export type LLMStreamEvent =
   | { type: 'delegated_task_start'; taskId: string; agentSlug: string; agentName: string; goal: string }
   | { type: 'delegated_task_chunk'; taskId: string; text: string }
   | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
+  | { type: 'delegated_task_step'; taskId: string; step: ExecutionStep }
   | { type: 'todos_update'; todos: TodoItem[] };
 
 // ===== Phase 6: Slash Command Registry Types (D-01, D-06, D-07) =====

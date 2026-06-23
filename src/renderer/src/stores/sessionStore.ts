@@ -58,6 +58,7 @@ export interface DelegatedTask {
   goal: string;
   status: 'running' | 'success' | 'failure';
   chunks: string[];
+  steps: ExecutionStep[];
   startedAt?: number;
   completedAt?: number;
   result?: {
@@ -547,6 +548,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             goal,
             status,
             chunks: [],
+            steps: [],
             result: parsedResult,
             errorCode,
             startedAt: call.started_at,
@@ -647,6 +649,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             }
           } else if (storeTask && storeTask.chunks.length > 0) {
             t.chunks = storeTask.chunks;
+          }
+
+          // Preserve runtime-injected steps (not persisted to DB).
+          if (streamCached && streamCached.steps.length > 0) {
+            t.steps = streamCached.steps;
+          } else if (storeTask && storeTask.steps.length > 0) {
+            t.steps = storeTask.steps;
           }
 
           // Also preserve startedAt from streaming cache / store if the DB
@@ -912,6 +921,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 goal: data.goal,
                 status: 'running',
                 chunks: [],
+                steps: [],
                 startedAt: Date.now(),
               },
             ];
@@ -935,6 +945,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                     errorCode: data.errorCode,
                     completedAt: Date.now(),
                   }
+                : task
+            );
+          }
+
+          else if (data.type === 'delegated_task_step') {
+            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
+              task.taskId === data.taskId
+                ? { ...task, steps: [...task.steps, data.step] }
                 : task
             );
           }
