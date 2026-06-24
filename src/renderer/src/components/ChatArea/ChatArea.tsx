@@ -1052,8 +1052,9 @@ export function ChatArea({
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const MAX_IMAGES = 5;
     const MAX_SIZE_BYTES = 5 * 1024 * 1024;
+    const SAFE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
     const items = Array.from(e.clipboardData.items);
-    const imageItems = items.filter((item) => item.type.startsWith('image/'));
+    const imageItems = items.filter((item) => SAFE_IMAGE_TYPES.has(item.type));
     if (imageItems.length === 0) return;
     e.preventDefault();
     if (pastedImages.length >= MAX_IMAGES) {

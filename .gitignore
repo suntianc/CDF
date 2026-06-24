@@ -44,6 +44,8 @@ electron-log-*
 # Local assistant and project planning state
 .antigravitycli/
 .claude/
+.codex/
+.agents/
 .pi/
 .planning/
 .github/skills/

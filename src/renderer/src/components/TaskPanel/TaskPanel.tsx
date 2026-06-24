@@ -188,7 +188,7 @@ function ParallelBatchSection({ batches }: { batches: ParallelBatch[] }) {
   const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
   const viewingParallelWorker = useSessionStore((s) => s.viewingParallelWorker);
 
-  if (batches.length === 0) return null;
+  if (!batches || batches.length === 0) return null;
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">并行任务</h3>
