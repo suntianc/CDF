@@ -22,27 +22,23 @@ import type { TaskPanelProps } from './components/TaskPanel/TaskPanel';
 
 const loadTaskPanel = () => import('./components/TaskPanel/TaskPanel').then((mod) => ({ default: mod.TaskPanel }));
 
-function TaskPanelFallback({ isOpen, width }: Pick<TaskPanelProps, 'isOpen' | 'width'>) {
+function TaskPanelFallback({ isOpen }: Pick<TaskPanelProps, 'isOpen'>) {
   const { t } = useTranslation();
+  if (!isOpen) return null;
   return (
-    <aside
-      className={`h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)] shrink-0 transition-all duration-300 ease-in-out ${
-        isOpen ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
-      }`}
-      style={{ width: isOpen ? width : 0 }}
-    >
-      <div className="h-full flex items-center justify-center text-xs text-[var(--color-text-muted)]">
+    <div className="w-[360px] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-lg">
+      <div className="h-24 flex items-center justify-center text-xs text-[var(--color-text-muted)]">
         {t('taskPanel.loading')}
       </div>
-    </aside>
+    </div>
   );
 }
 
 class TaskPanelErrorBoundary extends Component<
-  { children: ReactNode; isOpen: boolean; width: number; message: string; onRetry: () => void },
+  { children: ReactNode; isOpen: boolean; message: string; onRetry: () => void },
   { hasError: boolean; wasOpen: boolean }
 > {
-  constructor(props: { children: ReactNode; isOpen: boolean; width: number; message: string; onRetry: () => void }) {
+  constructor(props: { children: ReactNode; isOpen: boolean; message: string; onRetry: () => void }) {
     super(props);
     this.state = { hasError: false, wasOpen: props.isOpen };
   }
@@ -68,17 +64,13 @@ class TaskPanelErrorBoundary extends Component<
 
   render() {
     if (!this.state.hasError) return this.props.children;
+    if (!this.props.isOpen) return null;
     return (
-      <aside
-        className={`h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-danger)]/30 shrink-0 transition-all duration-300 ease-in-out ${
-          this.props.isOpen ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
-        }`}
-        style={{ width: this.props.isOpen ? this.props.width : 0 }}
-      >
-        <div className="h-full flex items-center justify-center px-4 text-xs text-[var(--color-danger)] text-center">
+      <div className="w-[360px] bg-[var(--color-bg-surface)] border border-[var(--color-danger)]/30 rounded-lg shadow-lg">
+        <div className="h-24 flex items-center justify-center px-4 text-xs text-[var(--color-danger)] text-center">
           {this.props.message}
         </div>
-      </aside>
+      </div>
     );
   }
 }
@@ -90,7 +82,6 @@ export default function App() {
   const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
   const { theme, setTheme } = useTheme();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
-  const [taskPanelWidth, setTaskPanelWidth] = useState(340);
   const [taskPanelMounted, setTaskPanelMounted] = useState(false);
   const [taskPanelRetryKey, setTaskPanelRetryKey] = useState(0);
   const TaskPanel = useMemo(() => lazy(loadTaskPanel), [taskPanelRetryKey]);
@@ -197,21 +188,20 @@ export default function App() {
       <ContextModal />
 
       {taskPanelMounted && (
-        <TaskPanelErrorBoundary
-          isOpen={activeView === 'chat' && taskPanelOpen}
-          width={taskPanelWidth}
-          message={t('taskPanel.loadFailed')}
-          onRetry={() => setTaskPanelRetryKey((key) => key + 1)}
-        >
-          <Suspense fallback={<TaskPanelFallback isOpen={activeView === 'chat' && taskPanelOpen} width={taskPanelWidth} />}>
-            <TaskPanel
-              isOpen={activeView === 'chat' && taskPanelOpen}
-              onClose={() => setTaskPanelOpen(false)}
-              width={taskPanelWidth}
-              onResize={(w) => setTaskPanelWidth(w)}
-            />
-          </Suspense>
-        </TaskPanelErrorBoundary>
+        <div className={`absolute top-14 right-2 z-50 ${activeView === 'chat' && taskPanelOpen ? '' : 'pointer-events-none'}`}>
+          <TaskPanelErrorBoundary
+            isOpen={activeView === 'chat' && taskPanelOpen}
+            message={t('taskPanel.loadFailed')}
+            onRetry={() => setTaskPanelRetryKey((key) => key + 1)}
+          >
+            <Suspense fallback={<TaskPanelFallback isOpen={activeView === 'chat' && taskPanelOpen} />}>
+              <TaskPanel
+                isOpen={activeView === 'chat' && taskPanelOpen}
+                onClose={() => setTaskPanelOpen(false)}
+              />
+            </Suspense>
+          </TaskPanelErrorBoundary>
+        </div>
       )}
     </div>
   );

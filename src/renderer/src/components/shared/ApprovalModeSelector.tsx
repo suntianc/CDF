@@ -58,7 +58,7 @@ export function ApprovalModeSelector({ className, dropUp }: ApprovalModeSelector
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)] transition-colors"
+        className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-transparent px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)] transition-colors"
         aria-label={t('approvalMode.label')}
         aria-expanded={open}
         aria-haspopup="listbox"

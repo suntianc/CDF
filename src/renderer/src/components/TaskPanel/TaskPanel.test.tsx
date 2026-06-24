@@ -45,13 +45,13 @@ afterEach(() => {
 describe('TaskPanel', () => {
   it('refreshes activity each time the panel is reopened for the same session', async () => {
     const { rerender } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
 
     await waitFor(() => expect(fetchAgentActivity).toHaveBeenCalledTimes(1));
 
-    rerender(<TaskPanel isOpen={false} onClose={vi.fn()} width={340} onResize={vi.fn()} />);
-    rerender(<TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />);
+    rerender(<TaskPanel isOpen={false} onClose={vi.fn()} />);
+    rerender(<TaskPanel isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(fetchAgentActivity).toHaveBeenCalledTimes(2));
     expect(fetchAgentActivity).toHaveBeenLastCalledWith('session-1');
@@ -60,13 +60,13 @@ describe('TaskPanel', () => {
   it('retries activity fetch after a failed attempt for the same session', async () => {
     fetchAgentActivity.mockRejectedValueOnce(new Error('temporary db failure'));
     const { rerender } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
 
     await waitFor(() => expect(fetchAgentActivity).toHaveBeenCalledTimes(1));
 
-    rerender(<TaskPanel isOpen={false} onClose={vi.fn()} width={340} onResize={vi.fn()} />);
-    rerender(<TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />);
+    rerender(<TaskPanel isOpen={false} onClose={vi.fn()} />);
+    rerender(<TaskPanel isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(fetchAgentActivity).toHaveBeenCalledTimes(2));
     expect(fetchAgentActivity).toHaveBeenLastCalledWith('session-1');
@@ -81,11 +81,11 @@ describe('TaskPanel', () => {
     };
 
     const { rerender, queryByText } = render(
-      <TaskPanel isOpen={false} onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen={false} onClose={vi.fn()} />
     );
     expect(queryByText('taskPanel.toolSummaryTitle')).toBeNull();
 
-    rerender(<TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />);
+    rerender(<TaskPanel isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(queryByText('taskPanel.toolSummaryTitle')).toBeTruthy());
   });
@@ -97,7 +97,7 @@ describe('TaskPanel', () => {
       delegatedTasks: [{ taskId: 'task-1', status: 'running', chunks: [] }],
     };
 
-    render(<TaskPanel isOpen={false} onClose={vi.fn()} width={340} onResize={vi.fn()} />);
+    render(<TaskPanel isOpen={false} onClose={vi.fn()} />);
 
     act(() => {
       vi.advanceTimersByTime(3000);
@@ -123,7 +123,7 @@ describe('TaskPanel — Activity Trail', () => {
       ],
     };
     const { getByText } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
     const newEl = getByText('NewAgent');
     const oldEl = getByText('OldAgent');
@@ -146,7 +146,7 @@ describe('TaskPanel — Activity Trail', () => {
       ],
     };
     const { getByText } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
 
     const doneCard = getByText('DoneAgent').closest('.relative') as Element;
@@ -167,7 +167,7 @@ describe('TaskPanel — Activity Trail', () => {
       },
     };
     const { getByText } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
     fireEvent.click(getByText('common.approve'));
     expect(resolveApproval).toHaveBeenCalledWith('approve');
@@ -188,7 +188,7 @@ describe('TaskPanel — Activity Trail', () => {
       ],
     };
     const { getByText } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
 
     const toggleBtn = getByText('FailAgent').closest('button') as Element;
@@ -209,7 +209,7 @@ describe('TaskPanel — Activity Trail', () => {
       ],
     };
     const { getByText } = render(
-      <TaskPanel isOpen onClose={vi.fn()} width={340} onResize={vi.fn()} />
+      <TaskPanel isOpen onClose={vi.fn()} />
     );
     expect(getByText('ApprovedAgent')).toBeTruthy();
   });

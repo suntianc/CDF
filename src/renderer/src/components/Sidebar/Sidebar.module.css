@@ -34,7 +34,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  width: 4px;
+  width: 2px;
   cursor: col-resize;
   background: transparent;
   transition: background 0.15s ease;
@@ -42,7 +42,7 @@
 
 .resizeHandle:hover,
 .resizeHandle:active {
-  background: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
 .sidebarMenuBtn {

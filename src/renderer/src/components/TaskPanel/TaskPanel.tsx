@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
@@ -11,8 +11,6 @@ import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/typ
 export interface TaskPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  width: number;
-  onResize: (width: number) => void;
 }
 
 // [P2-D] Icons alongside text labels are decorative — aria-hidden, not aria-label
@@ -509,81 +507,21 @@ function TaskPanelContent() {
   );
 }
 
-export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) {
+export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
   const { t } = useTranslation();
-  const [isResizing, setIsResizing] = useState(false);
-
-  void onClose;
-
-  const handleMouseDown = (event: React.MouseEvent) => {
-    event.preventDefault();
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = window.innerWidth - event.clientX;
-      const clampedWidth = Math.min(600, Math.max(300, newWidth));
-      onResize(clampedWidth);
-    };
-
-    const handleMouseUp = () => setIsResizing(false);
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.userSelect = 'none';
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.body.style.userSelect = '';
-      };
-    }
-    return undefined;
-  }, [isResizing, onResize]);
+  if (!isOpen) return null;
 
   return (
-    <aside
-      className={`h-full bg-[var(--color-bg-sidebar)] flex flex-col relative shrink-0 ${
-        isResizing ? '' : 'transition-all duration-300 ease-in-out motion-reduce:transition-none'
-      } ${
-        isOpen
-          ? 'border-l border-[var(--color-border)] opacity-100'
-          : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
-      }`}
-      style={{ width: isOpen ? width : 0 }}
+    <div
+      className="w-[360px] max-h-[70vh] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-lg flex flex-col overflow-hidden"
     >
-      {isOpen && (
-        <>
-          <div
-            onMouseDown={handleMouseDown}
-            className="absolute -left-6 top-0 bottom-0 w-11 cursor-col-resize z-50 flex justify-center"
-          >
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-valuenow={width}
-              aria-valuemin={300}
-              aria-valuemax={600}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowLeft') { onResize(Math.max(300, width - 40)); }
-                if (e.key === 'ArrowRight') { onResize(Math.min(600, width + 40)); }
-              }}
-              className={`w-1.5 h-full transition-colors duration-150 motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ${isResizing ? 'bg-[var(--color-accent)]/80' : 'hover:bg-[var(--color-accent)]/40'}`}
-            />
-          </div>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] shrink-0 select-none">
+        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
+      </div>
 
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-14 shrink-0 select-none">
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
-          </div>
-
-          <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            <TaskPanelContent />
-          </div>
-        </>
-      )}
-    </aside>
+      <div className="flex-1 p-4 overflow-y-auto space-y-4">
+        <TaskPanelContent />
+      </div>
+    </div>
   );
 }

@@ -61,7 +61,8 @@ vi.mock('@/components/TaskPanel/TaskPanel', async () => {
       if (shouldThrowTaskPanel.current) {
         throw new Error('task panel render failed');
       }
-      return <aside data-testid="task-panel">{isOpen ? 'open' : 'closed'}</aside>;
+      if (!isOpen) return null;
+      return <div data-testid="task-panel">{isOpen ? 'open' : 'closed'}</div>;
     },
   };
 });
@@ -147,26 +148,26 @@ describe('App', () => {
     expect(screen.getByTestId('task-panel').textContent).toBe('open');
 
     fireEvent.click(screen.getByText('toggle task panel'));
-    await waitFor(() => expect(screen.getByTestId('task-panel').textContent).toBe('closed'));
+    await waitFor(() => expect(screen.queryByTestId('task-panel')).toBeNull());
     expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByText('toggle task panel'));
-    await waitFor(() => expect(screen.getByTestId('task-panel').textContent).toBe('open'));
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('task-panel').textContent).toBe('open');
     expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('collapses TaskPanel error fallback when closed and retries on reopen', async () => {
+  it('hides TaskPanel error fallback when closed and retries on reopen', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     shouldThrowTaskPanel.current = true;
 
     render(<App />);
     fireEvent.click(screen.getByText('toggle task panel'));
 
-    const failedPanel = await screen.findByText(/Task panel failed to load\.|任务面板加载失败。/);
-    expect(failedPanel.closest('aside')?.style.width).toBe('340px');
+    await screen.findByText(/Task panel failed to load\.|任务面板加载失败。/);
 
     fireEvent.click(screen.getByText('toggle task panel'));
-    await waitFor(() => expect(failedPanel.closest('aside')?.style.width).toBe('0px'));
+    await waitFor(() => expect(screen.queryByText(/Task panel failed to load\.|任务面板加载失败。/)).toBeNull());
 
     shouldThrowTaskPanel.current = false;
     fireEvent.click(screen.getByText('toggle task panel'));

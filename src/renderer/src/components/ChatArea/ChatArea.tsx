@@ -7,7 +7,7 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import {
   ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
-  ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
+  ChevronDown, Plus, Sliders, Layers, PanelLeft, SlidersHorizontal, Copy, Check,
   ChevronUp, Brain, Loader2
 } from 'lucide-react';
 import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessageCard';
@@ -1554,14 +1554,14 @@ export function ChatArea({
             <button
               onClick={onToggleTaskPanel}
               className={`w-11 h-11 flex items-center justify-center cursor-pointer rounded-md transition-all ${
-                taskPanelOpen 
-                  ? 'text-[var(--color-accent)]' 
+                taskPanelOpen
+                  ? 'text-[var(--color-accent)]'
                   : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
               }`}
               title={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
               aria-label={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
             >
-              <Info className="w-3.5 h-3.5" />
+              <SlidersHorizontal className="w-3.5 h-3.5" />
             </button>
           </div>
         </header>
