@@ -5,6 +5,7 @@ import type { ApprovalMode } from '../../../../shared/types';
 
 interface ApprovalModeSelectorProps {
   className?: string;
+  dropUp?: boolean;
 }
 
 const MODE_OPTIONS: { value: ApprovalMode; icon: React.ReactNode; danger?: boolean }[] = [
@@ -13,7 +14,7 @@ const MODE_OPTIONS: { value: ApprovalMode; icon: React.ReactNode; danger?: boole
   { value: 'bypass', icon: <Zap className="w-3.5 h-3.5" />, danger: true },
 ];
 
-export function ApprovalModeSelector({ className }: ApprovalModeSelectorProps) {
+export function ApprovalModeSelector({ className, dropUp }: ApprovalModeSelectorProps) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<ApprovalMode>('strict');
   const [open, setOpen] = useState(false);
@@ -71,7 +72,7 @@ export function ApprovalModeSelector({ className }: ApprovalModeSelectorProps) {
         <div
           role="listbox"
           aria-label={t('approvalMode.label')}
-          className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-md"
+          className={`absolute left-0 z-50 min-w-[180px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-md ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
         >
           {MODE_OPTIONS.map((option) => (
             <button

@@ -7,7 +7,7 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import {
   ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
-  Paperclip, ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
+  ChevronDown, Plus, Sliders, Layers, PanelLeft, Info, Copy, Check,
   ChevronUp, Brain, Loader2
 } from 'lucide-react';
 import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessageCard';
@@ -27,7 +27,7 @@ import { useAtMentionStore } from '@/stores/atMentionStore';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { GoalSystemBubble } from './GoalSystemBubble';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
-import { ContextButton } from '@/components/Composer/ContextButton';
+import { ApprovalModeSelector } from '@/components/shared/ApprovalModeSelector';
 import { SubagentView } from './SubagentView';
 
 interface ChatAreaProps {
@@ -1432,9 +1432,12 @@ export function ChatArea({
             <div className="dialog-bottom">
               <div className="dialog-bottom-left">
                 <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
-                  <Paperclip className="w-4 h-4" />
+                  <Plus className="w-4 h-4" />
                 </button>
-                <div 
+                <ApprovalModeSelector />
+              </div>
+              <div className="dialog-bottom-right">
+                <div
                   className={`model-selector model-selector--welcome ${welcomeModelSelectorOpen ? 'open' : ''}`}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -1449,7 +1452,7 @@ export function ChatArea({
                   </div>
                   <div className="model-dropdown">
                     {providers.length === 0 ? (
-                      <div 
+                      <div
                         onClick={() => {
                           setWelcomeModelSelectorOpen(false);
                           onOpenSettings?.();
@@ -1482,18 +1485,17 @@ export function ChatArea({
                     )}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => handleWelcomeSend()}
+                  disabled={!inputVal.trim() || isStreaming}
+                  className="dialog-btn send"
+                  title={t('chat.send')}
+                  aria-label={t('chat.sendMessage')}
+                >
+                  <ArrowUp className="w-4.5 h-4.5" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => handleWelcomeSend()}
-                disabled={!inputVal.trim() || isStreaming}
-                className="dialog-btn send"
-                title={t('chat.send')}
-                aria-label={t('chat.sendMessage')}
-              >
-                <ArrowUp className="w-4.5 h-4.5" />
-              </button>
-              <span className="sr-only">{t('chat.sendMessage')}</span>
             </div>
           </div>
 
@@ -1789,7 +1791,14 @@ export function ChatArea({
                   {/* Lower: Toolbar Row */}
                   <div className="flex justify-between items-center border-t border-[var(--color-border)]/30 pt-2.5 mt-1">
                     <div className="flex items-center gap-1.5">
-                      <div 
+                      <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
+                        <Plus className="w-4 h-4" />
+                      </button>
+                      <ApprovalModeSelector dropUp />
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <div
                         className={`model-selector model-selector--composer ${composerModelSelectorOpen ? 'open' : ''}`}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -1804,7 +1813,7 @@ export function ChatArea({
                         </div>
                         <div className="model-dropdown">
                           {providers.length === 0 ? (
-                            <div 
+                            <div
                               onClick={() => {
                                 setComposerModelSelectorOpen(false);
                                 onOpenSettings?.();
@@ -1837,10 +1846,6 @@ export function ChatArea({
                           )}
                         </div>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <ContextButton />
                       {isStreaming ? (
                         <button
                           type="button"
@@ -1856,7 +1861,7 @@ export function ChatArea({
                           type="button"
                           onClick={() => handleSend()}
                           disabled={!inputVal.trim() || isStreaming}
-                          className="p-2 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] text-white transition-all shadow-md flex items-center justify-center cursor-pointer"
+                          className="dialog-btn send"
                           aria-label={t('chat.sendMessage')}
                         >
                           <ArrowUp className="w-4 h-4" />
