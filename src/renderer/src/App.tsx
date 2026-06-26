@@ -15,10 +15,12 @@ import { useI18nStore } from './stores/i18nStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
+
 import { Workflow } from '../shared/types';
 import { PanelLeft } from 'lucide-react';
 import { Toaster } from 'sonner';
 import type { TaskPanelProps } from './components/TaskPanel/TaskPanel';
+import { FilePanel } from './components/FilePanel/FilePanel';
 
 const loadTaskPanel = () => import('./components/TaskPanel/TaskPanel').then((mod) => ({ default: mod.TaskPanel }));
 
@@ -131,10 +133,10 @@ export default function App() {
         onChangeView={(view) => setActiveView(view)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <div 
-          key={activeView === 'workflows' ? `${activeView}-${editingWorkflow ? 'editor' : 'list'}` : activeView} 
-          className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up"
+      <main className="flex-1 flex min-w-0 overflow-hidden relative">
+        <div
+          key={activeView === 'workflows' ? `${activeView}-${editingWorkflow ? 'editor' : 'list'}` : activeView}
+          className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up min-w-[40%]"
         >
           {activeView === 'settings' && <ModelSettings />}
           {activeView === 'tools' && <ToolSettings />}
@@ -173,6 +175,8 @@ export default function App() {
             />
           )}
         </div>
+
+        {activeView === 'chat' && <FilePanel />}
       </main>
 
       {sidebarCollapsed && !isEditingWorkflow && (

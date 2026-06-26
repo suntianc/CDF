@@ -16,9 +16,10 @@ import {
   loadMcpTools,
   createSpanId,
   createChildSpan,
+  resolveInterruptOn,
   type AgentRow,
 } from './shared-infra';
-import type { ExecutionStep } from '../../shared/types';
+import type { ApprovalMode, ExecutionStep } from '../../shared/types';
 
 const WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -107,6 +108,7 @@ async function invokeWorker(
   taskDescription: string,
   projectPath: string,
   onStep: (step: ExecutionStep) => void,
+  approvalMode: ApprovalMode = 'strict',
 ): Promise<string> {
   const provider = getProvider(agentRow.provider_id);
   const agentId = agentRow.id;
@@ -128,6 +130,7 @@ async function invokeWorker(
   const builtInTools: any[] = createBuiltInTools(projectPath);
   builtInTools.push(...loadRegistryTools());
 
+  const interruptOn = resolveInterruptOn(approvalMode);
   const agent = createDeepAgent({
     model,
     backend,
@@ -135,6 +138,7 @@ async function invokeWorker(
     skills: skillsSources.length > 0 ? skillsSources : undefined,
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools],
+    interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
     // worker 不挂载 subagents / parallel_tasks（防递归）
   });
 
@@ -262,7 +266,7 @@ async function invokeWorker(
 
 // ---- Tool factory ----
 
-export function createParallelTaskTool(projectId: string, sessionId: string) {
+export function createParallelTaskTool(projectId: string, sessionId: string, approvalMode: ApprovalMode = 'strict') {
   return tool(
     async (input) => {
       const batchId = crypto.randomUUID();
@@ -312,6 +316,7 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
             taskContext,
             projectPath,
             (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, workerId, step }),
+            approvalMode,
           );
 
           const summary = output.slice(0, 300);

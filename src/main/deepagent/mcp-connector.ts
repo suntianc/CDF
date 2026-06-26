@@ -120,9 +120,10 @@ export async function disconnectMcpServer(serverId: string): Promise<void> {
  * 断开所有 MCP 服务器连接（应用退出时调用）
  */
 export async function disconnectAllMcpServers(): Promise<void> {
-  for (const [_serverId, cached] of serverClients) {
-    await cached.client.close().catch(() => {});
-  }
+  const closes = [...serverClients.values()].map((cached) =>
+    cached.client.close().catch(() => {}),
+  );
+  await Promise.all(closes);
   serverClients.clear();
 }
 

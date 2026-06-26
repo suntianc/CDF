@@ -763,6 +763,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       await Promise.all([messageStreamPromise, toolStreamPromise, valuesStreamPromise]);
       subagentsStreamPromise.catch(() => {});
 
+      // Drain pending subagent task ID waiters to prevent Promise leaks
+      for (const [, waiters] of _subagentTaskIdWaiters) {
+        for (const resolve of waiters) resolve('');
+      }
+      _subagentTaskIdWaiters.clear();
+      _subagentTaskIdsReady.clear();
+
       let interruptValue = getStreamInterruptValue(run);
       let output: any;
       let terminal: 'completed' | 'interrupted' | 'failed' | null = null;

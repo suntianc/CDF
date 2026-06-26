@@ -6,6 +6,7 @@ import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
+import store from '../store';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
 import { resolveAgentSkillsConfig } from './skill-manager';
@@ -22,7 +23,7 @@ import {
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { createParallelTaskTool } from './parallel-task-tool';
-import { DELEGATED_TASK_RESULT_SCHEMA, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
 
@@ -506,8 +507,9 @@ export async function createDeepAgentRuntime(
   }
 
   // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
+  const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
   try {
-    builtInTools.push(createParallelTaskTool(projectId, sessionId));
+    builtInTools.push(createParallelTaskTool(projectId, sessionId, currentApprovalMode));
   } catch (err) {
     console.warn('[RUNTIME] Failed to load parallel task tool:', err);
   }

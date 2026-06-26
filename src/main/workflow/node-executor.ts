@@ -21,8 +21,10 @@ import {
   loadMcpTools,
   createSpanId,
   createChildSpan,
+  resolveInterruptOn,
 } from '../deepagent/shared-infra';
-import type { ExecutionStep, WorkflowNode } from '../../shared/types';
+import { resolveProjectFile } from '../utils/path-safety';
+import type { ApprovalMode, ExecutionStep, WorkflowApprovalResolution, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
 
@@ -231,6 +233,8 @@ function tryParseJson(value: string): unknown {
 export function createAgentNodeExecutor(
   node: WorkflowNode,
   upstreamNodeIds: string[] = [],
+  approvalMode?: ApprovalMode,
+  _onApprovalNeeded?: (interruptValue: unknown) => Promise<WorkflowApprovalResolution>,
 ) {
   const agentId = node.data.agentId;
   if (!agentId) {
@@ -300,6 +304,7 @@ export function createAgentNodeExecutor(
       builtInTools.push(...loadRegistryTools());
 
       // 2. 创建 DeepAgent（整合 backend, permissions, builtInTools）
+      const interruptOn = resolveInterruptOn(approvalMode ?? 'strict');
       const agent = createDeepAgent({
         model,
         backend,
@@ -307,6 +312,7 @@ export function createAgentNodeExecutor(
         skills: skillsSources.length > 0 ? skillsSources : undefined,
         permissions,
         tools: [...mcpRuntime.tools, ...builtInTools],
+        interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
       });
 
       const nodeKind = node.data.nodeKind ?? (node.type === 'agent' ? 'task' : node.type);
@@ -524,7 +530,8 @@ export function createAgentNodeExecutor(
         const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
         const workspacePath = (workflowStart?.workspace as string)?.trim();
         const baseDir = workspacePath || project.path;
-        const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
+        const rawFilePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
+        const filePath = resolveProjectFile(project.path, rawFilePath);
 
         if (!fs.existsSync(filePath)) {
           throw new Error(`数据源文件不存在: ${filePath}`);
@@ -641,7 +648,8 @@ export function createAgentNodeExecutor(
             const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
             const workspacePath = (workflowStart?.workspace as string)?.trim();
             const baseDir = workspacePath || project.path;
-            const filePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
+            const rawFilePath = path.isAbsolute(dataSource) ? dataSource : path.join(baseDir, dataSource);
+            const filePath = resolveProjectFile(project.path, rawFilePath);
 
             if (!fs.existsSync(filePath)) {
               throw new Error(`数据源文件不存在: ${filePath}`);

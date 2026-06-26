@@ -572,6 +572,9 @@ export function stopWorkflow(executionId: string): void {
     }
   }
 
+  // 通知 completionWaiters（防止 waitForWorkflowCompletion 永远 pending）
+  notifyCompletion(executionId, { status: 'stopped' });
+
   // 更新 DB 状态
   db.prepare(`
     UPDATE workflow_executions SET status = 'stopped', ended_at = ? WHERE id = ? AND status = 'running'

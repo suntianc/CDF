@@ -350,6 +350,44 @@ export interface AgentApprovalResolution {
   }>;
 }
 
+// ===== File Management Types =====
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size?: number;
+  mtimeMs?: number;
+}
+
+export interface FileContent {
+  content: string;
+  encoding: string;
+  size: number;
+  mtimeMs: number;
+}
+
+export interface BinaryFileInfo {
+  binary: true;
+  size: number;
+  mtimeMs: number;
+}
+
+export interface FileInfo {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  isSymlink: boolean;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}
+
+export interface FileError {
+  code: string;
+  message: string;
+}
+
 // ===== Phase 4: Workflow System Types =====
 
 export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'foreach' | 'parallel' | 'end';
@@ -620,6 +658,13 @@ export interface ElectronAPI {
     // Phase 14: HITL 审批
     resolveApproval: (executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) => Promise<void>;
     onExecutionStarted: (callback: (data: { executionId: string; workflowId: string; triggerSource: string }) => void) => () => void;
+  };
+  // ===== File Management =====
+  fs: {
+    readDirectory: (rootPath: string, dirPath: string, showHidden?: boolean) => Promise<{ ok: true; data: DirectoryEntry[] } | { ok: false; error: FileError }>;
+    readFile: (rootPath: string, filePath: string) => Promise<{ ok: true; data: FileContent | BinaryFileInfo } | { ok: false; error: FileError }>;
+    getFileInfo: (rootPath: string, filePath: string) => Promise<{ ok: true; data: FileInfo } | { ok: false; error: FileError }>;
+    onDirectoryChange: (callback: (event: any, data: { type: string; path: string }) => void) => () => void;
   };
   // ===== Phase 6 Plan 02: Slash Command Registry Bridge (D-15) =====
   commands: {

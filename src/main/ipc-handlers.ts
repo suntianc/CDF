@@ -13,6 +13,8 @@ import {
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { readDirectory, readFile, getFileInfo } from './services/file-system';
+import { ensureFileWatcher } from './services/file-watcher';
 import {
   listPhysicalSkills,
   savePhysicalSkill,
@@ -210,7 +212,18 @@ export function registerIpcHandlers() {
   ipcMain.handle('db:saveMessage', (_, message: any) => {
     const { id, session_id, role, content, tokens, think_duration_seconds, imageBase64 } = message;
     const now = Date.now();
-    const imageData = imageBase64?.length ? JSON.stringify(imageBase64) : null;
+
+    let validatedImages: string[] | undefined;
+    if (Array.isArray(imageBase64) && imageBase64.length > 0) {
+      const MAX_IMAGES = 5;
+      const MAX_BYTES = 7 * 1024 * 1024; // ~5MB raw after base64 overhead
+      validatedImages = imageBase64
+        .slice(0, MAX_IMAGES)
+        .filter((item: unknown): item is string =>
+          typeof item === 'string' && item.startsWith('data:image/') && item.length <= MAX_BYTES
+        );
+    }
+    const imageData = validatedImages?.length ? JSON.stringify(validatedImages) : null;
 
     const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
     if (existing) {
@@ -825,6 +838,32 @@ export function registerIpcHandlers() {
         }
       }
       return { success: false, error: `File not found: ${absolutePath}` };
+    }
+  });
+
+  // ===== File Management IPC Handlers =====
+  ipcMain.handle('fs:readDirectory', (_, rootPath: string, dirPath: string, showHidden?: boolean) => {
+    try {
+      ensureFileWatcher(rootPath);
+      return { ok: true, data: readDirectory(rootPath, dirPath, showHidden) };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:readFile', (_, rootPath: string, filePath: string) => {
+    try {
+      return { ok: true, data: readFile(rootPath, filePath) };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:getFileInfo', (_, rootPath: string, filePath: string) => {
+    try {
+      return { ok: true, data: getFileInfo(rootPath, filePath) };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
     }
   });
 

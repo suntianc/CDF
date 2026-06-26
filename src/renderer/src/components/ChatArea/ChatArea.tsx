@@ -8,8 +8,9 @@ import { useAgentStore } from '../../stores/agentStore';
 import {
   ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
   ChevronDown, Plus, Sliders, Layers, PanelLeft, SlidersHorizontal, Copy, Check,
-  ChevronUp, Brain, Loader2
+  ChevronUp, Brain, Loader2, FolderTree
 } from 'lucide-react';
+import { useFileStore } from '../../stores/fileStore';
 import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessageCard';
 
 import { MessageItem, formatHMSTime } from './MessageItem';
@@ -222,6 +223,25 @@ function getTokenColorClass(t: LeadingToken): string {
     default:
       return 'text-[var(--color-accent)]';
   }
+}
+
+function FilePanelToggle() {
+  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
+  const toggleFilePanel = useFileStore((s) => s.toggleFilePanel);
+  return (
+    <button
+      onClick={toggleFilePanel}
+      className={`w-11 h-11 flex items-center justify-center cursor-pointer rounded-md transition-all ${
+        filePanelOpen
+          ? 'text-[var(--color-accent)]'
+          : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+      }`}
+      title="文件面板"
+      aria-label="文件面板"
+    >
+      <FolderTree className="w-3.5 h-3.5" />
+    </button>
+  );
 }
 
 export function ChatArea({
@@ -1551,6 +1571,7 @@ export function ChatArea({
           
           {/* Right Header Toolbar */}
           <div className="main-topbar-right flex items-center gap-2 ml-auto no-drag">
+            <FilePanelToggle />
             <button
               onClick={onToggleTaskPanel}
               className={`w-11 h-11 flex items-center justify-center cursor-pointer rounded-md transition-all ${

@@ -117,6 +117,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => { ipcRenderer.removeListener('workflow:execution-started', listener); };
     },
   },
+  // ===== File Management =====
+  fs: {
+    readDirectory: (rootPath: string, dirPath: string, showHidden?: boolean) =>
+      ipcRenderer.invoke('fs:readDirectory', rootPath, dirPath, showHidden),
+    readFile: (rootPath: string, filePath: string) =>
+      ipcRenderer.invoke('fs:readFile', rootPath, filePath),
+    getFileInfo: (rootPath: string, filePath: string) =>
+      ipcRenderer.invoke('fs:getFileInfo', rootPath, filePath),
+    onDirectoryChange: (callback: (event: any, data: { type: string; path: string }) => void) => {
+      const listener = (event: any, data: { type: string; path: string }) => callback(event, data);
+      ipcRenderer.on('fs:directoryChange', listener);
+      return () => { ipcRenderer.removeListener('fs:directoryChange', listener); };
+    },
+  },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {
     list: (projectId: string, agentId: string) =>
