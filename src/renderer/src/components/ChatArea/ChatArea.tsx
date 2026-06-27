@@ -1,5 +1,4 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, memo } from 'react';
-import { toast } from 'sonner';
 import { useTranslation, Trans } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -20,27 +19,13 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { SlashCommandPopup, SlashCommandPopupHandle } from '@/components/SlashCommand/SlashCommandPopup';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
-import { SlashToken } from '@/components/SlashCommand/SlashToken';
-import { parseInputToTokens } from '@/lib/commands/parseInputToTokens';
-import { AtToken } from '@/components/AtMention/AtToken';
 import { AtMentionPopup, AtMentionPopupHandle } from '@/components/AtMention/AtMentionPopup';
-import { useAtMentionStore } from '@/stores/atMentionStore';
-import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { GoalSystemBubble } from './GoalSystemBubble';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ApprovalModeSelector } from '@/components/shared/ApprovalModeSelector';
 import { SubagentView } from './SubagentView';
-import {
-  addComposerAttachment,
-  createComposerInputState,
-  deletePreviousLeadingItem,
-  getComposerInputRenderModel,
-  insertCommandEntry,
-  removeComposerAttachment,
-  submitComposerInput,
-  type ComposerInputLeadingItem,
-  updateComposerInputText,
-} from './composerInput/composerInput';
+import { type ComposerInputLeadingItem } from './composerInput/composerInput';
+import { useComposerInputController } from './composerInput/useComposerInputController';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -216,11 +201,8 @@ export function ChatArea({
     ) ?? null;
   }, [viewingParallelWorker, parallelBatches]);
 
-  const [inputVal, setInputVal] = useState('');
-  const [pastedImages, setPastedImages] = useState<string[]>([]);
   const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
   const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
-  const [slashOpen, setSlashOpen] = useState(false);
   const sessionModelOverrides = useSessionStore((state) => state.sessionModelOverrides) || {};
   const override = activeSessionId ? sessionModelOverrides[activeSessionId] : (sessionModelOverrides[''] || null);
   const selectedProviderId = override?.providerId || '';
@@ -245,11 +227,6 @@ export function ChatArea({
   const composerTokensRef = useRef<HTMLDivElement>(null);
   const [composerIndentWidth, setComposerIndentWidth] = useState(0);
 
-  const isAtMentionOpen = useAtMentionStore((s) => s.isOpen);
-  const atMentionQuery = useAtMentionStore((s) => s.query);
-  const atMentionCandidates = useAtMentionStore((s) => s.candidates);
-  const atMentionTruncated = useAtMentionStore((s) => s.truncated);
-  const atMentionLoading = useAtMentionStore((s) => s.loading);
   const previousHasActivePlanRef = useRef(false);
 
   const { handleScroll } = useChatScroll({
@@ -313,58 +290,9 @@ export function ChatArea({
     }
   }, []);
 
-  // Clear input when active session changes to prevent drafts/capsules from being carried over
-  useEffect(() => {
-    setInputVal('');
-    setSlashOpen(false);
-  }, [activeSessionId]);
-
   useEffect(() => {
     fetchProviders();
   }, [fetchProviders]);
-
-  // Phase 08.3 E-02: subscribe to atMentionStore and fetch candidates on popup open.
-  // Only one IPC call per open (false→true transition), not per keystroke.
-  // B-01: if no active project, close the popup immediately.
-  // Phase 08.3 fix #4: monotonic request-id guards against out-of-order
-  // IPC resolutions. Without this, an in-flight IPC for a stale `@query`
-  // could resolve AFTER a subsequent close+open, overwriting the fresh
-  // candidates with the old query's results.
-  const atIpcRequestIdRef = useRef(0);
-  useEffect(() => {
-    const unsubscribe = useAtMentionStore.subscribe((state, prev) => {
-      // Phase 08.3 codex P2: on `isOpen` true→false, bump the request id
-      // so any in-flight IPC whose `.then` resolves after the close
-      // becomes stale and is dropped by the guard below. Without this,
-      // closing the popup while IPC is in flight would let the late
-      // `.then` resurrect the 5000-path array in the store — violating
-      // E-02's "close releases candidates" invariant.
-      if (prev.isOpen && !state.isOpen) {
-        atIpcRequestIdRef.current++;
-        return;
-      }
-      if (state.isOpen && !prev.isOpen) {
-        if (!currentProjectId) {
-          useAtMentionStore.getState().close();
-          return;
-        }
-        const requestId = ++atIpcRequestIdRef.current;
-        useAtMentionStore.getState().setLoading(true);
-        window.electronAPI.project
-          .listAtMentionCandidates(currentProjectId)
-          .then((result) => {
-            if (atIpcRequestIdRef.current !== requestId) return; // stale
-            useAtMentionStore.getState().setCandidates(result.candidates, result.truncated);
-          })
-          .catch((err) => {
-            if (atIpcRequestIdRef.current !== requestId) return; // stale
-            console.error('[at-mention] IPC failed:', err);
-            useAtMentionStore.getState().setCandidates([], false);
-          });
-      }
-    });
-    return unsubscribe;
-  }, [currentProjectId]);
 
   useEffect(() => {
     return () => {
@@ -820,45 +748,6 @@ export function ChatArea({
     return () => clearTimeout(timer);
   }, [welcomeModelSelectorOpen, composerModelSelectorOpen, selectedProviderId, selectedModel, providers]);
 
-
-
-
-
-  const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!currentProjectId) return;
-
-    const result = submitComposerInput(
-      createComposerInputState({
-        text: inputVal,
-        attachments: pastedImages,
-        cursor: textareaRef.current?.selectionStart ?? inputVal.length,
-      }),
-      {
-        mode: 'session',
-        isStreaming,
-        commands: registry.commands,
-        resolveCommand: dispatcherResolve,
-      }
-    );
-
-    if (result.intent.type === 'noop') return;
-
-    setInputVal(result.state.text);
-    setPastedImages(result.state.attachments);
-
-    if (result.intent.type === 'executeCommand') {
-      setSlashOpen(false);
-      dispatcherDispatch(result.intent.plan).catch((err) => console.error('[handleSend/slash] error:', err));
-      return;
-    }
-
-    await sendMessage(currentProjectId, result.intent.content, {
-      providerId: selectedProviderId || undefined,
-      model: selectedModel || undefined,
-    }, undefined, { imageBase64: result.intent.attachments.length ? result.intent.attachments : undefined });
-  };
-
   const handleCompositionStart = () => {
     if (compositionEndTimerRef.current) {
       clearTimeout(compositionEndTimerRef.current);
@@ -905,23 +794,25 @@ export function ChatArea({
     (activeSession as any)?.agent_id ?? activeSessionAgent?.id ?? null
   );
 
-  // Phase 08.1 (D-03 + SPEC R7): parse leading /cmd-name from inputVal. Used by
-  // the overlay below the textarea to render a SlashToken pill in place of
-  // the leading text, and by the atomic Backspace check in handleKeyDown.
-  const parsedToken = useMemo(
-    () => parseInputToTokens(inputVal, registry.commands),
-    [inputVal, registry.commands]
-  );
+  const composerInput = useComposerInputController({
+    mode: activeSessionId ? 'session' : 'welcome',
+    isStreaming,
+    projectId: currentProjectId,
+    hasPathMentionProject: Boolean(currentProjectRoot),
+    commands: registry.commands,
+    resolveCommand: dispatcherResolve,
+  });
 
-  // Phase 08.3 (C-02 + C-03): scan the entire inputVal for @relative/path substrings
-  // so the overlay can render <AtToken> pills in place of literal @path strings.
-  // Independent of parseInputToTokens (slash parser) so the two can coexist.
-  const parsedAtTokens = useMemo(() => parseAtTokens(inputVal), [inputVal]);
+  const inputVal = composerInput.text;
+  const pastedImages = composerInput.attachments;
+  const slashOpen = composerInput.commandEntry.isOpen;
+  const isAtMentionOpen = composerInput.pathMention.isOpen;
+  const { leadingItems: leadingTokens, visibleTail: visibleInputTail } = composerInput.renderModel;
 
-  const { leadingItems: leadingTokens, visibleTail: visibleInputTail } = useMemo(
-    () => getComposerInputRenderModel(createComposerInputState({ text: inputVal }), registry.commands),
-    [inputVal, registry.commands]
-  );
+  // Clear Composer Input when active session changes to prevent drafts/capsules from being carried over.
+  useEffect(() => {
+    composerInput.reset();
+  }, [activeSessionId, composerInput.reset]);
 
   useLayoutEffect(() => {
     const el = welcomeTokensRef.current;
@@ -972,12 +863,14 @@ export function ChatArea({
     // cmd is the full `/name` string (e.g., `/goal`).
     const plan = dispatcherResolve(cmd, registry.commands);
     if (plan) {
-      setInputVal('');
-      setSlashOpen(false);
+      if (!activeSessionId) {
+        composerInput.insertCommand(cmd);
+        return;
+      }
+      composerInput.reset();
       dispatcherDispatch(plan).catch((err) => console.error('[dispatcher] error:', err));
     } else {
-      setInputVal(insertCommandEntry(createComposerInputState({ text: inputVal, attachments: pastedImages }), cmd).text);
-      setSlashOpen(false);
+      composerInput.insertCommand(cmd);
     }
   };
 
@@ -988,108 +881,23 @@ export function ChatArea({
   // closed by the time this runs, so the textarea retains focus and the
   // caret lands after the inserted text.
   const handleSlashInsert = (cmd: string) => {
-    setInputVal(insertCommandEntry(createComposerInputState({ text: inputVal, attachments: pastedImages }), cmd).text);
-    setSlashOpen(false);
+    composerInput.insertCommand(cmd);
   };
 
   const removePreviousComposerInputLeadingItem = (tail: string) => {
-    const nextInput = deletePreviousLeadingItem(
-      createComposerInputState({
-        text: `${leadingTokens.map((token) => token.raw).join(' ')}${leadingTokens.length > 0 ? ' ' : ''}${tail}`,
-        attachments: pastedImages,
-        cursor: 0,
-      }),
-      registry.commands
-    );
-    setInputVal(nextInput.text);
-    useAtMentionStore.getState().close();
-    setSlashOpen(false);
+    composerInput.deletePreviousLeading(tail);
   };
 
   const applyComposerInputTextChange = (value: string, cursor: number) => {
-    setInputVal(value);
-    if (isComposingRef.current) return;
-
-    const nextInput = updateComposerInputText(
-      createComposerInputState({
-        text: inputVal,
-        attachments: pastedImages,
-        cursor,
-      }),
-      {
-        value,
-        cursor,
-        hasProject: Boolean(currentProjectRoot),
-      }
-    );
-
-    setSlashOpen(nextInput.commandEntry.isOpen);
-    if (nextInput.pathMention.isOpen) {
-      const state = useAtMentionStore.getState();
-      if (!state.isOpen) {
-        state.open(nextInput.pathMention.cursor);
-      } else {
-        useAtMentionStore.setState({ cursorPos: nextInput.pathMention.cursor });
-      }
-      state.setQuery(nextInput.pathMention.query);
-    } else {
-      useAtMentionStore.getState().close();
+    if (isComposingRef.current) {
+      composerInput.setText(value, cursor);
+      return;
     }
-  };
-
-  // Phase 08.3 fix #12+#13: shared at-mention onSelect body. Used by
-  // BOTH the welcome and composer popovers so the `@query` →
-  // `@relative/path ` rewrite lives in one place. (Earlier this was
-  // copy-pasted in two PopoverContent bodies; the `value` ReferenceError
-  // fix landed in two places because of that drift.)
-  const handleAtSelect = (path: string) => {
-    const cursor = useAtMentionStore.getState().cursorPos;
-    const textBeforeCursor = inputVal.slice(0, cursor);
-    const atCharIndex = textBeforeCursor.lastIndexOf('@');
-    if (atCharIndex < 0) return;
-    const newValue =
-      inputVal.slice(0, atCharIndex) + '@' + path + ' ' + inputVal.slice(cursor);
-    setInputVal(newValue);
-    useAtMentionStore.getState().close();
+    composerInput.handleTextChange(value, cursor);
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const SAFE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-    const items = Array.from(e.clipboardData.items);
-    const imageItems = items.filter((item) => SAFE_IMAGE_TYPES.has(item.type));
-    if (imageItems.length === 0) return;
-    e.preventDefault();
-    imageItems.forEach((item) => {
-      const file = item.getAsFile();
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        if (!dataUrl) return;
-        setPastedImages((prev) => {
-          const result = addComposerAttachment(
-            createComposerInputState({ attachments: prev }),
-            {
-              dataUrl,
-              mimeType: file.type,
-              sizeBytes: file.size,
-            }
-          );
-          if (!result.accepted) {
-            if (result.reason === 'tooMany') {
-              toast.warning('最多添加 5 张图片');
-            } else if (result.reason === 'tooLarge') {
-              toast.warning(`图片过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大 5MB`);
-            } else if (result.reason === 'unsupportedType') {
-              toast.warning('不支持的图片类型');
-            }
-            return prev;
-          }
-          return result.state.attachments;
-        });
-      };
-      reader.readAsDataURL(file);
-    });
+    composerInput.handlePaste(e);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1098,7 +906,7 @@ export function ChatArea({
       // PITFALLS P6: Backspace when only `/` remains → close popup
       if (e.key === 'Backspace' && inputVal === '/') {
         e.preventDefault();
-        setSlashOpen(false);
+        composerInput.closeCommandEntry();
         return;
       }
       const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
@@ -1107,7 +915,7 @@ export function ChatArea({
     // Phase 08.3 fix #3: route at-mention popup keys (↑↓ Enter Tab Esc)
     // through atRef so the popup can claim them from the textarea. Mirrors
     // the slashRef pattern above. Only fires when the at-popup is open.
-    if (useAtMentionStore.getState().isOpen) {
+    if (isAtMentionOpen) {
       const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
       if (atHandled) return;
     }
@@ -1135,59 +943,68 @@ export function ChatArea({
     }
   };
 
-  const handleWelcomeSend = async (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const result = submitComposerInput(
-      createComposerInputState({
-        text: inputVal,
-        attachments: pastedImages,
-        cursor: textareaRef.current?.selectionStart ?? inputVal.length,
-      }),
-      {
-        mode: 'welcome',
-        isStreaming,
-        commands: registry.commands,
-        resolveCommand: dispatcherResolve,
-      }
-    );
+    if (!currentProjectId) return;
 
-    if (result.intent.type === 'noop') return;
+    const intent = composerInput.submit();
+    if (intent.type === 'noop') return;
 
-    setInputVal(result.state.text);
-    setPastedImages(result.state.attachments);
-
-    if (result.intent.type === 'executeCommand') {
-      setSlashOpen(false);
-      dispatcherDispatch(result.intent.plan).catch((err) => console.error('[handleWelcomeSend/slash] error:', err));
+    if (intent.type === 'executeCommand') {
+      dispatcherDispatch(intent.plan).catch((err) => console.error('[handleSend/slash] error:', err));
       return;
     }
 
-    let projectId = currentProjectId || 'default-project';
-    try {
-      // Create new session
-      const sessionName = inputVal.trim().slice(0, 15) || (result.intent.attachments.length > 0 ? '图片对话' : t('chat.newSessionFallback'));
-      const newSession = await createSession(projectId, sessionName);
-      
-      // Copy welcome override to new session
-      const welcomeOverride = useSessionStore.getState().sessionModelOverrides[''];
-      if (welcomeOverride) {
-        useSessionStore.getState().setSessionModelOverride(
-          newSession.id,
-          welcomeOverride.providerId,
-          welcomeOverride.model
-        );
-        // Clear welcome override
-        useSessionStore.getState().setSessionModelOverride('', '', '');
+    await sendMessage(currentProjectId, intent.content, {
+      providerId: selectedProviderId || undefined,
+      model: selectedModel || undefined,
+    }, undefined, { imageBase64: intent.attachments.length ? intent.attachments : undefined });
+  };
+
+  const prepareWelcomeConversation = async (draftText: string, attachmentCount: number) => {
+    const projectId = currentProjectId || 'default-project';
+    const sessionName = draftText.trim().slice(0, 15) || (attachmentCount > 0 ? '图片对话' : t('chat.newSessionFallback'));
+    const newSession = await createSession(projectId, sessionName);
+
+    const welcomeOverride = useSessionStore.getState().sessionModelOverrides[''];
+    if (welcomeOverride) {
+      useSessionStore.getState().setSessionModelOverride(
+        newSession.id,
+        welcomeOverride.providerId,
+        welcomeOverride.model
+      );
+      useSessionStore.getState().setSessionModelOverride('', '', '');
+    }
+
+    await selectSession(newSession.id);
+    await fetchSessions(projectId);
+
+    return projectId;
+  };
+
+  const handleWelcomeSend = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const draftText = inputVal;
+    const intent = composerInput.submit();
+
+    if (intent.type === 'noop') return;
+
+    if (intent.type === 'executeCommand') {
+      try {
+        await prepareWelcomeConversation(draftText, 0);
+        dispatcherDispatch(intent.plan).catch((err) => console.error('[handleWelcomeSend/slash] error:', err));
+      } catch (err) {
+        console.error('Failed to dispatch command from welcome:', err);
       }
+      return;
+    }
 
-      await selectSession(newSession.id);
-      await fetchSessions(projectId); // Move before selectSession or await it
-
-      // Send message
-      await sendMessage(projectId, result.intent.content, {
+    try {
+      const projectId = await prepareWelcomeConversation(draftText, intent.attachments.length);
+      await sendMessage(projectId, intent.content, {
         providerId: selectedProviderId || undefined,
         model: selectedModel || undefined,
-      }, undefined, { imageBase64: result.intent.attachments.length ? result.intent.attachments : undefined });
+      }, undefined, { imageBase64: intent.attachments.length ? intent.attachments : undefined });
     } catch (err) {
       console.error('Failed to send from welcome:', err);
     }
@@ -1271,8 +1088,8 @@ export function ChatArea({
               open={(slashOpen || isAtMentionOpen) && !activeSessionId}
               onOpenChange={(open) => {
                 if (!open) {
-                  setSlashOpen(false);
-                  useAtMentionStore.getState().close();
+                  composerInput.closeCommandEntry();
+                  composerInput.closePathMention();
                 }
               }}
               modal={false}
@@ -1290,7 +1107,7 @@ export function ChatArea({
                         />
                         <button
                           type="button"
-                          onClick={() => setPastedImages((prev) => removeComposerAttachment(createComposerInputState({ attachments: prev }), idx).attachments)}
+                          onClick={() => composerInput.removeAttachment(idx)}
                           className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                           aria-label={`Remove image ${idx + 1}`}
                         >
@@ -1340,14 +1157,14 @@ export function ChatArea({
                         if (slashOpen) {
                           if (e.key === 'Backspace' && inputVal === '/') {
                             e.preventDefault();
-                            setSlashOpen(false);
+                            composerInput.closeCommandEntry();
                             return;
                           }
                           const handled = slashRef.current?.handleKeyDown(e.nativeEvent) ?? false;
                           if (handled) return;
                         }
                         // Phase 08.3 fix #3: at-mention popup nav (welcome mirror).
-                        if (useAtMentionStore.getState().isOpen) {
+                        if (isAtMentionOpen) {
                           const atHandled = atRef.current?.handleKeyDown(e.nativeEvent) ?? false;
                           if (atHandled) return;
                         }
@@ -1391,7 +1208,7 @@ export function ChatArea({
                     query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
                     onSelect={handleSlashSelect}
                     onInsert={handleSlashInsert}
-                    onClose={() => setSlashOpen(false)}
+                    onClose={composerInput.closeCommandEntry}
                     commands={registry.commands}
                     hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
                     mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
@@ -1400,12 +1217,12 @@ export function ChatArea({
                 ) : (
                   <AtMentionPopup
                     ref={atRef}
-                    query={atMentionQuery}
-                    candidates={atMentionCandidates}
-                    truncated={atMentionTruncated}
-                    loading={atMentionLoading}
-                    onSelect={handleAtSelect}
-                    onClose={() => useAtMentionStore.getState().close()}
+                    query={composerInput.pathMention.query}
+                    candidates={composerInput.pathMention.candidates}
+                    truncated={composerInput.pathMention.truncated}
+                    loading={composerInput.pathMention.loading}
+                    onSelect={composerInput.selectPathMention}
+                    onClose={composerInput.closePathMention}
                   />
                 )}
               </PopoverContent>
@@ -1671,8 +1488,8 @@ export function ChatArea({
               open={(slashOpen || isAtMentionOpen) && !!activeSessionId}
               onOpenChange={(open) => {
                 if (!open) {
-                  setSlashOpen(false);
-                  useAtMentionStore.getState().close();
+                  composerInput.closeCommandEntry();
+                  composerInput.closePathMention();
                 }
               }}
               modal={false}
@@ -1697,7 +1514,7 @@ export function ChatArea({
                           />
                           <button
                             type="button"
-                            onClick={() => setPastedImages((prev) => removeComposerAttachment(createComposerInputState({ attachments: prev }), idx).attachments)}
+                            onClick={() => composerInput.removeAttachment(idx)}
                             className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                             aria-label={`Remove image ${idx + 1}`}
                           >
@@ -1844,7 +1661,7 @@ export function ChatArea({
                     query={inputVal.startsWith('/') ? inputVal.slice(1) : ''}
                     onSelect={handleSlashSelect}
                     onInsert={handleSlashInsert}
-                    onClose={() => setSlashOpen(false)}
+                    onClose={composerInput.closeCommandEntry}
                     commands={registry.commands}
                     hasMcpWarning={registry.warnings.some((w) => w.type === 'mcp_health_warning')}
                     mcpWarningMessage={registry.warnings.find((w) => w.type === 'mcp_health_warning')?.message}
@@ -1853,12 +1670,12 @@ export function ChatArea({
                 ) : (
                   <AtMentionPopup
                     ref={atRef}
-                    query={atMentionQuery}
-                    candidates={atMentionCandidates}
-                    truncated={atMentionTruncated}
-                    loading={atMentionLoading}
-                    onSelect={handleAtSelect}
-                    onClose={() => useAtMentionStore.getState().close()}
+                    query={composerInput.pathMention.query}
+                    candidates={composerInput.pathMention.candidates}
+                    truncated={composerInput.pathMention.truncated}
+                    loading={composerInput.pathMention.loading}
+                    onSelect={composerInput.selectPathMention}
+                    onClose={composerInput.closePathMention}
                   />
                 )}
               </PopoverContent>

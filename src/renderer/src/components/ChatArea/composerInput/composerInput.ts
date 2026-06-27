@@ -162,6 +162,8 @@ export function updateComposerInputText(
     !change.value.includes(' ') &&
     change.value.length <= 32;
 
+  const closingPathMention = state.pathMention.isOpen && !(change.hasProject && atMatch);
+
   return {
     ...state,
     text: change.value,
@@ -185,7 +187,9 @@ export function updateComposerInputText(
             isOpen: false,
             query: '',
             cursor: 0,
-            requestId: state.pathMention.requestId,
+            requestId: closingPathMention
+              ? state.pathMention.requestId + 1
+              : state.pathMention.requestId,
             loading: false,
             candidates: [],
             truncated: false,
@@ -237,6 +241,7 @@ export function closePathMentionCandidates(state: ComposerInputState): ComposerI
       isOpen: false,
       query: '',
       cursor: 0,
+      requestId: state.pathMention.requestId + 1,
       loading: false,
       candidates: [],
       truncated: false,
@@ -278,7 +283,7 @@ export function selectPathMentionCandidate(
       isOpen: false,
       query: '',
       cursor: 0,
-      requestId: state.pathMention.requestId,
+      requestId: state.pathMention.requestId + 1,
       loading: false,
       candidates: [],
       truncated: false,
@@ -357,7 +362,7 @@ export function deletePreviousLeadingItem(
       isOpen: false,
       query: '',
       cursor: 0,
-      requestId: state.pathMention.requestId,
+      requestId: state.pathMention.requestId + 1,
       loading: false,
       candidates: [],
       truncated: false,

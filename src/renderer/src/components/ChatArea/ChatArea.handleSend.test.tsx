@@ -3,6 +3,8 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 import { useState, useRef, useEffect } from 'react';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
+import { useComposerInputController } from './composerInput/useComposerInputController';
+import type { SlashCommand } from '@shared/types';
 
 vi.mock('@/lib/commands/dispatcher', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands/dispatcher')>('@/lib/commands/dispatcher');
@@ -14,6 +16,15 @@ vi.mock('@/lib/commands/dispatcher', async () => {
 
 const mockResolve = vi.mocked(dispatcherResolve);
 const mockDispatch = vi.mocked(dispatcherDispatch);
+
+const goalCommand: SlashCommand = {
+  name: 'goal',
+  description: 'Set a session goal',
+  source: 'system',
+  target: 'goal',
+  sourceLabel: 'system',
+  badge: '[system]',
+};
 
 describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
   beforeEach(() => {
@@ -133,5 +144,71 @@ describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
     // But dispatcher.dispatch NOT called (null resolution → fall through)
     expect(mockDispatch).not.toHaveBeenCalled();
   });
-});
 
+  it('Welcome Command Entry creates a Conversation before dispatching the command', async () => {
+    const createSession = vi.fn(async () => ({ id: 'session-1' }));
+    const selectSession = vi.fn(async () => {});
+    const fetchSessions = vi.fn(async () => {});
+    mockResolve.mockReturnValue({
+      kind: 'GoalLoop',
+      command: goalCommand,
+      args: 'write tests',
+      goal: 'write tests',
+    });
+
+    function TestHarness() {
+      const composerInput = useComposerInputController({
+        mode: 'welcome',
+        isStreaming: false,
+        projectId: 'project-1',
+        hasPathMentionProject: true,
+        commands: [goalCommand],
+        resolveCommand: dispatcherResolve,
+        listPathMentionCandidates: async () => ({ candidates: [], truncated: false }),
+      });
+
+      const handleWelcomeSend = async () => {
+        const intent = composerInput.submit();
+        if (intent.type === 'noop') return;
+        if (intent.type === 'executeCommand') {
+          const newSession = await createSession('project-1', '/goal write tes');
+          await selectSession(newSession.id);
+          await fetchSessions('project-1');
+          await dispatcherDispatch(intent.plan);
+          return;
+        }
+        const newSession = await createSession('project-1', intent.content.slice(0, 15));
+        await selectSession(newSession.id);
+        await fetchSessions('project-1');
+      };
+
+      useEffect(() => {
+        (window as any).welcomeHarness = {
+          setText: composerInput.setText,
+          handleWelcomeSend,
+        };
+      });
+
+      return null;
+    }
+
+    render(<TestHarness />);
+
+    act(() => {
+      (window as any).welcomeHarness.setText('/goal write tests');
+    });
+    await act(async () => {
+      await (window as any).welcomeHarness.handleWelcomeSend();
+    });
+
+    expect(createSession).toHaveBeenCalledWith('project-1', expect.any(String));
+    expect(selectSession).toHaveBeenCalledWith('session-1');
+    expect(fetchSessions).toHaveBeenCalledWith('project-1');
+    expect(mockDispatch).toHaveBeenCalledWith({
+      kind: 'GoalLoop',
+      command: goalCommand,
+      args: 'write tests',
+      goal: 'write tests',
+    });
+  });
+});
