@@ -21,6 +21,7 @@ interface FileState {
   activeTabIndex: number;
   previewFile: PreviewFile | null;
   selectedPath: string | null;
+  fileTreeCollapsed: boolean;
 
   setFilePanelOpen: (open: boolean) => void;
   toggleFilePanel: () => void;
@@ -38,6 +39,7 @@ interface FileState {
   closeTab: (index: number) => void;
   setActiveTab: (index: number) => void;
   setSelectedPath: (path: string | null) => void;
+  toggleFileTreeCollapsed: () => void;
 }
 
 const EDITOR_WIDTH = 600;
@@ -56,12 +58,13 @@ export const useFileStore = create<FileState>((set) => ({
   activeTabIndex: -1,
   previewFile: null,
   selectedPath: null,
+  fileTreeCollapsed: false,
 
   setFilePanelOpen: (open) => set({ filePanelOpen: open }),
   toggleFilePanel: () => set((s) => ({ filePanelOpen: !s.filePanelOpen })),
   setFilePanelMode: (mode) => set({ filePanelMode: mode }),
   setFilePanelWidth: (width) => set({ filePanelWidth: width }),
-  setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null }),
+  setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null, fileTreeCollapsed: false }),
 
   toggleDir: (path) =>
     set((s) => ({
@@ -144,4 +147,6 @@ export const useFileStore = create<FileState>((set) => ({
     set({ openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280 }),
 
   setSelectedPath: (path) => set({ selectedPath: path }),
+
+  toggleFileTreeCollapsed: () => set((s) => ({ fileTreeCollapsed: !s.fileTreeCollapsed })),
 }));

@@ -1,9 +1,10 @@
 import { Suspense, lazy, useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { X, Eye, Pencil } from 'lucide-react';
+import { X, Eye, Pencil, ChevronRight, PanelRightClose, PanelRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../../stores/themeStore';
 import { useFileStore } from '../../stores/fileStore';
 import { MarkdownRenderer } from '../ChatArea/MarkdownRenderer';
+import { FileTypeIcon } from './FileTypeIcon';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react'));
 
@@ -53,6 +54,9 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
   const activeTabIndex = useFileStore((s) => s.activeTabIndex);
   const closeTab = useFileStore((s) => s.closeTab);
   const setActiveTab = useFileStore((s) => s.setActiveTab);
+  const setFilePanelOpen = useFileStore((s) => s.setFilePanelOpen);
+  const fileTreeCollapsed = useFileStore((s) => s.fileTreeCollapsed);
+  const toggleFileTreeCollapsed = useFileStore((s) => s.toggleFileTreeCollapsed);
 
   editedRef.current = editedContent;
 
@@ -127,7 +131,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 group/editor">
       {/* Tab bar */}
       <div className="flex items-center gap-0 border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 overflow-x-auto scrollbar-none">
         {openTabs.map((tab, i) => {
@@ -142,6 +146,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
               }`}
               onClick={() => setActiveTab(i)}
             >
+              <FileTypeIcon filename={tab.name} className="w-3.5 h-3.5" />
               <span className="truncate max-w-[120px]">{tab.name}</span>
               {isActive && isDirty && (
                 <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
@@ -157,31 +162,44 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
         })}
       </div>
 
-      {/* Breadcrumb + MD toggle */}
+      {/* Breadcrumb + MD toggle + panel collapse */}
       <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0">
-        <div className="flex-1 px-3 py-1 text-[11px] text-[var(--color-text-muted)] truncate">
+        <div className="flex-1 flex items-center gap-0 px-3 py-1 text-[11px] text-[var(--color-text-muted)] truncate min-w-0">
           {(() => {
             const root = useFileStore.getState().rootPath;
+            let rel = filePath;
             if (root && filePath.startsWith(root)) {
-              return filePath.slice(root.length).replace(/^\//, '');
+              rel = filePath.slice(root.length).replace(/^\//, '');
             }
-            return filePath;
+            const segments = rel.split('/');
+            return segments.map((seg, i) => (
+              <span key={i} className="flex items-center gap-0 shrink-0">
+                {i > 0 && <ChevronRight className="w-3 h-3 mx-0.5 text-[var(--color-text-muted)]/50 shrink-0" />}
+                <span className={i === segments.length - 1 ? 'text-[var(--color-text-primary)]' : ''}>{seg}</span>
+              </span>
+            ));
           })()}
         </div>
         {isMd && (
           <button
             onClick={() => setMdPreview(!mdPreview)}
-            className="flex items-center gap-1 px-2 py-0.5 mr-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded cursor-pointer transition-colors shrink-0"
+            className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded cursor-pointer transition-colors shrink-0"
             title={mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
           >
             {mdPreview ? <Pencil className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-            {mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
           </button>
         )}
+        <button
+          onClick={() => setFilePanelOpen(false)}
+          className="p-1 mr-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors shrink-0"
+          title={t('filePanel.collapsePanel', '收起面板')}
+        >
+          <PanelRightClose className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         {isMd && mdPreview ? (
           <div className="h-full overflow-y-auto px-4 py-3">
             <MarkdownRenderer text={editedContent} />
@@ -215,6 +233,14 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
             />
           </Suspense>
         )}
+        {/* Floating file tree toggle */}
+        <button
+          onClick={toggleFileTreeCollapsed}
+          className="absolute top-2 right-2 p-1 rounded bg-[var(--color-bg-surface)]/80 hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-all opacity-0 hover:opacity-100 focus:opacity-100 group-hover/editor:opacity-60 z-10 border border-[var(--color-border)]/30"
+          title={fileTreeCollapsed ? t('filePanel.showTree', '显示文件树') : t('filePanel.hideTree', '隐藏文件树')}
+        >
+          {fileTreeCollapsed ? <PanelRight className="w-3.5 h-3.5" /> : <PanelRightClose className="w-3.5 h-3.5" />}
+        </button>
       </div>
     </div>
   );

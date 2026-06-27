@@ -705,6 +705,14 @@
     "autoSave": "Auto Save",
     "preview": "Preview",
     "editSource": "Edit",
-    "saveFailed": "Save failed: {{message}}"
+    "saveFailed": "Save failed: {{message}}",
+    "deleteTitle": "Delete Confirmation",
+    "createFileFailed": "Failed to create file: {{message}}",
+    "createFolderFailed": "Failed to create folder: {{message}}",
+    "renameFailed": "Failed to rename: {{message}}",
+    "deleteFailed": "Failed to delete: {{message}}",
+    "collapsePanel": "Collapse file panel",
+    "showTree": "Show file tree",
+    "hideTree": "Hide file tree"
   }
 }

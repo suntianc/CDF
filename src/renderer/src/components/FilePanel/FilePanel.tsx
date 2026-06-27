@@ -17,6 +17,7 @@ export function FilePanel() {
     filePanelWidth,
     rootPath,
     previewFile,
+    fileTreeCollapsed,
     setFilePanelOpen,
     setFilePanelWidth,
     setRootPath,
@@ -170,9 +171,10 @@ export function FilePanel() {
   if (!filePanelOpen) return null;
 
   const isEditorMode = filePanelMode === 'editor' && previewFile;
+  const showFileTree = !(isEditorMode && fileTreeCollapsed);
 
   const currentMinW = isEditorMode
-    ? Math.min(MIN_EDITOR_WIDTH, Math.max(0, mainWidth * (1 - MIN_CHAT_WIDTH_PCT)))
+    ? Math.min(showFileTree ? MIN_EDITOR_WIDTH : MIN_PANEL_WIDTH, Math.max(0, mainWidth * (1 - MIN_CHAT_WIDTH_PCT)))
     : Math.min(MIN_PANEL_WIDTH, Math.max(0, mainWidth * (1 - MIN_CHAT_WIDTH_PCT)));
 
   return (
@@ -190,27 +192,29 @@ export function FilePanel() {
         />
       )}
 
-      {/* File tree column */}
-      <div className={`flex flex-col ${isEditorMode ? 'w-[220px] shrink-0 border-l border-[var(--color-border)]' : 'flex-1'}`}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
-          <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--color-text-secondary)]">
-            <FolderTree className="w-3.5 h-3.5" />
-            <span className="truncate max-w-[140px]">
-              {currentProject?.name || '文件'}
-            </span>
+      {/* File tree column — hidden when collapsed in editor mode */}
+      {!(isEditorMode && fileTreeCollapsed) && (
+        <div className={`flex flex-col ${isEditorMode ? 'w-[220px] shrink-0 border-l border-[var(--color-border)]' : 'flex-1'}`}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
+            <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--color-text-secondary)]">
+              <FolderTree className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[140px]">
+                {currentProject?.name || '文件'}
+              </span>
+            </div>
+            <button
+              onClick={() => setFilePanelOpen(false)}
+              className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <button
-            onClick={() => setFilePanelOpen(false)}
-            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
 
-        <FileFilterBar />
-        <FileTree />
-      </div>
+          <FileFilterBar />
+          <FileTree />
+        </div>
+      )}
 
       {/* Resize handle — visual 1px, hit area 8px */}
       <div

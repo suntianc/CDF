@@ -1,5 +1,6 @@
-import { ChevronRight, ChevronDown, File, Folder, FolderOpen } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-react';
 import type { DirectoryEntry } from '../../../shared/types';
+import { FileTypeIcon } from './FileTypeIcon';
 
 interface FileTreeItemProps {
   entry: DirectoryEntry;
@@ -30,6 +31,8 @@ export function FileTreeItem({ entry, depth, isExpanded, isLoading, isSelected, 
     <button
       data-tree-item
       data-tree-path={entry.path}
+      data-is-directory={entry.isDirectory}
+      data-is-expanded={isExpanded}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       className={`w-full flex items-center gap-1 py-[3px] pr-2 text-left text-[12px] cursor-pointer transition-colors group
@@ -57,8 +60,8 @@ export function FileTreeItem({ entry, depth, isExpanded, isLoading, isSelected, 
       ) : (
         <>
           <span className="w-4 h-4 shrink-0" />
-          <span className="w-4 h-4 flex items-center justify-center shrink-0 text-[var(--color-text-muted)]">
-            <File className="w-3.5 h-3.5" />
+          <span className="w-4 h-4 flex items-center justify-center shrink-0">
+            <FileTypeIcon filename={entry.name} />
           </span>
         </>
       )}
