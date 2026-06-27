@@ -129,7 +129,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       {/* Tab bar */}
-      <div className="flex items-center gap-0 border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 overflow-x-auto">
+      <div className="flex items-center gap-0 border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 overflow-x-auto scrollbar-none">
         {openTabs.map((tab, i) => {
           const isActive = i === activeTabIndex;
           return (
@@ -155,31 +155,29 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
             </div>
           );
         })}
-
-        {/* Markdown preview/edit toggle */}
-        {isMd && (
-          <div className="ml-auto flex items-center pr-2">
-            <button
-              onClick={() => setMdPreview(!mdPreview)}
-              className="flex items-center gap-1 px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded cursor-pointer transition-colors"
-              title={mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
-            >
-              {mdPreview ? <Pencil className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-              {mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Breadcrumb */}
-      <div className="px-3 py-1 text-[11px] text-[var(--color-text-muted)] border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] truncate shrink-0">
-        {(() => {
-          const root = useFileStore.getState().rootPath;
-          if (root && filePath.startsWith(root)) {
-            return filePath.slice(root.length).replace(/^\//, '');
-          }
-          return filePath;
-        })()}
+      {/* Breadcrumb + MD toggle */}
+      <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0">
+        <div className="flex-1 px-3 py-1 text-[11px] text-[var(--color-text-muted)] truncate">
+          {(() => {
+            const root = useFileStore.getState().rootPath;
+            if (root && filePath.startsWith(root)) {
+              return filePath.slice(root.length).replace(/^\//, '');
+            }
+            return filePath;
+          })()}
+        </div>
+        {isMd && (
+          <button
+            onClick={() => setMdPreview(!mdPreview)}
+            className="flex items-center gap-1 px-2 py-0.5 mr-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded cursor-pointer transition-colors shrink-0"
+            title={mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
+          >
+            {mdPreview ? <Pencil className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            {mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
+          </button>
+        )}
       </div>
 
       {/* Content */}

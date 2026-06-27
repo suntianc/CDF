@@ -1037,6 +1037,13 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   display: none; /* Chrome, Safari, Opera */
 }
 
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 .message {
   max-width: 80%;
   padding: 8px 0;
