@@ -711,6 +711,7 @@
     "createFolderFailed": "Failed to create folder: {{message}}",
     "renameFailed": "Failed to rename: {{message}}",
     "deleteFailed": "Failed to delete: {{message}}",
+    "togglePanel": "File panel",
     "collapsePanel": "Collapse file panel",
     "showTree": "Show file tree",
     "hideTree": "Hide file tree"

@@ -981,6 +981,16 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   outline: none;
 }
 
+.file-filter-input:focus,
+.file-filter-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.file-panel-resizing .task-panel-container {
+  transition: none !important;
+}
+
 /* ─── Reduced motion ───
    Honor the user's OS-level motion preference. All CSS animations and
    transitions across the surface are reduced to instant or near-

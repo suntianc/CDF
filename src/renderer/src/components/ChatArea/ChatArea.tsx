@@ -3,14 +3,14 @@ import { toast } from 'sonner';
 import { useTranslation, Trans } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
+import { useFileStore } from '../../stores/fileStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import {
   ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
-  ChevronDown, Plus, Sliders, Layers, PanelLeft, SlidersHorizontal, Copy, Check,
-  ChevronUp, Brain, Loader2, FolderTree
+  ChevronDown, Plus, Sliders, Layers, SlidersHorizontal, Copy, Check,
+  ChevronUp, Brain, Loader2
 } from 'lucide-react';
-import { useFileStore } from '../../stores/fileStore';
 import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessageCard';
 
 import { MessageItem, formatHMSTime } from './MessageItem';
@@ -225,25 +225,6 @@ function getTokenColorClass(t: LeadingToken): string {
   }
 }
 
-function FilePanelToggle() {
-  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
-  const toggleFilePanel = useFileStore((s) => s.toggleFilePanel);
-  return (
-    <button
-      onClick={toggleFilePanel}
-      className={`w-11 h-11 flex items-center justify-center cursor-pointer rounded-md transition-all ${
-        filePanelOpen
-          ? 'text-[var(--color-accent)]'
-          : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-      }`}
-      title="文件面板"
-      aria-label="文件面板"
-    >
-      <FolderTree className="w-3.5 h-3.5" />
-    </button>
-  );
-}
-
 export function ChatArea({
   onOpenSettings,
   sidebarCollapsed,
@@ -253,6 +234,7 @@ export function ChatArea({
   onOpenTaskPanel
 }: ChatAreaProps) {
   const { t } = useTranslation();
+  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
   const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
   const { 
     sessions, activeSessionId, messages, isStreaming, streamingMessageId, activeRunId, error, todos,
@@ -1565,16 +1547,15 @@ export function ChatArea({
         }`}
       >
         {/* Chat Header */}
-        <header className="main-topbar">
+        <header className="main-topbar shrink-0 h-9">
 
           <div className="main-topbar-left" />
           
           {/* Right Header Toolbar */}
-          <div className="main-topbar-right flex items-center gap-2 ml-auto no-drag">
-            <FilePanelToggle />
+          <div className={`main-topbar-right flex items-center gap-2 ml-auto no-drag ${filePanelOpen ? '-mr-4' : 'mr-2'}`}>
             <button
               onClick={onToggleTaskPanel}
-              className={`w-11 h-11 flex items-center justify-center cursor-pointer rounded-md transition-all ${
+              className={`w-7 h-7 flex items-center justify-center cursor-pointer rounded transition-all ${
                 taskPanelOpen
                   ? 'text-[var(--color-accent)]'
                   : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'

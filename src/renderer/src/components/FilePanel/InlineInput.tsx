@@ -12,6 +12,7 @@ interface InlineInputProps {
 export function InlineInput({ depth, icon, defaultValue = '', onSubmit, onCancel }: InlineInputProps) {
   const [value, setValue] = useState(defaultValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isFinishedRef = useRef(false);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -28,13 +29,25 @@ export function InlineInput({ depth, icon, defaultValue = '', onSubmit, onCancel
     if (e.key === 'Enter') {
       const trimmed = value.trim();
       if (trimmed && trimmed !== defaultValue) {
+        isFinishedRef.current = true;
         onSubmit(trimmed);
-      } else if (!trimmed) {
-        onCancel();
       } else {
+        isFinishedRef.current = true;
         onCancel();
       }
     } else if (e.key === 'Escape') {
+      isFinishedRef.current = true;
+      onCancel();
+    }
+  };
+
+  const handleBlur = () => {
+    if (isFinishedRef.current) return;
+    isFinishedRef.current = true;
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== defaultValue) {
+      onSubmit(trimmed);
+    } else {
       onCancel();
     }
   };
@@ -54,7 +67,7 @@ export function InlineInput({ depth, icon, defaultValue = '', onSubmit, onCancel
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        onBlur={onCancel}
+        onBlur={handleBlur}
         className="flex-1 min-w-0 text-[12px] bg-[var(--color-bg-canvas)] text-[var(--color-text-primary)] border border-[var(--color-accent)] rounded px-1 py-0 outline-none"
       />
     </div>

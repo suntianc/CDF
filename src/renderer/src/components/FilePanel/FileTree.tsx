@@ -2,11 +2,19 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { useFileStore } from '../../stores/fileStore';
 import { FileTreeItem } from './FileTreeItem';
 import { FileTreeContextMenu, type ContextMenuAction } from './FileTreeContextMenu';
 import { InlineInput } from './InlineInput';
 import type { DirectoryEntry } from '../../../shared/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 async function loadDirectory(rootPath: string, dirPath: string) {
   const result = await window.electronAPI.fs.readDirectory(rootPath, dirPath);
@@ -177,6 +185,7 @@ function TreeNode({
 }
 
 export function FileTree() {
+  const { t } = useTranslation();
   const { rootPath, dirContents, dirErrors, loading: loadingMap, expandedDirs, toggleDir, setDirContents } = useFileStore();
   const rootEntries = rootPath ? dirContents[rootPath] : undefined;
   const rootError = rootPath ? dirErrors[rootPath] : undefined;
@@ -250,9 +259,17 @@ export function FileTree() {
       }
     } catch (err: any) {
       console.error('[FileTree] Operation failed:', err);
+      const errMsg = err?.message || '未知错误';
+      if (type === 'create-file') {
+        toast.error(t('filePanel.createFileFailed', { message: errMsg }));
+      } else if (type === 'create-dir') {
+        toast.error(t('filePanel.createFolderFailed', { message: errMsg }));
+      } else if (type === 'rename') {
+        toast.error(t('filePanel.renameFailed', { message: errMsg }));
+      }
     }
     setPendingInput(null);
-  }, [pendingInput, rootPath]);
+  }, [pendingInput, rootPath, t]);
 
   const handlePendingCancel = useCallback(() => {
     setPendingInput(null);
@@ -270,9 +287,10 @@ export function FileTree() {
       await refreshDir(rootPath, parentDir || rootPath);
     } catch (err: any) {
       console.error('[FileTree] Delete failed:', err);
+      toast.error(t('filePanel.deleteFailed', { message: err?.message || '未知错误' }));
     }
     setDeleteConfirm(null);
-  }, [deleteConfirm, rootPath]);
+  }, [deleteConfirm, rootPath, t]);
 
   const handleRetry = useCallback(() => {
     if (!rootPath) return;
@@ -320,6 +338,38 @@ export function FileTree() {
         const prevPath = items[prev].dataset.treePath;
         if (prevPath) setSelectedPath(prevPath);
         items[prev].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'ArrowRight' && currentIdx >= 0) {
+        const itemEl = items[currentIdx];
+        const isDir = itemEl.getAttribute('data-is-directory') === 'true';
+        const isExp = itemEl.getAttribute('data-is-expanded') === 'true';
+        if (isDir && !isExp) {
+          e.preventDefault();
+          itemEl.click();
+        }
+      } else if (e.key === 'ArrowLeft' && currentIdx >= 0) {
+        const itemEl = items[currentIdx];
+        const isDir = itemEl.getAttribute('data-is-directory') === 'true';
+        const isExp = itemEl.getAttribute('data-is-expanded') === 'true';
+        if (isDir && isExp) {
+          e.preventDefault();
+          itemEl.click();
+        } else {
+          e.preventDefault();
+          const currentPath = itemEl.getAttribute('data-tree-path');
+          if (currentPath) {
+            const lastSlash = currentPath.lastIndexOf('/');
+            if (lastSlash > 0) {
+              const parentPath = currentPath.substring(0, lastSlash);
+              const parentItem = Array.from(items).find(
+                (item) => item.dataset.treePath === parentPath
+              );
+              if (parentItem) {
+                setSelectedPath(parentPath);
+                parentItem.scrollIntoView({ block: 'nearest' });
+              }
+            }
+          }
+        }
       } else if (e.key === 'Enter' && currentIdx >= 0) {
         e.preventDefault();
         items[currentIdx].click();
@@ -419,27 +469,30 @@ function DeleteConfirmDialog({ name, isDirectory, onConfirm, onCancel }: {
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-      if (e.key === 'Enter') onConfirm();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
+      }
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [onCancel, onConfirm]);
+  }, [onConfirm]);
 
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
-      <div
-        ref={dialogRef}
-        className="bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-xl p-5 max-w-sm w-full mx-4"
-      >
-        <p className="text-[13px] text-[var(--color-text-primary)] mb-4">
+  return (
+    <Dialog open={true} onOpenChange={(open) => { if (!open) onCancel(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            {t('filePanel.deleteTitle')}
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-[13px] text-[var(--color-text-primary)] mb-2 mt-1">
           {t('filePanel.deleteConfirm', { name, type: isDirectory ? t('filePanel.folder') : t('filePanel.file') })}
         </p>
-        <div className="flex justify-end gap-2">
+        <DialogFooter className="flex justify-end gap-2 mt-4">
           <button
             onClick={onCancel}
             className="px-3 py-1.5 text-[12px] rounded border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] cursor-pointer transition-colors"
@@ -452,9 +505,8 @@ function DeleteConfirmDialog({ name, isDirectory, onConfirm, onCancel }: {
           >
             {t('filePanel.delete')}
           </button>
-        </div>
-      </div>
-    </div>,
-    document.body
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

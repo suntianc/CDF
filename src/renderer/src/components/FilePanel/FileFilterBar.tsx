@@ -5,7 +5,7 @@ export function FileFilterBar() {
   const { filterQuery, setFilterQuery } = useFileStore();
 
   return (
-    <div className="px-2 py-1.5 border-b border-[var(--color-border)]">
+    <div className="px-2 py-1.5 bg-[var(--color-bg-surface)]">
       <div className="flex items-center gap-1.5 bg-[var(--color-bg-sunken)] rounded px-2 py-1">
         <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
         <input
@@ -13,7 +13,7 @@ export function FileFilterBar() {
           value={filterQuery}
           onChange={(e) => setFilterQuery(e.target.value)}
           placeholder="筛选文件..."
-          className="flex-1 bg-transparent text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none"
+          className="file-filter-input flex-1 bg-transparent text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none"
         />
         {filterQuery && (
           <button

@@ -1,16 +1,19 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { X, FolderTree } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useFileStore } from '../../stores/fileStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { FileFilterBar } from './FileFilterBar';
 import { FileTree } from './FileTree';
 import { EditorPane } from './EditorPane';
+import { FileTypeIcon } from './FileTypeIcon';
 
 const MIN_PANEL_WIDTH = 200;
 const MIN_CHAT_WIDTH_PCT = 0.40;   // 主对话面板的最小占比 (40%)
 const MIN_EDITOR_WIDTH = 420;      // 预览模式下的最小物理宽度 (220px 文件树 + 200px 编辑器)
 
 export function FilePanel() {
+  const { t } = useTranslation();
   const {
     filePanelOpen,
     filePanelMode,
@@ -18,18 +21,31 @@ export function FilePanel() {
     rootPath,
     previewFile,
     fileTreeCollapsed,
+    openTabs,
+    activeTabIndex,
+    dirtyTabs,
     setFilePanelOpen,
     setFilePanelWidth,
     setRootPath,
     setDirContents,
     setDirError,
     setLoading,
+    closeTab,
+    setActiveTab,
   } = useFileStore();
 
   const { projects, currentProjectId } = useProjectStore();
   const resizeRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [mainWidth, setMainWidth] = useState(window.innerWidth);
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--file-panel-width',
+      `${filePanelOpen ? filePanelWidth : 0}px`
+    );
+  }, [filePanelOpen, filePanelWidth]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
@@ -138,6 +154,8 @@ export function FilePanel() {
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
+      setIsResizing(true);
+      document.documentElement.classList.add('file-panel-resizing');
       const startX = e.clientX;
       const startWidth = filePanelWidth;
       const mainEl = resizeRef.current?.closest('main');
@@ -158,17 +176,19 @@ export function FilePanel() {
       };
 
       const onUp = () => {
+        setIsResizing(false);
+        document.documentElement.classList.remove('file-panel-resizing');
+        document.body.style.userSelect = '';
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       };
 
+      document.body.style.userSelect = 'none';
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     },
     [filePanelWidth, setFilePanelWidth]
   );
-
-  if (!filePanelOpen) return null;
 
   const isEditorMode = filePanelMode === 'editor' && previewFile;
   const showFileTree = !(isEditorMode && fileTreeCollapsed);
@@ -177,51 +197,101 @@ export function FilePanel() {
     ? Math.min(showFileTree ? MIN_EDITOR_WIDTH : MIN_PANEL_WIDTH, Math.max(0, mainWidth * (1 - MIN_CHAT_WIDTH_PCT)))
     : Math.min(MIN_PANEL_WIDTH, Math.max(0, mainWidth * (1 - MIN_CHAT_WIDTH_PCT)));
 
+  const currentWidth = filePanelOpen ? filePanelWidth : 0;
+  const minW = filePanelOpen ? currentMinW : 0;
+
   return (
     <div
       ref={panelRef}
-      className="h-full border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex overflow-hidden relative"
-      style={{ width: filePanelWidth, minWidth: currentMinW }}
+      className={`h-full bg-[var(--color-bg-surface)] flex flex-col overflow-hidden relative ${
+        isResizing ? 'transition-none' : 'transition-all duration-300 ease-in-out'
+      } ${
+        filePanelOpen
+          ? 'border-l border-[var(--color-border)] opacity-100'
+          : 'border-l-0 opacity-0 pointer-events-none'
+      }`}
+      style={{ width: currentWidth, minWidth: minW }}
     >
-      {/* Editor pane (left side in editor mode) */}
-      {isEditorMode && (
-        <EditorPane
-          filePath={previewFile.path}
-          fileName={previewFile.name}
-          content={previewFile.content}
-        />
-      )}
-
-      {/* File tree column — hidden when collapsed in editor mode */}
-      {!(isEditorMode && fileTreeCollapsed) && (
-        <div className={`flex flex-col ${isEditorMode ? 'w-[220px] shrink-0 border-l border-[var(--color-border)]' : 'flex-1'}`}>
-          {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
-            <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--color-text-secondary)]">
-              <FolderTree className="w-3.5 h-3.5" />
-              <span className="truncate max-w-[140px]">
-                {currentProject?.name || '文件'}
-              </span>
-            </div>
-            <button
-              onClick={() => setFilePanelOpen(false)}
-              className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+      {/* Shared Tab Bar (only visible when in editor mode and there are open tabs) */}
+      {isEditorMode && openTabs.length > 0 && (
+        <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 h-9 relative">
+          {/* Left: Tabs */}
+          <div className="flex-1 flex items-center gap-0 overflow-x-auto scrollbar-none h-full mr-10">
+            {openTabs.map((tab, i) => {
+              const isActive = i === activeTabIndex;
+              const isDirty = dirtyTabs[tab.path] ?? false;
+              return (
+                <div
+                  key={tab.path}
+                  className={`flex items-center gap-1.5 px-3 h-full border-r border-[var(--color-border)] text-[12px] cursor-pointer shrink-0 transition-colors ${
+                    isActive
+                      ? 'bg-[var(--color-bg-canvas)] text-[var(--color-text-primary)] font-medium border-t-2 border-t-[var(--color-accent)]'
+                      : 'bg-[var(--color-bg-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
+                  }`}
+                  onClick={() => setActiveTab(i)}
+                >
+                  <FileTypeIcon filename={tab.name} className="w-3.5 h-3.5" />
+                  <span className="truncate max-w-[120px]">{tab.name}</span>
+                  {isDirty && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); closeTab(i); }}
+                    className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
-
-          <FileFilterBar />
-          <FileTree />
         </div>
       )}
 
+      {/* Main Content Area: Editor + File Tree */}
+      <div className="flex-1 flex overflow-hidden min-h-0 relative">
+        {isEditorMode ? (
+          <>
+            <EditorPane
+              filePath={previewFile.path}
+              fileName={previewFile.name}
+              content={previewFile.content}
+            />
+            <div
+              className={`absolute top-8 right-0 bottom-0 w-[240px] z-10 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col shadow-md transition-all duration-300 ease-in-out ${
+                showFileTree
+                  ? 'translate-x-0 opacity-100 pointer-events-auto'
+                  : 'translate-x-full opacity-0 pointer-events-none'
+              }`}
+            >
+              <FileFilterBar />
+              <FileTree />
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col flex-1">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
+              <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--color-text-secondary)]">
+                <FolderTree className="w-3.5 h-3.5" />
+                <span className="truncate max-w-[140px]">
+                  {currentProject?.name || '文件'}
+                </span>
+              </div>
+            </div>
+            <FileFilterBar />
+            <FileTree />
+          </div>
+        )}
+      </div>
+
       {/* Resize handle — visual 1px, hit area 8px */}
-      <div
-        ref={resizeRef}
-        onMouseDown={handleResizeStart}
-        className="absolute left-0 top-0 bottom-0 w-[1px] cursor-col-resize hover:bg-[var(--color-accent)] transition-colors before:absolute before:inset-y-0 before:-left-[3px] before:w-[8px] before:content-['']"
-      />
+      {filePanelOpen && (
+        <div
+          ref={resizeRef}
+          onMouseDown={handleResizeStart}
+          className="absolute left-0 top-0 bottom-0 w-[1px] cursor-col-resize hover:bg-[var(--color-accent)] transition-colors before:absolute before:inset-y-0 before:-left-[3px] before:w-[8px] before:content-['']"
+        />
+      )}
     </div>
   );
 }

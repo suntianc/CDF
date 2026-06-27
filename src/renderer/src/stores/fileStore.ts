@@ -22,6 +22,8 @@ interface FileState {
   previewFile: PreviewFile | null;
   selectedPath: string | null;
   fileTreeCollapsed: boolean;
+  dirtyTabs: Record<string, boolean>;
+  setTabDirty: (path: string, dirty: boolean) => void;
 
   setFilePanelOpen: (open: boolean) => void;
   toggleFilePanel: () => void;
@@ -59,12 +61,14 @@ export const useFileStore = create<FileState>((set) => ({
   previewFile: null,
   selectedPath: null,
   fileTreeCollapsed: false,
+  dirtyTabs: {},
 
   setFilePanelOpen: (open) => set({ filePanelOpen: open }),
   toggleFilePanel: () => set((s) => ({ filePanelOpen: !s.filePanelOpen })),
   setFilePanelMode: (mode) => set({ filePanelMode: mode }),
   setFilePanelWidth: (width) => set({ filePanelWidth: width }),
-  setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null, fileTreeCollapsed: false }),
+  setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null, fileTreeCollapsed: false, dirtyTabs: {} }),
+  setTabDirty: (path, dirty) => set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [path]: dirty } })),
 
   toggleDir: (path) =>
     set((s) => ({
@@ -122,15 +126,19 @@ export const useFileStore = create<FileState>((set) => ({
 
   closeTab: (index) =>
     set((s) => {
+      const tab = s.openTabs[index];
+      const nextDirty = { ...s.dirtyTabs };
+      if (tab) delete nextDirty[tab.path];
       const tabs = s.openTabs.filter((_, i) => i !== index);
       if (tabs.length === 0) {
-        return { openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280 };
+        return { openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, dirtyTabs: nextDirty };
       }
       const newIndex = index >= tabs.length ? tabs.length - 1 : index;
       return {
         openTabs: tabs,
         activeTabIndex: newIndex,
         previewFile: tabs[newIndex],
+        dirtyTabs: nextDirty,
       };
     }),
 
@@ -144,7 +152,7 @@ export const useFileStore = create<FileState>((set) => ({
     }),
 
   closePreview: () =>
-    set({ openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280 }),
+    set({ openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, dirtyTabs: {} }),
 
   setSelectedPath: (path) => set({ selectedPath: path }),
 

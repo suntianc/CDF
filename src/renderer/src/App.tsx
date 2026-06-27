@@ -17,7 +17,8 @@ import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
 
 import { Workflow } from '../shared/types';
-import { PanelLeft } from 'lucide-react';
+import { PanelLeft, PanelRight } from 'lucide-react';
+import { useFileStore } from './stores/fileStore';
 import { Toaster } from 'sonner';
 import type { TaskPanelProps } from './components/TaskPanel/TaskPanel';
 import { FilePanel } from './components/FilePanel/FilePanel';
@@ -75,6 +76,26 @@ class TaskPanelErrorBoundary extends Component<
       </div>
     );
   }
+}
+
+function FilePanelToggleButton() {
+  const { t } = useTranslation();
+  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
+  const toggleFilePanel = useFileStore((s) => s.toggleFilePanel);
+  return (
+    <button
+      onClick={toggleFilePanel}
+      className={`absolute top-[5px] right-[8px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] rounded-full transition-all no-drag after:absolute after:inset-[-8px] after:content-[''] border ${
+        filePanelOpen
+          ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border-[var(--color-border)] shadow-sm opacity-100'
+          : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-transparent opacity-60 hover:opacity-100'
+      }`}
+      title={t('filePanel.togglePanel', '文件面板')}
+      aria-label={t('filePanel.togglePanel', '文件面板')}
+    >
+      <PanelRight className="w-4 h-4" />
+    </button>
+  );
 }
 
 export default function App() {
@@ -188,11 +209,18 @@ export default function App() {
           <PanelLeft className="w-4 h-4" />
         </button>
       )}
+
+      {activeView === 'chat' && <FilePanelToggleButton />}
       <Toaster richColors position="bottom-right" theme={theme === 'system' ? 'system' : theme} />
       <ContextModal />
 
       {taskPanelMounted && (
-        <div className={`absolute top-14 right-2 z-50 ${activeView === 'chat' && taskPanelOpen ? '' : 'pointer-events-none'}`}>
+        <div
+          className={`task-panel-container absolute top-14 z-50 transition-[right] duration-300 ease-in-out ${
+            activeView === 'chat' && taskPanelOpen ? '' : 'pointer-events-none'
+          }`}
+          style={{ right: 'calc(var(--file-panel-width, 0px) + 8px)' }}
+        >
           <TaskPanelErrorBoundary
             isOpen={activeView === 'chat' && taskPanelOpen}
             message={t('taskPanel.loadFailed')}

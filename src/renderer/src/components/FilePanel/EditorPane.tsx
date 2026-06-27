@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { X, Eye, Pencil, ChevronRight, PanelRightClose, PanelRight } from 'lucide-react';
+import { X, Eye, Pencil, ChevronRight, PanelRightClose, PanelRight, Folder } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../../stores/themeStore';
 import { useFileStore } from '../../stores/fileStore';
@@ -57,6 +57,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
   const setFilePanelOpen = useFileStore((s) => s.setFilePanelOpen);
   const fileTreeCollapsed = useFileStore((s) => s.fileTreeCollapsed);
   const toggleFileTreeCollapsed = useFileStore((s) => s.toggleFileTreeCollapsed);
+  const setTabDirty = useFileStore((s) => s.setTabDirty);
 
   editedRef.current = editedContent;
 
@@ -65,9 +66,10 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
     setEditedContent(content);
     savedContentRef.current = content;
     setIsDirty(false);
+    setTabDirty(filePath, false);
     setMdPreview(language === 'markdown');
     filePathRef.current = filePath;
-  }, [filePath, content, language]);
+  }, [filePath, content, language, setTabDirty]);
 
   useEffect(() => {
     window.electronAPI.store.get('autoSave').then((v: unknown) => {
@@ -87,11 +89,12 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
       savedContentRef.current = contentToSave;
       if (editedRef.current === contentToSave) {
         setIsDirty(false);
+        setTabDirty(currentPath, false);
       }
     } catch (err: any) {
       console.error('[EditorPane] Save error:', err);
     }
-  }, [rootPath]);
+  }, [rootPath, setTabDirty]);
 
   const save = useCallback(() => {
     if (!isDirty) return;
@@ -115,6 +118,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
     editedRef.current = newContent;
     const dirty = newContent !== savedContentRef.current;
     setIsDirty(dirty);
+    setTabDirty(filePathRef.current, dirty);
 
     if (autoSave && dirty) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -122,7 +126,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
         performSave(editedRef.current);
       }, 1000);
     }
-  }, [autoSave, performSave]);
+  }, [autoSave, performSave, setTabDirty]);
 
   useEffect(() => {
     return () => {
@@ -132,38 +136,8 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 group/editor">
-      {/* Tab bar */}
-      <div className="flex items-center gap-0 border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 overflow-x-auto scrollbar-none">
-        {openTabs.map((tab, i) => {
-          const isActive = i === activeTabIndex;
-          return (
-            <div
-              key={tab.path}
-              className={`flex items-center gap-1.5 px-3 py-1.5 border-r border-[var(--color-border)] text-[12px] cursor-pointer shrink-0 transition-colors ${
-                isActive
-                  ? 'bg-[var(--color-bg-canvas)] text-[var(--color-text-primary)]'
-                  : 'bg-[var(--color-bg-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
-              }`}
-              onClick={() => setActiveTab(i)}
-            >
-              <FileTypeIcon filename={tab.name} className="w-3.5 h-3.5" />
-              <span className="truncate max-w-[120px]">{tab.name}</span>
-              {isActive && isDirty && (
-                <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
-              )}
-              <button
-                onClick={(e) => { e.stopPropagation(); closeTab(i); }}
-                className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
       {/* Breadcrumb + MD toggle + panel collapse */}
-      <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0">
+      <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 h-8">
         <div className="flex-1 flex items-center gap-0 px-3 py-1 text-[11px] text-[var(--color-text-muted)] truncate min-w-0">
           {(() => {
             const root = useFileStore.getState().rootPath;
@@ -175,27 +149,33 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
             return segments.map((seg, i) => (
               <span key={i} className="flex items-center gap-0 shrink-0">
                 {i > 0 && <ChevronRight className="w-3 h-3 mx-0.5 text-[var(--color-text-muted)]/50 shrink-0" />}
-                <span className={i === segments.length - 1 ? 'text-[var(--color-text-primary)]' : ''}>{seg}</span>
+                <span className={i === segments.length - 1 ? 'text-[var(--color-text-primary)] font-medium' : ''}>{seg}</span>
               </span>
             ));
           })()}
         </div>
-        {isMd && (
+        <div className="flex items-center gap-2 px-2 shrink-0">
+          {isMd && (
+            <button
+              onClick={() => setMdPreview(!mdPreview)}
+              className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded cursor-pointer transition-colors shrink-0"
+              title={mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
+            >
+              {mdPreview ? <Pencil className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            </button>
+          )}
           <button
-            onClick={() => setMdPreview(!mdPreview)}
-            className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded cursor-pointer transition-colors shrink-0"
-            title={mdPreview ? t('filePanel.editSource') : t('filePanel.preview')}
+            onClick={toggleFileTreeCollapsed}
+            className={`p-1 rounded cursor-pointer transition-all shrink-0 border ${
+              !fileTreeCollapsed
+                ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border-[var(--color-border)] shadow-sm'
+                : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-transparent'
+            }`}
+            title={fileTreeCollapsed ? t('filePanel.showTree', '显示文件树') : t('filePanel.hideTree', '隐藏文件树')}
           >
-            {mdPreview ? <Pencil className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            <Folder className="w-3.5 h-3.5" />
           </button>
-        )}
-        <button
-          onClick={() => setFilePanelOpen(false)}
-          className="p-1 mr-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors shrink-0"
-          title={t('filePanel.collapsePanel', '收起面板')}
-        >
-          <PanelRightClose className="w-3.5 h-3.5" />
-        </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -233,14 +213,6 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
             />
           </Suspense>
         )}
-        {/* Floating file tree toggle */}
-        <button
-          onClick={toggleFileTreeCollapsed}
-          className="absolute top-2 right-2 p-1 rounded bg-[var(--color-bg-surface)]/80 hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-all opacity-0 hover:opacity-100 focus:opacity-100 group-hover/editor:opacity-60 z-10 border border-[var(--color-border)]/30"
-          title={fileTreeCollapsed ? t('filePanel.showTree', '显示文件树') : t('filePanel.hideTree', '隐藏文件树')}
-        >
-          {fileTreeCollapsed ? <PanelRight className="w-3.5 h-3.5" /> : <PanelRightClose className="w-3.5 h-3.5" />}
-        </button>
       </div>
     </div>
   );
