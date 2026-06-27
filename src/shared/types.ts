@@ -665,6 +665,14 @@ export interface ElectronAPI {
     readFile: (rootPath: string, filePath: string) => Promise<{ ok: true; data: FileContent | BinaryFileInfo } | { ok: false; error: FileError }>;
     getFileInfo: (rootPath: string, filePath: string) => Promise<{ ok: true; data: FileInfo } | { ok: false; error: FileError }>;
     onDirectoryChange: (callback: (event: any, data: { type: string; path: string }) => void) => () => void;
+    writeFile: (rootPath: string, filePath: string, content: string) => Promise<{ ok: true } | { ok: false; error: FileError }>;
+    createFile: (rootPath: string, filePath: string) => Promise<{ ok: true } | { ok: false; error: FileError }>;
+    createDirectory: (rootPath: string, dirPath: string) => Promise<{ ok: true } | { ok: false; error: FileError }>;
+    renameEntry: (rootPath: string, oldPath: string, newName: string) => Promise<{ ok: true } | { ok: false; error: FileError }>;
+    trashEntry: (rootPath: string, targetPath: string) => Promise<{ ok: true } | { ok: false; error: FileError }>;
+    showItemInFolder: (filePath: string) => Promise<{ ok: true }>;
+    watchDirectory: (rootPath: string, dirPath: string) => Promise<{ ok: true } | { ok: false; error: FileError }>;
+    unwatchDirectory: (dirPath: string) => Promise<{ ok: true }>;
   };
   // ===== Phase 6 Plan 02: Slash Command Registry Bridge (D-15) =====
   commands: {

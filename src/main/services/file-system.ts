@@ -1,4 +1,5 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { isProtectedPath, resolveProjectFile } from '../utils/path-safety';
 import { loadGitignore, toPosix } from '../at-mention/gitignore-loader';
@@ -15,15 +16,15 @@ function isBinary(buffer: Buffer): boolean {
   return false;
 }
 
-export function readDirectory(
+export async function readDirectory(
   rootPath: string,
   dirPath: string,
   showHidden = false
-): DirectoryEntry[] {
+): Promise<DirectoryEntry[]> {
   const resolved = resolveProjectFile(rootPath, dirPath);
   const ig = loadGitignore(rootPath);
 
-  const entries = fs.readdirSync(resolved, { withFileTypes: true });
+  const entries = await fsp.readdir(resolved, { withFileTypes: true });
   const result: DirectoryEntry[] = [];
 
   for (const entry of entries) {
@@ -38,7 +39,7 @@ export function readDirectory(
     let mtimeMs: number | undefined;
 
     try {
-      const stat = fs.statSync(fullPath);
+      const stat = await fsp.stat(fullPath);
       size = stat.size;
       mtimeMs = stat.mtimeMs;
     } catch {
@@ -62,30 +63,30 @@ export function readDirectory(
   return result;
 }
 
-export function readFile(
+export async function readFile(
   rootPath: string,
   filePath: string
-): FileContent | BinaryFileInfo {
+): Promise<FileContent | BinaryFileInfo> {
   const resolved = resolveProjectFile(rootPath, filePath);
-  const stat = fs.statSync(resolved);
+  const stat = await fsp.stat(resolved);
 
   if (stat.size > MAX_FILE_SIZE) {
     throw { code: 'ETOOLARGE', message: `File exceeds 50MB limit: ${stat.size} bytes` };
   }
 
-  const fd = fs.openSync(resolved, 'r');
+  const fh = await fsp.open(resolved, 'r');
   try {
     const detectBuf = Buffer.alloc(Math.min(MAX_TEXT_DETECT_BYTES, stat.size));
-    fs.readSync(fd, detectBuf, 0, detectBuf.length, 0);
+    await fh.read(detectBuf, 0, detectBuf.length, 0);
 
     if (isBinary(detectBuf)) {
       return { binary: true, size: stat.size, mtimeMs: stat.mtimeMs };
     }
   } finally {
-    fs.closeSync(fd);
+    await fh.close();
   }
 
-  const content = fs.readFileSync(resolved, 'utf-8');
+  const content = await fsp.readFile(resolved, 'utf-8');
   return {
     content,
     encoding: 'utf-8',
@@ -94,12 +95,12 @@ export function readFile(
   };
 }
 
-export function getFileInfo(
+export async function getFileInfo(
   rootPath: string,
   filePath: string
-): FileInfo {
+): Promise<FileInfo> {
   const resolved = resolveProjectFile(rootPath, filePath);
-  const stat = fs.lstatSync(resolved);
+  const stat = await fsp.lstat(resolved);
 
   return {
     name: path.basename(resolved),
@@ -110,6 +111,90 @@ export function getFileInfo(
     mtimeMs: stat.mtimeMs,
     ctimeMs: stat.ctimeMs,
   };
+}
+
+export async function writeFile(
+  rootPath: string,
+  filePath: string,
+  content: string
+): Promise<void> {
+  const resolved = resolveProjectFile(rootPath, filePath);
+  if (isProtectedPath(resolved)) {
+    throw new Error(`Cannot write to protected path: ${filePath}`);
+  }
+  await fsp.writeFile(resolved, content, 'utf-8');
+}
+
+export async function createFile(
+  rootPath: string,
+  filePath: string
+): Promise<void> {
+  const resolved = resolveProjectFile(rootPath, filePath);
+  if (isProtectedPath(resolved)) {
+    throw new Error(`Cannot create protected path: ${filePath}`);
+  }
+  try {
+    await fsp.access(resolved);
+    throw new Error(`File already exists: ${filePath}`);
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  await fsp.writeFile(resolved, '', 'utf-8');
+}
+
+export async function createDirectory(
+  rootPath: string,
+  dirPath: string
+): Promise<void> {
+  const resolved = resolveProjectFile(rootPath, dirPath);
+  if (isProtectedPath(resolved)) {
+    throw new Error(`Cannot create protected path: ${dirPath}`);
+  }
+  try {
+    await fsp.access(resolved);
+    throw new Error(`Directory already exists: ${dirPath}`);
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  await fsp.mkdir(resolved);
+}
+
+export async function renameEntry(
+  rootPath: string,
+  oldPath: string,
+  newName: string
+): Promise<void> {
+  if (newName.includes('/') || newName.includes('\\') || newName === '..' || newName === '.') {
+    throw new Error(`Invalid new name: ${newName}`);
+  }
+  const resolvedOld = resolveProjectFile(rootPath, oldPath);
+  if (isProtectedPath(resolvedOld)) {
+    throw new Error(`Cannot rename protected path: ${oldPath}`);
+  }
+  const newPath = path.join(path.dirname(resolvedOld), newName);
+  const resolvedNew = resolveProjectFile(rootPath, newPath);
+  if (isProtectedPath(resolvedNew)) {
+    throw new Error(`Cannot rename to protected path: ${newName}`);
+  }
+  try {
+    await fsp.access(resolvedNew);
+    throw new Error(`Target already exists: ${newName}`);
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  await fsp.rename(resolvedOld, resolvedNew);
+}
+
+export async function trashEntry(
+  rootPath: string,
+  targetPath: string
+): Promise<void> {
+  const resolved = resolveProjectFile(rootPath, targetPath);
+  if (isProtectedPath(resolved)) {
+    throw new Error(`Cannot delete protected path: ${targetPath}`);
+  }
+  const { shell } = await import('electron');
+  await shell.trashItem(resolved);
 }
 
 export { isProtectedPath, resolveProjectFile, LARGE_FILE_SIZE };

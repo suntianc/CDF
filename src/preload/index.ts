@@ -130,6 +130,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('fs:directoryChange', listener);
       return () => { ipcRenderer.removeListener('fs:directoryChange', listener); };
     },
+    writeFile: (rootPath: string, filePath: string, content: string) =>
+      ipcRenderer.invoke('fs:writeFile', rootPath, filePath, content),
+    createFile: (rootPath: string, filePath: string) =>
+      ipcRenderer.invoke('fs:createFile', rootPath, filePath),
+    createDirectory: (rootPath: string, dirPath: string) =>
+      ipcRenderer.invoke('fs:createDirectory', rootPath, dirPath),
+    renameEntry: (rootPath: string, oldPath: string, newName: string) =>
+      ipcRenderer.invoke('fs:renameEntry', rootPath, oldPath, newName),
+    trashEntry: (rootPath: string, targetPath: string) =>
+      ipcRenderer.invoke('fs:trashEntry', rootPath, targetPath),
+    showItemInFolder: (filePath: string) =>
+      ipcRenderer.invoke('fs:showItemInFolder', filePath),
+    watchDirectory: (rootPath: string, dirPath: string) =>
+      ipcRenderer.invoke('fs:watchDirectory', rootPath, dirPath),
+    unwatchDirectory: (dirPath: string) =>
+      ipcRenderer.invoke('fs:unwatchDirectory', dirPath),
   },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {

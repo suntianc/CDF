@@ -686,5 +686,21 @@
       "reviewMissingSpec": "审查节点「{{label}}」缺少规范",
       "conditionalEdgeMissingValue": "条件边 {{id}} 缺少匹配值"
     }
+  },
+  "filePanel": {
+    "newFile": "新建文件",
+    "newFolder": "新建文件夹",
+    "rename": "重命名",
+    "delete": "删除",
+    "copyPath": "复制路径",
+    "revealInFinder": "在 Finder 中打开",
+    "file": "文件",
+    "folder": "文件夹",
+    "deleteConfirm": "确定要删除{{type}}「{{name}}」吗？删除后可从系统回收站恢复。",
+    "unsaved": "未保存",
+    "autoSave": "自动保存",
+    "preview": "预览",
+    "editSource": "编辑",
+    "saveFailed": "保存失败：{{message}}"
   }
 }

@@ -1,7 +1,11 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, AlertCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useFileStore } from '../../stores/fileStore';
 import { FileTreeItem } from './FileTreeItem';
+import { FileTreeContextMenu, type ContextMenuAction } from './FileTreeContextMenu';
+import { InlineInput } from './InlineInput';
 import type { DirectoryEntry } from '../../../shared/types';
 
 async function loadDirectory(rootPath: string, dirPath: string) {
@@ -10,7 +14,39 @@ async function loadDirectory(rootPath: string, dirPath: string) {
   return result.data;
 }
 
-function TreeNode({ entry, depth }: { entry: DirectoryEntry; depth: number }) {
+async function refreshDir(rootPath: string, dirPath: string) {
+  const result = await window.electronAPI.fs.readDirectory(rootPath, dirPath);
+  if (result.ok) useFileStore.getState().setDirContents(dirPath, result.data);
+}
+
+interface PendingInput {
+  type: 'create-file' | 'create-dir' | 'rename';
+  parentPath: string;
+  entryPath?: string;
+  entryName?: string;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  entry: DirectoryEntry;
+}
+
+function TreeNode({
+  entry,
+  depth,
+  pendingInput,
+  onContextMenu,
+  onPendingSubmit,
+  onPendingCancel,
+}: {
+  entry: DirectoryEntry;
+  depth: number;
+  pendingInput: PendingInput | null;
+  onContextMenu: (e: React.MouseEvent, entry: DirectoryEntry) => void;
+  onPendingSubmit: (value: string) => void;
+  onPendingCancel: () => void;
+}) {
   const {
     rootPath,
     expandedDirs,
@@ -29,34 +65,41 @@ function TreeNode({ entry, depth }: { entry: DirectoryEntry; depth: number }) {
   const children = dirContents[entry.path];
   const isSelected = selectedPath === entry.path;
 
+  const isRenaming = pendingInput?.type === 'rename' && pendingInput.entryPath === entry.path;
+
   const handleToggle = useCallback(
     async (dirPath: string) => {
       if (!rootPath) return;
       const wasExpanded = expandedDirs[dirPath];
       toggleDir(dirPath);
 
-      if (!wasExpanded && !dirContents[dirPath]) {
-        setLoading(dirPath, true);
-        try {
-          const entries = await loadDirectory(rootPath, dirPath);
-          setDirContents(dirPath, entries);
-        } catch (err: any) {
-          console.error('[FileTree] Failed to load directory:', err);
-          setDirError(dirPath, err?.message || '加载失败');
-        } finally {
-          setLoading(dirPath, false);
+      if (!wasExpanded) {
+        window.electronAPI.fs.watchDirectory(rootPath, dirPath);
+        if (!dirContents[dirPath]) {
+          setLoading(dirPath, true);
+          try {
+            const entries = await loadDirectory(rootPath, dirPath);
+            setDirContents(dirPath, entries);
+          } catch (err: any) {
+            console.error('[FileTree] Failed to load directory:', err);
+            setDirError(dirPath, err?.message || '加载失败');
+          } finally {
+            setLoading(dirPath, false);
+          }
         }
+      } else {
+        window.electronAPI.fs.unwatchDirectory(dirPath);
       }
     },
     [rootPath, expandedDirs, dirContents, toggleDir, setDirContents, setDirError, setLoading]
   );
 
   const handleClick = useCallback(
-    async (entry: DirectoryEntry) => {
+    async (clickedEntry: DirectoryEntry) => {
       if (!rootPath) return;
-      useFileStore.getState().setSelectedPath(entry.path);
+      useFileStore.getState().setSelectedPath(clickedEntry.path);
       try {
-        const result = await window.electronAPI.fs.readFile(rootPath, entry.path);
+        const result = await window.electronAPI.fs.readFile(rootPath, clickedEntry.path);
         if (!result.ok) {
           console.error('[FileTree] Failed to read file:', result.error.message);
           return;
@@ -65,8 +108,8 @@ function TreeNode({ entry, depth }: { entry: DirectoryEntry; depth: number }) {
           return;
         }
         useFileStore.getState().openPreview({
-          path: entry.path,
-          name: entry.name,
+          path: clickedEntry.path,
+          name: clickedEntry.name,
           content: result.data.content,
         });
       } catch (err) {
@@ -80,34 +123,156 @@ function TreeNode({ entry, depth }: { entry: DirectoryEntry; depth: number }) {
     if (!entry.isDirectory) return null;
   }
 
+  const showPendingCreate = pendingInput &&
+    (pendingInput.type === 'create-file' || pendingInput.type === 'create-dir') &&
+    pendingInput.parentPath === entry.path;
+
   return (
     <>
-      <FileTreeItem
-        entry={entry}
-        depth={depth}
-        isExpanded={isExpanded}
-        isLoading={isLoading}
-        isSelected={isSelected}
-        onToggle={handleToggle}
-        onClick={handleClick}
-      />
-      {entry.isDirectory && isExpanded && children && (
-        <div>
-          {children.map((child) => (
-            <TreeNode key={child.path} entry={child} depth={depth + 1} />
+      {isRenaming ? (
+        <InlineInput
+          depth={depth}
+          icon={entry.isDirectory ? 'folder' : 'file'}
+          defaultValue={entry.name}
+          onSubmit={onPendingSubmit}
+          onCancel={onPendingCancel}
+        />
+      ) : (
+        <FileTreeItem
+          entry={entry}
+          depth={depth}
+          isExpanded={isExpanded}
+          isLoading={isLoading}
+          isSelected={isSelected}
+          onToggle={handleToggle}
+          onClick={handleClick}
+          onContextMenu={onContextMenu}
+        />
+      )}
+      {entry.isDirectory && isExpanded && (
+        <>
+          {showPendingCreate && (
+            <InlineInput
+              depth={depth + 1}
+              icon={pendingInput.type === 'create-dir' ? 'folder' : 'file'}
+              onSubmit={onPendingSubmit}
+              onCancel={onPendingCancel}
+            />
+          )}
+          {children?.map((child) => (
+            <TreeNode
+              key={child.path}
+              entry={child}
+              depth={depth + 1}
+              pendingInput={pendingInput}
+              onContextMenu={onContextMenu}
+              onPendingSubmit={onPendingSubmit}
+              onPendingCancel={onPendingCancel}
+            />
           ))}
-        </div>
+        </>
       )}
     </>
   );
 }
 
 export function FileTree() {
-  const { rootPath, dirContents, dirErrors, loading: loadingMap } = useFileStore();
+  const { rootPath, dirContents, dirErrors, loading: loadingMap, expandedDirs, toggleDir, setDirContents } = useFileStore();
   const rootEntries = rootPath ? dirContents[rootPath] : undefined;
   const rootError = rootPath ? dirErrors[rootPath] : undefined;
   const isLoading = rootPath ? loadingMap[rootPath] : false;
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [pendingInput, setPendingInput] = useState<PendingInput | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<DirectoryEntry | null>(null);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, entry: DirectoryEntry) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, entry });
+  }, []);
+
+  const handleContextAction = useCallback(async (action: ContextMenuAction) => {
+    if (!contextMenu || !rootPath) return;
+    const { entry } = contextMenu;
+
+    switch (action.type) {
+      case 'copyPath':
+        await navigator.clipboard.writeText(entry.path);
+        break;
+      case 'revealInFinder':
+        await window.electronAPI.fs.showItemInFolder(entry.path);
+        break;
+      case 'newFile': {
+        if (!expandedDirs[entry.path]) {
+          toggleDir(entry.path);
+          window.electronAPI.fs.watchDirectory(rootPath, entry.path);
+        }
+        setPendingInput({ type: 'create-file', parentPath: entry.path });
+        break;
+      }
+      case 'newFolder': {
+        if (!expandedDirs[entry.path]) {
+          toggleDir(entry.path);
+          window.electronAPI.fs.watchDirectory(rootPath, entry.path);
+        }
+        setPendingInput({ type: 'create-dir', parentPath: entry.path });
+        break;
+      }
+      case 'rename':
+        setPendingInput({ type: 'rename', parentPath: entry.path, entryPath: entry.path, entryName: entry.name });
+        break;
+      case 'delete':
+        setDeleteConfirm(entry);
+        break;
+    }
+  }, [contextMenu, rootPath, expandedDirs, toggleDir]);
+
+  const handlePendingSubmit = useCallback(async (value: string) => {
+    if (!pendingInput || !rootPath) return;
+    const { type, parentPath, entryPath } = pendingInput;
+
+    try {
+      if (type === 'create-file') {
+        const filePath = parentPath + '/' + value;
+        const result = await window.electronAPI.fs.createFile(rootPath, filePath);
+        if (!result.ok) throw new Error(result.error.message);
+        await refreshDir(rootPath, parentPath);
+      } else if (type === 'create-dir') {
+        const dirPath = parentPath + '/' + value;
+        const result = await window.electronAPI.fs.createDirectory(rootPath, dirPath);
+        if (!result.ok) throw new Error(result.error.message);
+        await refreshDir(rootPath, parentPath);
+      } else if (type === 'rename' && entryPath) {
+        const result = await window.electronAPI.fs.renameEntry(rootPath, entryPath, value);
+        if (!result.ok) throw new Error(result.error.message);
+        const parentDir = entryPath.substring(0, entryPath.lastIndexOf('/'));
+        await refreshDir(rootPath, parentDir || rootPath);
+      }
+    } catch (err: any) {
+      console.error('[FileTree] Operation failed:', err);
+    }
+    setPendingInput(null);
+  }, [pendingInput, rootPath]);
+
+  const handlePendingCancel = useCallback(() => {
+    setPendingInput(null);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm || !rootPath) return;
+    try {
+      const result = await window.electronAPI.fs.trashEntry(rootPath, deleteConfirm.path);
+      if (!result.ok) throw new Error(result.error.message);
+      if (deleteConfirm.isDirectory) {
+        window.electronAPI.fs.unwatchDirectory(deleteConfirm.path);
+      }
+      const parentDir = deleteConfirm.path.substring(0, deleteConfirm.path.lastIndexOf('/'));
+      await refreshDir(rootPath, parentDir || rootPath);
+    } catch (err: any) {
+      console.error('[FileTree] Delete failed:', err);
+    }
+    setDeleteConfirm(null);
+  }, [deleteConfirm, rootPath]);
 
   const handleRetry = useCallback(() => {
     if (!rootPath) return;
@@ -213,8 +378,83 @@ export function FileTree() {
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto py-1 outline-none" tabIndex={0}>
       {rootEntries.map((entry) => (
-        <TreeNode key={entry.path} entry={entry} depth={0} />
+        <TreeNode
+          key={entry.path}
+          entry={entry}
+          depth={0}
+          pendingInput={pendingInput}
+          onContextMenu={handleContextMenu}
+          onPendingSubmit={handlePendingSubmit}
+          onPendingCancel={handlePendingCancel}
+        />
       ))}
+
+      {contextMenu && (
+        <FileTreeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          isDirectory={contextMenu.entry.isDirectory}
+          filePath={contextMenu.entry.path}
+          onAction={handleContextAction}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {deleteConfirm && (
+        <DeleteConfirmDialog
+          name={deleteConfirm.name}
+          isDirectory={deleteConfirm.isDirectory}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function DeleteConfirmDialog({ name, isDirectory, onConfirm, onCancel }: {
+  name: string;
+  isDirectory: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Enter') onConfirm();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onCancel, onConfirm]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
+      <div
+        ref={dialogRef}
+        className="bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-xl p-5 max-w-sm w-full mx-4"
+      >
+        <p className="text-[13px] text-[var(--color-text-primary)] mb-4">
+          {t('filePanel.deleteConfirm', { name, type: isDirectory ? t('filePanel.folder') : t('filePanel.file') })}
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-[12px] rounded border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] cursor-pointer transition-colors"
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-[12px] rounded bg-[var(--color-danger)] text-white hover:opacity-90 cursor-pointer transition-colors"
+          >
+            {t('filePanel.delete')}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }

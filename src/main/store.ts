@@ -15,6 +15,7 @@ interface StoreSchema {
   language: 'zh-CN' | 'en-US';
   // Phase 14: 全局审批模式默认值
   approvalMode: ApprovalMode;
+  autoSave: boolean;
 }
 
 const store = new Store<StoreSchema>({
@@ -26,6 +27,7 @@ const store = new Store<StoreSchema>({
     windowBounds: { width: 1200, height: 800 },
     language: 'zh-CN',
     approvalMode: 'strict',
+    autoSave: false,
   },
   schema: {
     theme: { type: 'string', enum: ['light', 'dark', 'system'] },
@@ -44,6 +46,7 @@ const store = new Store<StoreSchema>({
     },
     language: { type: 'string', enum: ['zh-CN', 'en-US'] },
     approvalMode: { type: 'string', enum: ['strict', 'agent_decides', 'bypass'] },
+    autoSave: { type: 'boolean' },
   },
   clearInvalidConfig: true,
 });

@@ -686,5 +686,21 @@
       "reviewMissingSpec": "Review node「{{label}}」is missing specification",
       "conditionalEdgeMissingValue": "Conditional edge {{id}} is missing match value"
     }
+  },
+  "filePanel": {
+    "newFile": "New File",
+    "newFolder": "New Folder",
+    "rename": "Rename",
+    "delete": "Delete",
+    "copyPath": "Copy Path",
+    "revealInFinder": "Reveal in Finder",
+    "file": "file",
+    "folder": "folder",
+    "deleteConfirm": "Are you sure you want to delete the {{type}} \"{{name}}\"? It can be recovered from the system trash.",
+    "unsaved": "Unsaved",
+    "autoSave": "Auto Save",
+    "preview": "Preview",
+    "editSource": "Edit",
+    "saveFailed": "Save failed: {{message}}"
   }
 }

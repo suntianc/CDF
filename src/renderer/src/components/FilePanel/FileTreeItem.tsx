@@ -9,9 +9,10 @@ interface FileTreeItemProps {
   isSelected: boolean;
   onToggle: (path: string) => void;
   onClick: (entry: DirectoryEntry) => void;
+  onContextMenu?: (e: React.MouseEvent, entry: DirectoryEntry) => void;
 }
 
-export function FileTreeItem({ entry, depth, isExpanded, isLoading, isSelected, onToggle, onClick }: FileTreeItemProps) {
+export function FileTreeItem({ entry, depth, isExpanded, isLoading, isSelected, onToggle, onClick, onContextMenu }: FileTreeItemProps) {
   const handleClick = () => {
     if (entry.isDirectory) {
       onToggle(entry.path);
@@ -20,11 +21,17 @@ export function FileTreeItem({ entry, depth, isExpanded, isLoading, isSelected, 
     }
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    onContextMenu?.(e, entry);
+  };
+
   return (
     <button
       data-tree-item
       data-tree-path={entry.path}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
       className={`w-full flex items-center gap-1 py-[3px] pr-2 text-left text-[12px] cursor-pointer transition-colors group
         ${isSelected
           ? 'bg-[var(--color-accent-dim)] text-[var(--color-text-primary)]'

@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog, app, shell } from 'electron';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
@@ -13,8 +13,8 @@ import {
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { readDirectory, readFile, getFileInfo } from './services/file-system';
-import { ensureFileWatcher } from './services/file-watcher';
+import { readDirectory, readFile, getFileInfo, writeFile, createFile, createDirectory, renameEntry, trashEntry, resolveProjectFile } from './services/file-system';
+import { ensureFileWatcher, watchDirectory, unwatchDirectory } from './services/file-watcher';
 import {
   listPhysicalSkills,
   savePhysicalSkill,
@@ -842,29 +842,94 @@ export function registerIpcHandlers() {
   });
 
   // ===== File Management IPC Handlers =====
-  ipcMain.handle('fs:readDirectory', (_, rootPath: string, dirPath: string, showHidden?: boolean) => {
+  ipcMain.handle('fs:readDirectory', async (_, rootPath: string, dirPath: string, showHidden?: boolean) => {
     try {
       ensureFileWatcher(rootPath);
-      return { ok: true, data: readDirectory(rootPath, dirPath, showHidden) };
+      return { ok: true, data: await readDirectory(rootPath, dirPath, showHidden) };
     } catch (err: any) {
       return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
     }
   });
 
-  ipcMain.handle('fs:readFile', (_, rootPath: string, filePath: string) => {
+  ipcMain.handle('fs:readFile', async (_, rootPath: string, filePath: string) => {
     try {
-      return { ok: true, data: readFile(rootPath, filePath) };
+      return { ok: true, data: await readFile(rootPath, filePath) };
     } catch (err: any) {
       return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
     }
   });
 
-  ipcMain.handle('fs:getFileInfo', (_, rootPath: string, filePath: string) => {
+  ipcMain.handle('fs:getFileInfo', async (_, rootPath: string, filePath: string) => {
     try {
-      return { ok: true, data: getFileInfo(rootPath, filePath) };
+      return { ok: true, data: await getFileInfo(rootPath, filePath) };
     } catch (err: any) {
       return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
     }
+  });
+
+  ipcMain.handle('fs:writeFile', async (_, rootPath: string, filePath: string, content: string) => {
+    try {
+      await writeFile(rootPath, filePath, content);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:createFile', async (_, rootPath: string, filePath: string) => {
+    try {
+      await createFile(rootPath, filePath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:createDirectory', async (_, rootPath: string, dirPath: string) => {
+    try {
+      await createDirectory(rootPath, dirPath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:renameEntry', async (_, rootPath: string, oldPath: string, newName: string) => {
+    try {
+      await renameEntry(rootPath, oldPath, newName);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:trashEntry', async (_, rootPath: string, targetPath: string) => {
+    try {
+      await trashEntry(rootPath, targetPath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:showItemInFolder', (_, filePath: string) => {
+    shell.showItemInFolder(filePath);
+    return { ok: true };
+  });
+
+  ipcMain.handle('fs:watchDirectory', (_, rootPath: string, dirPath: string) => {
+    try {
+      resolveProjectFile(rootPath, dirPath);
+      watchDirectory(dirPath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  ipcMain.handle('fs:unwatchDirectory', (_, dirPath: string) => {
+    unwatchDirectory(dirPath);
+    return { ok: true };
   });
 
   // ===== Phase 4: Workflow Runtime IPC Handlers =====

@@ -2,74 +2,89 @@ import { BrowserWindow } from 'electron';
 import chokidar from 'chokidar';
 import log from '../logger';
 
-let watcher: ReturnType<typeof chokidar.watch> | null = null;
+const watchers = new Map<string, ReturnType<typeof chokidar.watch>>();
 let currentRootPath: string | null = null;
 
-function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return ((...args: any[]) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      fn(...args);
-    }, ms);
-  }) as T;
+const IGNORED = [
+  '**/node_modules/**',
+  '**/.git/**',
+  '**/dist/**',
+  '**/out/**',
+  '**/.next/**',
+  '**/.cache/**',
+];
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingEvents = new Map<string, string>();
+
+function flushEvents() {
+  for (const [filePath, type] of pendingEvents) {
+    BrowserWindow.getAllWindows().forEach((w) => {
+      w.webContents.send('fs:directoryChange', { type, path: filePath });
+    });
+  }
+  pendingEvents.clear();
+  debounceTimer = null;
 }
 
-function broadcast(type: string, filePath: string) {
-  BrowserWindow.getAllWindows().forEach((w) => {
-    w.webContents.send('fs:directoryChange', { type, path: filePath });
-  });
+function debouncedBroadcast(type: string, filePath: string) {
+  pendingEvents.set(filePath, type);
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(flushEvents, 150);
 }
 
-export function ensureFileWatcher(rootPath: string): void {
-  if (currentRootPath === rootPath && watcher) return;
-
-  stopFileWatcher();
+function addWatcher(dirPath: string): void {
+  if (watchers.has(dirPath)) return;
 
   try {
-    watcher = chokidar.watch(rootPath, {
+    const w = chokidar.watch(dirPath, {
       ignoreInitial: true,
-      ignored: [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/dist/**',
-        '**/out/**',
-        '**/.next/**',
-        '**/.cache/**',
-      ],
-      depth: 10,
+      ignored: IGNORED,
+      depth: 0,
       usePolling: false,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
     });
 
-    const fire = debounce((type: string, filePath: string) => {
-      broadcast(type, filePath);
-    }, 150);
+    w.on('add', (p) => debouncedBroadcast('add', p));
+    w.on('change', (p) => debouncedBroadcast('change', p));
+    w.on('unlink', (p) => debouncedBroadcast('unlink', p));
+    w.on('addDir', (p) => debouncedBroadcast('addDir', p));
+    w.on('unlinkDir', (p) => debouncedBroadcast('unlinkDir', p));
+    w.on('error', (err) => log.error(`[file-watcher] error on ${dirPath}:`, err));
 
-    watcher.on('add', (p) => fire('add', p));
-    watcher.on('change', (p) => fire('change', p));
-    watcher.on('unlink', (p) => fire('unlink', p));
-    watcher.on('addDir', (p) => fire('addDir', p));
-    watcher.on('unlinkDir', (p) => fire('unlinkDir', p));
-
-    watcher.on('error', (err) => {
-      log.error('[file-watcher] chokidar error:', err);
-    });
-
-    currentRootPath = rootPath;
-    log.info(`[file-watcher] started: ${rootPath}`);
+    watchers.set(dirPath, w);
   } catch (err) {
-    log.error('[file-watcher] failed to start:', err);
-    watcher = null;
+    log.error(`[file-watcher] failed to watch ${dirPath}:`, err);
+  }
+}
+
+export function ensureFileWatcher(rootPath: string): void {
+  if (currentRootPath !== rootPath) {
+    stopFileWatcher();
+    currentRootPath = rootPath;
+  }
+  watchDirectory(rootPath);
+}
+
+export function watchDirectory(dirPath: string): void {
+  addWatcher(dirPath);
+}
+
+export function unwatchDirectory(dirPath: string): void {
+  const w = watchers.get(dirPath);
+  if (w) {
+    w.close();
+    watchers.delete(dirPath);
   }
 }
 
 export function stopFileWatcher(): void {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
-    log.info(`[file-watcher] stopped: ${currentRootPath}`);
+  for (const [dir, w] of watchers) {
+    w.close();
+    watchers.delete(dir);
+  }
+  if (currentRootPath) {
+    log.info(`[file-watcher] stopped all watchers for: ${currentRootPath}`);
   }
   currentRootPath = null;
 }
