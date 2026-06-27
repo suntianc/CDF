@@ -23,7 +23,6 @@ export function FilePanel() {
     setDirContents,
     setDirError,
     setLoading,
-    closePreview,
   } = useFileStore();
 
   const { projects, currentProjectId } = useProjectStore();
@@ -123,9 +122,9 @@ export function FilePanel() {
         useFileStore.getState().toggleFilePanel();
       }
       if (e.key === 'Escape' && filePanelOpen) {
-        const { previewFile } = useFileStore.getState();
-        if (previewFile) {
-          closePreview();
+        const { openTabs, activeTabIndex } = useFileStore.getState();
+        if (openTabs.length > 0) {
+          useFileStore.getState().closeTab(activeTabIndex);
         } else {
           setFilePanelOpen(false);
         }
@@ -133,7 +132,7 @@ export function FilePanel() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filePanelOpen, setFilePanelOpen, closePreview]);
+  }, [filePanelOpen, setFilePanelOpen]);
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -188,7 +187,6 @@ export function FilePanel() {
           filePath={previewFile.path}
           fileName={previewFile.name}
           content={previewFile.content}
-          onClose={closePreview}
         />
       )}
 

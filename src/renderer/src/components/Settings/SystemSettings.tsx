@@ -1,13 +1,26 @@
+import { useState, useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useI18nStore } from '@/stores/i18nStore';
 import { useTranslation } from 'react-i18next';
-import { Sliders, Globe, Palette, Info } from 'lucide-react';
+import { Sliders, Globe, Palette, Info, Save } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 export function SystemSettings() {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { currentLanguage, setLanguage } = useI18nStore();
+  const [autoSave, setAutoSave] = useState(false);
+
+  useEffect(() => {
+    window.electronAPI.store.get('autoSave').then((v: unknown) => {
+      if (typeof v === 'boolean') setAutoSave(v);
+    });
+  }, []);
+
+  const handleAutoSaveToggle = (checked: boolean) => {
+    setAutoSave(checked);
+    window.electronAPI.store.set('autoSave', checked);
+  };
 
   const languageOptions = [
     { value: 'zh-CN', label: t('sidebar.language.zh-CN', '简体中文') },
@@ -88,7 +101,38 @@ export function SystemSettings() {
             </div>
           </div>
 
-          {/* Row 3: Future settings placeholder */}
+          {/* Row 3: Auto Save */}
+          <div className="flex items-center justify-between py-3 border-b border-[var(--color-border)]/20">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] mt-0.5">
+                <Save className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  {t('settings.autoSave.label', '文件自动保存')}
+                </span>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {t('settings.autoSave.desc', '编辑文件后自动保存更改，无需手动按 Cmd/Ctrl+S')}
+                </span>
+              </div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={autoSave}
+              onClick={() => handleAutoSaveToggle(!autoSave)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ${
+                autoSave ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-border)]'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 mt-0.5 ${
+                  autoSave ? 'translate-x-4 ml-0.5' : 'translate-x-0 ml-0.5'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Row 4: Future settings placeholder */}
           <div className="flex items-start gap-3 py-3 opacity-70">
             <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] mt-0.5">
               <Info className="w-4 h-4" />

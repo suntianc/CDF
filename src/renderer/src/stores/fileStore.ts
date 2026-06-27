@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { DirectoryEntry } from '../../shared/types';
 
-interface PreviewFile {
+export interface PreviewFile {
   path: string;
   name: string;
   content: string;
@@ -17,6 +17,8 @@ interface FileState {
   dirErrors: Record<string, string>;
   filterQuery: string;
   loading: Record<string, boolean>;
+  openTabs: PreviewFile[];
+  activeTabIndex: number;
   previewFile: PreviewFile | null;
   selectedPath: string | null;
 
@@ -33,6 +35,8 @@ interface FileState {
   setFilterQuery: (query: string) => void;
   openPreview: (file: PreviewFile) => void;
   closePreview: () => void;
+  closeTab: (index: number) => void;
+  setActiveTab: (index: number) => void;
   setSelectedPath: (path: string | null) => void;
 }
 
@@ -48,6 +52,8 @@ export const useFileStore = create<FileState>((set) => ({
   dirErrors: {},
   filterQuery: '',
   loading: {},
+  openTabs: [],
+  activeTabIndex: -1,
   previewFile: null,
   selectedPath: null,
 
@@ -55,7 +61,7 @@ export const useFileStore = create<FileState>((set) => ({
   toggleFilePanel: () => set((s) => ({ filePanelOpen: !s.filePanelOpen })),
   setFilePanelMode: (mode) => set({ filePanelMode: mode }),
   setFilePanelWidth: (width) => set({ filePanelWidth: width }),
-  setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null }),
+  setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null }),
 
   toggleDir: (path) =>
     set((s) => ({
@@ -88,14 +94,54 @@ export const useFileStore = create<FileState>((set) => ({
   setFilterQuery: (query) => set({ filterQuery: query }),
 
   openPreview: (file) =>
-    set((s) => ({
-      previewFile: file,
-      filePanelMode: 'editor',
-      filePanelWidth: s.filePanelMode === 'editor' ? s.filePanelWidth : EDITOR_WIDTH,
-    })),
+    set((s) => {
+      const existingIndex = s.openTabs.findIndex((t) => t.path === file.path);
+      if (existingIndex >= 0) {
+        const tabs = [...s.openTabs];
+        tabs[existingIndex] = file;
+        return {
+          openTabs: tabs,
+          activeTabIndex: existingIndex,
+          previewFile: file,
+          filePanelMode: 'editor',
+          filePanelWidth: s.filePanelMode === 'editor' ? s.filePanelWidth : EDITOR_WIDTH,
+        };
+      }
+      const tabs = [...s.openTabs, file];
+      return {
+        openTabs: tabs,
+        activeTabIndex: tabs.length - 1,
+        previewFile: file,
+        filePanelMode: 'editor',
+        filePanelWidth: s.filePanelMode === 'editor' ? s.filePanelWidth : EDITOR_WIDTH,
+      };
+    }),
+
+  closeTab: (index) =>
+    set((s) => {
+      const tabs = s.openTabs.filter((_, i) => i !== index);
+      if (tabs.length === 0) {
+        return { openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280 };
+      }
+      const newIndex = index >= tabs.length ? tabs.length - 1 : index;
+      return {
+        openTabs: tabs,
+        activeTabIndex: newIndex,
+        previewFile: tabs[newIndex],
+      };
+    }),
+
+  setActiveTab: (index) =>
+    set((s) => {
+      if (index < 0 || index >= s.openTabs.length) return s;
+      return {
+        activeTabIndex: index,
+        previewFile: s.openTabs[index],
+      };
+    }),
 
   closePreview: () =>
-    set({ previewFile: null, filePanelMode: 'tree', filePanelWidth: 280 }),
+    set({ openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280 }),
 
   setSelectedPath: (path) => set({ selectedPath: path }),
 }));

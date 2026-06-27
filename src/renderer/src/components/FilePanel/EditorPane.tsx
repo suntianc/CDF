@@ -30,10 +30,9 @@ interface EditorPaneProps {
   filePath: string;
   fileName: string;
   content: string;
-  onClose: () => void;
 }
 
-export function EditorPane({ filePath, fileName, content, onClose }: EditorPaneProps) {
+export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
   const language = useMemo(() => detectLanguage(fileName), [fileName]);
   const isMd = language === 'markdown';
   const theme = useThemeStore((s) => s.theme);
@@ -50,6 +49,10 @@ export function EditorPane({ filePath, fileName, content, onClose }: EditorPaneP
   const editedRef = useRef(editedContent);
   const filePathRef = useRef(filePath);
   const rootPath = useFileStore((s) => s.rootPath);
+  const openTabs = useFileStore((s) => s.openTabs);
+  const activeTabIndex = useFileStore((s) => s.activeTabIndex);
+  const closeTab = useFileStore((s) => s.closeTab);
+  const setActiveTab = useFileStore((s) => s.setActiveTab);
 
   editedRef.current = editedContent;
 
@@ -126,19 +129,32 @@ export function EditorPane({ filePath, fileName, content, onClose }: EditorPaneP
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       {/* Tab bar */}
-      <div className="flex items-center gap-0 border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-bg-canvas)] border-r border-[var(--color-border)] text-[12px] text-[var(--color-text-primary)]">
-          <span className="truncate max-w-[160px]">{fileName}</span>
-          {isDirty && (
-            <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
-          )}
-          <button
-            onClick={onClose}
-            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
+      <div className="flex items-center gap-0 border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 overflow-x-auto">
+        {openTabs.map((tab, i) => {
+          const isActive = i === activeTabIndex;
+          return (
+            <div
+              key={tab.path}
+              className={`flex items-center gap-1.5 px-3 py-1.5 border-r border-[var(--color-border)] text-[12px] cursor-pointer shrink-0 transition-colors ${
+                isActive
+                  ? 'bg-[var(--color-bg-canvas)] text-[var(--color-text-primary)]'
+                  : 'bg-[var(--color-bg-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
+              }`}
+              onClick={() => setActiveTab(i)}
+            >
+              <span className="truncate max-w-[120px]">{tab.name}</span>
+              {isActive && isDirty && (
+                <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); closeTab(i); }}
+                className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        })}
 
         {/* Markdown preview/edit toggle */}
         {isMd && (

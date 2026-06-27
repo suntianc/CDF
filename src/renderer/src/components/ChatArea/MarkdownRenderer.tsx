@@ -283,12 +283,27 @@ export const renderMarkdownText = (text: string) => {
 
   let currentBlockquoteLines: string[] = [];
   
+  let inCodeBlock = false;
+  let codeBlockLang = '';
+  let currentCodeLines: string[] = [];
+
   let inMathBlock = false;
   let currentMathLines: string[] = [];
 
   let inDetailsBlock = false;
   let currentDetailsLines: string[] = [];
   let detailsSummary = '';
+
+  const flushCodeBlock = (key: string | number) => {
+    if (currentCodeLines.length > 0 || inCodeBlock) {
+      const code = currentCodeLines.join('\n');
+      elements.push(
+        <CodeBlock key={`code-${key}`} lang={codeBlockLang} code={code} />
+      );
+      currentCodeLines = [];
+      codeBlockLang = '';
+    }
+  };
 
   const flushMathBlock = (key: string | number) => {
     if (currentMathLines.length > 0) {
@@ -492,6 +507,7 @@ export const renderMarkdownText = (text: string) => {
     flushList(key);
     flushTable(key);
     flushBlockquote(key);
+    flushCodeBlock(key);
     flushMathBlock(key);
     flushDetailsBlock(key);
   };
@@ -523,7 +539,27 @@ export const renderMarkdownText = (text: string) => {
       detailsSummary = '';
       return;
     }
-    
+
+    // Check if we are inside a code block
+    if (inCodeBlock) {
+      if (trimmedLine.startsWith('```')) {
+        flushCodeBlock(index);
+        inCodeBlock = false;
+      } else {
+        currentCodeLines.push(line);
+      }
+      return;
+    }
+
+    // Check code block start
+    if (trimmedLine.startsWith('```')) {
+      flushAll(index);
+      inCodeBlock = true;
+      codeBlockLang = trimmedLine.slice(3).trim();
+      currentCodeLines = [];
+      return;
+    }
+
     // Check if we are inside a math block
     if (inMathBlock) {
       if (trimmedLine.includes('$$')) {

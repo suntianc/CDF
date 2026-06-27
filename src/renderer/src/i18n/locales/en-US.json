@@ -205,6 +205,10 @@
     "desc": "Switch system display theme (light / dark / follow system)"
   },
   "settings": {
+    "autoSave": {
+      "label": "Auto Save Files",
+      "desc": "Automatically save file changes without pressing Cmd/Ctrl+S"
+    },
     "more": {
       "title": "More advanced settings",
       "placeholderDesc": "Coming soon: global shortcut configuration, network proxy settings, log save level, local cache export & cleanup, and other general panel options."
