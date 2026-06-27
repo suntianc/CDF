@@ -30,6 +30,17 @@ import { GoalSystemBubble } from './GoalSystemBubble';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ApprovalModeSelector } from '@/components/shared/ApprovalModeSelector';
 import { SubagentView } from './SubagentView';
+import {
+  addComposerAttachment,
+  createComposerInputState,
+  deletePreviousLeadingItem,
+  getComposerInputRenderModel,
+  insertCommandEntry,
+  removeComposerAttachment,
+  submitComposerInput,
+  type ComposerInputLeadingItem,
+  updateComposerInputText,
+} from './composerInput/composerInput';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -146,67 +157,8 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onO
 };
 
 
-interface LeadingToken {
-  type: 'slash' | 'at';
-  name: string;
-  raw: string;
-  source?: 'system' | 'mcp' | 'skill' | 'skill:project' | 'skill:global';
-  kind?: 'file' | 'dir';
-}
-
-function parseLeadingTokens(text: string, commands: any[]): { tokens: LeadingToken[]; tail: string } {
-  const tokens: LeadingToken[] = [];
-  let remaining = text;
-
-  // 1. Parse optional leading slash command.
-  // Require a trailing space after the command name (mirrors at-token's (?=\s)
-  // lookahead). Bare `/commandName` without a space means the user is still
-  // typing — the popup should stay open; the capsule must not render yet.
-  if (remaining.startsWith('/')) {
-    const match = remaining.match(/^\/([\w-]+)(?=\s)/);
-    if (match) {
-      const name = match[1];
-      const cmd = commands.find((c) => c.name === name);
-      if (cmd) {
-        tokens.push({
-          type: 'slash',
-          name: cmd.name,
-          raw: '/' + cmd.name,
-          source: cmd.source,
-        });
-        remaining = remaining.slice(cmd.name.length + 1);
-        if (remaining.startsWith(' ')) {
-          remaining = remaining.slice(1);
-        }
-      }
-    }
-  }
-
-  // 2. Parse consecutive leading at-tokens
-  while (true) {
-    const match = remaining.match(/^@([\w./-]+)(?=\s)/);
-    if (match) {
-      const pathText = match[1];
-      tokens.push({
-        type: 'at',
-        name: pathText,
-        raw: '@' + pathText,
-        kind: pathText.endsWith('/') ? 'dir' : 'file',
-      });
-      remaining = remaining.slice(pathText.length + 1);
-      if (remaining.startsWith(' ')) {
-        remaining = remaining.slice(1);
-      }
-    } else {
-      break;
-    }
-  }
-
-  return { tokens, tail: remaining };
-}
-
-function getTokenColorClass(t: LeadingToken): string {
-  if (t.type === 'at') {
+function getTokenColorClass(t: ComposerInputLeadingItem): string {
+  if (t.type === 'pathMention') {
     return 'text-[var(--color-info)]';
   }
   switch (t.source) {
@@ -874,32 +826,37 @@ export function ChatArea({
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    // Phase 7 D-14: 5-line sniff — only treat as slash command when caret is at start
-    // of textarea. A mid-text slash (selectionStart > 0) is just regular text.
-    if (
-      (inputVal.startsWith('/') && textareaRef.current?.selectionStart === 0) ||
-      parsedToken?.token
-    ) {
-      const plan = dispatcherResolve(inputVal, registry.commands);
-      if (plan) {
-        setInputVal('');
-        dispatcherDispatch(plan).catch((err) => console.error('[handleSend/slash] error:', err));
-        return;
+    if (!currentProjectId) return;
+
+    const result = submitComposerInput(
+      createComposerInputState({
+        text: inputVal,
+        attachments: pastedImages,
+        cursor: textareaRef.current?.selectionStart ?? inputVal.length,
+      }),
+      {
+        mode: 'session',
+        isStreaming,
+        commands: registry.commands,
+        resolveCommand: dispatcherResolve,
       }
-      // D-15 case 3 (A7 in RESEARCH): dispatcher.resolve returned null (e.g. `/  foo`),
-      // fall through to regular sendMessage path.
+    );
+
+    if (result.intent.type === 'noop') return;
+
+    setInputVal(result.state.text);
+    setPastedImages(result.state.attachments);
+
+    if (result.intent.type === 'executeCommand') {
+      setSlashOpen(false);
+      dispatcherDispatch(result.intent.plan).catch((err) => console.error('[handleSend/slash] error:', err));
+      return;
     }
-    if ((!inputVal.trim() && pastedImages.length === 0) || !currentProjectId || isStreaming) return;
 
-    const value = inputVal.trim() || '请描述这张图片';
-    const images = pastedImages;
-    setInputVal('');
-    setPastedImages([]);
-
-    await sendMessage(currentProjectId, value, {
+    await sendMessage(currentProjectId, result.intent.content, {
       providerId: selectedProviderId || undefined,
       model: selectedModel || undefined,
-    }, undefined, { imageBase64: images.length ? images : undefined });
+    }, undefined, { imageBase64: result.intent.attachments.length ? result.intent.attachments : undefined });
   };
 
   const handleCompositionStart = () => {
@@ -961,8 +918,8 @@ export function ChatArea({
   // Independent of parseInputToTokens (slash parser) so the two can coexist.
   const parsedAtTokens = useMemo(() => parseAtTokens(inputVal), [inputVal]);
 
-  const { tokens: leadingTokens, tail: visibleInputTail } = useMemo(
-    () => parseLeadingTokens(inputVal, registry.commands),
+  const { leadingItems: leadingTokens, visibleTail: visibleInputTail } = useMemo(
+    () => getComposerInputRenderModel(createComposerInputState({ text: inputVal }), registry.commands),
     [inputVal, registry.commands]
   );
 
@@ -1019,7 +976,7 @@ export function ChatArea({
       setSlashOpen(false);
       dispatcherDispatch(plan).catch((err) => console.error('[dispatcher] error:', err));
     } else {
-      setInputVal(cmd + ' ');
+      setInputVal(insertCommandEntry(createComposerInputState({ text: inputVal, attachments: pastedImages }), cmd).text);
       setSlashOpen(false);
     }
   };
@@ -1031,8 +988,53 @@ export function ChatArea({
   // closed by the time this runs, so the textarea retains focus and the
   // caret lands after the inserted text.
   const handleSlashInsert = (cmd: string) => {
-    setInputVal(cmd + ' ');
+    setInputVal(insertCommandEntry(createComposerInputState({ text: inputVal, attachments: pastedImages }), cmd).text);
     setSlashOpen(false);
+  };
+
+  const removePreviousComposerInputLeadingItem = (tail: string) => {
+    const nextInput = deletePreviousLeadingItem(
+      createComposerInputState({
+        text: `${leadingTokens.map((token) => token.raw).join(' ')}${leadingTokens.length > 0 ? ' ' : ''}${tail}`,
+        attachments: pastedImages,
+        cursor: 0,
+      }),
+      registry.commands
+    );
+    setInputVal(nextInput.text);
+    useAtMentionStore.getState().close();
+    setSlashOpen(false);
+  };
+
+  const applyComposerInputTextChange = (value: string, cursor: number) => {
+    setInputVal(value);
+    if (isComposingRef.current) return;
+
+    const nextInput = updateComposerInputText(
+      createComposerInputState({
+        text: inputVal,
+        attachments: pastedImages,
+        cursor,
+      }),
+      {
+        value,
+        cursor,
+        hasProject: Boolean(currentProjectRoot),
+      }
+    );
+
+    setSlashOpen(nextInput.commandEntry.isOpen);
+    if (nextInput.pathMention.isOpen) {
+      const state = useAtMentionStore.getState();
+      if (!state.isOpen) {
+        state.open(nextInput.pathMention.cursor);
+      } else {
+        useAtMentionStore.setState({ cursorPos: nextInput.pathMention.cursor });
+      }
+      state.setQuery(nextInput.pathMention.query);
+    } else {
+      useAtMentionStore.getState().close();
+    }
   };
 
   // Phase 08.3 fix #12+#13: shared at-mention onSelect body. Used by
@@ -1052,31 +1054,38 @@ export function ChatArea({
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const MAX_IMAGES = 5;
-    const MAX_SIZE_BYTES = 5 * 1024 * 1024;
     const SAFE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
     const items = Array.from(e.clipboardData.items);
     const imageItems = items.filter((item) => SAFE_IMAGE_TYPES.has(item.type));
     if (imageItems.length === 0) return;
     e.preventDefault();
-    if (pastedImages.length >= MAX_IMAGES) {
-      toast.warning(`最多添加 ${MAX_IMAGES} 张图片`);
-      return;
-    }
     imageItems.forEach((item) => {
       const file = item.getAsFile();
       if (!file) return;
-      if (file.size > MAX_SIZE_BYTES) {
-        toast.warning(`图片过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大 5MB`);
-        return;
-      }
       const reader = new FileReader();
       reader.onload = (ev) => {
         const dataUrl = ev.target?.result as string;
         if (!dataUrl) return;
         setPastedImages((prev) => {
-          if (prev.length >= MAX_IMAGES) return prev;
-          return [...prev, dataUrl];
+          const result = addComposerAttachment(
+            createComposerInputState({ attachments: prev }),
+            {
+              dataUrl,
+              mimeType: file.type,
+              sizeBytes: file.size,
+            }
+          );
+          if (!result.accepted) {
+            if (result.reason === 'tooMany') {
+              toast.warning('最多添加 5 张图片');
+            } else if (result.reason === 'tooLarge') {
+              toast.warning(`图片过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大 5MB`);
+            } else if (result.reason === 'unsupportedType') {
+              toast.warning('不支持的图片类型');
+            }
+            return prev;
+          }
+          return result.state.attachments;
         });
       };
       reader.readAsDataURL(file);
@@ -1106,12 +1115,7 @@ export function ChatArea({
       if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
         if (leadingTokens.length > 0) {
           e.preventDefault();
-          const newTokens = leadingTokens.slice(0, -1);
-          const newPrefix = newTokens.map((t) => t.raw).join(' ') + (newTokens.length > 0 ? ' ' : '');
-          const newTail = e.currentTarget.value;
-          setInputVal(newPrefix + newTail);
-          useAtMentionStore.getState().close();
-          setSlashOpen(false);
+          removePreviousComposerInputLeadingItem(e.currentTarget.value);
           return;
         }
       }
@@ -1133,25 +1137,35 @@ export function ChatArea({
 
   const handleWelcomeSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if ((!inputVal.trim() && pastedImages.length === 0) || isStreaming) return;
-
-    if (
-      inputVal.startsWith('/') ||
-      parsedToken?.token
-    ) {
-      const plan = dispatcherResolve(inputVal, registry.commands);
-      if (plan) {
-        setInputVal('');
-        setSlashOpen(false);
-        dispatcherDispatch(plan).catch((err) => console.error('[handleWelcomeSend/slash] error:', err));
-        return;
+    const result = submitComposerInput(
+      createComposerInputState({
+        text: inputVal,
+        attachments: pastedImages,
+        cursor: textareaRef.current?.selectionStart ?? inputVal.length,
+      }),
+      {
+        mode: 'welcome',
+        isStreaming,
+        commands: registry.commands,
+        resolveCommand: dispatcherResolve,
       }
+    );
+
+    if (result.intent.type === 'noop') return;
+
+    setInputVal(result.state.text);
+    setPastedImages(result.state.attachments);
+
+    if (result.intent.type === 'executeCommand') {
+      setSlashOpen(false);
+      dispatcherDispatch(result.intent.plan).catch((err) => console.error('[handleWelcomeSend/slash] error:', err));
+      return;
     }
 
     let projectId = currentProjectId || 'default-project';
     try {
       // Create new session
-      const sessionName = inputVal.trim().slice(0, 15) || (pastedImages.length > 0 ? '图片对话' : t('chat.newSessionFallback'));
+      const sessionName = inputVal.trim().slice(0, 15) || (result.intent.attachments.length > 0 ? '图片对话' : t('chat.newSessionFallback'));
       const newSession = await createSession(projectId, sessionName);
       
       // Copy welcome override to new session
@@ -1169,16 +1183,11 @@ export function ChatArea({
       await selectSession(newSession.id);
       await fetchSessions(projectId); // Move before selectSession or await it
 
-      const promptText = inputVal.trim() || '请描述这张图片';
-      const images = pastedImages;
-      setInputVal('');
-      setPastedImages([]);
-
       // Send message
-      await sendMessage(projectId, promptText, {
+      await sendMessage(projectId, result.intent.content, {
         providerId: selectedProviderId || undefined,
         model: selectedModel || undefined,
-      }, undefined, { imageBase64: images.length ? images : undefined });
+      }, undefined, { imageBase64: result.intent.attachments.length ? result.intent.attachments : undefined });
     } catch (err) {
       console.error('Failed to send from welcome:', err);
     }
@@ -1281,7 +1290,7 @@ export function ChatArea({
                         />
                         <button
                           type="button"
-                          onClick={() => setPastedImages((prev) => prev.filter((_, i) => i !== idx))}
+                          onClick={() => setPastedImages((prev) => removeComposerAttachment(createComposerInputState({ attachments: prev }), idx).attachments)}
                           className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                           aria-label={`Remove image ${idx + 1}`}
                         >
@@ -1304,7 +1313,7 @@ export function ChatArea({
                             key={idx}
                             className={`shrink-0 font-semibold select-none leading-none ${getTokenColorClass(t)}`}
                           >
-                            {t.type === 'at' ? '@' : ''}{t.name}
+                            {t.type === 'pathMention' ? '@' : ''}{t.name}
                           </span>
                         ))}
                         <span className="shrink-0 text-[var(--color-text-muted)] select-none leading-none">·</span>
@@ -1320,32 +1329,7 @@ export function ChatArea({
                         const tail = e.target.value;
                         const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
                         const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
-                        setInputVal(value);
-                        if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
-                        // Mirror the composer's slash-open predicate so the popup
-                        // also triggers when typing `/` in the welcome textarea.
-                        const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
-                        setSlashOpen(shouldOpen);
-                        // Phase 08.3 A-01: at-mention trigger — only when a project root exists
-                        // and the cursor sits at a standalone `@` followed by 0+ path chars.
-                        if (!isComposingRef.current && currentProjectRoot) {
-                          const cursor = e.target.selectionStart + prefix.length;
-                          const textBeforeCursor = value.slice(0, cursor);
-                          const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
-                          if (atMatch) {
-                            const state = useAtMentionStore.getState();
-                            if (!state.isOpen) {
-                              state.open(cursor);
-                            } else {
-                              useAtMentionStore.setState({ cursorPos: cursor });
-                            }
-                            state.setQuery(atMatch[1]);
-                          } else {
-                            useAtMentionStore.getState().close();
-                          }
-                        } else {
-                          useAtMentionStore.getState().close();
-                        }
+                        applyComposerInputTextChange(value, e.target.selectionStart + prefix.length);
                       }}
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
@@ -1373,12 +1357,7 @@ export function ChatArea({
                           if (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
                             if (leadingTokens.length > 0) {
                               e.preventDefault();
-                              const newTokens = leadingTokens.slice(0, -1);
-                              const newPrefix = newTokens.map((t) => t.raw).join(' ') + (newTokens.length > 0 ? ' ' : '');
-                              const newTail = e.currentTarget.value;
-                              setInputVal(newPrefix + newTail);
-                              useAtMentionStore.getState().close();
-                              setSlashOpen(false);
+                              removePreviousComposerInputLeadingItem(e.currentTarget.value);
                               return;
                             }
                           }
@@ -1718,7 +1697,7 @@ export function ChatArea({
                           />
                           <button
                             type="button"
-                            onClick={() => setPastedImages((prev) => prev.filter((_, i) => i !== idx))}
+                            onClick={() => setPastedImages((prev) => removeComposerAttachment(createComposerInputState({ attachments: prev }), idx).attachments)}
                             className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-bg-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                             aria-label={`Remove image ${idx + 1}`}
                           >
@@ -1741,7 +1720,7 @@ export function ChatArea({
                               key={idx}
                               className={`shrink-0 font-semibold select-none leading-none ${getTokenColorClass(t)}`}
                             >
-                              {t.type === 'at' ? '@' : ''}{t.name}
+                              {t.type === 'pathMention' ? '@' : ''}{t.name}
                             </span>
                           ))}
                           <span className="shrink-0 text-[var(--color-text-muted)] select-none leading-none">·</span>
@@ -1755,29 +1734,7 @@ export function ChatArea({
                           const tail = e.target.value;
                           const prefix = leadingTokens.map((t) => t.raw).join(' ') + (leadingTokens.length > 0 ? ' ' : '');
                           const value = prefix + (tail.startsWith(' ') ? tail.slice(1) : tail);
-                          setInputVal(value);
-                          if (isComposingRef.current) return; // PITFALLS P13: IME composition guard
-                          const shouldOpen = value.startsWith('/') && !value.includes(' ') && value.length <= 32;
-                          setSlashOpen(shouldOpen);
-                          // Phase 08.3 A-01: at-mention trigger (composer) — mirrors welcome onChange.
-                          if (!isComposingRef.current && currentProjectRoot) {
-                            const cursor = e.target.selectionStart + prefix.length;
-                            const textBeforeCursor = value.slice(0, cursor);
-                            const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
-                            if (atMatch) {
-                              const state = useAtMentionStore.getState();
-                              if (!state.isOpen) {
-                                state.open(cursor);
-                              } else {
-                                useAtMentionStore.setState({ cursorPos: cursor });
-                              }
-                              state.setQuery(atMatch[1]);
-                            } else {
-                              useAtMentionStore.getState().close();
-                            }
-                          } else {
-                            useAtMentionStore.getState().close();
-                          }
+                          applyComposerInputTextChange(value, e.target.selectionStart + prefix.length);
                         }}
                         onCompositionStart={handleCompositionStart}
                         onCompositionEnd={handleCompositionEnd}
