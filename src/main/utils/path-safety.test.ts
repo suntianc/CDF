@@ -40,4 +40,10 @@ describe('resolveProjectFile', () => {
   it('rejects tilde paths', () => {
     expect(() => resolveProjectFile(root, '~/secret')).toThrow();
   });
+
+  it.skipIf(process.platform !== 'win32')('allows Windows 8.3 short names containing tilde', () => {
+    const winRoot = 'C:\\Users\\RUNNER~1\\project';
+    const result = resolveProjectFile(winRoot, 'C:\\Users\\RUNNER~1\\project\\src\\main.ts');
+    expect(result).toBe('C:\\Users\\RUNNER~1\\project\\src\\main.ts');
+  });
 });

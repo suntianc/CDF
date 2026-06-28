@@ -16,7 +16,7 @@ export function resolveProjectFile(projectPath: string, filePath: string): strin
   }
 
   const segments = filePath.split(path.sep).filter(Boolean);
-  if (segments.includes('..') || filePath.includes('~')) {
+  if (segments.includes('..') || filePath.startsWith('~')) {
     throw new Error(`Path traversal is not allowed: ${filePath}`);
   }
 
