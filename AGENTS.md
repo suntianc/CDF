@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是给 Codex、Claude、Cursor 等代码代理使用的项目工作指南。请优先遵守本文件；更细的产品、设计和历史约定分别参考 `README.md`、`DESIGN.md`、`PRODUCT.md`、`Claude.md`。
+本文件是给 Codex、Claude、Cursor 等代码代理使用的项目工作指南。请优先遵守本文件；更细的项目说明和设计约定分别参考 `README.md`、`DESIGN.md`。`Claude.md` 仅作为指向本文件的兼容入口，不承载额外规则。
 
 ## 沟通与工作原则
 
@@ -10,6 +10,7 @@
 - 优先采用现有模式、组件、store、IPC 结构和测试风格；不要为了单次需求引入新抽象。
 - 修改前明确目标和验证方式；修改后运行与变更范围匹配的测试或构建。
 - 工作区可能已有用户改动。不要回滚、覆盖或整理非本次任务产生的改动。
+- `.codex/`、`.planning/` 等本地代理/规划状态目录不再纳入版本控制；不要主动重新添加或提交这些目录。
 
 ## 项目定位
 
@@ -115,6 +116,7 @@ pnpm run preview
 
 - 不要手动编辑 `pnpm-lock.yaml`，除非确实变更依赖并通过 `pnpm install` 更新。
 - 不要移除 `patches/` 中的补丁，除非已经验证上游依赖不再需要。
+- 不要提交本地代理状态目录，例如 `.codex/`、`.claude/`、`.agents/`、`.planning/`、`.pi/`、`.impeccable/`。
 - 修改 `electron.vite.config.ts`、`vitest.config.ts` 或 TypeScript 配置时，要同步考虑 main、preload、renderer 三个构建目标。
 - Renderer alias：
   - `@` 指向 `src/renderer/src`
@@ -137,3 +139,17 @@ pnpm run preview
 - 是否同步了中英文 i18n 文案？
 - 是否为新增或修复行为补了必要测试？
 - 是否运行了最小必要验证命令，并在最终回复中说明结果？
+
+## Agent skills
+
+### Issue tracker
+
+Issues 追踪在 GitHub Issues（仓库 suntianc/CDF），外部 PR 不纳入分诊。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认标签词汇（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单一上下文布局——根目录一个 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。

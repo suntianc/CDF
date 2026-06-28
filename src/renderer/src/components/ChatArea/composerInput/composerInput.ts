@@ -118,6 +118,13 @@ export function finishComposition(state: ComposerInputState): ComposerInputState
   };
 }
 
+export function clearFinishedComposition(state: ComposerInputState): ComposerInputState {
+  return {
+    ...state,
+    justFinishedComposition: false,
+  };
+}
+
 export function addComposerAttachment(
   state: ComposerInputState,
   attachment: ComposerAttachmentInput

@@ -12,6 +12,10 @@ _Avoid_: chat page, SaaS dashboard
 The user-visible exchange in a session, including user prompts, Agent responses, tool activity, approvals, and process status.
 _Avoid_: chat log, message list
 
+**Conversation Draft Name**:
+The initial Conversation name derived from a Welcome Composer Input before the Conversation exists.
+_Avoid_: sessionName, welcome title, draft text title
+
 **Composer Input**:
 The interactive input surface where a user prepares an instruction before it becomes a Conversation event.
 _Avoid_: textarea, prompt box
@@ -27,3 +31,11 @@ _Avoid_: at token, file pill
 **Composer Attachment**:
 Media or other local context attached while preparing a Composer Input instruction before it becomes part of a Conversation event.
 _Avoid_: pasted image, imageBase64
+
+**Composer Input Surface**:
+The shared visual shell for Composer Input, responsible for rendering the input surface, popovers, leading tokens, attachment previews, and event wiring while delegating input behavior to the Composer Input controller.
+_Avoid_: composer business logic, send handler
+
+**Composer Submission**:
+The orchestration that turns a prepared Composer Input intent into a Conversation or Command Entry side effect.
+_Avoid_: send handler, submit button logic, composer UI

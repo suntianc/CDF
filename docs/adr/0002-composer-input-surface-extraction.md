@@ -1,0 +1,5 @@
+# Composer Input Surface extraction
+
+We will extract `ComposerInputSurface` as the shared visual shell for Welcome and Session Composer Input after the pure `composerInput` module and `useComposerInputController` seam are in place. The Surface will receive the controller object plus a small set of visual, slot, and action props; it will own UI refs, layout state, popover JSX, attachment previews, leading token overlay, textarea event wiring, and variant-specific rendering while preserving the current Welcome and Session visual differences.
+
+`ChatArea` will keep final Conversation and runtime side effects such as creating Conversations, sending messages, dispatching Command Entry plans, model selection, approval controls, and stopping generation. We are choosing this over a generic UI component or a business-owning Composer component because the goal is to remove repeated input surface JSX without moving Conversation orchestration back into Composer Input; controller IME behavior should be completed as part of this extraction so the Surface does not depend on `ChatArea` textarea refs or timers.

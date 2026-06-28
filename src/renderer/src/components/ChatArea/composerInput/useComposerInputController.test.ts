@@ -158,6 +158,45 @@ describe('useComposerInputController', () => {
     expect(result.current.text).toBe('');
   });
 
+  it('swallows submit immediately after IME composition finishes through the controller', () => {
+    const { result } = renderHook(() =>
+      useComposerInputController({
+        mode: 'session',
+        isStreaming: false,
+        projectId: 'project-1',
+        hasPathMentionProject: true,
+        commands: [],
+        resolveCommand: () => null,
+        listPathMentionCandidates: async () => ({ candidates: [], truncated: false }),
+      })
+    );
+
+    act(() => {
+      result.current.handleTextChange('修复测试', '修复测试'.length);
+      result.current.startComposition();
+      result.current.finishComposition();
+    });
+
+    let intent: ReturnType<typeof result.current.submit> | undefined;
+    act(() => {
+      intent = result.current.submit();
+    });
+
+    expect(intent).toEqual({ type: 'noop' });
+    expect(result.current.text).toBe('修复测试');
+
+    act(() => {
+      intent = result.current.submit();
+    });
+
+    expect(intent).toEqual({
+      type: 'sendConversation',
+      mode: 'session',
+      content: '修复测试',
+      attachments: [],
+    });
+  });
+
   it('turns pasted image clipboard data into a Composer Attachment', () => {
     class ImmediateFileReader {
       onload: ((event: { target: { result: string } }) => void) | null = null;

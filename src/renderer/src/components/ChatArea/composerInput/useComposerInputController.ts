@@ -4,14 +4,17 @@ import { toast } from 'sonner';
 import type { CommandDispatchAction, SlashCommand } from '@shared/types';
 import {
   addComposerAttachment,
+  clearFinishedComposition as clearComposerFinishedComposition,
   closePathMentionCandidates,
   createComposerInputState,
   deletePreviousLeadingItem,
+  finishComposition as finishComposerComposition,
   getComposerInputRenderModel,
   insertCommandEntry,
   removeComposerAttachment,
   resolvePathMentionCandidateRequest,
   selectPathMentionCandidate,
+  startComposition as startComposerComposition,
   startPathMentionCandidateRequest,
   submitComposerInput,
   updateComposerInputText,
@@ -75,6 +78,18 @@ export function useComposerInputController({
         query: '',
       },
     });
+  }, [updateState]);
+
+  const startComposition = useCallback(() => {
+    updateState(startComposerComposition(stateRef.current));
+  }, [updateState]);
+
+  const finishComposition = useCallback(() => {
+    updateState(finishComposerComposition(stateRef.current));
+  }, [updateState]);
+
+  const clearFinishedComposition = useCallback(() => {
+    updateState(clearComposerFinishedComposition(stateRef.current));
   }, [updateState]);
 
   const setText = useCallback(
@@ -249,6 +264,9 @@ export function useComposerInputController({
     reset,
     setText,
     handleTextChange,
+    startComposition,
+    finishComposition,
+    clearFinishedComposition,
     closePathMention,
     closeCommandEntry,
     selectPathMention,
@@ -260,3 +278,5 @@ export function useComposerInputController({
     submit,
   };
 }
+
+export type ComposerInputController = ReturnType<typeof useComposerInputController>;
