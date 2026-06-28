@@ -24,6 +24,7 @@ import { SubagentView } from './SubagentView';
 import { useComposerInputController } from './composerInput/useComposerInputController';
 import { ComposerInputSurface } from './composerInput/ComposerInputSurface';
 import { useComposerSubmissionController } from './composerInput/useComposerSubmissionController';
+import { projectConversationTimeline } from './conversationTimeline/conversationTimeline';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -312,315 +313,13 @@ export function ChatArea({
     return sessions.find(s => s.id === activeSessionId) || null;
   }, [activeSessionId, sessions]);
 
-  // 聚合相邻的工具系统消息（连续工具调用折叠合并逻辑）
-  const renderItems = useMemo(() => {
-    const items: Array<
-      | { type: 'message'; id: string; message: any }
-      | { type: 'tool_group'; id: string; tools: any[] }
-    > = [];
-    
-    let currentGroup: any[] = [];
-    let currentGroupStartId: string | null = null;
-
-    (messages || []).forEach((message) => {
-      let isTool = false;
-      if (message.role === 'system') {
-        try {
-          const parsed = JSON.parse(message.content);
-          if (parsed && parsed.type === 'tool') {
-            isTool = true;
-          }
-        } catch (e) {
-          // 不是 JSON 格式的工具消息
-        }
-      }
-
-      if (isTool) {
-        if (currentGroup.length === 0) {
-          currentGroupStartId = message.id;
-        }
-        currentGroup.push(message);
-      } else {
-        if (currentGroup.length > 0) {
-          items.push({
-            type: 'tool_group',
-            id: currentGroupStartId || `tool-group-${message.id}`,
-            tools: currentGroup
-          });
-          currentGroup = [];
-          currentGroupStartId = null;
-        }
-        items.push({
-          type: 'message',
-          id: message.id,
-          message
-        });
-      }
-    });
-
-    if (currentGroup.length > 0) {
-      items.push({
-        type: 'tool_group',
-        id: currentGroupStartId || 'tool-group-end',
-        tools: currentGroup
-      });
-    }
-
-    return items;
-  }, [messages]);
-
-  const processedItems = useMemo(() => {
-    const items = renderItems;
-
-    const cleanMessageContent = (content: string): string => {
-      if (!content) return '';
-      let cleanContent = content;
-      const thinkCount = (cleanContent.match(/<think>/g) || []).length;
-      const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
-      if (thinkEndCount > thinkCount) {
-        if (thinkCount === 0) {
-          cleanContent = cleanContent.replace(/<\/think>/g, '');
-        } else {
-          const lastIdx = cleanContent.lastIndexOf('</think>');
-          if (lastIdx !== -1) {
-            cleanContent = cleanContent.substring(0, lastIdx) + cleanContent.substring(lastIdx + 8);
-          }
-        }
-      }
-      return cleanContent;
-    };
-    
-    // Divide into turns based on user messages
-    const turns: Array<{
-      userItem: any | null;
-      responseItems: any[];
-    }> = [];
-
-    let currentTurn: { userItem: any | null; responseItems: any[] } = { userItem: null, responseItems: [] };
-
-    items.forEach((item: any) => {
-      if (item.type === 'message' && item.message.role === 'user') {
-        if (currentTurn.userItem || currentTurn.responseItems.length > 0) {
-          turns.push(currentTurn);
-        }
-        currentTurn = { userItem: item, responseItems: [] };
-      } else {
-        currentTurn.responseItems.push(item);
-      }
-    });
-    if (currentTurn.userItem || currentTurn.responseItems.length > 0) {
-      turns.push(currentTurn);
-    }
-
-    const finalItems: any[] = [];
-
-    turns.forEach((turn, turnIdx) => {
-      if (turn.userItem) {
-        finalItems.push(turn.userItem);
-      }
-
-      const isLastTurn = turnIdx === turns.length - 1;
-      const isStreamingActive = isLastTurn && isStreaming;
-
-      if (isStreamingActive) {
-        // AI is outputting: do not fold/merge items in this turn
-        finalItems.push(...turn.responseItems);
-      } else {
-        // AI has finished outputting: fold thinking and tool items
-        const responseItems = turn.responseItems;
-        
-        let firstThinkIdx = -1;
-        let lastThinkIdx = -1;
-
-        responseItems.forEach((item, index) => {
-          if (item.type === 'message' && item.message.role === 'assistant') {
-            const content = cleanMessageContent(item.message.content || '');
-            if (firstThinkIdx === -1 && content.includes('<think>')) {
-              firstThinkIdx = index;
-            }
-            if (content.includes('</think>') || content.includes('<think>')) {
-              lastThinkIdx = index;
-            }
-          }
-        });
-
-        if (firstThinkIdx !== -1 && lastThinkIdx !== -1 && lastThinkIdx >= firstThinkIdx) {
-          const preFoldItems: any[] = [];
-          const foldedItems: any[] = [];
-          const postFoldItems: any[] = [];
-
-          if (lastThinkIdx === firstThinkIdx) {
-            const firstItem = responseItems[firstThinkIdx];
-            const firstMsgContent = cleanMessageContent(firstItem.message.content);
-            const firstThinkTagIdx = firstMsgContent.indexOf('<think>');
-            const lastThinkEndTagIdx = firstMsgContent.lastIndexOf('</think>');
-            
-            let prePart = '';
-            let postPart = '';
-            let thinkPart = firstMsgContent;
-
-            if (firstThinkTagIdx !== -1) {
-              prePart = firstMsgContent.substring(0, firstThinkTagIdx).trim();
-              if (lastThinkEndTagIdx !== -1 && lastThinkEndTagIdx > firstThinkTagIdx) {
-                thinkPart = firstMsgContent.substring(firstThinkTagIdx, lastThinkEndTagIdx + 8);
-                postPart = firstMsgContent.substring(lastThinkEndTagIdx + 8).trim();
-              } else {
-                thinkPart = firstMsgContent.substring(firstThinkTagIdx);
-              }
-            }
-
-            // 1. Items before firstThinkIdx
-            for (let i = 0; i < firstThinkIdx; i++) {
-              preFoldItems.push(responseItems[i]);
-            }
-
-            // 2. Pre-part
-            if (prePart) {
-              preFoldItems.push({
-                type: 'message',
-                id: `${firstItem.id}-pre`,
-                message: { ...firstItem.message, id: `${firstItem.message.id}-pre`, content: prePart }
-              });
-            }
-
-            // 3. Folded item (strip tags to prevent inner fold component rendering)
-            foldedItems.push({
-              type: 'message',
-              id: `${firstItem.id}-think`,
-              message: { 
-                ...firstItem.message, 
-                id: `${firstItem.message.id}-think`, 
-                content: thinkPart.replace(/<\/?think>/g, '').trim() 
-              }
-            });
-
-            // 4. Post-part
-            if (postPart) {
-              postFoldItems.push({
-                type: 'message',
-                id: `${firstItem.id}-post`,
-                message: { ...firstItem.message, id: `${firstItem.message.id}-post`, content: postPart }
-              });
-            }
-          } else {
-            // firstThinkIdx < lastThinkIdx
-            // 1. Items before firstThinkIdx
-            for (let i = 0; i < firstThinkIdx; i++) {
-              preFoldItems.push(responseItems[i]);
-            }
-
-            // 2. Process firstThinkIdx item
-            const firstItem = responseItems[firstThinkIdx];
-            const firstMsgContent = cleanMessageContent(firstItem.message.content);
-            const firstThinkTagIdx = firstMsgContent.indexOf('<think>');
-            let prePart = '';
-            let firstThinkPart = firstMsgContent;
-            if (firstThinkTagIdx !== -1) {
-              prePart = firstMsgContent.substring(0, firstThinkTagIdx).trim();
-              firstThinkPart = firstMsgContent.substring(firstThinkTagIdx);
-            }
-
-            if (prePart) {
-              preFoldItems.push({
-                type: 'message',
-                id: `${firstItem.id}-pre`,
-                message: { ...firstItem.message, id: `${firstItem.message.id}-pre`, content: prePart }
-              });
-            }
-            
-            foldedItems.push({
-              type: 'message',
-              id: `${firstItem.id}-think`,
-              message: { 
-                ...firstItem.message, 
-                id: `${firstItem.message.id}-think`, 
-                content: firstThinkPart.replace(/<\/?think>/g, '').trim() 
-              }
-            });
-
-            // Add intermediate items
-            for (let i = firstThinkIdx + 1; i < lastThinkIdx; i++) {
-              const item = responseItems[i];
-              if (item.type === 'message') {
-                foldedItems.push({
-                  ...item,
-                  message: {
-                    ...item.message,
-                    content: cleanMessageContent(item.message.content).replace(/<\/?think>/g, '').trim()
-                  }
-                });
-              } else {
-                foldedItems.push(item);
-              }
-            }
-
-            // Process last item
-            const lastItem = responseItems[lastThinkIdx];
-            const lastMsgContent = cleanMessageContent(lastItem.message.content);
-            const lastThinkEndTagIdx = lastMsgContent.lastIndexOf('</think>');
-            let postPart = '';
-            let lastThinkPart = lastMsgContent;
-            if (lastThinkEndTagIdx !== -1) {
-              postPart = lastMsgContent.substring(lastThinkEndTagIdx + 8).trim();
-              lastThinkPart = lastMsgContent.substring(0, lastThinkEndTagIdx + 8);
-            }
-
-            foldedItems.push({
-              type: 'message',
-              id: `${lastItem.id}-think`,
-              message: { 
-                ...lastItem.message, 
-                id: `${lastItem.message.id}-think`, 
-                content: lastThinkPart.replace(/<\/?think>/g, '').trim() 
-              }
-            });
-
-            if (postPart) {
-              postFoldItems.push({
-                type: 'message',
-                id: `${lastItem.id}-post`,
-                message: { ...lastItem.message, id: `${lastItem.message.id}-post`, content: postPart }
-              });
-            }
-          }
-
-          // Remaining items after lastThinkIdx
-          for (let i = lastThinkIdx + 1; i < responseItems.length; i++) {
-            postFoldItems.push(responseItems[i]);
-          }
-
-          // Calculate duration from message items only. `responseItems` may end
-          // with a tool_group, which has no `.message` field.
-          const startTimestamp = responseItems[firstThinkIdx].message.created_at;
-          const lastMessageItem = [...responseItems].reverse().find((item) => item.type === 'message' && item.message);
-          const endTimestamp = lastMessageItem?.message.created_at ?? startTimestamp;
-          const totalSeconds = Math.max(1, Math.round((endTimestamp - startTimestamp) / 1000));
-
-          finalItems.push(...preFoldItems);
-          finalItems.push({
-            type: 'folded_block',
-            id: `folded-${turnIdx}`,
-            duration: totalSeconds,
-            foldedItems
-          });
-          finalItems.push(...postFoldItems);
-        } else {
-          // No thinking block in this turn, render all normally
-          finalItems.push(...turn.responseItems);
-        }
-      }
-    });
-
-    if (isStreaming && pendingApproval) {
-      finalItems.push({
-        type: 'pending_approval_block',
-        id: `pending-approval-${pendingApproval.id}`,
-        approval: pendingApproval
-      });
-    }
-
-    return finalItems;
-  }, [renderItems, isStreaming, pendingApproval]);
+  const timelineItems = useMemo(() => (
+    projectConversationTimeline({
+      messages: messages || [],
+      isStreaming,
+      pendingApproval,
+    })
+  ), [messages, isStreaming, pendingApproval]);
 
 
   const defaultAgent = useMemo(() => {
@@ -1005,7 +704,7 @@ export function ChatArea({
                 }}
               >
                 {/* Messages List */}
-                {processedItems.map((item, idx) => {
+                {timelineItems.map((item, idx) => {
                   if (item.type === 'pending_approval_block') {
                     return (
                       <PendingApprovalCard
@@ -1037,7 +736,7 @@ export function ChatArea({
                       <MessageItem
                         key={item.id}
                         message={item.message}
-                        isLast={idx === processedItems.length - 1}
+                        isLast={idx === timelineItems.length - 1}
                         isStreaming={isStreaming}
                       />
                     );

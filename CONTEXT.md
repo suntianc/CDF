@@ -12,6 +12,10 @@ _Avoid_: chat page, SaaS dashboard
 The user-visible exchange in a session, including user prompts, Agent responses, tool activity, approvals, and process status.
 _Avoid_: chat log, message list
 
+**Conversation Timeline Projection**:
+The user-visible ordering of Conversation events as a readable timeline of messages, tool activity, folded process, streaming state, and approvals.
+_Avoid_: message list mapping, transcript renderer
+
 **Conversation Draft Name**:
 The initial Conversation name derived from a Welcome Composer Input before the Conversation exists.
 _Avoid_: sessionName, welcome title, draft text title
