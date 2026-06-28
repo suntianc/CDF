@@ -3,10 +3,10 @@ import path from 'path';
 
 export function isProtectedPath(filePath: string): boolean {
   const lower = filePath.toLowerCase();
-  const segments = lower.split('/');
+  const segments = lower.split(/[/\\]/);
   if (segments.some((s) => s === '.env' || s.startsWith('.env.'))) return true;
-  return ['/.git/', '/node_modules/', '/out/', '/dist/'].some((prefix) =>
-    lower.includes(prefix)
+  return [/.git[/\\]/, /node_modules[/\\]/, /out[/\\]/, /dist[/\\]/].some((rx) =>
+    rx.test(lower)
   );
 }
 
@@ -15,7 +15,7 @@ export function resolveProjectFile(projectPath: string, filePath: string): strin
     throw new Error(`file_path must be an absolute path: ${filePath}`);
   }
 
-  const segments = filePath.split(path.sep).filter(Boolean);
+  const segments = filePath.split(/[/\\]/).filter(Boolean);
   if (segments.includes('..') || filePath.startsWith('~')) {
     throw new Error(`Path traversal is not allowed: ${filePath}`);
   }
