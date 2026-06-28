@@ -93,6 +93,8 @@ export function FilePanel() {
 
   useEffect(() => {
     if (!filePanelOpen || !rootPath) return;
+    const cached = useFileStore.getState().dirContents[rootPath];
+    if (cached) return;
     let cancelled = false;
 
     async function loadRoot() {
