@@ -71,6 +71,9 @@ describe('sessionStore sendMessage', () => {
           };
         }),
       },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
+      },
       platform: 'darwin',
     };
 
@@ -155,6 +158,9 @@ describe('sessionStore sendMessage', () => {
             chunkListener = null;
           };
         }),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
     };
@@ -400,7 +406,10 @@ describe('sessionStore selectSession activity errors', () => {
         testProvider: vi.fn(),
         fetchProviderModels: vi.fn(),
         fetchOllamaModels: vi.fn(),
-        onChunk: vi.fn(),
+        onChunk: vi.fn(() => () => {}),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
     } as any;

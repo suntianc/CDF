@@ -49,6 +49,7 @@ vi.mock('fs', () => ({
   default: {
     existsSync: vi.fn(() => true),
     readFileSync: vi.fn(() => '[{"name":"item-1"},{"name":"item-2"}]'),
+    realpathSync: vi.fn((p: string) => p),
   },
 }));
 
