@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
@@ -237,7 +237,7 @@ function ParallelBatchSection({ batches }: { batches: ParallelBatch[] }) {
   );
 }
 
-function TaskPanelContent() {
+function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
   const { t } = useTranslation();
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const activeRunId = useSessionStore((state) => state.activeRunId);
@@ -281,9 +281,10 @@ function TaskPanelContent() {
   }, [agentToolCalls]);
 
   useEffect(() => {
+    if (!isOpen) return;
     if (!activeSessionId) return;
     fetchAgentActivity(activeSessionId).catch(() => undefined);
-  }, [activeSessionId, fetchAgentActivity]);
+  }, [isOpen, activeSessionId, fetchAgentActivity]);
 
   // D-05: Newest Sub Agent on top (sort by startedAt descending)
   const sortedTasks = useMemo(
@@ -509,18 +510,39 @@ function TaskPanelContent() {
 
 export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
   const { t } = useTranslation();
-  if (!isOpen) return null;
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [animateActive, setAnimateActive] = useState(isOpen);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      const animTimer = setTimeout(() => setAnimateActive(true), 10);
+      return () => clearTimeout(animTimer);
+    } else {
+      setAnimateActive(false);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  if (!shouldRender) return null;
 
   return (
     <div
-      className="w-[360px] max-h-[70vh] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-lg flex flex-col overflow-hidden"
+      className={`w-[360px] max-h-[70vh] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-lg flex flex-col overflow-hidden origin-top-right transition-all duration-200 ease-in-out ${
+        animateActive
+          ? 'opacity-100 scale-100 pointer-events-auto'
+          : 'opacity-0 scale-95 pointer-events-none'
+      }`}
     >
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] shrink-0 select-none">
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
       </div>
 
       <div className="flex-1 p-4 overflow-y-auto space-y-4">
-        <TaskPanelContent />
+        <TaskPanelContent isOpen={isOpen} />
       </div>
     </div>
   );
