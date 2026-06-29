@@ -28,6 +28,10 @@ _Avoid_: chat area, messages viewport, conversation renderer
 The pre-Conversation visual surface shown before a Conversation is active, responsible for presenting welcome copy, the Welcome Composer Input, entry actions, project and setup shortcuts, and pre-Conversation status or error affordances.
 _Avoid_: welcome page, empty chat, landing page
 
+**Model Selection Surface**:
+The shared Composer Input surface for choosing the model used by a Conversation instruction, including provider groups, model candidates, current-selection display, empty-provider affordance, and dropdown interaction.
+_Avoid_: model dropdown, provider picker, model selector
+
 **Conversation Draft Name**:
 The initial Conversation name derived from a Welcome Composer Input before the Conversation exists.
 _Avoid_: sessionName, welcome title, draft text title

@@ -7,7 +7,7 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import {
   ArrowUp, Square,
-  ChevronDown, Plus, SlidersHorizontal
+  Plus, SlidersHorizontal
 } from 'lucide-react';
 
 import { useChatScroll } from './useChatScroll';
@@ -22,6 +22,8 @@ import { useComposerSubmissionController } from './composerInput/useComposerSubm
 import { projectConversationTimeline } from './conversationTimeline/conversationTimeline';
 import { ConversationViewportSurface } from './ConversationViewportSurface';
 import { ConversationWelcomeSurface } from './ConversationWelcomeSurface';
+import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
+import { useModelSelectionController } from './modelSelection/useModelSelectionController';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -46,7 +48,7 @@ export function ChatArea({
   const { 
     sessions, activeSessionId, messages, isStreaming, streamingMessageId, activeRunId, error, todos,
     pendingApproval,
-    sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage
+    sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage, setSessionModelOverride
   } = useSessionStore();
   const { providers, fetchProviders } = useLLMStore();
   const { agents, fetchAgents } = useAgentStore();
@@ -71,12 +73,7 @@ export function ChatArea({
     ) ?? null;
   }, [viewingParallelWorker, parallelBatches]);
 
-  const [welcomeModelSelectorOpen, setWelcomeModelSelectorOpen] = useState(false);
-  const [composerModelSelectorOpen, setComposerModelSelectorOpen] = useState(false);
   const sessionModelOverrides = useSessionStore((state) => state.sessionModelOverrides) || {};
-  const override = activeSessionId ? sessionModelOverrides[activeSessionId] : (sessionModelOverrides[''] || null);
-  const selectedProviderId = override?.providerId || '';
-  const selectedModel = override?.model || '';
   const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previousSessionIdRef = useRef<string | null>(null);
@@ -153,15 +150,6 @@ export function ChatArea({
     fetchAgents(currentProjectId);
   }, [currentProjectId, fetchAgents]);
 
-  useEffect(() => {
-    const handleOutsideClick = () => {
-      setWelcomeModelSelectorOpen(false);
-      setComposerModelSelectorOpen(false);
-    };
-    window.addEventListener('click', handleOutsideClick);
-    return () => window.removeEventListener('click', handleOutsideClick);
-  }, []);
-
   // Find active project name & active session
   const currentProjectName = useMemo(() => {
     return projects.find(p => p.id === currentProjectId)?.name || t('chat.unknownProject');
@@ -200,136 +188,13 @@ export function ChatArea({
     return providers.find((provider) => provider.id === baseAgent?.provider_id) || null;
   }, [activeSession, activeSessionAgent, defaultAgent, providers]);
 
-  const selectedProvider = useMemo(() => {
-    return providers.find((provider) => provider.id === selectedProviderId) || null;
-  }, [providers, selectedProviderId]);
-
-  const getProviderModels = (provider: { id?: string; default_model: string; models?: string[] }) => {
-    const models = [provider.default_model, ...(provider.models || [])].filter(Boolean);
-    if (provider.id === selectedProviderId && selectedModel) {
-      models.push(selectedModel);
-    }
-    return Array.from(new Set(models));
-  };
-
-  const selectedProviderModels = useMemo(() => {
-    if (!selectedProvider) return [];
-    return getProviderModels(selectedProvider);
-  }, [selectedProvider, selectedProviderId, selectedModel]);
-
-  const setSelectedModel = (modelName: string) => {
-    const targetId = activeSessionId || '';
-    if (!modelName || !selectedProviderId) {
-      useSessionStore.getState().setSessionModelOverride(targetId, '', '');
-      return;
-    }
-    useSessionStore.getState().setSessionModelOverride(targetId, selectedProviderId, modelName);
-  };
-
-  useEffect(() => {
-    if (providers.length === 0) return;
-
-    if (!selectedProvider) {
-      if (selectedModel) setSelectedModel('');
-      return;
-    }
-
-    if (!selectedProviderModels.includes(selectedModel)) {
-      setSelectedModel(selectedProviderModels[0] || '');
-    }
-  }, [selectedModel, selectedProvider, selectedProviderModels, providers]);
-
-  const currentProvider = selectedProvider || masterProvider;
-  const currentModel = selectedModel || masterProvider?.default_model || '';
-  const currentModelLabel = currentProvider
-    ? `${currentProvider.name} • ${currentModel || currentProvider.default_model}`
-    : t('chat.selectModel');
-  const activeAgentLabel = activeSessionAgent
-    ? `${activeSessionAgent.name} · ${activeSessionAgent.mcpServerIds?.length || 0} MCP · ${activeSessionAgent.skillNames?.length || 0} Skills`
-    : t('chat.noAgentBound');
-
-  const handleSelectModel = (providerId: string, modelName: string) => {
-    const targetId = activeSessionId || '';
-    useSessionStore.getState().setSessionModelOverride(targetId, providerId, modelName);
-    setWelcomeModelSelectorOpen(false);
-    setComposerModelSelectorOpen(false);
-  };
-
-  const renderModelSelector = (
-    variant: 'welcome' | 'composer',
-    open: boolean,
-    setOpen: (open: boolean) => void
-  ) => {
-    const directionClass = variant === 'welcome'
-      ? 'model-selector model-selector--welcome'
-      : 'model-selector model-selector--composer';
-
-    return (
-      <div
-        className={`${directionClass} ${open ? 'open' : ''}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          onClick={() => setOpen(!open)}
-          className="model-selector-trigger"
-        >
-          <span
-            className={`model-selector-label ${variant === 'composer' ? 'truncate max-w-[150px]' : ''}`}
-            title={currentModelLabel}
-          >
-            {currentModelLabel}
-          </span>
-          <ChevronDown className="model-chevron w-3.5 h-3.5" />
-        </div>
-        <div className="model-dropdown">
-          {providers.length === 0 ? (
-            <div
-              onClick={() => {
-                setOpen(false);
-                onOpenSettings?.();
-              }}
-              className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
-            >
-              {t('chat.noProvidersAvailable')}
-            </div>
-          ) : (
-            providers.map((provider) => (
-              <div key={provider.id} className="model-group">
-                <div className="model-group-name">{provider.name}</div>
-                {getProviderModels(provider).map((modelName) => (
-                  <div
-                    key={modelName}
-                    className={`model-select-option ${
-                      (selectedProviderId === provider.id && selectedModel === modelName) ||
-                      (!selectedProviderId && !selectedModel && masterProvider?.id === provider.id && masterProvider?.default_model === modelName)
-                        ? 'selected'
-                        : ''
-                    }`}
-                    title={`${provider.name} • ${modelName}`}
-                    onClick={() => handleSelectModel(provider.id, modelName)}
-                  >
-                    {modelName}
-                  </div>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  useEffect(() => {
-    if (!welcomeModelSelectorOpen && !composerModelSelectorOpen) return;
-
-    const timer = setTimeout(() => {
-      document
-        .querySelector('.model-selector.open .model-select-option.selected')
-        ?.scrollIntoView({ block: 'nearest' });
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [welcomeModelSelectorOpen, composerModelSelectorOpen, selectedProviderId, selectedModel, providers]);
+  const modelSelection = useModelSelectionController({
+    activeSessionId,
+    providers,
+    sessionModelOverrides,
+    masterProvider,
+    setSessionModelOverride,
+  });
 
   // Phase 6: registry consumer. Provides commands + fires sonner toasts.
   // v1.1 polish: fall back to the project's default agent when there is no
@@ -360,8 +225,8 @@ export function ChatArea({
     activeSessionId,
     currentProjectId,
     isStreaming,
-    selectedProviderId,
-    selectedModel,
+    selectedProviderId: modelSelection.selectedProviderId,
+    selectedModel: modelSelection.selectedModel,
     commands: registry.commands,
     resolveCommand: dispatcherResolve,
     dispatchCommand: dispatcherDispatch,
@@ -371,7 +236,7 @@ export function ChatArea({
     sendMessage,
     getWelcomeModelOverride: () => useSessionStore.getState().sessionModelOverrides[''] || null,
     setSessionModelOverride: (sessionId, providerId, model) => {
-      useSessionStore.getState().setSessionModelOverride(sessionId, providerId, model);
+      setSessionModelOverride(sessionId, providerId, model);
     },
     t,
   });
@@ -430,7 +295,18 @@ export function ChatArea({
             <ApprovalModeSelector />
           </>
         }
-        modelSelectorSlot={renderModelSelector('welcome', welcomeModelSelectorOpen, setWelcomeModelSelectorOpen)}
+        modelSelectorSlot={
+          <ModelSelectionSurface
+            variant="welcome"
+            providers={providers}
+            selectedProviderId={modelSelection.selectedProviderId}
+            selectedModel={modelSelection.selectedModel}
+            currentProvider={modelSelection.currentProvider}
+            currentModel={modelSelection.currentModel}
+            onSelectModel={modelSelection.selectModel}
+            onOpenSettings={onOpenSettings}
+          />
+        }
       />
 
       {/* Main Chat Workspace */}
@@ -517,7 +393,18 @@ export function ChatArea({
                   <ApprovalModeSelector dropUp />
                 </>
               }
-              modelSelectorSlot={renderModelSelector('composer', composerModelSelectorOpen, setComposerModelSelectorOpen)}
+              modelSelectorSlot={
+                <ModelSelectionSurface
+                  variant="composer"
+                  providers={providers}
+                  selectedProviderId={modelSelection.selectedProviderId}
+                  selectedModel={modelSelection.selectedModel}
+                  currentProvider={modelSelection.currentProvider}
+                  currentModel={modelSelection.currentModel}
+                  onSelectModel={modelSelection.selectModel}
+                  onOpenSettings={onOpenSettings}
+                />
+              }
               submitSlot={
                 isStreaming ? (
                   <button
