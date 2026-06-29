@@ -24,6 +24,10 @@ _Avoid_: task panel state, activity UI props
 The shared visual surface for displaying a Conversation, responsible for switching between the master Conversation, delegated task views, and parallel worker views, and for rendering projected timeline items, transient status, and view-local banners.
 _Avoid_: chat area, messages viewport, conversation renderer
 
+**Conversation Welcome Surface**:
+The pre-Conversation visual surface shown before a Conversation is active, responsible for presenting welcome copy, the Welcome Composer Input, entry actions, project and setup shortcuts, and pre-Conversation status or error affordances.
+_Avoid_: welcome page, empty chat, landing page
+
 **Conversation Draft Name**:
 The initial Conversation name derived from a Welcome Composer Input before the Conversation exists.
 _Avoid_: sessionName, welcome title, draft text title
