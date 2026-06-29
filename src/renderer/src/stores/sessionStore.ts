@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { useProjectStore } from './projectStore';
 import {
+  createConversationRuntimeState,
+  projectConversationRuntime,
+  restoreConversationRuntime,
+  type ConversationRuntimeProjectionEffect,
+  type ConversationRuntimeProjectionState,
+} from '../components/ChatArea/conversationRuntime/conversationRuntimeProjection';
+import {
   AgentApprovalRequest,
   AgentRun,
   AgentToolCall,
@@ -129,18 +136,7 @@ interface SessionState {
   updateMessageThinkDuration: (messageId: string, seconds: number) => void;
 }
 
-interface StreamingSessionState {
-  messages: Message[];
-  todos: TodoItem[];
-  delegatedTasks: DelegatedTask[];
-  parallelBatches: ParallelBatch[];
-  agentRuns: AgentRun[];
-  agentToolCalls: AgentToolCall[];
-  activeRunId: string | null;
-  pendingApproval: AgentApprovalRequest | null;
-  isStreaming: boolean;
-  streamingMessageId: string | null;
-}
+type StreamingSessionState = ConversationRuntimeProjectionState;
 
 const streamingSessionsCache = new Map<string, StreamingSessionState>();
 interface ActivityFetchEntry {
@@ -427,174 +423,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           return;
         }
         const runs = await window.electronAPI.db.getAgentRuns(sessionId);
-      const activeRun = runs[0] || null;
-      const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+        const activeRun = runs[0] || null;
+        const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
 
-      // Detect stale running state: if the session is not currently streaming,
-      // any task still marked 'running' in DB is likely a crash or disconnect
-      // leftover. Streaming chunks are ephemeral (not persisted), so these
-      // tasks will permanently show "0 块 / 0 tokens" unless resolved.
-      const isSessionStreaming = streamingSessionsCache.has(sessionId);
-
-      const tasks: DelegatedTask[] = [];
-      for (const call of toolCalls) {
-        if (call.tool_name === 'task') {
-          let agentSlug = 'unknown';
-          let goal = '';
-          try {
-            const input = call.input ? JSON.parse(call.input) : {};
-            agentSlug = input.subagent_type || input.name || 'unknown';
-            if (input.task) {
-              try {
-                const taskPackage = JSON.parse(input.task);
-                goal = taskPackage.goal || '';
-              } catch {
-                goal = input.name || '任务执行';
-              }
-            } else if (input.description) {
-              goal = input.description;
-            }
-          } catch (e) {
-            console.warn('[sessionStore] Failed to parse task tool call input:', call.input, e);
-          }
-
-          let status: 'running' | 'success' | 'failure' = 'success';
-          let errorCode: string | undefined;
-          let parsedResult: any;
-
-          if (call.status === 'running') {
-            // If the session is not streaming, a "running" task means the
-            // process that owned it disappeared (crash / disconnect / tab
-            // close). Resolve it so the UI never shows a permanently-running
-            // ghost with 0 chunks and 0 tokens.
-            if (!isSessionStreaming) {
-              status = 'failure';
-              errorCode = 'DISCONNECTED';
-              parsedResult = {
-                status: 'failure',
-                artifacts: [],
-                summary: '',
-                error: { code: 'DISCONNECTED', message: '会话流已结束，任务未正常完成' },
-              };
-            } else {
-              status = 'running';
-            }
-          } else if (call.status === 'error') {
-            status = 'failure';
-            errorCode = 'UNKNOWN';
-            const msg = call.error || '';
-            if (msg.toLowerCase().includes('timeout')) errorCode = 'TIMEOUT';
-            else if (msg.toLowerCase().includes('interrupt') || msg.toLowerCase().includes('cancel')) errorCode = 'INTERRUPTED';
-            parsedResult = {
-              status: 'failure',
-              artifacts: [],
-              summary: '',
-              error: { code: errorCode, message: msg }
-            };
-          } else {
-            // Handles call.status === 'success', 'completed', and any other non-running/non-error status.
-            // 'skipped' calls will have no meaningful output; the try/catch below will produce a PARSE_FAILED
-            // result which is acceptable — skipped tasks are rare and not shown in normal flow.
-            // After REPAIR-04 (llm.ts D-11 fix), DB output is already parsed standard format
-            // {status, artifacts, summary}, so parsedOutput.summary will be populated directly.
-            try {
-              const rawOutput = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
-              const parsedOutput = JSON.parse(rawOutput);
-              if (parsedOutput && typeof parsedOutput === 'object') {
-                if (parsedOutput.status === 'failure') {
-                  status = 'failure';
-                  errorCode = parsedOutput.error?.code || 'PARSE_FAILED';
-                  parsedResult = parsedOutput;
-                } else if (parsedOutput.summary !== undefined) {
-                  status = 'success';
-                  parsedResult = parsedOutput;
-                } else {
-                  if (parsedOutput.lg_name === 'Command' && parsedOutput.update?.messages?.length > 0) {
-                    const toolMsg = parsedOutput.update.messages[parsedOutput.update.messages.length - 1];
-                    const content = typeof toolMsg === 'object' ? toolMsg.kwargs?.content : toolMsg;
-                    if (typeof content === 'string') {
-                      try {
-                        parsedResult = JSON.parse(content);
-                        if (parsedResult.status === 'failure') {
-                          status = 'failure';
-                          errorCode = parsedResult.error?.code || 'PARSE_FAILED';
-                        }
-                      } catch {
-                        parsedResult = { status: 'success', artifacts: [], summary: content.slice(0, 500) };
-                      }
-                    } else {
-                      parsedResult = { status: 'success', artifacts: [], summary: '任务执行完成' };
-                    }
-                  } else {
-                    parsedResult = { status: 'success', artifacts: [], summary: '任务执行完成' };
-                  }
-                }
-              }
-            } catch (e: any) {
-              status = 'failure';
-              errorCode = 'PARSE_FAILED';
-              parsedResult = {
-                status: 'failure',
-                artifacts: [],
-                summary: '',
-                error: { code: 'PARSE_FAILED', message: e?.message || 'unknown parse error' }
-              };
-            }
-          }
-
-          tasks.push({
-            taskId: call.id,
-            agentSlug,
-            agentName: agentSlug,
-            goal,
-            status,
-            chunks: [],
-            steps: [],
-            result: parsedResult,
-            errorCode,
-            startedAt: call.started_at,
-            completedAt: call.ended_at || undefined
-          });
-        }
-      }
-      // Reconstruct parallelBatches from parallel_tasks tool calls stored in DB
-      const restoredBatches: ParallelBatch[] = [];
-      for (const call of toolCalls) {
-        if (call.tool_name === 'parallel_tasks') {
-          try {
-            const input = call.input ? JSON.parse(call.input) : {};
-            const rawOutput = typeof call.output === 'string' ? call.output : JSON.stringify(call.output ?? '{}');
-            const output = rawOutput ? JSON.parse(rawOutput) : {};
-            const batchId: string = output.batchId ?? call.id;
-            const inputTasks: Array<{ name: string; description?: string }> = input.tasks ?? [];
-            const results: Array<{ name: string; agentName?: string; status: string; output?: string; error?: string }> = output.results ?? [];
-
-            const workers: ParallelWorker[] = inputTasks.map((t) => {
-              const result = results.find((r) => r.name === t.name);
-              let status: 'running' | 'success' | 'failure' = 'success';
-              if (call.status === 'running') {
-                status = isSessionStreaming ? 'running' : 'failure';
-              } else if (result?.status === 'failure' || call.status === 'error') {
-                status = 'failure';
-              }
-              return {
-                agentSlug: t.name,
-                agentName: result?.agentName,
-                goal: t.description,
-                status,
-                steps: [],
-                textBuffer: result?.output ?? '',
-                startedAt: call.started_at ?? Date.now(),
-                completedAt: call.ended_at || undefined,
-              };
-            });
-
-            restoredBatches.push({ batchId, workers, startedAt: call.started_at ?? Date.now() });
-          } catch (e) {
-            console.warn('[sessionStore] Failed to parse parallel_tasks call:', e);
-          }
-        }
-      }
+        // Detect stale running state: if the session is not currently streaming,
+        // any task still marked 'running' in DB is likely a crash or disconnect leftover.
+        const isSessionStreaming = streamingSessionsCache.has(sessionId);
 
       // Reconstruct the latest successful todos from database history on session switch
       let latestTodos: TodoItem[] = [];
@@ -624,6 +458,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       } catch (err) {
         console.warn('[sessionStore] Failed to fetch/parse latest todos from DB:', err);
       }
+
+        const restoredRuntime = restoreConversationRuntime({
+          sessionId,
+          isStreaming: isSessionStreaming,
+          agentRuns: runs,
+          agentToolCalls: toolCalls,
+          latestTodos,
+        });
+        const tasks = restoredRuntime.delegatedTasks;
 
         if (get().activeSessionId !== sessionId || latestActivityFetchRequestIds.get(sessionId) !== requestId) return;
 
@@ -668,12 +511,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
 
         set({
-          agentRuns: runs,
-          agentToolCalls: toolCalls,
+          agentRuns: restoredRuntime.agentRuns,
+          agentToolCalls: restoredRuntime.agentToolCalls,
           delegatedTasks: tasks,
-          parallelBatches: restoredBatches,
-          todos: latestTodos,
-          activeRunId: activeRun?.id || null,
+          parallelBatches: restoredRuntime.parallelBatches,
+          todos: restoredRuntime.todos,
+          activeRunId: restoredRuntime.activeRunId,
         });
       } catch (err: any) {
         if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
@@ -750,7 +593,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
 
       const baseMessages = get().getMessagesForSession(sessionId);
-      const initialState: StreamingSessionState = {
+      const initialState: StreamingSessionState = createConversationRuntimeState({
+        sessionId,
+        streamingMessageId: assistantMsgId,
+        currentAssistantMsgId: assistantMsgId,
         messages: [
           ...baseMessages,
           ...(options?.hiddenUserMessage ? [] : [userMsg]),
@@ -764,8 +610,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         activeRunId: null,
         pendingApproval: null,
         isStreaming: true,
-        streamingMessageId: assistantMsgId,
-      };
+        accumulatedContent: '',
+        pendingToolMessages: {},
+        runtimeToolMessageIds: [],
+      });
 
       streamingSessionsCache.set(sessionId, initialState);
 
@@ -773,510 +621,114 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set(initialState);
       }
 
-      let accumulatedContent = '';
       let cleanup = () => {};
       let parallelCleanup = () => {};
-      const pendingToolMessages = new Map<string, string[]>();
-      let currentAssistantMsgId = assistantMsgId;
+      const projectionDeps = {
+        now: () => Date.now(),
+        createId: () => window.crypto.randomUUID(),
+        estimateTokens,
+      };
+
+      const syncActiveSession = (nextState: StreamingSessionState) => {
+        if (get().activeSessionId === sessionId) {
+          set({
+            messages: nextState.messages,
+            todos: nextState.todos,
+            delegatedTasks: nextState.delegatedTasks,
+            parallelBatches: nextState.parallelBatches,
+            agentRuns: nextState.agentRuns,
+            agentToolCalls: nextState.agentToolCalls,
+            activeRunId: nextState.activeRunId,
+            pendingApproval: nextState.pendingApproval,
+            isStreaming: nextState.isStreaming,
+            streamingMessageId: nextState.streamingMessageId,
+          });
+        }
+      };
+
+      const executeRuntimeProjectionEffect = async (
+        effect: ConversationRuntimeProjectionEffect,
+        nextState: StreamingSessionState,
+        resolve: () => void,
+        reject: (reason?: unknown) => void,
+      ): Promise<boolean> => {
+        if (effect.type === 'openActivityPanel') {
+          const projectStore = useProjectStore.getState();
+          if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
+            projectStore.setTaskPanelOpen(true);
+          }
+          return false;
+        }
+
+        if (effect.type === 'saveMessage') {
+          try {
+            await window.electronAPI.db.saveMessage(effect.message);
+          } catch (err: any) {
+            console.error('Failed to save runtime projection message:', err);
+            if (get().activeSessionId === sessionId) {
+              set({ error: { message: err?.message || '消息保存失败，对话历史可能不完整' } });
+            }
+          }
+          return false;
+        }
+
+        if (effect.type === 'cleanupStream') {
+          cleanup();
+          parallelCleanup();
+          return false;
+        }
+
+        if (effect.type === 'setRetryableError') {
+          if (get().activeSessionId === sessionId) {
+            set({
+              error: {
+                message: effect.message || '对话请求出错',
+                recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }],
+              },
+            });
+          }
+          return false;
+        }
+
+        if (effect.type === 'resolveStream') {
+          syncActiveSession(nextState);
+          streamingSessionsCache.delete(sessionId);
+          resolve();
+          return true;
+        }
+
+        if (effect.type === 'rejectStream') {
+          syncActiveSession(nextState);
+          streamingSessionsCache.delete(sessionId);
+          reject(new Error(effect.error || '对话请求出错'));
+          return true;
+        }
+
+        return false;
+      };
 
       parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; agentSlug: string; workerId: string; step: ExecutionStep }) => {
         const cached = streamingSessionsCache.get(sessionId);
         if (!cached) return;
-        const { batchId, agentSlug, workerId, step } = data;
-        const batchIdx = cached.parallelBatches.findIndex((b) => b.batchId === batchId);
-
-        // 用 workerId 精确定位 worker（兼容无 workerId 的 restore 路径）
-        const findWorker = (workers: ParallelWorker[]) =>
-          workers.findIndex((w) => (workerId ? w.workerId === workerId : w.agentSlug === agentSlug));
-
-        if (step.type === 'task_end') {
-          if (batchIdx !== -1) {
-            const batch = { ...cached.parallelBatches[batchIdx] };
-            const workerIdx = findWorker(batch.workers);
-            if (workerIdx !== -1) {
-              const workers = [...batch.workers];
-              const status = step.success !== false ? 'success' : 'failure';
-              workers[workerIdx] = { ...workers[workerIdx], status, completedAt: Date.now(), summary: step.summary };
-              batch.workers = workers;
-              const batches = [...cached.parallelBatches];
-              batches[batchIdx] = batch;
-              cached.parallelBatches = batches;
-            }
-          }
-          if (get().activeSessionId === sessionId) {
-            set({ parallelBatches: cached.parallelBatches });
-          }
-          return;
-        }
-
-        if (step.type === 'task_start') {
-          const newWorker: ParallelWorker = {
-            workerId,
-            agentSlug,
-            agentName: step.label,
-            goal: step.goal,
-            status: 'running',
-            steps: [],
-            textBuffer: '',
-            startedAt: Date.now(),
-          };
-          if (batchIdx === -1) {
-            cached.parallelBatches = [...cached.parallelBatches, { batchId, startedAt: Date.now(), workers: [newWorker] }];
-          } else {
-            const batch = { ...cached.parallelBatches[batchIdx] };
-            // workerId 唯一，不会碰撞；只有 workerId 相同时才跳过
-            const workerIdx = findWorker(batch.workers);
-            if (workerIdx === -1) {
-              batch.workers = [...batch.workers, newWorker];
-              const batches = [...cached.parallelBatches];
-              batches[batchIdx] = batch;
-              cached.parallelBatches = batches;
-            }
-          }
-          if (get().activeSessionId === sessionId) {
-            set({ parallelBatches: cached.parallelBatches });
-          }
-          return;
-        }
-
-        const isTextChunk = step.type === 'text_chunk';
-        const chunk = isTextChunk ? (step.content ?? '') : '';
-
-        if (batchIdx === -1) {
-          const newWorker: ParallelWorker = { workerId, agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
-          cached.parallelBatches = [...cached.parallelBatches, { batchId, startedAt: Date.now(), workers: [newWorker] }];
-        } else {
-          const batch = { ...cached.parallelBatches[batchIdx] };
-          const workerIdx = findWorker(batch.workers);
-          if (workerIdx === -1) {
-            const newWorker: ParallelWorker = { workerId, agentSlug, status: 'running', steps: isTextChunk ? [] : [step], textBuffer: chunk, startedAt: Date.now() };
-            batch.workers = [...batch.workers, newWorker];
-          } else {
-            const workers = [...batch.workers];
-            const w = workers[workerIdx];
-            workers[workerIdx] = isTextChunk
-              ? { ...w, textBuffer: (w.textBuffer ?? '') + chunk }
-              : { ...w, steps: [...w.steps, step] };
-            batch.workers = workers;
-          }
-          const batches = [...cached.parallelBatches];
-          batches[batchIdx] = batch;
-          cached.parallelBatches = batches;
-        }
-        if (get().activeSessionId === sessionId) {
-          set({ parallelBatches: cached.parallelBatches });
-        }
+        const result = projectConversationRuntime(cached, { kind: 'parallelTaskStep', event: data }, projectionDeps);
+        streamingSessionsCache.set(sessionId, result.state);
+        syncActiveSession(result.state);
       });
 
       const streamPromise = new Promise<void>((resolve, reject) => {
         cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event: unknown, data: LLMStreamEvent) => {
           const cached = streamingSessionsCache.get(sessionId);
           if (!cached) return;
+          const result = projectConversationRuntime(cached, { kind: 'llm', event: data }, projectionDeps);
+          streamingSessionsCache.set(sessionId, result.state);
 
-          if (data.type === 'todos_update') {
-            cached.todos = data.todos;
+          let terminal = false;
+          for (const effect of result.effects) {
+            terminal = await executeRuntimeProjectionEffect(effect, result.state, resolve, reject) || terminal;
           }
 
-          else if (data.type === 'run_started') {
-            cached.activeRunId = data.runId;
-            cached.agentRuns = [
-              {
-                id: data.runId,
-                session_id: sessionId,
-                agent_id: data.agentId,
-                request_id: assistantMsgId,
-                status: data.status,
-                started_at: Date.now(),
-                ended_at: null,
-                aborted: 0,
-              },
-              ...cached.agentRuns.filter((run) => run.id !== data.runId),
-            ];
-            cached.agentToolCalls = [];
-          }
-
-          else if (data.type === 'run_updated') {
-            cached.agentRuns = cached.agentRuns.map((run) =>
-              run.id === data.runId ? { ...run, status: data.status, error: data.error || run.error || null, ended_at: ['completed', 'failed', 'aborted'].includes(data.status) ? Date.now() : run.ended_at } : run
-            );
-          }
-
-          else if (data.type === 'approval_required') {
-            cached.pendingApproval = data.approval;
-          }
-
-          else if (data.type === 'approval_resolved') {
-            cached.pendingApproval = null;
-          }
-
-          else if (data.type === 'delegated_task_start') {
-            const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
-              projectStore.setTaskPanelOpen(true);
-            }
-            cached.delegatedTasks = [
-              ...cached.delegatedTasks,
-              {
-                taskId: data.taskId,
-                agentSlug: data.agentSlug,
-                agentName: data.agentName,
-                goal: data.goal,
-                status: 'running',
-                chunks: [],
-                steps: [],
-                startedAt: Date.now(),
-              },
-            ];
-          }
-
-          else if (data.type === 'delegated_task_chunk') {
-            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
-              task.taskId === data.taskId
-                ? { ...task, chunks: [...task.chunks, data.text] }
-                : task
-            );
-          }
-
-          else if (data.type === 'delegated_task_end') {
-            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
-              task.taskId === data.taskId
-                ? {
-                    ...task,
-                    status: data.status,
-                    result: data.result,
-                    errorCode: data.errorCode,
-                    completedAt: Date.now(),
-                  }
-                : task
-            );
-          }
-
-          else if (data.type === 'delegated_task_step') {
-            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
-              task.taskId === data.taskId
-                ? { ...task, steps: [...task.steps, data.step] }
-                : task
-            );
-          }
-
-          else if (data.type === 'message_chunk' && data.text) {
-            const hasMsg = cached.messages.some((m) => m.id === currentAssistantMsgId);
-            if (!hasMsg) {
-              const newPlaceholder: Message = {
-                id: currentAssistantMsgId,
-                session_id: sessionId,
-                role: 'assistant',
-                content: '',
-                tokens: 0,
-                created_at: Date.now(),
-              };
-              cached.messages = [...cached.messages, newPlaceholder];
-            }
-
-            accumulatedContent += data.text;
-            cached.messages = cached.messages.map((m) =>
-              m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
-            );
-          }
-
-          else if (data.type === 'tool_start') {
-            const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
-              projectStore.setTaskPanelOpen(true);
-            }
-            // 1. 如果上一段助手有说话，将其持久化写入 SQLite
-            if (accumulatedContent.trim()) {
-              const prevMsg = {
-                id: currentAssistantMsgId,
-                session_id: sessionId,
-                role: 'assistant' as const,
-                content: accumulatedContent,
-                tokens: estimateTokens(accumulatedContent),
-              };
-              window.electronAPI.db.saveMessage(prevMsg).catch((err: unknown) => {
-                console.error('Failed to save intermediate assistant message:', err);
-                if (get().activeSessionId === sessionId) {
-                  set({ error: { message: '消息保存失败，对话历史可能不完整' } });
-                }
-              });
-            }
-
-            // 2. 插入运行中的工具卡片
-            const toolMessageId = data.id || window.crypto.randomUUID();
-            if (!data.id) {
-              const queue = pendingToolMessages.get(data.name) || [];
-              queue.push(toolMessageId);
-              pendingToolMessages.set(data.name, queue);
-            }
-
-            const toolMsgContent = {
-              type: 'tool',
-              name: data.name,
-              status: 'running',
-              input: data.input,
-            };
-
-            const toolMsg: Message = {
-              id: toolMessageId,
-              session_id: sessionId,
-              role: 'system',
-              content: JSON.stringify(toolMsgContent),
-              created_at: Date.now(),
-              tokens: 0,
-            };
-
-            const hasExistingMsg = cached.messages.some((m) => m.id === toolMessageId);
-
-            if (hasExistingMsg) {
-              cached.messages = cached.messages.map((m) =>
-                m.id === toolMessageId ? { ...m, content: JSON.stringify(toolMsgContent) } : m
-              );
-              cached.agentToolCalls = cached.agentToolCalls.map((tc) =>
-                tc.id === toolMessageId
-                  ? { ...tc, status: 'running', input: JSON.stringify(data.input ?? null) }
-                  : tc
-              );
-            } else {
-              cached.messages = [...cached.messages, toolMsg];
-              if (data.id) {
-                cached.agentToolCalls = [
-                  ...cached.agentToolCalls,
-                  {
-                    id: data.id,
-                    run_id: cached.activeRunId || '',
-                    tool_name: data.name,
-                    input: JSON.stringify(data.input ?? null),
-                    output: null,
-                    status: 'running',
-                    error: null,
-                    started_at: Date.now(),
-                    ended_at: null,
-                    approval_status: null,
-                  },
-                ];
-              }
-
-              window.electronAPI.db.saveMessage(toolMsg).catch((err: unknown) => {
-                console.error('Failed to save tool start message:', err);
-              });
-            }
-
-            // 3. 准备切换下一段助手消息
-            currentAssistantMsgId = window.crypto.randomUUID();
-            accumulatedContent = '';
-          }
-
-          else if (data.type === 'tool_end' || data.type === 'tool_error') {
-            let toolMessageId = data.id;
-            if (!toolMessageId) {
-              const queue = pendingToolMessages.get(data.name) || [];
-              toolMessageId = queue.shift();
-              pendingToolMessages.set(data.name, queue);
-            }
-
-            if (data.type === 'tool_end' && data.name === 'parallel_tasks') {
-              try {
-                const raw = typeof data.output === 'string' ? data.output : JSON.stringify(data.output ?? '{}');
-                const parsed = JSON.parse(raw) as { batchId: string; results: Array<{ name: string; status: 'success' | 'failure' }> };
-                if (parsed.batchId) {
-                  cached.parallelBatches = cached.parallelBatches.map((batch) =>
-                    batch.batchId !== parsed.batchId ? batch : {
-                      ...batch,
-                      workers: batch.workers.map((w) => {
-                        const r = parsed.results.find((x) => x.name === w.agentSlug);
-                        return r ? { ...w, status: r.status, completedAt: Date.now() } : w;
-                      }),
-                    }
-                  );
-                }
-              } catch {
-                // parse error — workers stay 'running', acceptable degradation
-              }
-            }
-
-            if (data.type === 'tool_end' && data.name === 'write_todos') {
-              try {
-                const outputObj = typeof data.output === 'string' ? JSON.parse(data.output) : data.output;
-                let todosList = null;
-                if (outputObj && typeof outputObj === 'object') {
-                  if (Array.isArray(outputObj)) {
-                    todosList = outputObj;
-                  } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
-                    todosList = outputObj.update.todos;
-                  } else if (outputObj.value && typeof outputObj.value === 'object') {
-                    const val = outputObj.value;
-                    if (val.update && Array.isArray(val.update.todos)) {
-                      todosList = val.update.todos;
-                    }
-                  }
-                }
-                if (Array.isArray(todosList)) {
-                  cached.todos = todosList;
-                }
-              } catch (err) {
-                console.warn('Failed to parse todos from write_todos tool output:', err);
-              }
-            }
-
-            if (toolMessageId) {
-              const isEnd = data.type === 'tool_end';
-              
-              const currentMsg = cached.messages.find(m => m.id === toolMessageId);
-              let parsedContent: any = {};
-              if (currentMsg) {
-                try {
-                  parsedContent = JSON.parse(currentMsg.content);
-                } catch (e) {
-                  parsedContent = { type: 'tool', name: data.name };
-                }
-              } else {
-                parsedContent = { type: 'tool', name: data.name };
-              }
-
-              const newContentObj = {
-                ...parsedContent,
-                status: isEnd ? 'success' : 'error',
-                output: isEnd ? data.output : undefined,
-                error: !isEnd ? data.error : undefined,
-              };
-
-              const updatedContent = JSON.stringify(newContentObj);
-
-              cached.messages = cached.messages.map((m) =>
-                m.id === toolMessageId ? { ...m, content: updatedContent } : m
-              );
-              cached.agentToolCalls = cached.agentToolCalls.map((toolCall) =>
-                toolCall.id === toolMessageId
-                  ? {
-                      ...toolCall,
-                      status: isEnd ? 'success' : 'error',
-                      output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
-                      error: !isEnd ? data.error : null,
-                      ended_at: Date.now(),
-                    }
-                  : toolCall
-              );
-
-              const savedMsg = {
-                id: toolMessageId,
-                session_id: sessionId,
-                role: 'system' as const,
-                content: updatedContent,
-                created_at: currentMsg?.created_at || Date.now(),
-                tokens: 0,
-              };
-
-              window.electronAPI.db.saveMessage(savedMsg).catch((err: unknown) => {
-                console.error('Failed to save tool output to db:', err);
-              });
-            }
-          }
-
-          else if (data.type === 'message_done') {
-            cleanup();
-            parallelCleanup();
-            try {
-              if (accumulatedContent.trim()) {
-                const assistantTokens = estimateTokens(accumulatedContent);
-                const finalAssistantMsg = {
-                  id: currentAssistantMsgId,
-                  session_id: sessionId,
-                  role: 'assistant' as const,
-                  content: accumulatedContent,
-                  tokens: assistantTokens,
-                };
-
-                await window.electronAPI.db.saveMessage(finalAssistantMsg);
-                
-                cached.messages = cached.messages
-                  .map((m) =>
-                    m.id === currentAssistantMsgId ? { ...m, tokens: assistantTokens } : m
-                  )
-                  .filter((m) => !(m.role === 'assistant' && m.content === ''));
-              } else {
-                cached.messages = cached.messages.filter((m) => !(m.role === 'assistant' && m.content === ''));
-              }
-              cached.isStreaming = false;
-              cached.streamingMessageId = null;
-              cached.pendingApproval = null;
-
-              if (get().activeSessionId === sessionId) {
-                set({
-                  messages: cached.messages,
-                  isStreaming: false,
-                  streamingMessageId: null,
-                  pendingApproval: null,
-                  todos: cached.todos,
-                  delegatedTasks: cached.delegatedTasks,
-                  parallelBatches: cached.parallelBatches,
-                  agentRuns: cached.agentRuns,
-                  agentToolCalls: cached.agentToolCalls,
-                  activeRunId: cached.activeRunId,
-                });
-              }
-              streamingSessionsCache.delete(sessionId);
-              resolve();
-            } catch (err: any) {
-              console.error('Failed to save message or complete stream:', err);
-              cached.messages = cached.messages.filter((m) => !(m.role === 'assistant' && m.content === ''));
-              cached.isStreaming = false;
-              cached.streamingMessageId = null;
-              cached.pendingApproval = null;
-
-              if (get().activeSessionId === sessionId) {
-                set({
-                  messages: cached.messages,
-                  isStreaming: false,
-                  streamingMessageId: null,
-                  pendingApproval: null,
-                  error: { message: err.message || '保存回复消息失败' },
-                });
-              }
-              streamingSessionsCache.delete(sessionId);
-              reject(err);
-            }
-            return;
-          }
-
-          else if (data.type === 'runtime_error') {
-            cleanup();
-            parallelCleanup();
-            const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
-            cached.messages = cached.messages.filter(
-              (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
-            );
-            cached.isStreaming = false;
-            cached.streamingMessageId = null;
-            cached.pendingApproval = null;
-
-            if (get().activeSessionId === sessionId) {
-              set({
-                messages: cached.messages,
-                isStreaming: false,
-                streamingMessageId: null,
-                pendingApproval: null,
-                error: { message: data.error || '对话请求出错', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
-              });
-            }
-            streamingSessionsCache.delete(sessionId);
-            reject(new Error(data.error || '对话请求出错'));
-            return;
-          }
-
-          // Sync with Zustand if currently active
-          if (get().activeSessionId === sessionId) {
-            set({
-              messages: cached.messages,
-              todos: cached.todos,
-              delegatedTasks: cached.delegatedTasks,
-              parallelBatches: cached.parallelBatches,
-              agentRuns: cached.agentRuns,
-              agentToolCalls: cached.agentToolCalls,
-              activeRunId: cached.activeRunId,
-              pendingApproval: cached.pendingApproval,
-              isStreaming: cached.isStreaming,
-              streamingMessageId: cached.streamingMessageId,
-            });
+          if (!terminal) {
+            syncActiveSession(result.state);
           }
         });
       });
@@ -1305,12 +757,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         cleanup();
         parallelCleanup();
         // 移除未持久化的 assistant 占位和工具消息
-        const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
-        pendingToolMessages.clear();
         const cached = streamingSessionsCache.get(sessionId);
+        const transientMessageIds = new Set([
+          assistantMsgId,
+          cached?.currentAssistantMsgId,
+          ...Object.values(cached?.pendingToolMessages ?? {}).flat(),
+          ...(cached?.runtimeToolMessageIds ?? []),
+        ].filter(Boolean));
         if (cached) {
           cached.messages = cached.messages.filter(
-            (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+            (m) => !transientMessageIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
           );
           cached.isStreaming = false;
           cached.streamingMessageId = null;
@@ -1319,7 +775,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         if (get().activeSessionId === sessionId) {
           set((state) => ({
             messages: state.messages.filter(
-              (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+              (m) => !transientMessageIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
             ),
             isStreaming: false,
             streamingMessageId: null,

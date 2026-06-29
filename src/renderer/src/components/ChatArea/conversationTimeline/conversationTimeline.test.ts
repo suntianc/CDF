@@ -207,6 +207,57 @@ describe('projectConversationTimeline', () => {
     ]);
   });
 
+  it('keeps a markdown final answer outside an unclosed folded process block', () => {
+    const userMessage = message({ id: 'user-1', role: 'user', content: 'call agents' });
+    const thinkingMessage = message({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<think>Need to call serial and parallel agents',
+      created_at: 2_000,
+    });
+    const taskTool = toolMessage('tool-1', 'task');
+    const parallelTool = toolMessage('tool-2', 'parallel_tasks');
+    const finalAnswer = message({
+      id: 'assistant-2',
+      role: 'assistant',
+      content: '<think>Both agent calls completed\n\n## 调用结果\n\n- 串行 agent 已完成\n- 并行 agent 已完成',
+      created_at: 6_000,
+    });
+
+    const timelineItems = projectConversationTimeline({
+      messages: [userMessage, thinkingMessage, taskTool, parallelTool, finalAnswer],
+      isStreaming: false,
+      pendingApproval: null,
+    });
+
+    expect(timelineItems).toEqual([
+      { type: 'message', id: 'user-1', message: userMessage },
+      {
+        type: 'folded_block',
+        id: 'folded-0',
+        duration: 4,
+        foldedItems: [
+          {
+            type: 'message',
+            id: 'assistant-1-think',
+            message: { ...thinkingMessage, id: 'assistant-1-think', content: 'Need to call serial and parallel agents' },
+          },
+          { type: 'tool_group', id: 'tool-1', tools: [taskTool, parallelTool] },
+          {
+            type: 'message',
+            id: 'assistant-2-think',
+            message: { ...finalAnswer, id: 'assistant-2-think', content: 'Both agent calls completed' },
+          },
+        ],
+      },
+      {
+        type: 'message',
+        id: 'assistant-2-post',
+        message: { ...finalAnswer, id: 'assistant-2-post', content: '## 调用结果\n\n- 串行 agent 已完成\n- 并行 agent 已完成' },
+      },
+    ]);
+  });
+
   it('keeps the final assistant answer outside a folded process block when the final message has an extra closing think tag', () => {
     const userMessage = message({ id: 'user-1', role: 'user', content: 'call an agent' });
     const thinkingMessage = message({
@@ -277,6 +328,51 @@ describe('projectConversationTimeline', () => {
         type: 'message',
         id: 'assistant-1',
         message: { ...assistantMessage, content: 'Visible answer' },
+      },
+    ]);
+  });
+
+  it('does not fold the final assistant message if it only contains a stray closing think tag and the think block was already closed', () => {
+    const userMessage = message({ id: 'user-1', role: 'user', content: 'test' });
+    const firstAssistantMessage = message({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<think>thinking...</think>',
+      created_at: 2_000,
+    });
+    const tool = toolMessage('tool-1', 'some_tool');
+    const finalAnswer = message({
+      id: 'assistant-2',
+      role: 'assistant',
+      content: 'Here is the answer.</think>',
+      created_at: 6_000,
+    });
+
+    const timelineItems = projectConversationTimeline({
+      messages: [userMessage, firstAssistantMessage, tool, finalAnswer],
+      isStreaming: false,
+      pendingApproval: null,
+    });
+
+    expect(timelineItems).toEqual([
+      { type: 'message', id: 'user-1', message: userMessage },
+      {
+        type: 'folded_block',
+        id: 'folded-0',
+        duration: 4,
+        foldedItems: [
+          {
+            type: 'message',
+            id: 'assistant-1-think',
+            message: { ...firstAssistantMessage, id: 'assistant-1-think', content: 'thinking...' },
+          },
+        ],
+      },
+      { type: 'tool_group', id: 'tool-1', tools: [tool] },
+      {
+        type: 'message',
+        id: 'assistant-2',
+        message: { ...finalAnswer, content: 'Here is the answer.' },
       },
     ]);
   });

@@ -26,7 +26,12 @@ describe('sessionStore sendMessage', () => {
   });
 
   it('should register stream listener before starting llm chat', async () => {
-    const saveMessage = vi.fn(async (message) => message);
+    const saveMessage = vi.fn(async (message) => {
+      if (!message.session_id) {
+        throw new Error('SqliteError: NOT NULL constraint failed: messages.session_id');
+      }
+      return message;
+    });
     const getMessages = vi.fn(async () => []);
     let chunkListener: ((event: unknown, data: any) => void) | null = null;
 

@@ -9,6 +9,7 @@ const {
   fromConnStringMock,
   checkpointGetTupleMock,
   dbPrepareMock,
+  storeGetMock,
   resolveAgentSkillsConfigMock,
   loadMcpToolsMock,
   registerHarnessProfileMock,
@@ -17,6 +18,7 @@ const {
   fromConnStringMock: vi.fn(),
   checkpointGetTupleMock: vi.fn(),
   dbPrepareMock: vi.fn(),
+  storeGetMock: vi.fn(() => 'strict'),
   loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
   registerHarnessProfileMock: vi.fn(),
   resolveAgentSkillsConfigMock: vi.fn(() => ({
@@ -61,6 +63,12 @@ vi.mock('../database', () => ({
   },
 }));
 
+vi.mock('../store', () => ({
+  default: {
+    get: storeGetMock,
+  },
+}));
+
 vi.mock('../security', () => ({
   decryptApiKey: vi.fn((value: string) => value),
 }));
@@ -81,6 +89,7 @@ vi.mock('./skill-manager', () => ({
 }));
 
 import { createDeepAgentRuntime } from './runtime';
+import { createStreamAccumulator, runWithStreamAccumulator } from './stream-accumulator';
 
 describe('createDeepAgentRuntime', () => {
   const tempProjectPath = path.join(os.tmpdir(), `cdf-runtime-test-${Math.random().toString(36).slice(2)}`);
@@ -121,6 +130,7 @@ describe('createDeepAgentRuntime', () => {
     fs.writeFileSync(path.join(tempProjectPath, 'AGENTS.md'), 'Must use Chinese.', 'utf-8');
 
     vi.clearAllMocks();
+    storeGetMock.mockReturnValue('strict');
     const checkpointer = { getTuple: checkpointGetTupleMock };
     fromConnStringMock.mockReturnValue(checkpointer);
     checkpointGetTupleMock.mockResolvedValue(undefined);
@@ -188,6 +198,15 @@ describe('createDeepAgentRuntime', () => {
     expect(params.interruptOn.delete_file).toEqual({ allowedDecisions: ['approve', 'reject'] });
     expect(params.interruptOn.remove_file).toBeUndefined();
     expect(loadMcpToolsMock).toHaveBeenCalledWith('agent-1', []);
+  });
+
+  it('should omit interruptOn when global approval mode is bypass', async () => {
+    storeGetMock.mockReturnValue('bypass');
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.interruptOn).toBeUndefined();
   });
 
   it('should bootstrap old messages when no checkpoint exists', async () => {
@@ -401,6 +420,109 @@ describe('createDeepAgentRuntime', () => {
         }
       )
     ).rejects.toBe(approvalInterrupt);
+  });
+
+  it('should let UNKNOWN approval payload errors bubble to the approval flow', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const recoverableMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'RecoverableToolErrorMiddleware');
+    const approvalPayload = [
+      {
+        id: 'approval-interrupt-1',
+        value: {
+          actionRequests: [
+            {
+              name: 'write_file',
+              args: { file_path: '/test.tsx', content: 'test' },
+              description: 'Tool execution requires approval',
+            },
+          ],
+          reviewConfigs: [
+            {
+              actionName: 'write_file',
+              allowedDecisions: ['approve', 'edit', 'reject'],
+            },
+          ],
+        },
+      },
+    ];
+    const approvalInterrupt = new Error(`UNKNOWN\n${JSON.stringify(approvalPayload)}`);
+
+    await expect(
+      recoverableMiddleware.wrapToolCall(
+        {
+          toolCall: { id: 'sub-tool-call-approval', name: 'write_file', args: {} },
+          runtime: { signal: { aborted: false } },
+          state: {},
+        },
+        async () => {
+          throw approvalInterrupt;
+        }
+      )
+    ).rejects.toBe(approvalInterrupt);
+  });
+
+  it('should emit paired span ids for subagent tool call and result steps', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const stepMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'SubagentStepMiddleware');
+    const steps: any[] = [];
+
+    await stepMiddleware.wrapToolCall(
+      {
+        toolCall: { id: 'sub-tool-call-step', name: 'read_file', args: { path: '/test.tsx' } },
+        runtime: { signal: { aborted: false } },
+        state: {},
+      },
+      async () => ({ content: 'file content' })
+    );
+
+    const context = { onStep: (step: any) => steps.push(step) };
+    const { subagentStepStorage } = await import('./runtime');
+    await subagentStepStorage.run(context, async () => {
+      await stepMiddleware.wrapToolCall(
+        {
+          toolCall: { id: 'sub-tool-call-step', name: 'read_file', args: { path: '/test.tsx' } },
+          runtime: { signal: { aborted: false } },
+          state: {},
+        },
+        async () => ({ content: 'file content' })
+      );
+    });
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toMatchObject({ type: 'tool_call', tool: 'read_file' });
+    expect(steps[1]).toMatchObject({ type: 'tool_result', tool: 'read_file', success: true });
+    expect(steps[0].spanId).toMatch(/^[0-9a-f]{8}$/);
+    expect(steps[1].spanId).toBe(steps[0].spanId);
+  });
+
+  it('should emit subagent tool steps through the stream accumulator fallback', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const stepMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'SubagentStepMiddleware');
+    const accumulator = createStreamAccumulator();
+    const steps: any[] = [];
+    accumulator.onSubagentStep = (step) => steps.push(step);
+
+    await runWithStreamAccumulator(accumulator, async () => {
+      await stepMiddleware.wrapToolCall(
+        {
+          toolCall: { id: 'sub-tool-call-fallback', name: 'grep', args: { pattern: 'hello' } },
+          runtime: { signal: { aborted: false } },
+          state: {},
+        },
+        async () => ({ content: 'match' })
+      );
+    });
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toMatchObject({ type: 'tool_call', tool: 'grep', args: { pattern: 'hello' } });
+    expect(steps[1]).toMatchObject({ type: 'tool_result', tool: 'grep', success: true, output: 'match' });
+    expect(steps[1].spanId).toBe(steps[0].spanId);
   });
 
   it('should have task tool enabled when subagentIds provided (excludedTools: [])', async () => {

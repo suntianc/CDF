@@ -142,14 +142,31 @@ function foldResponseItems(
   let firstThinkIdx = -1;
   let lastThinkIdx = -1;
 
+  let isThinkBlockOpen = false;
+
   responseItems.forEach((item, index) => {
     if (item.type !== 'message' || item.message.role !== 'assistant') return;
 
     const content = item.message.content || '';
-    if (firstThinkIdx === -1 && content.includes('<think>')) {
-      firstThinkIdx = index;
-    }
-    if (content.includes('</think>') || content.includes('<think>')) {
+    const tags = Array.from(content.matchAll(/<\/?think>/g)).map((m) => m[0]);
+    let hasValidThinkMarker = false;
+
+    tags.forEach((tag) => {
+      if (tag === '<think>') {
+        isThinkBlockOpen = true;
+        hasValidThinkMarker = true;
+      } else if (tag === '</think>') {
+        if (isThinkBlockOpen) {
+          isThinkBlockOpen = false;
+          hasValidThinkMarker = true;
+        }
+      }
+    });
+
+    if (hasValidThinkMarker) {
+      if (firstThinkIdx === -1 && content.includes('<think>')) {
+        firstThinkIdx = index;
+      }
       lastThinkIdx = index;
     }
   });
@@ -196,7 +213,7 @@ function foldResponseItems(
   const postFoldItems: ConversationTimelineItem[] = [];
 
   for (let i = 0; i < firstThinkIdx; i++) {
-    preFoldItems.push(responseItems[i]);
+    preFoldItems.push(cleanVisibleItem(responseItems[i]));
   }
 
   if (prePart) {
@@ -226,7 +243,7 @@ function foldResponseItems(
   }
 
   for (let i = lastThinkIdx + 1; i < responseItems.length; i++) {
-    postFoldItems.push(responseItems[i]);
+    postFoldItems.push(cleanVisibleItem(responseItems[i]));
   }
 
   return [
@@ -253,7 +270,7 @@ function foldMultiItemThinkBlock(
   const postFoldItems: ConversationTimelineItem[] = [];
 
   for (let i = 0; i < firstThinkIdx; i++) {
-    preFoldItems.push(responseItems[i]);
+    preFoldItems.push(cleanVisibleItem(responseItems[i]));
   }
 
   const firstMsgContent = cleanMessageContent(firstItem.message.content);
@@ -326,7 +343,7 @@ function foldMultiItemThinkBlock(
   }
 
   for (let i = lastThinkIdx + 1; i < responseItems.length; i++) {
-    postFoldItems.push(responseItems[i]);
+    postFoldItems.push(cleanVisibleItem(responseItems[i]));
   }
 
   return [
@@ -426,7 +443,7 @@ function splitUnclosedThinkContent(content: string): { thinkPart: string; postPa
 
   const thinkBodyStartIdx = thinkStartIdx + '<think>'.length;
   const contentAfterThink = content.substring(thinkBodyStartIdx);
-  const separatorIdx = contentAfterThink.lastIndexOf('\n\n');
+  const separatorIdx = findUnclosedThinkBoundary(contentAfterThink);
   if (separatorIdx === -1) return null;
 
   const thinkBody = contentAfterThink.substring(0, separatorIdx).trim();
@@ -437,6 +454,25 @@ function splitUnclosedThinkContent(content: string): { thinkPart: string; postPa
     thinkPart: `${content.substring(0, thinkBodyStartIdx)}${thinkBody}`,
     postPart,
   };
+}
+
+function findUnclosedThinkBoundary(contentAfterThink: string): number {
+  const separators: number[] = [];
+  let searchFrom = 0;
+  while (true) {
+    const idx = contentAfterThink.indexOf('\n\n', searchFrom);
+    if (idx === -1) break;
+    separators.push(idx);
+    searchFrom = idx + 2;
+  }
+
+  const markdownAnswerBoundary = separators.find((idx) => {
+    const postPart = contentAfterThink.substring(idx).trimStart();
+    return /^#{1,6}\s+\S/.test(postPart);
+  });
+  if (markdownAnswerBoundary !== undefined) return markdownAnswerBoundary;
+
+  return separators.length > 0 ? separators[separators.length - 1] : -1;
 }
 
 function isToolMessage(message: Message): boolean {

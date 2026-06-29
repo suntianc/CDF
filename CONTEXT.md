@@ -16,6 +16,10 @@ _Avoid_: chat log, message list
 The user-visible ordering of Conversation events as a readable timeline of messages, tool activity, folded process, streaming state, and approvals.
 _Avoid_: message list mapping, transcript renderer
 
+**Conversation Runtime Projection**:
+The user-visible state derived from an Agent run while a Conversation is active, including streaming progress, tool activity, approvals, delegated work, parallel worker summaries, transient plans, completion, failure, and retry affordances.
+_Avoid_: stream handler, session store event reducer, runtime UI state
+
 **Activity Panel Projection**:
 The user-visible projection of Agent runtime activity into a panel view, including run status, tool activity, approvals, delegated work, and parallel worker summaries.
 _Avoid_: task panel state, activity UI props

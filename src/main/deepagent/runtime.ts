@@ -16,7 +16,8 @@ import {
   getAgentMcpServers,
   getAgentSkillNames,
   normalizeProviderId,
-  DEFAULT_INTERRUPT_ON,
+  resolveInterruptOn,
+  createSpanId,
   createBuiltInTools,
   loadRegistryTools,
   loadMcpTools,
@@ -25,6 +26,7 @@ import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { createParallelTaskTool } from './parallel-task-tool';
 import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
+import { getCurrentStreamAccumulator } from './stream-accumulator';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
 
@@ -315,6 +317,12 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error.message === 'Aborted');
 }
 
+function isApprovalInterruptPayloadError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const message = String((error as { message?: unknown }).message ?? '').toLowerCase();
+  return message.includes('actionrequests') && message.includes('reviewconfigs');
+}
+
 function createRecoverableToolErrorMiddleware() {
   return createMiddleware({
     name: 'RecoverableToolErrorMiddleware',
@@ -356,7 +364,7 @@ function createRecoverableToolErrorMiddleware() {
         }
         return result;
       } catch (error) {
-        if (isAbortError(error) || isGraphInterrupt(error) || request.runtime?.signal?.aborted) {
+        if (isAbortError(error) || isGraphInterrupt(error) || isApprovalInterruptPayloadError(error) || request.runtime?.signal?.aborted) {
           throw error;
         }
 
@@ -415,27 +423,30 @@ function createSubagentStepMiddleware() {
     name: 'SubagentStepMiddleware',
     wrapToolCall: async (request, handler) => {
       const ctx = subagentStepStorage.getStore();
-      if (!ctx) return handler(request);
+      const onStep = ctx?.onStep ?? getCurrentStreamAccumulator()?.onSubagentStep;
+      if (!onStep) return handler(request);
 
       const toolName: string = request.toolCall?.name || 'unknown';
       const startedAt = Date.now();
-      ctx.onStep({ type: 'tool_call', tool: toolName, args: (request.toolCall as any)?.args ?? (request.toolCall as any)?.input, ts: startedAt });
+      const spanId = createSpanId();
+      onStep({ type: 'tool_call', tool: toolName, args: (request.toolCall as any)?.args ?? (request.toolCall as any)?.input, ts: startedAt, spanId });
 
       try {
         const result = await handler(request);
-        ctx.onStep({
+        onStep({
           type: 'tool_result',
           tool: toolName,
           success: true,
           output: extractStepOutput(result),
           ts: Date.now(),
           duration_ms: Date.now() - startedAt,
+          spanId,
         });
         return result;
       } catch (error) {
         if (!isAbortError(error) && !isGraphInterrupt(error)) {
           const errMsg = error instanceof Error ? error.message : String(error);
-          ctx.onStep({ type: 'tool_result', tool: toolName, success: false, error: errMsg, ts: Date.now(), duration_ms: Date.now() - startedAt });
+          onStep({ type: 'tool_result', tool: toolName, success: false, error: errMsg, ts: Date.now(), duration_ms: Date.now() - startedAt, spanId });
         }
         throw error;
       }
@@ -513,6 +524,7 @@ export async function createDeepAgentRuntime(
 
   // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
   const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
+  const interruptOn = resolveInterruptOn(currentApprovalMode);
   try {
     builtInTools.push(createParallelTaskTool(projectId, sessionId, currentApprovalMode));
   } catch (err) {
@@ -589,7 +601,7 @@ export async function createDeepAgentRuntime(
     tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
     middleware: [createRecoverableToolErrorMiddleware()],
-    interruptOn: DEFAULT_INTERRUPT_ON,
+    interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
     checkpointer,
     memory: memory.length ? memory : undefined,
   });

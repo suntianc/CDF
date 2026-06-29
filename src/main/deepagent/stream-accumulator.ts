@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ExecutionStep } from '../../shared/types';
 
 export class LLMStreamAccumulator {
   reasoningText = '';
@@ -11,6 +12,7 @@ export class LLMStreamAccumulator {
   channel?: string;
   onText?: (text: string) => void;
   onChunk?: (text: string) => void;
+  onSubagentStep?: (step: ExecutionStep) => void;
 
   appendReasoning(text: string): void {
     this.reasoningText += text;

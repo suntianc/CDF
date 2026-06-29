@@ -58,7 +58,10 @@ function isInterruptError(error: unknown): boolean {
   const err = error as { name?: string; message?: string };
   const name = err.name?.toLowerCase() ?? '';
   const message = err.message?.toLowerCase() ?? '';
-  return name.includes('interrupt') || message.includes('interrupt') || message.includes('nodeinterrupt') || message.includes('graphinterrupt');
+  if (name.includes('interrupt') || message.includes('interrupt') || message.includes('nodeinterrupt') || message.includes('graphinterrupt')) {
+    return true;
+  }
+  return message.includes('actionrequests') && message.includes('reviewconfigs');
 }
 
 function safeStringify(value: unknown): string | null {
@@ -388,7 +391,9 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       // toolStreamPromise registers taskId per agent slug; subagentsStreamPromise claims it.
       const _subagentTaskIdsReady = new Map<string, string[]>();
       const _subagentTaskIdWaiters = new Map<string, ((id: string) => void)[]>();
+      const _subagentActiveTaskIds = new Map<string, string>();
       const registerSubagentTaskId = (slug: string, taskId: string): void => {
+        _subagentActiveTaskIds.set(slug, taskId);
         const waiters = _subagentTaskIdWaiters.get(slug);
         if (waiters?.length) {
           const resolve = waiters.shift()!;
@@ -407,11 +412,29 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           if (!queue.length) _subagentTaskIdsReady.delete(slug);
           return Promise.resolve(id);
         }
+        const activeTaskId = _subagentActiveTaskIds.get(slug);
+        if (activeTaskId) {
+          return Promise.resolve(activeTaskId);
+        }
         return new Promise<string>((resolve) => {
           const waiters = _subagentTaskIdWaiters.get(slug) ?? [];
           waiters.push(resolve);
           _subagentTaskIdWaiters.set(slug, waiters);
         });
+      };
+      const ensureSubagentTaskStarted = (slug: string): string => {
+        const activeTaskId = _subagentActiveTaskIds.get(slug);
+        if (activeTaskId) return activeTaskId;
+        const taskId = `subagent-${slug}-${crypto.randomUUID()}`;
+        _subagentActiveTaskIds.set(slug, taskId);
+        sender.send(channel, {
+          type: 'delegated_task_start',
+          taskId,
+          agentSlug: slug,
+          agentName: slug,
+          goal: '',
+        });
+        return taskId;
       };
 
       const messageStreamPromise = (async () => {
@@ -505,7 +528,12 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
           }
 
-          const toolCallId = call.callId || crypto.randomUUID();
+          const input = call.input as { name?: string; task?: string; subagent_type?: string; description?: string };
+          const agentSlug = call.name === 'task'
+            ? input?.subagent_type || input?.name || 'unknown'
+            : '';
+          const existingSubagentTaskId = call.name === 'task' ? _subagentActiveTaskIds.get(agentSlug) : undefined;
+          const toolCallId = existingSubagentTaskId || call.callId || crypto.randomUUID();
           upsertToolCall(runId, toolCallId, call.name, call.input);
           sender.send(channel, {
             type: 'tool_start',
@@ -517,8 +545,6 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           // D-12: Detect task tool calls and emit delegated_task_start
           if (call.name === 'task') {
             const taskId = toolCallId;
-            const input = call.input as { name?: string; task?: string; subagent_type?: string; description?: string };
-            const agentSlug = input?.subagent_type || input?.name || 'unknown';
             let goal = '';
 
             // D-03: task input's task field is a JSON string containing goal
@@ -551,12 +577,17 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               agentName,
               goal,
             });
-            registerSubagentTaskId(agentSlug, taskId);
+            if (!existingSubagentTaskId) {
+              registerSubagentTaskId(agentSlug, taskId);
+            }
           }
 
           if (call.name === 'task') {
             accumulator.onText = (text: string) => {
               sender.send(channel, { type: 'delegated_task_chunk', taskId: toolCallId, text });
+            };
+            accumulator.onSubagentStep = (step: ExecutionStep) => {
+              sender.send(channel, { type: 'delegated_task_step', taskId: toolCallId, step });
             };
           }
 
@@ -668,6 +699,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                 result: parsedResult,
                 errorCode,
               });
+              _subagentActiveTaskIds.delete(agentSlug);
             }
           } catch (error: any) {
             if (!isInterruptError(error)) {
@@ -698,11 +730,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
                   },
                   errorCode,
                 });
+                _subagentActiveTaskIds.delete(agentSlug);
               }
             }
           } finally {
             if (call.name === 'task') {
               accumulator.onText = undefined;
+              accumulator.onSubagentStep = undefined;
             }
           }
         }
@@ -714,6 +748,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         if (!subagents || typeof subagents[Symbol.asyncIterator] !== 'function') return;
         for await (const sub of subagents as AsyncIterable<{ name: string; messages: AsyncIterable<{ text: AsyncIterable<string> }> }>) {
           if (controller.signal.aborted) break;
+          ensureSubagentTaskStarted(sub.name);
           const taskId = await claimSubagentTaskId(sub.name);
           for await (const message of sub.messages) {
             if (controller.signal.aborted) break;
@@ -769,6 +804,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       }
       _subagentTaskIdWaiters.clear();
       _subagentTaskIdsReady.clear();
+      _subagentActiveTaskIds.clear();
 
       let interruptValue = getStreamInterruptValue(run);
       let output: any;
