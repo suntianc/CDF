@@ -292,7 +292,7 @@ function foldMultiItemThinkBlock(
     return responseItems;
   }
 
-  const lastMsgContent = lastItem.message.content;
+  const lastMsgContent = cleanMultiItemLastThinkContent(lastItem.message.content);
   const lastThinkEndTagIdx = lastMsgContent.lastIndexOf('</think>');
   let postPart = '';
   let lastThinkPart = lastMsgContent;
@@ -406,6 +406,18 @@ function cleanMessageContent(content: string): string {
 
 function stripThinkTags(content: string): string {
   return content.replace(/<\/?think>/g, '').trim();
+}
+
+function cleanMultiItemLastThinkContent(content: string): string {
+  const thinkCount = (content.match(/<think>/g) || []).length;
+  const thinkEndCount = (content.match(/<\/think>/g) || []).length;
+  if (thinkEndCount <= 1) return content;
+  if (thinkCount > 0) return cleanMessageContent(content);
+
+  const firstEndIdx = content.indexOf('</think>');
+  if (firstEndIdx === -1) return content;
+  const firstEndTagEnd = firstEndIdx + '</think>'.length;
+  return content.substring(0, firstEndTagEnd) + content.substring(firstEndTagEnd).replace(/<\/think>/g, '');
 }
 
 function splitUnclosedThinkContent(content: string): { thinkPart: string; postPart: string } | null {

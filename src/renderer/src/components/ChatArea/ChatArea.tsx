@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -6,25 +6,21 @@ import { useFileStore } from '../../stores/fileStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import {
-  ArrowUp, Square, Sparkles, AlertCircle, X, Terminal,
-  ChevronDown, Plus, Sliders, Layers, SlidersHorizontal, Copy, Check,
-  ChevronUp, Brain, Loader2
+  ArrowUp, Square, AlertCircle, X,
+  ChevronDown, Plus, Sliders, Layers, SlidersHorizontal
 } from 'lucide-react';
-import { ToolMessageCard, ToolGroupCard, translateToolAction } from './ToolMessageCard';
 
-import { MessageItem, formatHMSTime } from './MessageItem';
 import { useChatScroll } from './useChatScroll';
 import { TodoList } from './TodoList';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
-import { GoalSystemBubble } from './GoalSystemBubble';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ApprovalModeSelector } from '@/components/shared/ApprovalModeSelector';
-import { SubagentView } from './SubagentView';
 import { useComposerInputController } from './composerInput/useComposerInputController';
 import { ComposerInputSurface } from './composerInput/ComposerInputSurface';
 import { useComposerSubmissionController } from './composerInput/useComposerSubmissionController';
 import { projectConversationTimeline } from './conversationTimeline/conversationTimeline';
+import { ConversationViewportSurface } from './ConversationViewportSurface';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -34,112 +30,6 @@ interface ChatAreaProps {
   onToggleTaskPanel?: () => void;
   onOpenTaskPanel?: () => void;
 }
-
-const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }) => {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const headerText = t('chat.processedDuration', { duration: formatHMSTime(duration) });
-
-  return (
-    <div className="mb-2.5 flex flex-col transition-all duration-200 w-full animate-slide-down">
-      {/* Header */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] text-[var(--color-text-secondary)] font-medium hover:text-[var(--color-text-primary)] transition-colors w-fit py-0.5"
-      >
-        <span aria-hidden="true" className="text-xs">{expanded ? '▼' : '▶'}</span>
-        <span>{headerText}</span>
-      </button>
-      
-      {/* Body */}
-      {expanded && (
-        <div className="mt-2 ml-1.5 pl-3 border-l border-[var(--color-border)]/80 flex flex-col gap-3">
-          {items.map((item) => {
-            if (item.type === 'tool_group') {
-              return (
-                <ToolGroupCard
-                  key={item.id}
-                  tools={item.tools}
-                />
-              );
-            }
-            if (item.type === 'message' && item.message) {
-              return (
-                <MessageItem
-                  key={item.id}
-                  message={item.message}
-                  isLast={false}
-                  isStreaming={false}
-                />
-              );
-            }
-            return null;
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: any; onOpenTaskPanel?: () => void }) => {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const actions = approval.actions || [];
-
-  return (
-    <div className="w-full py-1 select-none animate-slide-down">
-      <div className="flex flex-col">
-        {/* Header */}
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          aria-expanded={expanded}
-          className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
-        >
-          <span aria-hidden="true" className="flex items-center justify-center shrink-0">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-warning)]" />
-          </span>
-
-          <span className="font-semibold tracking-wide">
-            {t('chat.awaitingApproval')}{actions.map((act: any) => translateToolAction(act.name, act.args, t)).join(', ')}
-          </span>
-
-          <span aria-hidden="true" className="text-xs opacity-60 font-mono ml-0.5">
-            {expanded ? '▼' : '▶'}
-          </span>
-        </button>
-
-        {/* Collapsed details */}
-        {expanded && (
-          <div className="mt-1.5 pl-4 pb-2 flex flex-col gap-3 border-l border-[var(--color-warning)]/20 ml-1.5 animate-slide-down">
-            {actions.map((action: any, idx: number) => (
-              <div key={idx} className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-[var(--color-warning)]">
-                  {t('chat.pendingExecute', { name: action.name })}
-                </span>
-                {action.args && (
-                  <pre className="p-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-xs font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
-                    <code>{typeof action.args === 'string' ? action.args : JSON.stringify(action.args, null, 2)}</code>
-                  </pre>
-                )}
-              </div>
-            ))}
-            <button
-              onClick={onOpenTaskPanel}
-              className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-[var(--color-text-inverse)] rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <span>{t('chat.goApproveNow')}</span>
-              <span>➔</span>
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 
 export function ChatArea({
   onOpenSettings,
@@ -187,7 +77,6 @@ export function ChatArea({
   const selectedProviderId = override?.providerId || '';
   const selectedModel = override?.model || '';
   const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previousSessionIdRef = useRef<string | null>(null);
 
@@ -539,8 +428,6 @@ export function ChatArea({
     }
   };
 
-  // Old renderMessageContent removed. MessageItem is now declared at module scope.
-
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Onboarding / Welcome view */}
@@ -686,108 +573,22 @@ export function ChatArea({
 
         {/* Messages Viewport — sub-agent view or master conversation */}
         <div className="flex-1 relative overflow-hidden">
-          {viewingTask ? (
-            <SubagentView task={viewingTask} onBack={() => setViewingSubagent(null)} />
-          ) : viewingWorkerData ? (
-            <SubagentView task={viewingWorkerData} onBack={() => setViewingParallelWorker(null)} />
-          ) : (
-            <>
-              {activeSessionId && <GoalSystemBubble sessionId={activeSessionId} />}
-
-              <div
-                ref={scrollContainerRef}
-                onScroll={handleScroll}
-                className="messages absolute inset-0 overflow-y-auto"
-                style={{
-                  paddingBottom: '180px',
-                  paddingTop: hasActiveGoal ? '64px' : '0px'
-                }}
-              >
-                {/* Messages List */}
-                {timelineItems.map((item, idx) => {
-                  if (item.type === 'pending_approval_block') {
-                    return (
-                      <PendingApprovalCard
-                        key={item.id}
-                        approval={item.approval}
-                        onOpenTaskPanel={onOpenTaskPanel}
-                      />
-                    );
-                  }
-                  if (item.type === 'folded_block') {
-                    return (
-                      <FoldedBlockCard
-                        key={item.id}
-                        duration={item.duration}
-                        items={item.foldedItems}
-                      />
-                    );
-                  }
-                  if (item.type === 'tool_group') {
-                    return (
-                      <ToolGroupCard
-                        key={item.id}
-                        tools={item.tools}
-                      />
-                    );
-                  }
-                  if (item.type === 'message' && item.message) {
-                    return (
-                      <MessageItem
-                        key={item.id}
-                        message={item.message}
-                        isLast={idx === timelineItems.length - 1}
-                        isStreaming={isStreaming}
-                      />
-                    );
-                  }
-                  return null;
-                })}
-
-                {/* Typing Indicator while streaming empty block */}
-                {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
-                  <div className="message assistant" role="status" aria-label={t('chat.generating')}>
-                    <div className="message-row">
-                      <div className="flex items-center gap-1 py-1.5" aria-hidden="true">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '0ms' }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '150ms' }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] animate-pulse" style={{ animationDelay: '300ms' }} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error Banner */}
-                {error && (
-                  <div role="alert" aria-live="assertive" className="p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-xl flex items-start gap-2.5 text-xs text-[var(--color-danger)] shadow-sm animate-shake">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
-                    <div className="flex-1 min-w-0">
-                      <div>{error.message}</div>
-                      {error.recoverableActions && error.recoverableActions.length > 0 && (
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          {error.recoverableActions.map((a) => (
-                            <button key={a.label} type="button" onClick={() => { a.action(); clearError(); }} className="text-[var(--color-danger)] underline underline-offset-2 hover:no-underline font-medium cursor-pointer">
-                              {a.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={clearError}
-                      className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-danger)]"
-                      aria-label={t('chat.dismissError')}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-            </>
-          )}
+          <ConversationViewportSurface
+            activeSessionId={activeSessionId}
+            timelineItems={timelineItems}
+            messages={messages}
+            isStreaming={isStreaming}
+            hasActiveGoal={hasActiveGoal}
+            viewingTask={viewingTask}
+            viewingWorkerData={viewingWorkerData}
+            error={error}
+            scrollContainerRef={scrollContainerRef}
+            onScroll={handleScroll}
+            onOpenTaskPanel={onOpenTaskPanel}
+            onBackFromSubagent={() => setViewingSubagent(null)}
+            onBackFromParallelWorker={() => setViewingParallelWorker(null)}
+            onClearError={clearError}
+          />
         </div>
 
         {/* Input Composer Panel — hidden when viewing sub-agent */}
