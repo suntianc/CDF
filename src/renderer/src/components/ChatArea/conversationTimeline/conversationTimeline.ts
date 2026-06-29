@@ -181,7 +181,13 @@ function foldResponseItems(
       thinkPart = firstMsgContent.substring(firstThinkTagIdx, lastThinkEndTagIdx + 8);
       postPart = firstMsgContent.substring(lastThinkEndTagIdx + 8).trim();
     } else {
-      thinkPart = firstMsgContent.substring(firstThinkTagIdx);
+      const splitUnclosed = splitUnclosedThinkContent(firstMsgContent);
+      if (splitUnclosed) {
+        thinkPart = splitUnclosed.thinkPart;
+        postPart = splitUnclosed.postPart;
+      } else {
+        thinkPart = firstMsgContent.substring(firstThinkTagIdx);
+      }
     }
   }
 
@@ -293,6 +299,12 @@ function foldMultiItemThinkBlock(
   if (lastThinkEndTagIdx !== -1) {
     postPart = lastMsgContent.substring(lastThinkEndTagIdx + 8).trim();
     lastThinkPart = lastMsgContent.substring(0, lastThinkEndTagIdx + 8);
+  } else {
+    const splitUnclosed = splitUnclosedThinkContent(lastMsgContent);
+    if (splitUnclosed) {
+      lastThinkPart = splitUnclosed.thinkPart;
+      postPart = splitUnclosed.postPart;
+    }
   }
 
   foldedItems.push({
@@ -394,6 +406,25 @@ function cleanMessageContent(content: string): string {
 
 function stripThinkTags(content: string): string {
   return content.replace(/<\/?think>/g, '').trim();
+}
+
+function splitUnclosedThinkContent(content: string): { thinkPart: string; postPart: string } | null {
+  const thinkStartIdx = content.lastIndexOf('<think>');
+  if (thinkStartIdx === -1 || content.includes('</think>')) return null;
+
+  const thinkBodyStartIdx = thinkStartIdx + '<think>'.length;
+  const contentAfterThink = content.substring(thinkBodyStartIdx);
+  const separatorIdx = contentAfterThink.lastIndexOf('\n\n');
+  if (separatorIdx === -1) return null;
+
+  const thinkBody = contentAfterThink.substring(0, separatorIdx).trim();
+  const postPart = contentAfterThink.substring(separatorIdx).trim();
+  if (!thinkBody || !postPart) return null;
+
+  return {
+    thinkPart: `${content.substring(0, thinkBodyStartIdx)}${thinkBody}`,
+    postPart,
+  };
 }
 
 function isToolMessage(message: Message): boolean {

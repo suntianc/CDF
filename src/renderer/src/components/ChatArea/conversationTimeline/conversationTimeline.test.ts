@@ -156,6 +156,57 @@ describe('projectConversationTimeline', () => {
     ]);
   });
 
+  it('keeps the final assistant answer outside an unclosed folded process block after tool activity', () => {
+    const userMessage = message({ id: 'user-1', role: 'user', content: 'write files' });
+    const thinkingMessage = message({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<think>Need to inspect and write files',
+      created_at: 2_000,
+    });
+    const firstTool = toolMessage('tool-1', 'write_file');
+    const secondTool = toolMessage('tool-2', 'write_file');
+    const finalAnswer = message({
+      id: 'assistant-2',
+      role: 'assistant',
+      content: '<think>checking the written files\n\n写文件任务圆满完成啦～',
+      created_at: 6_000,
+    });
+
+    const timelineItems = projectConversationTimeline({
+      messages: [userMessage, thinkingMessage, firstTool, secondTool, finalAnswer],
+      isStreaming: false,
+      pendingApproval: null,
+    });
+
+    expect(timelineItems).toEqual([
+      { type: 'message', id: 'user-1', message: userMessage },
+      {
+        type: 'folded_block',
+        id: 'folded-0',
+        duration: 4,
+        foldedItems: [
+          {
+            type: 'message',
+            id: 'assistant-1-think',
+            message: { ...thinkingMessage, id: 'assistant-1-think', content: 'Need to inspect and write files' },
+          },
+          { type: 'tool_group', id: 'tool-1', tools: [firstTool, secondTool] },
+          {
+            type: 'message',
+            id: 'assistant-2-think',
+            message: { ...finalAnswer, id: 'assistant-2-think', content: 'checking the written files' },
+          },
+        ],
+      },
+      {
+        type: 'message',
+        id: 'assistant-2-post',
+        message: { ...finalAnswer, id: 'assistant-2-post', content: '写文件任务圆满完成啦～' },
+      },
+    ]);
+  });
+
   it('cleans extra closing think tags without folding ordinary assistant text', () => {
     const userMessage = message({ id: 'user-1', role: 'user', content: 'summarize' });
     const assistantMessage = message({

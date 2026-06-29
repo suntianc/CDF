@@ -2,11 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
-import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
-import type { DelegatedTask, ParallelBatch } from '../../stores/sessionStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
+import type { AgentRunStatus } from '../../../../shared/types';
+import {
+  projectActivityPanel,
+  type ActivityPanelApprovalActionSummary,
+  type ActivityPanelDelegatedTaskItem,
+  type ActivityPanelParallelWorkSection,
+} from './activityPanelProjection/activityPanelProjection';
 
 export interface TaskPanelProps {
   isOpen: boolean;
@@ -29,55 +34,7 @@ function RunStatusIcon({ status }: { status?: AgentRunStatus }) {
   }
 }
 
-function toRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function toDisplayText(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value == null) return '';
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function clipText(value: string, maxLength = 180): string {
-  const normalized = value.replace(/\r\n/g, '\n').trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength).trimEnd()}...`;
-}
-
-function getApprovalSummary(action: AgentApprovalAction, t: (key: string) => string) {
-  const args = toRecord(action.args);
-  const target = toDisplayText(args.file_path || args.path || args.target || args.command);
-  const preview = toDisplayText(args.content || args.new_string || args.old_string || args.input);
-  const previewLabel = args.content
-    ? t('taskPanel.approvalPreviewWrite')
-    : args.new_string
-      ? t('taskPanel.approvalPreviewNew')
-      : args.old_string
-        ? t('taskPanel.approvalPreviewMatch')
-        : t('taskPanel.approvalPreviewArgs');
-
-  const toolLabels: Record<string, string> = {
-    write_file: t('taskPanel.toolWriteFile'),
-    edit_file: t('taskPanel.toolEditFile'),
-    delete_file: t('taskPanel.toolDeleteFile'),
-  };
-
-  return {
-    title: toolLabels[action.name] || action.name,
-    target,
-    preview: clipText(preview),
-    previewLabel,
-  };
-}
-
-function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
-  const { t } = useTranslation();
-  const summary = getApprovalSummary(action, t);
+function ApprovalActionCard({ summary }: { summary: ActivityPanelApprovalActionSummary }) {
   return (
     <div className="space-y-2 border-t border-[var(--color-border)] pt-3 first:border-t-0 first:pt-0">
       <div className="flex items-center justify-between gap-2">
@@ -87,12 +44,12 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
         </div>
         {/* [P1-B] 10px → 11px secondary for WCAG AA contrast */}
         <span className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)]">
-          {action.name}
+          {summary.name}
         </span>
       </div>
       {summary.target && (
         <div className="bg-[var(--color-bg-app)] px-2 py-1.5">
-          <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.approvalTarget')}</div>
+          <div className="text-xs text-[var(--color-text-secondary)]">{summary.targetLabel}</div>
           <div className="mt-0.5 truncate font-mono text-xs text-[var(--color-text-primary)]">{summary.target}</div>
         </div>
       )}
@@ -108,39 +65,12 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
   );
 }
 
-function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
-  task: DelegatedTask;
-  agentName: string;
-  isActive: boolean;
+function DelegatedTaskCard({ item, onSelect }: {
+  item: ActivityPanelDelegatedTaskItem;
   onSelect: () => void;
 }) {
-  const { t } = useTranslation();
-  const isRunning = task.status === 'running';
-  const isFailure = task.status === 'failure';
-
-  const statusText = isRunning
-    ? t('taskPanel.statusRunning')
-    : isFailure
-      ? t('taskPanel.statusFailed')
-      : t('taskPanel.statusCompleted');
-
-  const totalText = useMemo(
-    () => task.chunks.length > 0 ? task.chunks.join('') : (task.result?.summary || ''),
-    [task.chunks, task.result?.summary],
-  );
-  const tokenEstimate = useMemo(() => estimateTokens(totalText), [totalText]);
-  const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
-
-  const metricsText = useMemo(() => {
-    const parts: string[] = [];
-    parts.push(`${tokenDisplay} ${t('taskPanel.tokenUnit')}`);
-    if (!isRunning && task.startedAt) {
-      const end = task.completedAt ?? Date.now();
-      const s = Math.max(0, Math.round((end - task.startedAt) / 1000));
-      parts.push(s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
-    }
-    return parts.join(' · ');
-  }, [tokenDisplay, isRunning, task.startedAt, task.completedAt, t]);
+  const isRunning = item.task.status === 'running';
+  const isFailure = item.task.status === 'failure';
 
   return (
     <div className="relative pl-7 pb-3 last:pb-0">
@@ -160,18 +90,18 @@ function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
 
       <button
         type="button"
-        aria-label={`${agentName} (${statusText})`}
+        aria-label={`${item.agentName} (${item.statusText})`}
         onClick={onSelect}
         className={`w-full text-left p-2.5 rounded-md border transition-all duration-150 ease-out focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
-          isActive
+          item.isActive
             ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30 shadow-sm'
             : 'bg-[var(--color-bg-surface)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
         }`}
       >
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{agentName}</span>
+          <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{item.agentName}</span>
           <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px] text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
-            <span>{metricsText}</span>
+            <span>{item.metricsText}</span>
             <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)]" aria-hidden="true" />
           </div>
         </div>
@@ -180,35 +110,24 @@ function DelegatedTaskCard({ task, agentName, isActive, onSelect }: {
   );
 }
 
-function ParallelBatchSection({ batches }: { batches: ParallelBatch[] }) {
-  const { t } = useTranslation();
+function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkSection | null }) {
   const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
-  const viewingParallelWorker = useSessionStore((s) => s.viewingParallelWorker);
 
-  if (!batches || batches.length === 0) return null;
+  if (!section || section.batches.length === 0) return null;
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">并行任务</h3>
-      {batches.map((batch) => (
+      <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">{section.title}</h3>
+      {section.batches.map((batch) => (
         <div key={batch.batchId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-1.5">
-          {batch.workers.map((worker) => {
-            const workerKey = worker.workerId ?? `${worker.agentSlug}-${worker.startedAt}`;
-            const isActive = viewingParallelWorker?.batchId === batch.batchId && (
-              worker.workerId
-                ? viewingParallelWorker?.workerId === worker.workerId
-                : viewingParallelWorker?.agentSlug === worker.agentSlug
-            );
-            const displayName = worker.agentName ?? worker.agentSlug;
-            const tokenCount = estimateTokens(worker.textBuffer);
-            const tokenDisplay = tokenCount > 1000 ? `${(tokenCount / 1000).toFixed(1)}k` : `${tokenCount}`;
-            const previewText = worker.status !== 'running' && (worker.summary ?? worker.textBuffer.slice(0, 80)) || null;
+          {batch.workers.map((item) => {
+            const worker = item.worker;
             return (
               <button
-                key={workerKey}
+                key={item.key}
                 type="button"
                 onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug, workerId: worker.workerId })}
                 className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-all text-left focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
-                  isActive
+                  item.isActive
                     ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
                     : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)]'
                 }`}
@@ -221,12 +140,12 @@ function ParallelBatchSection({ batches }: { batches: ParallelBatch[] }) {
                         ? <XCircle className="w-3.5 h-3.5 text-[var(--color-danger)]" aria-hidden="true" />
                         : <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" aria-hidden="true" />
                     }
-                    <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{displayName}</span>
+                    <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{item.displayName}</span>
                   </div>
-                  <span className="text-[10px] tabular-nums text-[var(--color-text-muted)] shrink-0 font-mono">{tokenDisplay} {t('taskPanel.tokenUnit')}</span>
+                  <span className="text-[10px] tabular-nums text-[var(--color-text-muted)] shrink-0 font-mono">{item.tokenDisplay} {item.tokenUnit}</span>
                 </div>
-                {previewText && (
-                  <p className="text-[10px] text-[var(--color-text-muted)] leading-relaxed line-clamp-2 pl-5">{previewText}</p>
+                {item.previewText && (
+                  <p className="text-[10px] text-[var(--color-text-muted)] leading-relaxed line-clamp-2 pl-5">{item.previewText}</p>
                 )}
               </button>
             );
@@ -252,33 +171,39 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
   const resolveWorkflowApproval = useWorkflowStore((state) => state.resolveWorkflowApproval);
   const viewingSubagentId = useSessionStore((state) => state.viewingSubagentId);
   const setViewingSubagent = useSessionStore((state) => state.setViewingSubagent);
+  const viewingParallelWorker = useSessionStore((state) => state.viewingParallelWorker);
   const agents = useAgentStore((state) => state.agents);
 
-  const statusLabel = (status: AgentRunStatus) => {
-    switch (status) {
-      case 'running': return t('taskPanel.statusRunning');
-      case 'waiting_approval': return t('taskPanel.statusWaitingApproval');
-      case 'completed': return t('taskPanel.statusCompleted');
-      case 'failed': return t('taskPanel.statusFailed');
-      case 'aborted': return t('taskPanel.statusAborted');
-    }
-  };
-
-  const getAgentName = (task: DelegatedTask) => {
-    const matched = agents.find((agent) => (agent as { slug?: string }).slug === task.agentSlug || agent.name === task.agentSlug);
-    return matched ? matched.name : (task.agentName || task.agentSlug);
-  };
-
-  const activeRun = useMemo(() => agentRuns.find((run) => run.id === activeRunId) ?? null, [activeRunId, agentRuns]);
-
-  // Master Agent tool call summary
-  const toolSummary = useMemo(() => {
-    const calls = agentToolCalls ?? [];
-    const total = calls.length;
-    const running = calls.filter((toolCall) => toolCall.status === 'running').length;
-    const failed = calls.filter((toolCall) => toolCall.status === 'error');
-    return { total, running, failed };
-  }, [agentToolCalls]);
+  const projection = useMemo(
+    () => projectActivityPanel({
+      activeSessionId,
+      activeRunId,
+      agentRuns,
+      agentToolCalls,
+      delegatedTasks,
+      parallelBatches,
+      pendingApproval,
+      pendingWorkflowApproval,
+      agents,
+      viewingSubagentId,
+      viewingParallelWorker,
+      t,
+    }),
+    [
+      activeSessionId,
+      activeRunId,
+      agentRuns,
+      agentToolCalls,
+      delegatedTasks,
+      parallelBatches,
+      pendingApproval,
+      pendingWorkflowApproval,
+      agents,
+      viewingSubagentId,
+      viewingParallelWorker,
+      t,
+    ],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -286,72 +211,57 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
     fetchAgentActivity(activeSessionId).catch(() => undefined);
   }, [isOpen, activeSessionId, fetchAgentActivity]);
 
-  // D-05: Newest Sub Agent on top (sort by startedAt descending)
-  const sortedTasks = useMemo(
-    () => [...delegatedTasks].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0)),
-    [delegatedTasks],
-  );
-
   return (
     <>
-      {!activeSessionId && (
-        <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoSession')}</div>
+      {projection.sessionEmptyState && (
+        <div className="text-xs text-[var(--color-text-muted)]">{projection.sessionEmptyState.message}</div>
       )}
 
-      {activeSessionId && !activeRun && (
-        <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoRun')}</div>
-      )}
-
-      {activeRun && (
+      {projection.runSection && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
           <div className="flex items-center gap-2">
-            <RunStatusIcon status={activeRun.status} />
+            <RunStatusIcon status={projection.runSection.run.status} />
             <div className="text-sm font-medium text-[var(--color-text-primary)]">
-              {statusLabel(activeRun.status)}
+              {projection.runSection.statusLabel}
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
             <Clock className="w-3 h-3" aria-hidden="true" />
-            <span>{new Date(activeRun.started_at).toLocaleTimeString()}</span>
+            <span>{new Date(projection.runSection.startedAt).toLocaleTimeString()}</span>
           </div>
-          {activeRun.error && (
-            <div className="text-xs text-[var(--color-danger)] whitespace-pre-wrap">{activeRun.error}</div>
+          {projection.runSection.error && (
+            <div className="text-xs text-[var(--color-danger)] whitespace-pre-wrap">{projection.runSection.error}</div>
           )}
         </div>
       )}
 
-      {activeRun && toolSummary.total > 0 && (
+      {projection.toolSummarySection && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
           <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">{t('taskPanel.toolSummaryTitle')}</h3>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
-              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{toolSummary.total}</div>
+              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.toolSummarySection.total}</div>
               {/* [P1-B] 10px → 11px secondary */}
               <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryTotal')}</div>
             </div>
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
-              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{toolSummary.running}</div>
+              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.toolSummarySection.running}</div>
               <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryRunning')}</div>
             </div>
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
-              <div className="text-sm font-semibold text-[var(--color-danger)]">{toolSummary.failed.length}</div>
+              <div className="text-sm font-semibold text-[var(--color-danger)]">{projection.toolSummarySection.failedCount}</div>
               <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryFailed')}</div>
             </div>
           </div>
-          {toolSummary.failed.slice(0, 3).map((toolCall) => {
-            const errorText = toolCall.tool_name === 'task'
-              ? t('taskPanel.subagentCallIntercepted')
-              : (toolCall.error || t('taskPanel.toolCallFailed'));
-            return (
-              <div key={toolCall.id} className="text-xs text-[var(--color-danger)]">
-                {toolCall.tool_name}: {errorText}
-              </div>
-            );
-          })}
+          {projection.toolSummarySection.failedCalls.map((toolCall) => (
+            <div key={toolCall.id} className="text-xs text-[var(--color-danger)]">
+              {toolCall.toolName}: {toolCall.errorText}
+            </div>
+          ))}
         </div>
       )}
 
-      {pendingApproval && (
+      {projection.conversationApprovalSection && (
         <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-warning-dim)] text-[var(--color-warning)]">
@@ -359,16 +269,16 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
             </div>
             <div className="min-w-0">
               {/* [P2-G] div → h3 for proper heading hierarchy */}
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.approvalTitle')}</h3>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.conversationApprovalSection.title}</h3>
               {/* [P1-B] muted → secondary */}
               <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-                {pendingApproval.actions.length > 1 ? t('taskPanel.approvalActionsMultiple', { count: pendingApproval.actions.length }) : t('taskPanel.approvalActionsSingle')}
+                {projection.conversationApprovalSection.actionCountText}
               </div>
             </div>
           </div>
           <div id="pending-approval-actions" className="space-y-3 w-full">
-            {pendingApproval.actions.map((action, index) => (
-              <ApprovalActionCard key={`${action.name}-${index}`} action={action} />
+            {projection.conversationApprovalSection.actions.map((summary) => (
+              <ApprovalActionCard key={summary.key} summary={summary} />
             ))}
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -382,23 +292,23 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
         </div>
       )}
 
-      {pendingWorkflowApproval && (
+      {projection.workflowApprovalSection && (
         <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-warning-dim)] text-[var(--color-warning)]">
               <ShieldAlert className="w-4 h-4" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('workflow.approval.title')}</h3>
-              <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">{t('workflow.approval.description')}</div>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.workflowApprovalSection.title}</h3>
+              <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">{projection.workflowApprovalSection.description}</div>
             </div>
           </div>
           <div id="pending-workflow-approval-actions" className="space-y-2 w-full">
-            {pendingWorkflowApproval.actions.map((action, index) => (
-              <div key={`${action.name}-${index}`} className="flex items-center gap-2 border-t border-[var(--color-border)] pt-2 first:border-t-0 first:pt-0">
+            {projection.workflowApprovalSection.actions.map((action) => (
+              <div key={action.key} className="flex items-center gap-2 border-t border-[var(--color-border)] pt-2 first:border-t-0 first:pt-0">
                 <FileText className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
                 <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">
-                  {t('workflow.approval.toolAction', { tool: action.name })}
+                  {action.label}
                 </span>
               </div>
             ))}
@@ -424,85 +334,78 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
         </div>
       )}
 
-      {activeRun && toolSummary.total === 0 && !pendingApproval && (
+      {projection.runSection && !projection.toolSummarySection && !projection.conversationApprovalSection && (
         <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoToolActivity')}</div>
       )}
 
-      {sortedTasks.length > 0 && (() => {
-        const total = sortedTasks.length;
-        const completedCount = sortedTasks.filter(t => t.status === 'success' || t.status === 'failure').length;
-        const percentage = total > 0 ? Math.round((completedCount / total) * 100) : 0;
-        const allSubagentsComplete = total > 0 && sortedTasks.every(t => t.status === 'success' || t.status === 'failure');
-        const isMasterRunning = activeRun && activeRun.status === 'running';
-
-        return (
-          <div className="space-y-3">
-            {/* Sub Agent progress bar */}
-            <div className="space-y-1.5 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg p-3">
-              <div className="flex items-center justify-between text-xs font-medium text-[var(--color-text-secondary)]">
-                <span>{t('taskPanel.subagentProgress')}</span>
-                <span>{t('taskPanel.subagentProgressCount', { done: completedCount, total })}</span>
-              </div>
-              {/* [P1-A] motion-reduce on progress transition */}
-              <div
-                role="progressbar"
-                aria-valuenow={percentage}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label={t('taskPanel.subagentProgress')}
-                className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
-              >
-                <div
-                  className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out motion-reduce:transition-none"
-                  style={{ width: `${percentage}%` }}
-                />
-              </div>
+      {projection.delegatedWorkSection && (
+        <div className="space-y-3">
+          {/* Sub Agent progress bar */}
+          <div className="space-y-1.5 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg p-3">
+            <div className="flex items-center justify-between text-xs font-medium text-[var(--color-text-secondary)]">
+              <span>{t('taskPanel.subagentProgress')}</span>
+              <span>{t('taskPanel.subagentProgressCount', {
+                done: projection.delegatedWorkSection.progress.completedCount,
+                total: projection.delegatedWorkSection.progress.total,
+              })}</span>
             </div>
+            {/* [P1-A] motion-reduce on progress transition */}
+            <div
+              role="progressbar"
+              aria-valuenow={projection.delegatedWorkSection.progress.percentage}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={t('taskPanel.subagentProgress')}
+              className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
+            >
+              <div
+                className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out motion-reduce:transition-none"
+                style={{ width: `${projection.delegatedWorkSection.progress.percentage}%` }}
+              />
+            </div>
+          </div>
 
-            {/* Synthesis indicator */}
-            {allSubagentsComplete && isMasterRunning && (
-              // [P1-A] motion-reduce on both pulse and spin
-              <div aria-live="polite" className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-xs text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
-                <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                <span>{t('taskPanel.synthesizing', { count: total })}</span>
-              </div>
-            )}
+          {/* Synthesis indicator */}
+          {projection.delegatedWorkSection.synthesisText && (
+            // [P1-A] motion-reduce on both pulse and spin
+            <div aria-live="polite" className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-xs text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
+              <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              <span>{projection.delegatedWorkSection.synthesisText}</span>
+            </div>
+          )}
 
-            {/* Activity Trail — Agent orchestration timeline (D-05: newest first) */}
-            <div>
-              <h3 className="text-xs font-semibold text-[var(--color-text-primary)] mb-1.5">
-                {t('taskPanel.delegatedTasksTitle')}
-              </h3>
-              <div className="relative">
-                {/* Vertical timeline rail */}
-                {sortedTasks.length > 1 && (
-                  <div
-                    className="absolute left-2 top-3 bottom-3 w-px bg-[var(--color-border)]"
-                    aria-hidden="true"
+          {/* Activity Trail — Agent orchestration timeline (D-05: newest first) */}
+          <div>
+            <h3 className="text-xs font-semibold text-[var(--color-text-primary)] mb-1.5">
+              {t('taskPanel.delegatedTasksTitle')}
+            </h3>
+            <div className="relative">
+              {/* Vertical timeline rail */}
+              {projection.delegatedWorkSection.tasks.length > 1 && (
+                <div
+                  className="absolute left-2 top-3 bottom-3 w-px bg-[var(--color-border)]"
+                  aria-hidden="true"
+                />
+              )}
+              <div className="space-y-0">
+                {projection.delegatedWorkSection.tasks.map((item) => (
+                  <DelegatedTaskCard
+                    key={item.task.taskId}
+                    item={item}
+                    onSelect={() => setViewingSubagent(item.task.taskId)}
                   />
-                )}
-                <div className="space-y-0">
-                  {sortedTasks.map((task) => (
-                    <DelegatedTaskCard
-                      key={task.taskId}
-                      task={task}
-                      agentName={getAgentName(task)}
-                      isActive={viewingSubagentId === task.taskId}
-                      onSelect={() => setViewingSubagent(task.taskId)}
-                    />
-                  ))}
-                </div>
+                ))}
               </div>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
-      {sortedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
+      {!projection.delegatedWorkSection && projection.runSection && !projection.toolSummarySection && !projection.conversationApprovalSection && (
         <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
       )}
 
-      <ParallelBatchSection batches={parallelBatches} />
+      <ParallelBatchSection section={projection.parallelWorkSection} />
 
     </>
   );
