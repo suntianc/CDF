@@ -2,7 +2,7 @@ import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
-import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, subagentStepStorage } from './deepagent/runtime';
+import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, resetDeepAgentRuntimeThread, subagentStepStorage } from './deepagent/runtime';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
@@ -923,6 +923,11 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     if (error?.name === 'AbortError' || controller.signal.aborted) {
       sender.send(channel, { type: 'message_done' });
     } else {
+      try {
+        await resetDeepAgentRuntimeThread(payload.sessionId);
+      } catch (resetError) {
+        console.warn('[LLM] Failed to reset deepagent checkpoint after runtime error:', resetError);
+      }
       sender.send(channel, {
         type: 'runtime_error',
         error: error?.message || String(error),

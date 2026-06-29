@@ -360,6 +360,49 @@ describe('createDeepAgentRuntime', () => {
     expect(result.content).toContain('subagent run is still active');
   });
 
+  it('should let subagent tool approval interrupts bubble to the approval flow', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const recoverableMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'RecoverableToolErrorMiddleware');
+    const approvalInterrupt = Object.assign(new Error('Tool execution requires approval'), {
+      name: 'GraphInterrupt',
+      interrupts: [
+        {
+          id: 'approval-interrupt-1',
+          value: {
+            actionRequests: [
+              {
+                name: 'edit_file',
+                args: { file_path: '/test.tsx', old_string: 'a', new_string: 'b' },
+                description: 'Tool execution requires approval',
+              },
+            ],
+            reviewConfigs: [
+              {
+                actionName: 'edit_file',
+                allowedDecisions: ['approve', 'edit', 'reject'],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await expect(
+      recoverableMiddleware.wrapToolCall(
+        {
+          toolCall: { id: 'sub-tool-call-approval', name: 'edit_file', args: {} },
+          runtime: { signal: { aborted: false } },
+          state: {},
+        },
+        async () => {
+          throw approvalInterrupt;
+        }
+      )
+    ).rejects.toBe(approvalInterrupt);
+  });
+
   it('should have task tool enabled when subagentIds provided (excludedTools: [])', async () => {
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
 

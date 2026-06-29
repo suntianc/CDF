@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createDeepAgentRuntimeMock, dbPrepareMock, modelCaptureMock } = vi.hoisted(() => ({
+const { createDeepAgentRuntimeMock, resetDeepAgentRuntimeThreadMock, dbPrepareMock, modelCaptureMock } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
+  resetDeepAgentRuntimeThreadMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   modelCaptureMock: new WeakMap<object, { reasoningText: string; normalText: string }>(),
 }));
@@ -9,6 +10,7 @@ const { createDeepAgentRuntimeMock, dbPrepareMock, modelCaptureMock } = vi.hoist
 vi.mock('./deepagent/runtime', () => ({
   DEEPAGENT_CHECKPOINT_NAMESPACE: '',
   createDeepAgentRuntime: createDeepAgentRuntimeMock,
+  resetDeepAgentRuntimeThread: resetDeepAgentRuntimeThreadMock,
 }));
 
 vi.mock('./deepagent/llm-adapter', () => ({
@@ -143,6 +145,35 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_end', name: 'tool-a', output: 'ok' }));
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_start', name: 'tool-b', input: { y: 2 } }));
     expect(send).toHaveBeenCalledWith('llm:chunk-req-2', expect.objectContaining({ type: 'tool_error', name: 'tool-b', error: 'boom' }));
+  });
+
+  it('should clear deepagent checkpoint when a conversation run fails', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn(async () => {
+          throw new Error('graph failed');
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'run' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await expect(runLLMChat({ send } as any, 'req-reset-checkpoint', {
+      projectId: 'project-1',
+      sessionId: 'session-reset-checkpoint',
+      message: {
+        id: 'message-reset-checkpoint',
+        content: 'run',
+      },
+    })).rejects.toThrow('graph failed');
+
+    expect(resetDeepAgentRuntimeThreadMock).toHaveBeenCalledWith('session-reset-checkpoint');
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-reset-checkpoint',
+      expect.objectContaining({ type: 'runtime_error', error: 'graph failed' })
+    );
   });
 
   it('should not complete before run.output resolves after streams finish', async () => {

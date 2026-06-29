@@ -4,6 +4,7 @@ import path from 'path';
 import { AsyncLocalStorage } from 'async_hooks';
 import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import { isGraphInterrupt } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
 import store from '../store';
@@ -71,6 +72,10 @@ function getCheckpointSaver(): SqliteSaver {
     checkpointSaver = SqliteSaver.fromConnString(path.join(app.getPath('userData'), 'deepagents-checkpoints.db'));
   }
   return checkpointSaver;
+}
+
+export async function resetDeepAgentRuntimeThread(sessionId: string): Promise<void> {
+  await getCheckpointSaver().deleteThread(sessionId);
 }
 
 function getFallbackProviderId(): string {
@@ -351,7 +356,7 @@ function createRecoverableToolErrorMiddleware() {
         }
         return result;
       } catch (error) {
-        if (isAbortError(error) || request.runtime?.signal?.aborted) {
+        if (isAbortError(error) || isGraphInterrupt(error) || request.runtime?.signal?.aborted) {
           throw error;
         }
 
@@ -428,7 +433,7 @@ function createSubagentStepMiddleware() {
         });
         return result;
       } catch (error) {
-        if (!isAbortError(error)) {
+        if (!isAbortError(error) && !isGraphInterrupt(error)) {
           const errMsg = error instanceof Error ? error.message : String(error);
           ctx.onStep({ type: 'tool_result', tool: toolName, success: false, error: errMsg, ts: Date.now(), duration_ms: Date.now() - startedAt });
         }

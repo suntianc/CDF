@@ -6,22 +6,20 @@ import { useFileStore } from '../../stores/fileStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import {
-  ArrowUp, Square,
   Plus, SlidersHorizontal
 } from 'lucide-react';
 
 import { useChatScroll } from './useChatScroll';
-import { TodoList } from './TodoList';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ApprovalModeSelector } from '@/components/shared/ApprovalModeSelector';
 import { useComposerInputController } from './composerInput/useComposerInputController';
-import { ComposerInputSurface } from './composerInput/ComposerInputSurface';
 import { useComposerSubmissionController } from './composerInput/useComposerSubmissionController';
 import { projectConversationTimeline } from './conversationTimeline/conversationTimeline';
 import { ConversationViewportSurface } from './ConversationViewportSurface';
 import { ConversationWelcomeSurface } from './ConversationWelcomeSurface';
+import { ConversationComposerDock } from './ConversationComposerDock';
 import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
 import { useModelSelectionController } from './modelSelection/useModelSelectionController';
 
@@ -359,78 +357,47 @@ export function ChatArea({
           />
         </div>
 
-        {/* Input Composer Panel — hidden when viewing sub-agent */}
-        <div className={`absolute bottom-0 left-0 right-0 px-6 pb-6 pt-12 z-10 pointer-events-none ${(viewingTask || viewingWorkerData) ? 'hidden' : ''}`}>
-          {/* Background gradient overlay with fixed height to prevent compression when todo list collapses */}
-          <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[var(--color-bg-app)] via-[var(--color-bg-app)]/85 to-transparent z-0 pointer-events-none" />
-          <div className="relative z-10 w-full max-w-[760px] mx-auto flex flex-col gap-3 pointer-events-auto">
-            {shouldShowTodos && (
-              <TodoList
-                todos={todos}
-                isExpanded={todoExpanded}
-                onToggleExpanded={toggleTodoExpanded}
-              />
-            )}
-            <ComposerInputSurface
-              controller={composerInput}
-              variant="session"
-              inputLabel={t('chat.composerPlaceholder')}
-              placeholder={t('chat.composerPlaceholder')}
-              commands={registry.commands}
-              commandWarnings={registry.warnings}
-              commandLoading={registry.loading}
-              onCommandSelect={composerSubmission.selectCommandEntry}
-              onCommandInsert={composerInput.insertCommand}
-              onSubmit={() => handleComposerSubmit()}
-              canSubmit={(inputVal.trim().length > 0 || composerInput.attachments.length > 0) && !isStreaming}
-              sendLabel={t('chat.sendMessage')}
-              popoverEnabled={!!activeSessionId}
-              leftToolbarSlot={
-                <>
-                  <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
-                    <Plus className="w-4 h-4" />
-                  </button>
-                  <ApprovalModeSelector dropUp />
-                </>
-              }
-              modelSelectorSlot={
-                <ModelSelectionSurface
-                  variant="composer"
-                  providers={providers}
-                  selectedProviderId={modelSelection.selectedProviderId}
-                  selectedModel={modelSelection.selectedModel}
-                  currentProvider={modelSelection.currentProvider}
-                  currentModel={modelSelection.currentModel}
-                  onSelectModel={modelSelection.selectModel}
-                  onOpenSettings={onOpenSettings}
-                />
-              }
-              submitSlot={
-                isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={stopMessage}
-                    className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
-                    title={t('chat.stopGenerating')}
-                    aria-label={t('chat.stopGenerating')}
-                  >
-                    <Square className="w-4 h-4 fill-current" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleComposerSubmit()}
-                    disabled={(inputVal.trim().length === 0 && composerInput.attachments.length === 0) || isStreaming}
-                    className="dialog-btn send"
-                    aria-label={t('chat.sendMessage')}
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                  </button>
-                )
-              }
+        <ConversationComposerDock
+          hidden={Boolean(viewingTask || viewingWorkerData)}
+          showTodos={shouldShowTodos}
+          todos={todos}
+          todoExpanded={todoExpanded}
+          onToggleTodoExpanded={toggleTodoExpanded}
+          composerController={composerInput}
+          isStreaming={isStreaming}
+          inputLabel={t('chat.composerPlaceholder')}
+          placeholder={t('chat.composerPlaceholder')}
+          commands={registry.commands}
+          commandWarnings={registry.warnings}
+          commandLoading={registry.loading}
+          onCommandSelect={composerSubmission.selectCommandEntry}
+          onCommandInsert={composerInput.insertCommand}
+          onSubmit={() => handleComposerSubmit()}
+          canSubmit={(inputVal.trim().length > 0 || composerInput.attachments.length > 0) && !isStreaming}
+          sendLabel={t('chat.sendMessage')}
+          stopGeneratingLabel={t('chat.stopGenerating')}
+          onStopGenerating={stopMessage}
+          leftToolbarSlot={
+            <>
+              <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
+                <Plus className="w-4 h-4" />
+              </button>
+              <ApprovalModeSelector dropUp />
+            </>
+          }
+          modelSelectorSlot={
+            <ModelSelectionSurface
+              variant="composer"
+              providers={providers}
+              selectedProviderId={modelSelection.selectedProviderId}
+              selectedModel={modelSelection.selectedModel}
+              currentProvider={modelSelection.currentProvider}
+              currentModel={modelSelection.currentModel}
+              onSelectModel={modelSelection.selectModel}
+              onOpenSettings={onOpenSettings}
             />
-          </div>
-        </div>
+          }
+        />
       </div>
     </div>
   );
