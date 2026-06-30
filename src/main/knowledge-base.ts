@@ -12,7 +12,7 @@ import type {
 const KNOWLEDGE_SEARCH_SCHEMA = {
   type: 'object' as const,
   properties: {
-    keyword: { type: 'string', description: 'Optional keyword to match title, tags, selected source fields, or Markdown body.' },
+    keyword: { type: 'string', description: 'Optional keyword to match OKF type, title, description, tags, resource fields, or Markdown body.' },
     tags: {
       type: 'array',
       items: { type: 'string' },
@@ -25,14 +25,14 @@ const KNOWLEDGE_SEARCH_SCHEMA = {
     },
     dateField: {
       type: 'string',
-      enum: ['created_at', 'updated_at', 'source_date'],
-      description: 'Date field to use for dateFrom/dateTo filtering.',
+      enum: ['timestamp'],
+      description: 'Date field to use for dateFrom/dateTo filtering. Defaults to OKF timestamp.',
     },
     dateFrom: { type: 'string', description: 'Optional inclusive date lower bound.' },
     dateTo: { type: 'string', description: 'Optional inclusive date upper bound.' },
     sortBy: {
       type: 'string',
-      enum: ['updated_at', 'created_at', 'source_date', 'title'],
+      enum: ['timestamp', 'title'],
       description: 'Optional sort field.',
     },
     sortOrder: {
@@ -48,17 +48,15 @@ const KNOWLEDGE_SEARCH_SCHEMA = {
 const KNOWLEDGE_CREATE_SCHEMA = {
   type: 'object' as const,
   properties: {
+    type: { type: 'string', description: 'OKF concept type. Defaults to Reference.' },
     title: { type: 'string', description: 'Knowledge Entry title.' },
+    description: { type: 'string', description: 'Optional OKF description.' },
+    resource: { type: 'string', description: 'Optional OKF resource URI, path, or identifier.' },
     body: { type: 'string', description: 'Markdown body content for the Knowledge Entry.' },
     tags: {
       type: 'array',
       items: { type: 'string' },
       description: 'Optional tags for the Knowledge Entry.',
-    },
-    source: {
-      type: 'object',
-      description: 'Optional structured source metadata. Defaults to { type: "agent" }.',
-      additionalProperties: true,
     },
     relativePath: {
       type: 'string',
@@ -144,6 +142,16 @@ function stringifyKnowledgeEntry(frontmatter: Record<string, unknown>, body: str
   return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n\n${body.trimEnd()}\n`;
 }
 
+function withOptionalField(
+  frontmatter: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (value !== undefined && value !== '') {
+    frontmatter[key] = value;
+  }
+}
+
 function slugifyTitle(title: string): string {
   const slug = title
     .trim()
@@ -213,9 +221,9 @@ function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'rel
     }
   }
 
-  for (const field of ['id', 'title', 'tags', 'created_at', 'updated_at', 'source']) {
+  for (const field of ['type']) {
     if (!(field in frontmatter)) {
-      warnings.push(`Missing managed field: ${field}`);
+      warnings.push(`Missing OKF required field: ${field}`);
     }
   }
 
@@ -271,13 +279,13 @@ export function createKnowledgeEntry(
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const now = new Date().toISOString();
   const frontmatter: Record<string, unknown> = {
-    id: crypto.randomUUID(),
+    type: input.type ?? 'Reference',
     title: input.title,
     tags: input.tags ?? [],
-    created_at: now,
-    updated_at: now,
-    source: input.source ?? { type: 'manual' },
+    timestamp: now,
   };
+  withOptionalField(frontmatter, 'description', input.description);
+  withOptionalField(frontmatter, 'resource', input.resource);
   fs.writeFileSync(filePath, stringifyKnowledgeEntry(frontmatter, input.body ?? ''), 'utf-8');
   return readKnowledgeEntry(projectPath, relativePath);
 }
@@ -296,17 +304,21 @@ export function updateKnowledgeEntry(
   const now = new Date().toISOString();
   const frontmatter: Record<string, unknown> = {
     ...existing.frontmatter,
-    id: typeof existing.frontmatter.id === 'string' ? existing.frontmatter.id : crypto.randomUUID(),
-    title: input.title ?? existing.title ?? path.basename(relativePath, '.md'),
-    tags: input.tags ?? existing.tags,
-    created_at: typeof existing.frontmatter.created_at === 'string' ? existing.frontmatter.created_at : now,
-    updated_at: now,
-    source: input.source ?? (
-      existing.frontmatter.source && typeof existing.frontmatter.source === 'object' && !Array.isArray(existing.frontmatter.source)
-        ? existing.frontmatter.source
-        : { type: 'manual' }
+    type: input.type ?? (
+      typeof existing.frontmatter.type === 'string' ? existing.frontmatter.type : 'Reference'
     ),
+    title: input.title ?? existing.title ?? path.basename(relativePath, '.md'),
+    description: input.description ?? existing.frontmatter.description,
+    resource: input.resource ?? existing.frontmatter.resource,
+    tags: input.tags ?? existing.tags,
+    timestamp: now,
   };
+  if (frontmatter.description === undefined || frontmatter.description === '') {
+    delete frontmatter.description;
+  }
+  if (frontmatter.resource === undefined || frontmatter.resource === '') {
+    delete frontmatter.resource;
+  }
   const body = input.body ?? existing.body;
   fs.writeFileSync(filePath, stringifyKnowledgeEntry(frontmatter, body), 'utf-8');
   return readKnowledgeEntry(projectPath, relativePath);
@@ -336,11 +348,12 @@ function matchesTags(entry: KnowledgeEntrySummary, tags: string[] | undefined, t
   return requestedTags.every((tag) => entryTags.has(tag));
 }
 
-function getSourceText(frontmatter: Record<string, unknown>): string[] {
-  const source = frontmatter.source;
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return [];
-  const sourceRecord = source as Record<string, unknown>;
-  return [sourceRecord.type, sourceRecord.url, sourceRecord.title]
+function getResourceText(frontmatter: Record<string, unknown>): string[] {
+  const resource = frontmatter.resource;
+  if (typeof resource === 'string') return [resource];
+  if (!resource || typeof resource !== 'object' || Array.isArray(resource)) return [];
+  const resourceRecord = resource as Record<string, unknown>;
+  return [resourceRecord.uri, resourceRecord.url, resourceRecord.path, resourceRecord.title, resourceRecord.name]
     .filter((value): value is string => typeof value === 'string');
 }
 
@@ -348,9 +361,11 @@ function matchesKeyword(entry: KnowledgeEntrySummary, keyword: string | undefine
   const normalized = keyword?.trim().toLowerCase();
   if (!normalized) return true;
   const haystack = [
+    typeof entry.frontmatter.type === 'string' ? entry.frontmatter.type : undefined,
     entry.title,
+    typeof entry.frontmatter.description === 'string' ? entry.frontmatter.description : undefined,
     ...entry.tags,
-    ...getSourceText(entry.frontmatter),
+    ...getResourceText(entry.frontmatter),
     entry.body,
   ]
     .filter((value): value is string => typeof value === 'string')
@@ -359,13 +374,7 @@ function matchesKeyword(entry: KnowledgeEntrySummary, keyword: string | undefine
   return haystack.includes(normalized);
 }
 
-function getDateFieldValue(entry: KnowledgeEntrySummary, dateField: 'created_at' | 'updated_at' | 'source_date'): string | undefined {
-  if (dateField === 'source_date') {
-    const source = entry.frontmatter.source;
-    if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined;
-    const value = (source as Record<string, unknown>).date;
-    return typeof value === 'string' ? value : undefined;
-  }
+function getDateFieldValue(entry: KnowledgeEntrySummary, dateField: 'timestamp'): string | undefined {
   const value = entry.frontmatter[dateField];
   return typeof value === 'string' ? value : undefined;
 }
@@ -378,7 +387,7 @@ function parseDateTime(value: string | undefined): number | undefined {
 
 function matchesDateRange(entry: KnowledgeEntrySummary, options: KnowledgeEntrySearchOptions): boolean {
   if (!options.dateFrom && !options.dateTo) return true;
-  const dateField = options.dateField ?? 'updated_at';
+  const dateField = options.dateField ?? 'timestamp';
   const entryTime = parseDateTime(getDateFieldValue(entry, dateField));
   if (entryTime === undefined) return false;
   const fromTime = parseDateTime(options.dateFrom);
@@ -395,8 +404,8 @@ function compareEntries(a: KnowledgeEntrySummary, b: KnowledgeEntrySummary, opti
   if (sortBy === 'title') {
     return direction * (a.title ?? '').localeCompare(b.title ?? '');
   }
-  const aTime = parseDateTime(getDateFieldValue(a, sortBy)) ?? 0;
-  const bTime = parseDateTime(getDateFieldValue(b, sortBy)) ?? 0;
+  const aTime = parseDateTime(getDateFieldValue(a, 'timestamp')) ?? 0;
+  const bTime = parseDateTime(getDateFieldValue(b, 'timestamp')) ?? 0;
   return direction * (aTime - bTime || a.relativePath.localeCompare(b.relativePath));
 }
 
@@ -420,8 +429,12 @@ export function createKnowledgeSearchTool(projectPath: string) {
     async (input: KnowledgeEntrySearchOptions) => {
       const entries = searchKnowledgeEntries(projectPath, input).map((entry) => ({
         relativePath: entry.relativePath,
+        type: entry.frontmatter.type,
         title: entry.title,
+        description: entry.frontmatter.description,
+        resource: entry.frontmatter.resource,
         tags: entry.tags,
+        timestamp: entry.frontmatter.timestamp,
         warnings: entry.warnings,
       }));
       return JSON.stringify({ success: true, entries });
@@ -440,14 +453,17 @@ export function createKnowledgeCreateTool(projectPath: string) {
       try {
         const entry = createKnowledgeEntry(projectPath, {
           ...input,
-          source: input.source ?? { type: 'agent' },
         });
         return JSON.stringify({
           success: true,
           entry: {
             relativePath: entry.relativePath,
+            type: entry.frontmatter.type,
             title: entry.title,
+            description: entry.frontmatter.description,
+            resource: entry.frontmatter.resource,
             tags: entry.tags,
+            timestamp: entry.frontmatter.timestamp,
             warnings: entry.warnings,
           },
           logHint: 'For meaningful additions, imports, or reorganizations, append a brief note to .cdf/knowledge/log.md with edit_file.',

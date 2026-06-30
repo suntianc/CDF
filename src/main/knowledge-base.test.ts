@@ -66,11 +66,7 @@ describe('Knowledge Base', () => {
       body: 'Retrieval augmented generation notes.',
     });
     expect(entry.warnings).toEqual(expect.arrayContaining([
-      'Missing managed field: id',
-      'Missing managed field: tags',
-      'Missing managed field: created_at',
-      'Missing managed field: updated_at',
-      'Missing managed field: source',
+      'Missing OKF required field: type',
     ]));
   });
 
@@ -94,20 +90,19 @@ describe('Knowledge Base', () => {
       .toEqual(['rag-eval.md', 'rag-indexing.md']);
   });
 
-  it('searches keyword across user-facing knowledge text without matching ids', () => {
+  it('searches keyword across OKF user-facing knowledge text without matching ids', () => {
     ensureKnowledgeBase(projectPath);
     const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
     fs.writeFileSync(
-      path.join(knowledgeRoot, 'source.md'),
+      path.join(knowledgeRoot, 'resource.md'),
       [
         '---',
         'id: "uuid-rag-only"',
+        'type: Reference',
         'title: "Source Notes"',
+        'description: "Collected evaluation source"',
         'tags: ["paper"]',
-        'source:',
-        '  type: "url"',
-        '  title: "Evaluation Handbook"',
-        '  url: "https://example.com/eval"',
+        'resource: "https://example.com/eval"',
         '---',
         '',
         'Body text.',
@@ -116,32 +111,29 @@ describe('Knowledge Base', () => {
     );
     fs.writeFileSync(
       path.join(knowledgeRoot, 'body.md'),
-      '---\nid: "body-id"\ntitle: Body Notes\ntags: []\n---\n\nThis mentions Retrieval in the body.',
+      '---\nid: "body-id"\ntype: Reference\ntitle: Body Notes\ntags: []\n---\n\nThis mentions Retrieval in the body.',
       'utf-8',
     );
 
     expect(searchKnowledgeEntries(projectPath, { keyword: 'retrieval' }).map((entry) => entry.relativePath))
       .toEqual(['body.md']);
     expect(searchKnowledgeEntries(projectPath, { keyword: 'evaluation' }).map((entry) => entry.relativePath))
-      .toEqual(['source.md']);
+      .toEqual(['resource.md']);
     expect(searchKnowledgeEntries(projectPath, { keyword: 'uuid-rag-only' }).map((entry) => entry.relativePath))
       .toEqual([]);
   });
 
-  it('filters by source date and sorts by update time', () => {
+  it('filters and sorts by OKF timestamp', () => {
     ensureKnowledgeBase(projectPath);
     const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
     fs.writeFileSync(
       path.join(knowledgeRoot, 'old.md'),
       [
         '---',
+        'type: Reference',
         'title: Old Paper',
         'tags: []',
-        'created_at: "2026-01-01T00:00:00.000Z"',
-        'updated_at: "2026-01-03T00:00:00.000Z"',
-        'source:',
-        '  type: "paper"',
-        '  date: "2024-01-01"',
+        'timestamp: "2024-01-01T00:00:00.000Z"',
         '---',
         '',
         'Old paper.',
@@ -152,13 +144,10 @@ describe('Knowledge Base', () => {
       path.join(knowledgeRoot, 'new.md'),
       [
         '---',
+        'type: Reference',
         'title: New Paper',
         'tags: []',
-        'created_at: "2026-01-02T00:00:00.000Z"',
-        'updated_at: "2026-01-04T00:00:00.000Z"',
-        'source:',
-        '  type: "paper"',
-        '  date: "2025-01-01"',
+        'timestamp: "2025-01-01T00:00:00.000Z"',
         '---',
         '',
         'New paper.',
@@ -167,11 +156,11 @@ describe('Knowledge Base', () => {
     );
 
     expect(searchKnowledgeEntries(projectPath, {
-      dateField: 'source_date',
+      dateField: 'timestamp',
       dateFrom: '2024-06-01',
     }).map((entry) => entry.relativePath)).toEqual(['new.md']);
     expect(searchKnowledgeEntries(projectPath, {
-      sortBy: 'updated_at',
+      sortBy: 'timestamp',
       sortOrder: 'desc',
     }).map((entry) => entry.relativePath)).toEqual(['new.md', 'old.md']);
   });
@@ -181,7 +170,7 @@ describe('Knowledge Base', () => {
     const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
     fs.writeFileSync(
       path.join(knowledgeRoot, 'agent.md'),
-      '---\ntitle: Agent Knowledge\ntags: [agent]\n---\n\nAgent-readable content.',
+      '---\ntype: Reference\ntitle: Agent Knowledge\ntags: [agent]\n---\n\nAgent-readable content.',
       'utf-8',
     );
 
@@ -193,6 +182,7 @@ describe('Knowledge Base', () => {
       entries: [
         {
           relativePath: 'agent.md',
+          type: 'Reference',
           title: 'Agent Knowledge',
           tags: ['agent'],
         },
@@ -200,7 +190,7 @@ describe('Knowledge Base', () => {
     });
   });
 
-  it('exposes guarded Agent creation through knowledge_create with agent source by default', async () => {
+  it('exposes guarded Agent creation through knowledge_create with OKF frontmatter by default', async () => {
     const tool = createKnowledgeCreateTool(projectPath);
     const result = JSON.parse(String(await (tool as any).invoke({
       title: 'Agent Finding',
@@ -212,14 +202,22 @@ describe('Knowledge Base', () => {
       success: true,
       entry: {
         relativePath: 'agent-finding.md',
+        type: 'Reference',
         title: 'Agent Finding',
         tags: ['agent', 'finding'],
+        timestamp: expect.any(String),
         warnings: [],
       },
     });
 
     const created = readKnowledgeEntry(projectPath, result.entry.relativePath);
-    expect(created.frontmatter.source).toEqual({ type: 'agent' });
+    expect(created.frontmatter).toMatchObject({
+      type: 'Reference',
+      title: 'Agent Finding',
+      tags: ['agent', 'finding'],
+    });
+    expect(created.frontmatter.timestamp).toEqual(expect.any(String));
+    expect(created.frontmatter.source).toBeUndefined();
   });
 
   it('does not automatically append to the Knowledge Base log when knowledge_create runs', async () => {
@@ -241,10 +239,10 @@ describe('Knowledge Base', () => {
   it('creates a Knowledge Entry at a relative path and reads it back by that path', () => {
     const created = createKnowledgeEntry(projectPath, {
       relativePath: 'notes/rag.md',
+      type: 'Finding',
       title: 'RAG Notes',
       tags: ['rag'],
       body: 'Retrieval notes.',
-      source: { type: 'manual' },
     });
 
     const read = readKnowledgeEntry(projectPath, created.relativePath);
@@ -257,6 +255,10 @@ describe('Knowledge Base', () => {
       body: 'Retrieval notes.',
     });
     expect(fs.existsSync(path.join(projectPath, '.cdf', 'knowledge', 'notes', 'rag.md'))).toBe(true);
+    expect(read.frontmatter).toMatchObject({
+      type: 'Finding',
+      timestamp: expect.any(String),
+    });
   });
 
   it('generates a safe relative path from title and handles collisions', () => {
@@ -264,13 +266,11 @@ describe('Knowledge Base', () => {
       title: 'RAG Notes',
       tags: ['rag'],
       body: 'First.',
-      source: { type: 'manual' },
     });
     const second = createKnowledgeEntry(projectPath, {
       title: 'RAG Notes',
       tags: ['rag'],
       body: 'Second.',
-      source: { type: 'manual' },
     });
 
     expect(first.relativePath).toBe('rag-notes.md');
@@ -283,14 +283,12 @@ describe('Knowledge Base', () => {
       relativePath: 'collision.md',
       title: 'Original',
       body: 'Original body.',
-      source: { type: 'manual' },
     });
 
     expect(() => createKnowledgeEntry(projectPath, {
       relativePath: 'collision.md',
       title: 'Replacement',
       body: 'Replacement body.',
-      source: { type: 'manual' },
     })).toThrow('already exists');
     expect(readKnowledgeEntry(projectPath, 'collision.md').body).toBe('Original body.');
   });
@@ -302,8 +300,11 @@ describe('Knowledge Base', () => {
       path.join(knowledgeRoot, 'paper.md'),
       [
         '---',
+        'type: Draft',
         'title: Draft Paper',
         'doi: 10.123/example',
+        'source:',
+        '  type: legacy',
         '---',
         '',
         'Original body.',
@@ -312,10 +313,12 @@ describe('Knowledge Base', () => {
     );
 
     const updated = updateKnowledgeEntry(projectPath, 'paper.md', {
+      type: 'Reference',
       title: 'Updated Paper',
+      description: 'Updated description.',
+      resource: 'doi:10.123/example',
       tags: ['paper'],
       body: 'Updated body.',
-      source: { type: 'manual' },
     });
 
     expect(updated).toMatchObject({
@@ -325,14 +328,15 @@ describe('Knowledge Base', () => {
       body: 'Updated body.',
     });
     expect(updated.frontmatter).toMatchObject({
+      type: 'Reference',
       title: 'Updated Paper',
+      description: 'Updated description.',
+      resource: 'doi:10.123/example',
       tags: ['paper'],
-      source: { type: 'manual' },
       doi: '10.123/example',
+      source: { type: 'legacy' },
     });
-    expect(updated.frontmatter.id).toEqual(expect.any(String));
-    expect(updated.frontmatter.created_at).toEqual(expect.any(String));
-    expect(updated.frontmatter.updated_at).toEqual(expect.any(String));
+    expect(updated.frontmatter.timestamp).toEqual(expect.any(String));
   });
 
   it('reports broken YAML and refuses to overwrite it during update', () => {
@@ -355,7 +359,6 @@ describe('Knowledge Base', () => {
       relativePath: 'delete-me.md',
       title: 'Delete Me',
       body: 'Temporary.',
-      source: { type: 'manual' },
     });
 
     expect(deleteKnowledgeEntry(projectPath, entry.relativePath)).toEqual({ deleted: true });
@@ -374,22 +377,18 @@ describe('Knowledge Base', () => {
     expect(() => createKnowledgeEntry(projectPath, {
       relativePath: '/absolute.md',
       title: 'Bad',
-      source: { type: 'manual' },
     })).toThrow('relative Markdown path');
     expect(() => createKnowledgeEntry(projectPath, {
       relativePath: '../escape.md',
       title: 'Bad',
-      source: { type: 'manual' },
     })).toThrow('unsafe segment');
     expect(() => createKnowledgeEntry(projectPath, {
       relativePath: 'not-markdown.txt',
       title: 'Bad',
-      source: { type: 'manual' },
     })).toThrow('end with .md');
     expect(() => createKnowledgeEntry(projectPath, {
       relativePath: '.hidden.md',
       title: 'Bad',
-      source: { type: 'manual' },
     })).toThrow('unsafe segment');
     expect(() => readKnowledgeEntry(projectPath, 'linked.md')).toThrow('symlink');
 

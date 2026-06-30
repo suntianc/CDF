@@ -229,10 +229,10 @@ const KNOWLEDGE_SEARCH_SCHEMA: unknown = {
     keyword: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
     tagMatch: { type: 'string', enum: ['all', 'any'] },
-    dateField: { type: 'string', enum: ['created_at', 'updated_at', 'source_date'] },
+    dateField: { type: 'string', enum: ['timestamp'] },
     dateFrom: { type: 'string' },
     dateTo: { type: 'string' },
-    sortBy: { type: 'string', enum: ['updated_at', 'created_at', 'source_date', 'title'] },
+    sortBy: { type: 'string', enum: ['timestamp', 'title'] },
     sortOrder: { type: 'string', enum: ['asc', 'desc'] },
     limit: { type: 'number' },
   },
@@ -247,17 +247,15 @@ const KNOWLEDGE_SEARCH_META = {
 const KNOWLEDGE_CREATE_SCHEMA: unknown = {
   type: 'object',
   properties: {
+    type: { type: 'string', description: 'OKF concept type. Defaults to Reference.' },
     title: { type: 'string', description: 'Knowledge Entry title.' },
+    description: { type: 'string', description: 'Optional OKF description.' },
+    resource: { type: 'string', description: 'Optional OKF resource URI, path, or identifier.' },
     body: { type: 'string', description: 'Markdown body content for the Knowledge Entry.' },
     tags: {
       type: 'array',
       items: { type: 'string' },
       description: 'Optional tags for the Knowledge Entry.',
-    },
-    source: {
-      type: 'object',
-      description: 'Optional structured source metadata. Defaults to { type: "agent" }.',
-      additionalProperties: true,
     },
     relativePath: {
       type: 'string',

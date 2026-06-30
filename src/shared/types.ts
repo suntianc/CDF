@@ -578,10 +578,10 @@ export interface KnowledgeEntrySearchOptions {
   keyword?: string;
   tags?: string[];
   tagMatch?: 'all' | 'any';
-  dateField?: 'created_at' | 'updated_at' | 'source_date';
+  dateField?: 'timestamp';
   dateFrom?: string;
   dateTo?: string;
-  sortBy?: 'updated_at' | 'created_at' | 'source_date' | 'title';
+  sortBy?: 'timestamp' | 'title';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
 }
@@ -598,17 +598,21 @@ export interface KnowledgeEntrySummary {
 
 export interface KnowledgeEntryCreateInput {
   relativePath?: string;
+  type?: string;
   title: string;
+  description?: string;
+  resource?: string;
   tags?: string[];
   body?: string;
-  source?: Record<string, unknown>;
 }
 
 export interface KnowledgeEntryUpdateInput {
+  type?: string;
   title?: string;
+  description?: string;
+  resource?: string;
   tags?: string[];
   body?: string;
-  source?: Record<string, unknown>;
 }
 
 export interface ElectronAPI {
