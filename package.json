@@ -100,12 +100,20 @@
     "files": [
       "out/**/*",
       "resources/**/*",
+      "!resources/obscura/**/*",
       "package.json",
       "node_modules/jsdom/**/*",
       "node_modules/@mozilla/readability/**/*",
       "node_modules/turndown/**/*",
       "node_modules/ignore/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/obscura",
+        "to": "obscura"
+      }
+    ],
+    "afterPack": "scripts/prune-obscura-resources.mjs",
     "asarUnpack": [
       "node_modules/jsdom/**/*",
       "node_modules/@mozilla/readability/**/*"
