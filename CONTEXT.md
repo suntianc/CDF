@@ -95,3 +95,11 @@ _Avoid_: lab notebook, run log
 **Crawler Skill**:
 A Skill that encodes crawling strategy and instructions for the Obscura tool — what to extract, how to handle pagination and anti-scraping, and how to structure the output. The Skill itself contains no execution logic.
 _Avoid_: scraper, spider, bot
+
+**Obscura Browser Tool**:
+An Agent Tool that uses the bundled Obscura headless browser to render pages that need a browser environment before extracting page content.
+_Avoid_: browser fetch, scraper tool, crawler
+
+**Fetch Tool**:
+An Agent Tool for lightweight URL content retrieval when a browser environment is not required.
+_Avoid_: browser tool, rendered page crawler

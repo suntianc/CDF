@@ -28,6 +28,11 @@ vi.mock('./fetch-tool', () => ({
   createFetchTool: vi.fn(() => ({ name: 'fetch' })),
 }));
 
+vi.mock('./obscura-tool', () => ({
+  createObscuraBrowserTool: vi.fn(() => ({ name: 'obscura_browse' })),
+  createObscuraCliRunner: vi.fn(() => ({ browse: vi.fn() })),
+}));
+
 vi.mock('./search-tools', () => ({
   createTavilyTool: vi.fn(() => ({ name: 'tavily' })),
   createAnysearchTool: vi.fn(() => ({ name: 'anysearch' })),
@@ -164,9 +169,14 @@ describe('createChildSpan', () => {
 // ===== createBuiltInTools =====
 
 describe('createBuiltInTools', () => {
-  it('returns an array of 3 built-in tools', () => {
+  it('returns the built-in Agent Tools', () => {
     const tools = createBuiltInTools('/tmp/workspace');
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools).toHaveLength(3);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'delete_file',
+      'bash',
+      'fetch',
+      'obscura_browse',
+    ]);
   });
 });
