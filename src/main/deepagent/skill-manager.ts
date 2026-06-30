@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { listSkills, type FilesystemPermission } from 'deepagents';
 import type { ParsedFrontmatter } from '../../shared/types';
+import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
 
 type SkillScope = 'global' | 'project';
 
@@ -33,6 +34,13 @@ function ensureDir(targetDir: string): void {
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
+}
+
+function ensureBuiltInKnowledgeBaseSkill(): string {
+  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base');
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getKnowledgeBaseSkillMarkdown(), 'utf-8');
+  return skillDir;
 }
 
 /**
@@ -212,7 +220,7 @@ export function deletePhysicalSkill(projectPath: string, scope: SkillScope, name
 export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: string[]): { skillsSources: string[]; permissions: FilesystemPermission[] } {
   const globalSkillsDir = getScopePath(projectPath, 'global');
   const projectSkillsDir = getScopePath(projectPath, 'project');
-  const sources: string[] = [];
+  const sources: string[] = [ensureBuiltInKnowledgeBaseSkill()];
 
   // 项目级 skills: 始终全量加载，不经过白名单
   if (fs.existsSync(projectSkillsDir)) {

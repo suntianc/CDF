@@ -1,0 +1,56 @@
+export function getKnowledgeBaseAgentsBlock(): string {
+  return [
+    '<!-- CDF:knowledge-base:start -->',
+    '## Knowledge Base',
+    '',
+    'Use the Knowledge Base Skill when:',
+    '- the user asks to remember, save, document, or preserve project knowledge;',
+    '- a task produces reusable decisions, research notes, implementation findings, or troubleshooting steps;',
+    '- a workflow imports or summarizes external sources that should remain available later;',
+    '- before adding new project knowledge, search existing Knowledge Entries to avoid duplicates.',
+    '',
+    'The Knowledge Base lives under `.cdf/knowledge/`.',
+    '<!-- CDF:knowledge-base:end -->',
+  ].join('\n');
+}
+
+export function getKnowledgeBaseSkillMarkdown(): string {
+  const agentsBlock = getKnowledgeBaseAgentsBlock();
+  return [
+    '---',
+    'name: knowledge-base',
+    'description: Enable and use the project Knowledge Base for durable project knowledge.',
+    'when_to_use: Use when the user asks to remember, save, document, preserve, organize, or reuse project knowledge.',
+    '---',
+    '',
+    '# Knowledge Base Skill',
+    '',
+    'Use this Skill to enable and maintain a project-local Knowledge Base.',
+    '',
+    '## Enable the Knowledge Base',
+    '',
+    'When the user asks to enable the Knowledge Base for the project:',
+    '',
+    '1. Ensure `.cdf/knowledge/` exists.',
+    '2. Ensure `.cdf/knowledge/index.md` and `.cdf/knowledge/log.md` exist.',
+    '3. Read the project `AGENTS.md` if it exists.',
+    '4. Add or update only the managed block delimited by:',
+    '',
+    '<!-- CDF:knowledge-base:start -->',
+    '<!-- CDF:knowledge-base:end -->',
+    '',
+    'Use this exact managed block content:',
+    '',
+    agentsBlock,
+    '',
+    'Preserve all user-authored `AGENTS.md` content outside the managed block.',
+    '',
+    '## Use the Knowledge Base',
+    '',
+    '- Use `knowledge_search` before adding entries to avoid duplicates.',
+    '- Use `knowledge_create` to create new Knowledge Entries with managed OKF frontmatter.',
+    '- Use file tools to read, update, or delete existing entries after confirming the target.',
+    '- Do not treat `index.md` or `log.md` as Knowledge Entries.',
+    '- `knowledge_create` does not update `log.md`; append a short log note only for meaningful additions, imports, or reorganizations.',
+  ].join('\n');
+}

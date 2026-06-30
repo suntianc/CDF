@@ -192,6 +192,8 @@ describe('createDeepAgentRuntime', () => {
     expect(params.systemPrompt).toContain(tempProjectPath + '/src/main.ts');
     expect(params.systemPrompt).toContain('必须在当前轮次继续调用合适的文件工具');
     expect(params.systemPrompt).toContain(tempProjectPath);
+    expect(params.systemPrompt).not.toContain('Knowledge Base 使用规范');
+    expect(params.systemPrompt).not.toContain('knowledge_search');
     expect(params.systemPrompt).not.toContain('[可委派 Agent]');
     expect(params.subagents).toBeUndefined();
     expect(params.tools.map((tool: { name: string }) => tool.name)).toContain('delete_file');

@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  createKnowledgeCreateTool,
   createKnowledgeSearchTool,
   createKnowledgeEntry,
   deleteKnowledgeEntry,
@@ -197,6 +198,44 @@ describe('Knowledge Base', () => {
         },
       ],
     });
+  });
+
+  it('exposes guarded Agent creation through knowledge_create with agent source by default', async () => {
+    const tool = createKnowledgeCreateTool(projectPath);
+    const result = JSON.parse(String(await (tool as any).invoke({
+      title: 'Agent Finding',
+      tags: ['agent', 'finding'],
+      body: 'Reusable implementation finding.',
+    })));
+
+    expect(result).toMatchObject({
+      success: true,
+      entry: {
+        relativePath: 'agent-finding.md',
+        title: 'Agent Finding',
+        tags: ['agent', 'finding'],
+        warnings: [],
+      },
+    });
+
+    const created = readKnowledgeEntry(projectPath, result.entry.relativePath);
+    expect(created.frontmatter.source).toEqual({ type: 'agent' });
+  });
+
+  it('does not automatically append to the Knowledge Base log when knowledge_create runs', async () => {
+    ensureKnowledgeBase(projectPath);
+    const logPath = path.join(projectPath, '.cdf', 'knowledge', 'log.md');
+    const before = fs.readFileSync(logPath, 'utf-8');
+
+    const tool = createKnowledgeCreateTool(projectPath);
+    const result = JSON.parse(String(await (tool as any).invoke({
+      title: 'Logged Later',
+      body: 'This should not write the log automatically.',
+    })));
+
+    expect(result.success).toBe(true);
+    expect(result.logHint).toContain('log.md');
+    expect(fs.readFileSync(logPath, 'utf-8')).toBe(before);
   });
 
   it('creates a Knowledge Entry at a relative path and reads it back by that path', () => {

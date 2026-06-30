@@ -75,6 +75,14 @@ describe('skill-manager', () => {
     expect(paths).toContain(path.join(tempProjectPath, '**', '*'));
   });
 
+  it('loads the built-in Knowledge Base Skill without writing to the user global skills directory', () => {
+    const config = resolveAgentSkillsConfig(tempProjectPath);
+    const knowledgeBaseSource = config.skillsSources.find((source) => source.includes('knowledge-base'));
+
+    expect(knowledgeBaseSource).toBeTruthy();
+    expect(knowledgeBaseSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
+  });
+
   // ===== 08.2 P4 D-09: disable-model-invocation + whenToUse enforcement =====
 
   it('resolveAgentSkillsConfig: skills with disable-model-invocation: true are filtered out (D-09)', () => {

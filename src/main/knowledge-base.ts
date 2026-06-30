@@ -45,6 +45,30 @@ const KNOWLEDGE_SEARCH_SCHEMA = {
   additionalProperties: false,
 };
 
+const KNOWLEDGE_CREATE_SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    title: { type: 'string', description: 'Knowledge Entry title.' },
+    body: { type: 'string', description: 'Markdown body content for the Knowledge Entry.' },
+    tags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Optional tags for the Knowledge Entry.',
+    },
+    source: {
+      type: 'object',
+      description: 'Optional structured source metadata. Defaults to { type: "agent" }.',
+      additionalProperties: true,
+    },
+    relativePath: {
+      type: 'string',
+      description: 'Optional Knowledge Base-relative .md path. If omitted, CDF generates one from title.',
+    },
+  },
+  required: ['title', 'body'],
+  additionalProperties: false,
+};
+
 export function getKnowledgeBaseRoot(projectPath: string): string {
   return path.join(projectPath, '.cdf', 'knowledge');
 }
@@ -406,6 +430,39 @@ export function createKnowledgeSearchTool(projectPath: string) {
       name: 'knowledge_search',
       description: 'Search project-local Knowledge Entries stored under .cdf/knowledge. Returns relative paths so you can read matching entries with read_file. Does not read, create, update, or delete entries.',
       schema: KNOWLEDGE_SEARCH_SCHEMA,
+    },
+  );
+}
+
+export function createKnowledgeCreateTool(projectPath: string) {
+  return tool(
+    async (input: KnowledgeEntryCreateInput) => {
+      try {
+        const entry = createKnowledgeEntry(projectPath, {
+          ...input,
+          source: input.source ?? { type: 'agent' },
+        });
+        return JSON.stringify({
+          success: true,
+          entry: {
+            relativePath: entry.relativePath,
+            title: entry.title,
+            tags: entry.tags,
+            warnings: entry.warnings,
+          },
+          logHint: 'For meaningful additions, imports, or reorganizations, append a brief note to .cdf/knowledge/log.md with edit_file.',
+        });
+      } catch (error) {
+        return JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    {
+      name: 'knowledge_create',
+      description: 'Create a project-local Knowledge Entry under .cdf/knowledge with managed OKF frontmatter, safe path handling, and collision protection. Does not update or delete entries.',
+      schema: KNOWLEDGE_CREATE_SCHEMA,
     },
   );
 }

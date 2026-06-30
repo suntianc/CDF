@@ -2,7 +2,7 @@
 // Data sources: conversation (messages table), skills (listPhysicalSkills),
 // MCP tools (loadMcpTools), workflows (workflows table graph_data),
 // system prompt (agents.system_prompt + buildProjectContext),
-// system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/tavily/anysearch/arxiv).
+// system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/knowledge_create/tavily/anysearch/arxiv).
 // Token heuristic: Math.ceil(chars * 0.25) — OpenAI rough 1 token ≈ 4 chars.
 // Per-source try-catch: if one source fails, the others still report real values.
 //
@@ -159,7 +159,7 @@ const DEFAULT_CONTEXT_LIMIT = 200_000;
 // bytes that the LLM actually receives. Update both sites in lockstep if
 // the runtime template changes.
 function buildProjectContextString(projectName: string, projectPath: string): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Knowledge Base 使用规范\n- 当前项目 Knowledge Base 根目录为 \`${projectPath}/.cdf/knowledge\`\n- 使用 knowledge_search 按标题、标签、来源字段、正文和日期发现 Knowledge Entries，再用 read_file/edit_file/write_file 读取或维护具体 Markdown 文件\n- Knowledge Entry 必须是带 YAML frontmatter 的 .md 文件，至少包含 id、title、tags、created_at、updated_at、source\n- \`index.md\` 和 \`log.md\` 是 OKF 保留文件，不是 Knowledge Entry；有意义的新增、导入、整理或批量修改可在 \`${projectPath}/.cdf/knowledge/log.md\` 追加简短记录\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
 }
 
 // === Built-in tool schemas (08.2 polish) =================================
@@ -167,7 +167,7 @@ function buildProjectContextString(projectName: string, projectPath: string): st
 //   - fetch-tool.ts (FETCH_SCHEMA)
 //   - file-tools.ts (DELETE_FILE_SCHEMA)
 //   - bash-tool.ts (inline schema for `bash`)
-//   - knowledge-base.ts (KNOWLEDGE_SEARCH_SCHEMA)
+//   - knowledge-base.ts (KNOWLEDGE_SEARCH_SCHEMA, KNOWLEDGE_CREATE_SCHEMA)
 //   - search-tools.ts (TAVILY_SCHEMA, ANYSEARCH_SCHEMA)
 //   - arxiv-tool.ts (ARXIV_SCHEMA)
 // Schema strings are duplicated here rather than imported so the aggregator
@@ -244,6 +244,35 @@ const KNOWLEDGE_SEARCH_META = {
     'Search project-local Knowledge Entries stored under .cdf/knowledge. Returns relative paths so you can read matching entries with read_file. Does not read, create, update, or delete entries.',
 };
 
+const KNOWLEDGE_CREATE_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    title: { type: 'string', description: 'Knowledge Entry title.' },
+    body: { type: 'string', description: 'Markdown body content for the Knowledge Entry.' },
+    tags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Optional tags for the Knowledge Entry.',
+    },
+    source: {
+      type: 'object',
+      description: 'Optional structured source metadata. Defaults to { type: "agent" }.',
+      additionalProperties: true,
+    },
+    relativePath: {
+      type: 'string',
+      description: 'Optional Knowledge Base-relative .md path. If omitted, CDF generates one from title.',
+    },
+  },
+  required: ['title', 'body'],
+  additionalProperties: false,
+};
+const KNOWLEDGE_CREATE_META = {
+  name: 'knowledge_create',
+  description:
+    'Create a project-local Knowledge Entry under .cdf/knowledge with managed OKF frontmatter, safe path handling, and collision protection. Does not update or delete entries.',
+};
+
 const TAVILY_SCHEMA: unknown = {
   type: 'object',
   properties: {
@@ -288,6 +317,7 @@ const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: st
   { meta: DELETE_FILE_META, schema: DELETE_FILE_SCHEMA },
   { meta: BASH_META, schema: BASH_SCHEMA },
   { meta: KNOWLEDGE_SEARCH_META, schema: KNOWLEDGE_SEARCH_SCHEMA },
+  { meta: KNOWLEDGE_CREATE_META, schema: KNOWLEDGE_CREATE_SCHEMA },
   { meta: TAVILY_META, schema: TAVILY_SCHEMA },
   { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
   { meta: ARXIV_META, schema: ARXIV_SCHEMA },
@@ -589,13 +619,13 @@ export async function aggregateCurrentSessionContext(
   }
 
   // 7. systemTools (08.2 polish — promoted to real calculation).
-  //     runtime.ts:492-504 mounts a fixed array of built-in tools into
+  //     runtime.ts mounts a fixed array of built-in tools into
   //     every agent regardless of MCP / skill bindings:
   //       [fetch, delete_file (plan-mode stripped), bash (plan-mode stripped),
+  //        knowledge_search, knowledge_create,
   //        tavily / anysearch / arxiv (tool_configs.is_enabled=1 only)]
-  //     We sum the character length of name+description+schema for all 6
-  //     (note: plan-mode strips 2, so the live count is 4 for plan sessions —
-  //     we report the full 6 here; the delta is negligible).
+  //     We sum the character length of name+description+schema for all mirrored
+  //     built-ins here; plan-mode strips only the write/shell tools.
   //     08.2 polish: also populate per-tool breakdown.
   let systemTools = 0;
   let systemToolsPerTool: SystemToolDetail[] = [];

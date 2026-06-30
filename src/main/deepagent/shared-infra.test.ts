@@ -44,6 +44,7 @@ vi.mock('./arxiv-tool', () => ({
 
 vi.mock('../knowledge-base', () => ({
   createKnowledgeSearchTool: vi.fn(() => ({ name: 'knowledge_search' })),
+  createKnowledgeCreateTool: vi.fn(() => ({ name: 'knowledge_create' })),
 }));
 
 vi.mock('./mcp-connector', () => ({
@@ -182,6 +183,7 @@ describe('createBuiltInTools', () => {
       'fetch',
       'obscura_browse',
       'knowledge_search',
+      'knowledge_create',
     ]);
   });
 });
