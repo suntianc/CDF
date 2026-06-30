@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { KnowledgeEntrySearchOptions } from '../shared/types';
+import type {
+  KnowledgeEntryCreateInput,
+  KnowledgeEntrySearchOptions,
+  KnowledgeEntryUpdateInput,
+} from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   store: {
@@ -188,6 +192,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('knowledge:list', projectId, options),
     search: (projectId: string, options?: KnowledgeEntrySearchOptions) =>
       ipcRenderer.invoke('knowledge:search', projectId, options),
+    create: (projectId: string, input: KnowledgeEntryCreateInput) =>
+      ipcRenderer.invoke('knowledge:create', projectId, input),
+    read: (projectId: string, relativePath: string) =>
+      ipcRenderer.invoke('knowledge:read', projectId, relativePath),
+    update: (projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) =>
+      ipcRenderer.invoke('knowledge:update', projectId, relativePath, input),
+    delete: (projectId: string, relativePath: string) =>
+      ipcRenderer.invoke('knowledge:delete', projectId, relativePath),
   },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   // 08.2 P4: optional contextLimit so renderer can pin the active provider

@@ -593,6 +593,22 @@ export interface KnowledgeEntrySummary {
   body: string;
   frontmatter: Record<string, unknown>;
   warnings: string[];
+  invalidFrontmatter: boolean;
+}
+
+export interface KnowledgeEntryCreateInput {
+  relativePath?: string;
+  title: string;
+  tags?: string[];
+  body?: string;
+  source?: Record<string, unknown>;
+}
+
+export interface KnowledgeEntryUpdateInput {
+  title?: string;
+  tags?: string[];
+  body?: string;
+  source?: Record<string, unknown>;
 }
 
 export interface ElectronAPI {
@@ -717,6 +733,10 @@ export interface ElectronAPI {
   knowledge: {
     list: (projectId: string, options?: KnowledgeEntrySearchOptions) => Promise<KnowledgeEntrySummary[]>;
     search: (projectId: string, options?: KnowledgeEntrySearchOptions) => Promise<KnowledgeEntrySummary[]>;
+    create: (projectId: string, input: KnowledgeEntryCreateInput) => Promise<KnowledgeEntrySummary>;
+    read: (projectId: string, relativePath: string) => Promise<KnowledgeEntrySummary>;
+    update: (projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) => Promise<KnowledgeEntrySummary>;
+    delete: (projectId: string, relativePath: string) => Promise<{ deleted: true }>;
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {

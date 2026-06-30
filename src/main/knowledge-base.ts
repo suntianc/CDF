@@ -2,7 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import { tool } from '@langchain/core/tools';
-import type { KnowledgeEntrySearchOptions, KnowledgeEntrySummary } from '../shared/types';
+import type {
+  KnowledgeEntryCreateInput,
+  KnowledgeEntrySearchOptions,
+  KnowledgeEntrySummary,
+  KnowledgeEntryUpdateInput,
+} from '../shared/types';
 
 const KNOWLEDGE_SEARCH_SCHEMA = {
   type: 'object' as const,
@@ -76,6 +81,65 @@ function isReservedKnowledgeFile(filePath: string): boolean {
   return name === 'index.md' || name === 'log.md';
 }
 
+function resolveKnowledgeEntryPath(projectPath: string, relativePath: string): string {
+  const root = getKnowledgeBaseRoot(projectPath);
+  const normalized = relativePath.split('\\').join('/').trim();
+  if (!normalized || path.isAbsolute(normalized)) {
+    throw new Error('Knowledge Entry path must be a relative Markdown path.');
+  }
+  if (!normalized.toLowerCase().endsWith('.md')) {
+    throw new Error('Knowledge Entry path must end with .md.');
+  }
+  if (normalized.split('/').some((part) => part === '..' || part === '' || part.startsWith('.'))) {
+    throw new Error('Knowledge Entry path contains an unsafe segment.');
+  }
+  if (isReservedKnowledgeFile(normalized)) {
+    throw new Error('Knowledge Entry path cannot be an OKF reserved file.');
+  }
+  const target = path.resolve(root, normalized);
+  const relativeToRoot = path.relative(root, target);
+  if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+    throw new Error('Knowledge Entry path escapes the Knowledge Base root.');
+  }
+  if (fs.existsSync(target)) {
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink()) {
+      throw new Error('Knowledge Entry path cannot be a symlink.');
+    }
+    const realRoot = fs.realpathSync(root);
+    const realTarget = fs.realpathSync(target);
+    const realRelative = path.relative(realRoot, realTarget);
+    if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+      throw new Error('Knowledge Entry path escapes the Knowledge Base root.');
+    }
+  }
+  return target;
+}
+
+function stringifyKnowledgeEntry(frontmatter: Record<string, unknown>, body: string): string {
+  return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n\n${body.trimEnd()}\n`;
+}
+
+function slugifyTitle(title: string): string {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'knowledge-entry';
+}
+
+function generateAvailableRelativePath(projectPath: string, title: string): string {
+  const base = slugifyTitle(title);
+  let candidate = `${base}.md`;
+  let suffix = 2;
+  while (fs.existsSync(resolveKnowledgeEntryPath(projectPath, candidate))) {
+    candidate = `${base}-${suffix}.md`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 function collectMarkdownFiles(root: string, currentDir = root): string[] {
   if (!fs.existsSync(currentDir)) return [];
 
@@ -97,6 +161,7 @@ function collectMarkdownFiles(root: string, currentDir = root): string[] {
 function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'relativePath'> {
   const content = fs.readFileSync(filePath, 'utf-8');
   const warnings: string[] = [];
+  let invalidFrontmatter = false;
   let frontmatter: Record<string, unknown> = {};
   let body = content;
 
@@ -104,6 +169,7 @@ function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'rel
     const end = content.indexOf('\n---', 4);
     if (end === -1) {
       warnings.push('Invalid frontmatter: missing closing delimiter');
+      invalidFrontmatter = true;
     } else {
       const rawFrontmatter = content.slice(4, end);
       const bodyStart = end + '\n---'.length;
@@ -114,9 +180,11 @@ function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'rel
           frontmatter = parsed as Record<string, unknown>;
         } else {
           warnings.push('Invalid frontmatter: expected object');
+          invalidFrontmatter = true;
         }
       } catch (error) {
         warnings.push(`Invalid frontmatter: ${error instanceof Error ? error.message : String(error)}`);
+        invalidFrontmatter = true;
       }
     }
   }
@@ -137,6 +205,7 @@ function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'rel
     body: body.trim(),
     frontmatter,
     warnings,
+    invalidFrontmatter,
   };
 }
 
@@ -152,6 +221,85 @@ export function listKnowledgeEntries(
       ...parseKnowledgeEntry(filePath),
     }))
     .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+export function readKnowledgeEntry(projectPath: string, relativePath: string): KnowledgeEntrySummary {
+  ensureKnowledgeBase(projectPath);
+  const root = getKnowledgeBaseRoot(projectPath);
+  const filePath = resolveKnowledgeEntryPath(projectPath, relativePath);
+  const relative = toPosixPath(path.relative(root, filePath));
+  return {
+    relativePath: relative,
+    ...parseKnowledgeEntry(filePath),
+  };
+}
+
+export function createKnowledgeEntry(
+  projectPath: string,
+  input: KnowledgeEntryCreateInput,
+): KnowledgeEntrySummary {
+  ensureKnowledgeBase(projectPath);
+  const relativePath = input.relativePath ?? generateAvailableRelativePath(projectPath, input.title);
+  const filePath = resolveKnowledgeEntryPath(projectPath, relativePath);
+  if (fs.existsSync(filePath)) {
+    throw new Error(`Knowledge Entry already exists: ${relativePath}`);
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const now = new Date().toISOString();
+  const frontmatter: Record<string, unknown> = {
+    id: crypto.randomUUID(),
+    title: input.title,
+    tags: input.tags ?? [],
+    created_at: now,
+    updated_at: now,
+    source: input.source ?? { type: 'manual' },
+  };
+  fs.writeFileSync(filePath, stringifyKnowledgeEntry(frontmatter, input.body ?? ''), 'utf-8');
+  return readKnowledgeEntry(projectPath, relativePath);
+}
+
+export function updateKnowledgeEntry(
+  projectPath: string,
+  relativePath: string,
+  input: KnowledgeEntryUpdateInput,
+): KnowledgeEntrySummary {
+  ensureKnowledgeBase(projectPath);
+  const filePath = resolveKnowledgeEntryPath(projectPath, relativePath);
+  const existing = parseKnowledgeEntry(filePath);
+  if (existing.invalidFrontmatter) {
+    throw new Error('Cannot update Knowledge Entry with invalid frontmatter.');
+  }
+  const now = new Date().toISOString();
+  const frontmatter: Record<string, unknown> = {
+    ...existing.frontmatter,
+    id: typeof existing.frontmatter.id === 'string' ? existing.frontmatter.id : crypto.randomUUID(),
+    title: input.title ?? existing.title ?? path.basename(relativePath, '.md'),
+    tags: input.tags ?? existing.tags,
+    created_at: typeof existing.frontmatter.created_at === 'string' ? existing.frontmatter.created_at : now,
+    updated_at: now,
+    source: input.source ?? (
+      existing.frontmatter.source && typeof existing.frontmatter.source === 'object' && !Array.isArray(existing.frontmatter.source)
+        ? existing.frontmatter.source
+        : { type: 'manual' }
+    ),
+  };
+  const body = input.body ?? existing.body;
+  fs.writeFileSync(filePath, stringifyKnowledgeEntry(frontmatter, body), 'utf-8');
+  return readKnowledgeEntry(projectPath, relativePath);
+}
+
+export function deleteKnowledgeEntry(projectPath: string, relativePath: string): { deleted: true } {
+  ensureKnowledgeBase(projectPath);
+  const filePath = resolveKnowledgeEntryPath(projectPath, relativePath);
+  const stat = fs.lstatSync(filePath);
+  if (stat.isSymbolicLink()) {
+    throw new Error('Cannot delete symlinked Knowledge Entry.');
+  }
+  if (!stat.isFile()) {
+    throw new Error('Knowledge Entry path is not a file.');
+  }
+  fs.unlinkSync(filePath);
+  return { deleted: true };
 }
 
 function matchesTags(entry: KnowledgeEntrySummary, tags: string[] | undefined, tagMatch: 'all' | 'any'): boolean {

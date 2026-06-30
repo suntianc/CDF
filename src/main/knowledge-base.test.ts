@@ -4,9 +4,13 @@ import os from 'os';
 import path from 'path';
 import {
   createKnowledgeSearchTool,
+  createKnowledgeEntry,
+  deleteKnowledgeEntry,
   ensureKnowledgeBase,
   listKnowledgeEntries,
+  readKnowledgeEntry,
   searchKnowledgeEntries,
+  updateKnowledgeEntry,
 } from './knowledge-base';
 
 describe('Knowledge Base', () => {
@@ -193,5 +197,163 @@ describe('Knowledge Base', () => {
         },
       ],
     });
+  });
+
+  it('creates a Knowledge Entry at a relative path and reads it back by that path', () => {
+    const created = createKnowledgeEntry(projectPath, {
+      relativePath: 'notes/rag.md',
+      title: 'RAG Notes',
+      tags: ['rag'],
+      body: 'Retrieval notes.',
+      source: { type: 'manual' },
+    });
+
+    const read = readKnowledgeEntry(projectPath, created.relativePath);
+
+    expect(created.relativePath).toBe('notes/rag.md');
+    expect(read).toMatchObject({
+      relativePath: 'notes/rag.md',
+      title: 'RAG Notes',
+      tags: ['rag'],
+      body: 'Retrieval notes.',
+    });
+    expect(fs.existsSync(path.join(projectPath, '.cdf', 'knowledge', 'notes', 'rag.md'))).toBe(true);
+  });
+
+  it('generates a safe relative path from title and handles collisions', () => {
+    const first = createKnowledgeEntry(projectPath, {
+      title: 'RAG Notes',
+      tags: ['rag'],
+      body: 'First.',
+      source: { type: 'manual' },
+    });
+    const second = createKnowledgeEntry(projectPath, {
+      title: 'RAG Notes',
+      tags: ['rag'],
+      body: 'Second.',
+      source: { type: 'manual' },
+    });
+
+    expect(first.relativePath).toBe('rag-notes.md');
+    expect(second.relativePath).toBe('rag-notes-2.md');
+    expect(readKnowledgeEntry(projectPath, second.relativePath).body).toBe('Second.');
+  });
+
+  it('rejects explicit create path collisions without overwriting the existing entry', () => {
+    createKnowledgeEntry(projectPath, {
+      relativePath: 'collision.md',
+      title: 'Original',
+      body: 'Original body.',
+      source: { type: 'manual' },
+    });
+
+    expect(() => createKnowledgeEntry(projectPath, {
+      relativePath: 'collision.md',
+      title: 'Replacement',
+      body: 'Replacement body.',
+      source: { type: 'manual' },
+    })).toThrow('already exists');
+    expect(readKnowledgeEntry(projectPath, 'collision.md').body).toBe('Original body.');
+  });
+
+  it('updates an incomplete hand-authored entry with strict managed metadata while preserving unknown fields', () => {
+    ensureKnowledgeBase(projectPath);
+    const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
+    fs.writeFileSync(
+      path.join(knowledgeRoot, 'paper.md'),
+      [
+        '---',
+        'title: Draft Paper',
+        'doi: 10.123/example',
+        '---',
+        '',
+        'Original body.',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const updated = updateKnowledgeEntry(projectPath, 'paper.md', {
+      title: 'Updated Paper',
+      tags: ['paper'],
+      body: 'Updated body.',
+      source: { type: 'manual' },
+    });
+
+    expect(updated).toMatchObject({
+      relativePath: 'paper.md',
+      title: 'Updated Paper',
+      tags: ['paper'],
+      body: 'Updated body.',
+    });
+    expect(updated.frontmatter).toMatchObject({
+      title: 'Updated Paper',
+      tags: ['paper'],
+      source: { type: 'manual' },
+      doi: '10.123/example',
+    });
+    expect(updated.frontmatter.id).toEqual(expect.any(String));
+    expect(updated.frontmatter.created_at).toEqual(expect.any(String));
+    expect(updated.frontmatter.updated_at).toEqual(expect.any(String));
+  });
+
+  it('reports broken YAML and refuses to overwrite it during update', () => {
+    ensureKnowledgeBase(projectPath);
+    const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
+    const filePath = path.join(knowledgeRoot, 'broken.md');
+    const original = '---\ntitle: [broken\n---\n\nBody.';
+    fs.writeFileSync(filePath, original, 'utf-8');
+
+    const read = readKnowledgeEntry(projectPath, 'broken.md');
+
+    expect(read.warnings.some((warning) => warning.startsWith('Invalid frontmatter:'))).toBe(true);
+    expect(() => updateKnowledgeEntry(projectPath, 'broken.md', { title: 'Nope' }))
+      .toThrow('Cannot update Knowledge Entry with invalid frontmatter');
+    expect(fs.readFileSync(filePath, 'utf-8')).toBe(original);
+  });
+
+  it('deletes Knowledge Entries but rejects OKF reserved files', () => {
+    const entry = createKnowledgeEntry(projectPath, {
+      relativePath: 'delete-me.md',
+      title: 'Delete Me',
+      body: 'Temporary.',
+      source: { type: 'manual' },
+    });
+
+    expect(deleteKnowledgeEntry(projectPath, entry.relativePath)).toEqual({ deleted: true });
+    expect(listKnowledgeEntries(projectPath).map((item) => item.relativePath)).toEqual([]);
+    expect(() => deleteKnowledgeEntry(projectPath, 'index.md')).toThrow('reserved file');
+  });
+
+  it('rejects unsafe paths and symlink escapes', () => {
+    ensureKnowledgeBase(projectPath);
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-knowledge-outside-'));
+    const outsideFile = path.join(outsideDir, 'outside.md');
+    fs.writeFileSync(outsideFile, 'outside', 'utf-8');
+    const linkPath = path.join(projectPath, '.cdf', 'knowledge', 'linked.md');
+    fs.symlinkSync(outsideFile, linkPath);
+
+    expect(() => createKnowledgeEntry(projectPath, {
+      relativePath: '/absolute.md',
+      title: 'Bad',
+      source: { type: 'manual' },
+    })).toThrow('relative Markdown path');
+    expect(() => createKnowledgeEntry(projectPath, {
+      relativePath: '../escape.md',
+      title: 'Bad',
+      source: { type: 'manual' },
+    })).toThrow('unsafe segment');
+    expect(() => createKnowledgeEntry(projectPath, {
+      relativePath: 'not-markdown.txt',
+      title: 'Bad',
+      source: { type: 'manual' },
+    })).toThrow('end with .md');
+    expect(() => createKnowledgeEntry(projectPath, {
+      relativePath: '.hidden.md',
+      title: 'Bad',
+      source: { type: 'manual' },
+    })).toThrow('unsafe segment');
+    expect(() => readKnowledgeEntry(projectPath, 'linked.md')).toThrow('symlink');
+
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   });
 });
