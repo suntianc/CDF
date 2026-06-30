@@ -42,6 +42,10 @@ vi.mock('./arxiv-tool', () => ({
   createArxivTool: vi.fn(() => ({ name: 'arxiv' })),
 }));
 
+vi.mock('../knowledge-base', () => ({
+  createKnowledgeSearchTool: vi.fn(() => ({ name: 'knowledge_search' })),
+}));
+
 vi.mock('./mcp-connector', () => ({
   loadMcpTools: vi.fn(async () => ({ client: null, tools: [] })),
 }));
@@ -177,6 +181,7 @@ describe('createBuiltInTools', () => {
       'bash',
       'fetch',
       'obscura_browse',
+      'knowledge_search',
     ]);
   });
 });

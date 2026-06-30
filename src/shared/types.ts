@@ -574,6 +574,27 @@ export type WorkflowStreamEvent = (
   | { type: 'node_approval_resolved'; executionId: string; nodeId: string; status: 'approved' | 'rejected' }
 ) & { seq?: number };
 
+export interface KnowledgeEntrySearchOptions {
+  keyword?: string;
+  tags?: string[];
+  tagMatch?: 'all' | 'any';
+  dateField?: 'created_at' | 'updated_at' | 'source_date';
+  dateFrom?: string;
+  dateTo?: string;
+  sortBy?: 'updated_at' | 'created_at' | 'source_date' | 'title';
+  sortOrder?: 'asc' | 'desc';
+  limit?: number;
+}
+
+export interface KnowledgeEntrySummary {
+  relativePath: string;
+  title?: string;
+  tags: string[];
+  body: string;
+  frontmatter: Record<string, unknown>;
+  warnings: string[];
+}
+
 export interface ElectronAPI {
   store: {
     get: (key: string) => Promise<any>;
@@ -692,6 +713,10 @@ export interface ElectronAPI {
   // ===== Phase 08.3 Plan 01: @Mention file candidate bridge (E-05) =====
   project: {
     listAtMentionCandidates: (projectId: string) => Promise<AtMentionCandidateList>;
+  };
+  knowledge: {
+    list: (projectId: string, options?: KnowledgeEntrySearchOptions) => Promise<KnowledgeEntrySummary[]>;
+    search: (projectId: string, options?: KnowledgeEntrySearchOptions) => Promise<KnowledgeEntrySummary[]>;
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {

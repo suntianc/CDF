@@ -2,7 +2,7 @@
 // Data sources: conversation (messages table), skills (listPhysicalSkills),
 // MCP tools (loadMcpTools), workflows (workflows table graph_data),
 // system prompt (agents.system_prompt + buildProjectContext),
-// system tools (5 built-in tool schemas — fetch/delete_file/bash/tavily/anysearch/arxiv).
+// system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/tavily/anysearch/arxiv).
 // Token heuristic: Math.ceil(chars * 0.25) — OpenAI rough 1 token ≈ 4 chars.
 // Per-source try-catch: if one source fails, the others still report real values.
 //
@@ -58,7 +58,7 @@ export interface ContextBreakdown {
   workflows: number;
   // 08.2 P4 — promoted to real calculations (polish after CONTEXT.md Issue 1):
   systemPrompt: number;          // 08.2 polish: agents.system_prompt + buildProjectContext
-  systemTools: number;           // 08.2 polish: 5 built-in tool schema sum
+  systemTools: number;           // 08.2 polish: built-in tool schema sum
   customAgents: number;          // v1.1 placeholder — default 0 (v1.2 推)
   memoryFiles: number;           // v1.1 placeholder — default 0 (v1.2 推)
   messages: number;              // alias of conversation (Claude Code parity)
@@ -159,7 +159,7 @@ const DEFAULT_CONTEXT_LIMIT = 200_000;
 // bytes that the LLM actually receives. Update both sites in lockstep if
 // the runtime template changes.
 function buildProjectContextString(projectName: string, projectPath: string): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Knowledge Base 使用规范\n- 当前项目 Knowledge Base 根目录为 \`${projectPath}/.cdf/knowledge\`\n- 使用 knowledge_search 按标题、标签、来源字段、正文和日期发现 Knowledge Entries，再用 read_file/edit_file/write_file 读取或维护具体 Markdown 文件\n- Knowledge Entry 必须是带 YAML frontmatter 的 .md 文件，至少包含 id、title、tags、created_at、updated_at、source\n- \`index.md\` 和 \`log.md\` 是 OKF 保留文件，不是 Knowledge Entry；有意义的新增、导入、整理或批量修改可在 \`${projectPath}/.cdf/knowledge/log.md\` 追加简短记录\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
 }
 
 // === Built-in tool schemas (08.2 polish) =================================
@@ -167,6 +167,7 @@ function buildProjectContextString(projectName: string, projectPath: string): st
 //   - fetch-tool.ts (FETCH_SCHEMA)
 //   - file-tools.ts (DELETE_FILE_SCHEMA)
 //   - bash-tool.ts (inline schema for `bash`)
+//   - knowledge-base.ts (KNOWLEDGE_SEARCH_SCHEMA)
 //   - search-tools.ts (TAVILY_SCHEMA, ANYSEARCH_SCHEMA)
 //   - arxiv-tool.ts (ARXIV_SCHEMA)
 // Schema strings are duplicated here rather than imported so the aggregator
@@ -222,6 +223,27 @@ const BASH_META = {
     'Execute a bash command. Returns stdout, stderr, and exit code. Use this to run system commands, scripts, or interact with the file system. Only use for tasks that require shell commands.',
 };
 
+const KNOWLEDGE_SEARCH_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    keyword: { type: 'string' },
+    tags: { type: 'array', items: { type: 'string' } },
+    tagMatch: { type: 'string', enum: ['all', 'any'] },
+    dateField: { type: 'string', enum: ['created_at', 'updated_at', 'source_date'] },
+    dateFrom: { type: 'string' },
+    dateTo: { type: 'string' },
+    sortBy: { type: 'string', enum: ['updated_at', 'created_at', 'source_date', 'title'] },
+    sortOrder: { type: 'string', enum: ['asc', 'desc'] },
+    limit: { type: 'number' },
+  },
+  additionalProperties: false,
+};
+const KNOWLEDGE_SEARCH_META = {
+  name: 'knowledge_search',
+  description:
+    'Search project-local Knowledge Entries stored under .cdf/knowledge. Returns relative paths so you can read matching entries with read_file. Does not read, create, update, or delete entries.',
+};
+
 const TAVILY_SCHEMA: unknown = {
   type: 'object',
   properties: {
@@ -265,6 +287,7 @@ const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: st
   { meta: FETCH_META, schema: FETCH_SCHEMA },
   { meta: DELETE_FILE_META, schema: DELETE_FILE_SCHEMA },
   { meta: BASH_META, schema: BASH_SCHEMA },
+  { meta: KNOWLEDGE_SEARCH_META, schema: KNOWLEDGE_SEARCH_SCHEMA },
   { meta: TAVILY_META, schema: TAVILY_SCHEMA },
   { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
   { meta: ARXIV_META, schema: ARXIV_SCHEMA },

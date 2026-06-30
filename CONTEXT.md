@@ -84,6 +84,14 @@ _Avoid_: mode, template, theme, workspace type
 A Scene-specific panel that manages collected academic papers — OKF metadata files, locally stored PDFs, and vector indexes for Agent retrieval.
 _Avoid_: reference manager, paper database, Zotero
 
+**Knowledge Base**:
+A project-local collection of Knowledge Entries managed by CDF under the Project's local `.cdf` area and stored in Open Knowledge Format so they remain human-browsable and Agent-readable.
+_Avoid_: database, wiki, corpus
+
+**Knowledge Entry**:
+A Markdown document with YAML frontmatter that represents one OKF concept document in a Knowledge Base.
+_Avoid_: note, record, file
+
 **Writing Project**:
 A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.
 _Avoid_: document editor, word processor

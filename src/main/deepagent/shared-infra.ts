@@ -18,6 +18,7 @@ import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from
 import { createArxivTool } from './arxiv-tool';
 import { loadMcpTools } from './mcp-connector';
 import type { ApprovalMode, MCPServer } from '../../shared/types';
+import { createKnowledgeSearchTool } from '../knowledge-base';
 
 // Re-export loadMcpTools for consumers that only need shared-infra
 export { loadMcpTools };
@@ -170,6 +171,7 @@ export function createBuiltInTools(workingDir: string): any[] {
     createBashTool({ workingDir }),
     createFetchTool(),
     createObscuraBrowserTool({ runner: createObscuraCliRunner() }),
+    createKnowledgeSearchTool(workingDir),
   ];
 }
 
