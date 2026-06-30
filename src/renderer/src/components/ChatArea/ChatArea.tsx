@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -21,6 +21,8 @@ import { ConversationComposerDock } from './ConversationComposerDock';
 import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
 import { useModelSelectionController } from './modelSelection/useModelSelectionController';
 import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
+import { useConversationPlanDisclosure } from './useConversationPlanDisclosure';
+import { useConversationWorkspaceBootstrap } from './useConversationWorkspaceBootstrap';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -75,11 +77,7 @@ export function ChatArea({
   const { providers, sessionModelOverrides } = workspaceModel.model;
   const { activeSessionAgent, masterProvider } = workspaceModel.agent;
   const currentProjectDisplayName = currentProjectName ?? t('chat.unknownProject');
-  const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const previousSessionIdRef = useRef<string | null>(null);
-
-  const previousHasActivePlanRef = useRef(false);
 
   const { handleScroll } = useChatScroll({
     scrollContainerRef,
@@ -88,68 +86,32 @@ export function ChatArea({
     isStreaming,
   });
 
-  const hasTodos = todos.length > 0;
-  const allTodosCompleted = hasTodos && todos.every((todo) => todo.status === 'completed');
-  const hasActiveTodos = hasTodos && todos.some((todo) => todo.status !== 'completed');
-  const hasActivePlan = isStreaming && hasActiveTodos;
-  const shouldShowTodos = hasActivePlan;
-  const todoPlanKey = activeSessionId && hasActivePlan
-    ? `${activeSessionId}:${streamingMessageId || activeRunId || 'pending'}`
-    : null;
-  const todoExpanded = todoPlanKey ? todoExpandedByPlan[todoPlanKey] ?? false : false;
-
-  const toggleTodoExpanded = () => {
-    if (!todoPlanKey) return;
-    setTodoExpandedByPlan((prev) => ({
-      ...prev,
-      [todoPlanKey]: !(prev[todoPlanKey] ?? false),
-    }));
-  };
-
-  useEffect(() => {
-    const previousSessionId = previousSessionIdRef.current;
-    const stayedInSameSession = previousSessionId === activeSessionId;
-    const planStartedInCurrentSession = Boolean(todoPlanKey && stayedInSameSession && !previousHasActivePlanRef.current);
-
-    if (planStartedInCurrentSession) {
-      setTodoExpandedByPlan((prev) => (
-        prev[todoPlanKey] === undefined ? { ...prev, [todoPlanKey]: true } : prev
-      ));
-    }
-
-    previousSessionIdRef.current = activeSessionId;
-    previousHasActivePlanRef.current = hasActivePlan;
-  }, [activeSessionId, hasActivePlan, todoPlanKey]);
-
-  useEffect(() => {
-    if (!allTodosCompleted) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      // Clear todos directly in the store when automatically closing the completed todo list
-      useSessionStore.setState({ todos: [] });
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [allTodosCompleted, todos]);
-
-  // Defensive mount-time isStreaming reset to prevent stuck loading states
-  // Only reset if we are not actively streaming or waiting for approval to avoid breaking state when switching views
-  useEffect(() => {
+  const resetStaleStreamingState = useCallback(() => {
     const { isStreaming, pendingApproval } = useSessionStore.getState();
     if (!isStreaming && !pendingApproval) {
       useSessionStore.setState({ isStreaming: false, streamingMessageId: null });
     }
   }, []);
 
-  useEffect(() => {
-    fetchProviders();
-  }, [fetchProviders]);
+  const clearCompletedTodos = useCallback(() => {
+    useSessionStore.setState({ todos: [] });
+  }, []);
 
-  useEffect(() => {
-    if (!currentProjectId) return;
-    fetchAgents(currentProjectId);
-  }, [currentProjectId, fetchAgents]);
+  useConversationWorkspaceBootstrap({
+    currentProjectId,
+    resetStaleStreamingState,
+    fetchProviders,
+    fetchAgents,
+  });
+
+  const planDisclosure = useConversationPlanDisclosure({
+    activeSessionId,
+    todos,
+    isStreaming,
+    streamingMessageId,
+    activeRunId,
+    clearTodos: clearCompletedTodos,
+  });
 
   const modelSelection = useModelSelectionController({
     activeSessionId,
@@ -325,10 +287,10 @@ export function ChatArea({
         {activeSessionId && (
           <ConversationComposerDock
             hidden={Boolean(viewingTask || viewingWorkerData)}
-            showTodos={shouldShowTodos}
+            showTodos={planDisclosure.showTodos}
             todos={todos}
-            todoExpanded={todoExpanded}
-            onToggleTodoExpanded={toggleTodoExpanded}
+            todoExpanded={planDisclosure.todoExpanded}
+            onToggleTodoExpanded={planDisclosure.toggleTodoExpanded}
             composerController={composerInput}
             isStreaming={isStreaming}
             inputLabel={t('chat.composerPlaceholder')}

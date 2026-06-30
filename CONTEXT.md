@@ -36,6 +36,10 @@ _Avoid_: welcome page, empty chat, landing page
 The active Conversation bottom dock that hosts the Session Composer Input, transient plan progress, model and approval controls, and generation controls.
 _Avoid_: input panel, bottom composer, chat composer bar
 
+**Conversation Plan Disclosure**:
+The view-local disclosure state for a Conversation's transient plan, including whether current plan progress is visible, expanded, or cleared after completion.
+_Avoid_: todo state, plan UI logic, task list toggle
+
 **Conversation Workspace Shell**:
 The page-level shell that wires Project, Conversation, Composer, model, command, runtime, and viewport dependencies into the Conversation surfaces without owning their domain rules.
 _Avoid_: ChatArea business logic, chat page, conversation controller
