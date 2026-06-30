@@ -34,6 +34,57 @@ export function estimateTokens(text: string): number {
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
+function parsePersistedToolValue(value: string | null | undefined): unknown {
+  if (value === null || value === undefined) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function reconcilePersistedToolMessages(messages: Message[], toolCalls: AgentToolCall[]): Message[] {
+  if (messages.length === 0 || toolCalls.length === 0) return messages;
+
+  const toolCallsById = new Map(toolCalls.map((call) => [call.id, call]));
+  let changed = false;
+
+  const nextMessages = messages.map((message) => {
+    if (message.role !== 'system') return message;
+
+    let content: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return message;
+      content = parsed as Record<string, unknown>;
+    } catch {
+      return message;
+    }
+
+    if (content.type !== 'tool') return message;
+    const call = toolCallsById.get(message.id);
+    if (!call || call.status === 'running') return message;
+
+    const nextContent = {
+      ...content,
+      name: typeof content.name === 'string' ? content.name : call.tool_name,
+      status: call.status === 'success' ? 'success' : 'error',
+      output: call.status === 'success'
+        ? (content.output ?? parsePersistedToolValue(call.output))
+        : content.output,
+      error: call.status === 'success'
+        ? undefined
+        : (content.error ?? call.error ?? 'Tool call did not complete successfully'),
+    };
+    const serialized = JSON.stringify(nextContent);
+    if (serialized === message.content) return message;
+    changed = true;
+    return { ...message, content: serialized };
+  });
+
+  return changed ? nextMessages : messages;
+}
+
 export interface SessionError {
   message: string;
   recoverableActions?: { label: string; action: () => void }[];
@@ -425,6 +476,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const runs = await window.electronAPI.db.getAgentRuns(sessionId);
         const activeRun = runs[0] || null;
         const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+        const historicalToolCalls = runs.length > 1
+          ? (await Promise.all(runs.slice(1).map((run) => window.electronAPI.db.getAgentToolCalls(run.id)))).flat()
+          : [];
+        const messageToolCalls = [...toolCalls, ...historicalToolCalls];
 
         // Detect stale running state: if the session is not currently streaming,
         // any task still marked 'running' in DB is likely a crash or disconnect leftover.
@@ -510,7 +565,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
         }
 
+        const messages = reconcilePersistedToolMessages(get().messages, messageToolCalls);
+
         set({
+          messages,
           agentRuns: restoredRuntime.agentRuns,
           agentToolCalls: restoredRuntime.agentToolCalls,
           delegatedTasks: tasks,
@@ -716,7 +774,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
 
       const streamPromise = new Promise<void>((resolve, reject) => {
-        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event: unknown, data: LLMStreamEvent) => {
+        let streamEventQueue = Promise.resolve();
+
+        const processStreamEvent = async (data: LLMStreamEvent) => {
           const cached = streamingSessionsCache.get(sessionId);
           if (!cached) return;
           const result = projectConversationRuntime(cached, { kind: 'llm', event: data }, projectionDeps);
@@ -730,6 +790,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           if (!terminal) {
             syncActiveSession(result.state);
           }
+        };
+
+        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, (_event: unknown, data: LLMStreamEvent) => {
+          streamEventQueue = streamEventQueue.then(
+            () => processStreamEvent(data),
+            () => processStreamEvent(data),
+          );
+          return streamEventQueue;
         });
       });
 

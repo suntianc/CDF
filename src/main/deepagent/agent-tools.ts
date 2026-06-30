@@ -70,6 +70,18 @@ function serializeAgent(row: AgentRow) {
   };
 }
 
+function isInternalMasterAgent(row: AgentRow): boolean {
+  const normalizedName = row.name.trim().toLowerCase().replace(/\s+/g, ' ');
+  const effectiveSlug = resolveAgentSlug(row).toLowerCase();
+  return (
+    normalizedName === 'master agent' ||
+    normalizedName === 'masteragent' ||
+    effectiveSlug === 'master-agent' ||
+    effectiveSlug === 'masteragent' ||
+    effectiveSlug === 'master_agent'
+  );
+}
+
 function getMcpIdsForAgent(agentId: string): string[] {
   return (
     db
@@ -108,7 +120,7 @@ export function createAgentTools(
           )
           .all(projectId) as AgentRow[];
         return JSON.stringify(
-          rows.map((row) => {
+          rows.filter((row) => !isInternalMasterAgent(row)).map((row) => {
             const base = serializeAgent(row);
             return {
               ...base,
@@ -121,7 +133,7 @@ export function createAgentTools(
       {
         name: 'list_agents',
         description:
-          '列出当前项目下所有 agent。返回每个 agent 的 id、name、description、provider_id、system_prompt、config、mcpServerIds、skillNames、is_default 等完整信息。',
+          '列出当前项目下可被 Master Agent 调用的子 agent,不包含内部 Master Agent。返回每个 agent 的 id、name、description、provider_id、system_prompt、config、mcpServerIds、skillNames、is_default 等完整信息。',
         schema: z.object({}),
       },
     ),

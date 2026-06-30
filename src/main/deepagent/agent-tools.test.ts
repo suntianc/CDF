@@ -397,6 +397,16 @@ describe('createAgentTools', () => {
       expect(result[1].name).toBe('Beta');
       expect(result[1].skillNames).toEqual(['global:foo']);
     });
+
+    it('does not expose the internal Master Agent as a delegatable agent', async () => {
+      seedAgent({ name: 'Master Agent', slug: 'master-agent', is_default: 1 });
+      seedAgent({ name: 'Reviewer', slug: 'reviewer' });
+
+      const result = await invoke('list_agents', {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Reviewer');
+    });
   });
 
   describe('create_agent', () => {

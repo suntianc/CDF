@@ -17,7 +17,10 @@ function isDelegatedTask(t: SubagentInput): t is DelegatedTask {
   return 'chunks' in t;
 }
 
-function pairToolSteps(steps: ExecutionStep[]): Array<{ info: ToolInfo; createdAt: number }> {
+function pairToolSteps(
+  steps: ExecutionStep[],
+  ownerStatus: 'running' | 'success' | 'failure',
+): Array<{ info: ToolInfo; createdAt: number }> {
   const pairs: Array<{ info: ToolInfo; createdAt: number }> = [];
   const pendingBySpan = new Map<string, number>();
 
@@ -46,16 +49,30 @@ function pairToolSteps(steps: ExecutionStep[]): Array<{ info: ToolInfo; createdA
     }
   }
 
+  if (ownerStatus !== 'running') {
+    for (const idx of pendingBySpan.values()) {
+      pairs[idx] = {
+        ...pairs[idx],
+        info: {
+          ...pairs[idx].info,
+          status: ownerStatus === 'failure' ? 'error' : 'success',
+          error: ownerStatus === 'failure' ? 'Tool call ended without a result payload' : undefined,
+        },
+      };
+    }
+  }
+
   return pairs;
 }
 
-function StepTimeline({ steps, textBuffer, isRunning, messageId }: {
+function StepTimeline({ steps, textBuffer, isRunning, ownerStatus, messageId }: {
   steps: ExecutionStep[];
   textBuffer: string;
   isRunning: boolean;
-  messageId: string;
+  ownerStatus: 'running' | 'success' | 'failure';
+  messageId?: string;
 }) {
-  const pairs = useMemo(() => pairToolSteps(steps), [steps]);
+  const pairs = useMemo(() => pairToolSteps(steps, ownerStatus), [steps, ownerStatus]);
 
   return (
     <div>
@@ -173,7 +190,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
               ? goalExpanded ? 'max-h-[40vh] overflow-y-auto' : `${GOAL_COLLAPSED_MAX_H} overflow-hidden`
               : ''
           }`}>
-            <StreamdownRenderer text={goal} isTypewriting={false} />
+            <StreamdownRenderer text={goal} isTypewriting={false} density="compact" />
             {goalNeedsCollapse && !goalExpanded && (
               <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[var(--color-bg-app)] to-transparent" />
             )}
@@ -215,7 +232,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
               steps={task.steps}
               textBuffer={totalText}
               isRunning={isRunning}
-              messageId={taskKey}
+              ownerStatus={task.status}
             />
           </div>
         ) : (

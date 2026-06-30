@@ -232,7 +232,7 @@ export const MessageContentRenderer = memo(({
 
   const renderContentWithAtTokens = (text: string): React.ReactNode => {
     if (!text || typeof text !== 'string') return null;
-    if (!text.includes('@') || text.length > AT_TOKEN_SCAN_LIMIT) {
+    if (!text.includes('@') || text.length > AT_TOKEN_SCAN_LIMIT || parseAtTokens(text).length === 0) {
       return <StreamdownRenderer text={text} isTypewriting={isTypewriting} />;
     }
 
@@ -268,7 +268,7 @@ export const MessageContentRenderer = memo(({
         const closer = findInlineCodeClose(text, tick, tickLen);
         const end = closer === -1 ? len : closer + tickLen;
         segments.push(
-          <StreamdownRenderer key={`code-${key++}`} text={text.slice(cursor, end)} isTypewriting={isTypewriting} />
+          <StreamdownRenderer key={`code-${key++}`} text={text.slice(tick, end)} isTypewriting={isTypewriting} />
         );
         cursor = end;
         continue;

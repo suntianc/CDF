@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -12,16 +12,15 @@ import {
 import { useChatScroll } from './useChatScroll';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
 import { useCommandRegistry } from '@/hooks/useCommandRegistry';
-import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { ApprovalModeSelector } from '@/components/shared/ApprovalModeSelector';
 import { useComposerInputController } from './composerInput/useComposerInputController';
 import { useComposerSubmissionController } from './composerInput/useComposerSubmissionController';
-import { projectConversationTimeline } from './conversationTimeline/conversationTimeline';
 import { ConversationViewportSurface } from './ConversationViewportSurface';
 import { ConversationWelcomeSurface } from './ConversationWelcomeSurface';
 import { ConversationComposerDock } from './ConversationComposerDock';
 import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
 import { useModelSelectionController } from './modelSelection/useModelSelectionController';
+import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -42,36 +41,40 @@ export function ChatArea({
 }: ChatAreaProps) {
   const { t } = useTranslation();
   const filePanelOpen = useFileStore((s) => s.filePanelOpen);
-  const { currentProjectId, projects, setProjects, setCurrentProject } = useProjectStore();
-  const { 
-    sessions, activeSessionId, messages, isStreaming, streamingMessageId, activeRunId, error, todos,
-    pendingApproval,
-    sendMessage, selectSession, clearError, createSession, fetchSessions, stopMessage, setSessionModelOverride
-  } = useSessionStore();
-  const { providers, fetchProviders } = useLLMStore();
-  const { agents, fetchAgents } = useAgentStore();
-  const { status: goalStatus, goal: activeGoal } = useGoalJudgeStatus(activeSessionId || '');
-  const hasActiveGoal = !!(activeSessionId && goalStatus && activeGoal);
-  const viewingSubagentId = useSessionStore((s) => s.viewingSubagentId);
+  const setProjects = useProjectStore((s) => s.setProjects);
+  const setCurrentProject = useProjectStore((s) => s.setCurrentProject);
+  const sendMessage = useSessionStore((s) => s.sendMessage);
+  const selectSession = useSessionStore((s) => s.selectSession);
+  const clearError = useSessionStore((s) => s.clearError);
+  const createSession = useSessionStore((s) => s.createSession);
+  const fetchSessions = useSessionStore((s) => s.fetchSessions);
+  const stopMessage = useSessionStore((s) => s.stopMessage);
+  const setSessionModelOverride = useSessionStore((s) => s.setSessionModelOverride);
+  const fetchProviders = useLLMStore((s) => s.fetchProviders);
+  const fetchAgents = useAgentStore((s) => s.fetchAgents);
   const setViewingSubagent = useSessionStore((s) => s.setViewingSubagent);
-  const delegatedTasks = useSessionStore((s) => s.delegatedTasks);
-  const viewingTask = useMemo(
-    () => viewingSubagentId ? delegatedTasks.find((t) => t.taskId === viewingSubagentId) ?? null : null,
-    [viewingSubagentId, delegatedTasks],
-  );
-  const viewingParallelWorker = useSessionStore((s) => s.viewingParallelWorker);
   const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
-  const parallelBatches = useSessionStore((s) => s.parallelBatches);
-  const viewingWorkerData = useMemo(() => {
-    if (!viewingParallelWorker) return null;
-    const batch = parallelBatches.find((b) => b.batchId === viewingParallelWorker.batchId);
-    if (!batch) return null;
-    return batch.workers.find((w) =>
-      viewingParallelWorker.workerId ? w.workerId === viewingParallelWorker.workerId : w.agentSlug === viewingParallelWorker.agentSlug
-    ) ?? null;
-  }, [viewingParallelWorker, parallelBatches]);
-
-  const sessionModelOverrides = useSessionStore((state) => state.sessionModelOverrides) || {};
+  const workspaceModel = useConversationWorkspaceModel();
+  const {
+    currentProjectId,
+    projects,
+    currentProjectName,
+    activeSessionId,
+    activeSession,
+  } = workspaceModel.workspace;
+  const {
+    messages,
+    isStreaming,
+    error,
+    timelineItems,
+    viewingTask,
+    viewingWorkerData,
+    hasActiveGoal,
+  } = workspaceModel.viewport;
+  const { todos, streamingMessageId, activeRunId } = workspaceModel.plan;
+  const { providers, sessionModelOverrides } = workspaceModel.model;
+  const { activeSessionAgent, masterProvider } = workspaceModel.agent;
+  const currentProjectDisplayName = currentProjectName ?? t('chat.unknownProject');
   const [todoExpandedByPlan, setTodoExpandedByPlan] = useState<Record<string, boolean>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previousSessionIdRef = useRef<string | null>(null);
@@ -148,44 +151,6 @@ export function ChatArea({
     fetchAgents(currentProjectId);
   }, [currentProjectId, fetchAgents]);
 
-  // Find active project name & active session
-  const currentProjectName = useMemo(() => {
-    return projects.find(p => p.id === currentProjectId)?.name || t('chat.unknownProject');
-  }, [currentProjectId, projects]);
-
-  // Phase 08.3 B-01: derive the project root for at-mention enumeration.
-  // Returns null when no project is active — the @ trigger MUST not open the popup in that case.
-  const currentProjectRoot = useMemo(
-    () => projects.find((p) => p.id === currentProjectId)?.path ?? null,
-    [projects, currentProjectId]
-  );
-
-  const activeSession = useMemo(() => {
-    return sessions.find(s => s.id === activeSessionId) || null;
-  }, [activeSessionId, sessions]);
-
-  const timelineItems = useMemo(() => (
-    projectConversationTimeline({
-      messages: messages || [],
-      isStreaming,
-      pendingApproval,
-    })
-  ), [messages, isStreaming, pendingApproval]);
-
-
-  const defaultAgent = useMemo(() => {
-    return agents.find((agent) => agent.project_id === currentProjectId && agent.is_default === 1) || null;
-  }, [agents, currentProjectId]);
-
-  const activeSessionAgent = useMemo(() => {
-    return agents.find((agent) => agent.id === activeSession?.agent_id) || defaultAgent;
-  }, [activeSession?.agent_id, agents, defaultAgent]);
-
-  const masterProvider = useMemo(() => {
-    const baseAgent = activeSession ? activeSessionAgent : defaultAgent;
-    return providers.find((provider) => provider.id === baseAgent?.provider_id) || null;
-  }, [activeSession, activeSessionAgent, defaultAgent, providers]);
-
   const modelSelection = useModelSelectionController({
     activeSessionId,
     providers,
@@ -207,10 +172,10 @@ export function ChatArea({
   );
 
   const composerInput = useComposerInputController({
-    mode: activeSessionId ? 'session' : 'welcome',
+    mode: workspaceModel.composer.mode,
     isStreaming,
     projectId: currentProjectId,
-    hasPathMentionProject: Boolean(currentProjectRoot),
+    hasPathMentionProject: workspaceModel.composer.hasPathMentionProject,
     commands: registry.commands,
     resolveCommand: dispatcherResolve,
   });
@@ -219,7 +184,7 @@ export function ChatArea({
 
   const composerSubmission = useComposerSubmissionController({
     composerInput,
-    mode: activeSessionId ? 'session' : 'welcome',
+    mode: workspaceModel.composer.mode,
     activeSessionId,
     currentProjectId,
     isStreaming,
@@ -272,7 +237,7 @@ export function ChatArea({
       <ConversationWelcomeSurface
         visible={!activeSessionId}
         currentProjectId={currentProjectId}
-        currentProjectName={currentProjectName}
+        currentProjectName={currentProjectDisplayName}
         composerController={composerInput}
         error={error}
         commands={registry.commands}
@@ -357,47 +322,49 @@ export function ChatArea({
           />
         </div>
 
-        <ConversationComposerDock
-          hidden={Boolean(viewingTask || viewingWorkerData)}
-          showTodos={shouldShowTodos}
-          todos={todos}
-          todoExpanded={todoExpanded}
-          onToggleTodoExpanded={toggleTodoExpanded}
-          composerController={composerInput}
-          isStreaming={isStreaming}
-          inputLabel={t('chat.composerPlaceholder')}
-          placeholder={t('chat.composerPlaceholder')}
-          commands={registry.commands}
-          commandWarnings={registry.warnings}
-          commandLoading={registry.loading}
-          onCommandSelect={composerSubmission.selectCommandEntry}
-          onCommandInsert={composerInput.insertCommand}
-          onSubmit={() => handleComposerSubmit()}
-          canSubmit={(inputVal.trim().length > 0 || composerInput.attachments.length > 0) && !isStreaming}
-          sendLabel={t('chat.sendMessage')}
-          stopGeneratingLabel={t('chat.stopGenerating')}
-          onStopGenerating={stopMessage}
-          leftToolbarSlot={
-            <>
-              <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
-                <Plus className="w-4 h-4" />
-              </button>
-              <ApprovalModeSelector dropUp />
-            </>
-          }
-          modelSelectorSlot={
-            <ModelSelectionSurface
-              variant="composer"
-              providers={providers}
-              selectedProviderId={modelSelection.selectedProviderId}
-              selectedModel={modelSelection.selectedModel}
-              currentProvider={modelSelection.currentProvider}
-              currentModel={modelSelection.currentModel}
-              onSelectModel={modelSelection.selectModel}
-              onOpenSettings={onOpenSettings}
-            />
-          }
-        />
+        {activeSessionId && (
+          <ConversationComposerDock
+            hidden={Boolean(viewingTask || viewingWorkerData)}
+            showTodos={shouldShowTodos}
+            todos={todos}
+            todoExpanded={todoExpanded}
+            onToggleTodoExpanded={toggleTodoExpanded}
+            composerController={composerInput}
+            isStreaming={isStreaming}
+            inputLabel={t('chat.composerPlaceholder')}
+            placeholder={t('chat.composerPlaceholder')}
+            commands={registry.commands}
+            commandWarnings={registry.warnings}
+            commandLoading={registry.loading}
+            onCommandSelect={composerSubmission.selectCommandEntry}
+            onCommandInsert={composerInput.insertCommand}
+            onSubmit={() => handleComposerSubmit()}
+            canSubmit={(inputVal.trim().length > 0 || composerInput.attachments.length > 0) && !isStreaming}
+            sendLabel={t('chat.sendMessage')}
+            stopGeneratingLabel={t('chat.stopGenerating')}
+            onStopGenerating={stopMessage}
+            leftToolbarSlot={
+              <>
+                <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
+                  <Plus className="w-4 h-4" />
+                </button>
+                <ApprovalModeSelector dropUp />
+              </>
+            }
+            modelSelectorSlot={
+              <ModelSelectionSurface
+                variant="composer"
+                providers={providers}
+                selectedProviderId={modelSelection.selectedProviderId}
+                selectedModel={modelSelection.selectedModel}
+                currentProvider={modelSelection.currentProvider}
+                currentModel={modelSelection.currentModel}
+                onSelectModel={modelSelection.selectModel}
+                onOpenSettings={onOpenSettings}
+              />
+            }
+          />
+        )}
       </div>
     </div>
   );

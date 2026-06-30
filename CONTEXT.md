@@ -36,6 +36,10 @@ _Avoid_: welcome page, empty chat, landing page
 The active Conversation bottom dock that hosts the Session Composer Input, transient plan progress, model and approval controls, and generation controls.
 _Avoid_: input panel, bottom composer, chat composer bar
 
+**Conversation Workspace Shell**:
+The page-level shell that wires Project, Conversation, Composer, model, command, runtime, and viewport dependencies into the Conversation surfaces without owning their domain rules.
+_Avoid_: ChatArea business logic, chat page, conversation controller
+
 **Model Selection Surface**:
 The shared Composer Input surface for choosing the model used by a Conversation instruction, including provider groups, model candidates, current-selection display, empty-provider affordance, and dropdown interaction.
 _Avoid_: model dropdown, provider picker, model selector

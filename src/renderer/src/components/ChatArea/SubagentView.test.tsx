@@ -64,4 +64,29 @@ describe('SubagentView', () => {
     expect(screen.getByText('Output')).toBeTruthy();
     expect(screen.getByText('file content')).toBeTruthy();
   });
+
+  it('does not show a completed subagent tool call without output as loading', () => {
+    const task: DelegatedTask = {
+      taskId: 'task-1',
+      agentSlug: 'code',
+      agentName: 'Code Agent',
+      goal: 'Read a file',
+      status: 'success',
+      chunks: [],
+      steps: [
+        {
+          type: 'tool_call',
+          tool: 'read_file',
+          args: { file_path: '/tmp/a.ts', offset: 0, limit: 100 },
+          ts: 1000,
+          spanId: 'abcd1234',
+        },
+      ],
+    };
+
+    const { container } = render(<SubagentView task={task} onBack={vi.fn()} />);
+
+    expect(screen.getByText('call read_file')).toBeTruthy();
+    expect(container.querySelector('.animate-spin')).toBeNull();
+  });
 });

@@ -123,6 +123,81 @@ describe('sessionStore sendMessage', () => {
     expect(state.messages[3].content).toBe('世界');
   });
 
+  it('serializes stream event persistence so tool_start cannot overwrite tool_end', async () => {
+    let releaseRunningSave: (() => void) | undefined;
+    const runningSaveStarted = vi.fn();
+    const persistedMessages = new Map<string, any>();
+    const saveMessage = vi.fn(async (message) => {
+      if (message.role === 'system') {
+        const parsed = JSON.parse(message.content);
+        if (parsed.status === 'running') {
+          runningSaveStarted();
+          await new Promise<void>((resolve) => {
+            releaseRunningSave = resolve;
+          });
+        }
+      }
+      persistedMessages.set(message.id, message);
+      return message;
+    });
+    let chunkListener: ((event: unknown, data: any) => void | Promise<void>) | null = null;
+
+    window.electronAPI = {
+      store: { get: vi.fn(), set: vi.fn() },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(),
+        createSession: vi.fn(),
+        deleteSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage,
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+      },
+      llm: {
+        chat: vi.fn(async () => {
+          chunkListener?.(null, { type: 'tool_start', id: 'tool-1', name: 'list_agents', input: {} });
+          chunkListener?.(null, { type: 'tool_end', id: 'tool-1', name: 'list_agents', output: [{ name: 'Reviewer' }] });
+          chunkListener?.(null, { type: 'message_done' });
+        }),
+        judge: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn((_requestId, callback) => {
+          chunkListener = callback;
+          return () => {
+            chunkListener = null;
+          };
+        }),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
+      },
+      platform: 'darwin',
+    };
+
+    const sendPromise = useSessionStore.getState().sendMessage('project-1', '测试工具生命周期');
+    await vi.waitFor(() => expect(runningSaveStarted).toHaveBeenCalledTimes(1));
+
+    releaseRunningSave?.();
+    await sendPromise;
+
+    const persistedTool = persistedMessages.get('tool-1');
+    expect(JSON.parse(persistedTool.content)).toMatchObject({
+      type: 'tool',
+      name: 'list_agents',
+      status: 'success',
+      output: [{ name: 'Reviewer' }],
+    });
+  });
+
   it('hides internal user messages from persistence and visible chat state', async () => {
     const saveMessage = vi.fn(async (message) => message);
     let chunkListener: ((event: unknown, data: any) => void) | null = null;
@@ -494,6 +569,133 @@ describe('sessionStore selectSession activity errors', () => {
     resolveRuns?.([{ id: 'run-1', status: 'completed', started_at: Date.now() }]);
     await Promise.all([first, second]);
     expect(useSessionStore.getState().agentRuns).toHaveLength(1);
+  });
+
+  it('hydrates completed persisted tool cards from agent activity', async () => {
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => [
+      {
+        id: 'run-1',
+        session_id: 'session-1',
+        agent_id: 'agent-1',
+        request_id: 'assistant-1',
+        status: 'completed',
+        started_at: 100,
+        ended_at: 200,
+        aborted: 0,
+      },
+    ]);
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => [
+      {
+        id: 'tool-1',
+        run_id: 'run-1',
+        tool_name: 'read_file',
+        input: JSON.stringify({ path: '/tmp/a.ts' }),
+        output: JSON.stringify('file contents'),
+        status: 'success',
+        error: null,
+        started_at: 120,
+        ended_at: 180,
+        approval_status: null,
+      },
+    ]);
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      messages: [
+        {
+          id: 'tool-1',
+          session_id: 'session-1',
+          role: 'system',
+          content: JSON.stringify({
+            type: 'tool',
+            name: 'read_file',
+            status: 'running',
+            input: { path: '/tmp/a.ts' },
+          }),
+          created_at: 120,
+          tokens: 0,
+        },
+      ],
+    } as any);
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    const parsed = JSON.parse(useSessionStore.getState().messages[0].content);
+    expect(parsed.status).toBe('success');
+    expect(parsed.output).toBe('file contents');
+  });
+
+  it('hydrates stale tool cards from older runs in the same session', async () => {
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => [
+      {
+        id: 'run-new',
+        session_id: 'session-1',
+        agent_id: 'agent-1',
+        request_id: 'assistant-new',
+        status: 'completed',
+        started_at: 300,
+        ended_at: 400,
+        aborted: 0,
+      },
+      {
+        id: 'run-old',
+        session_id: 'session-1',
+        agent_id: 'agent-1',
+        request_id: 'assistant-old',
+        status: 'completed',
+        started_at: 100,
+        ended_at: 200,
+        aborted: 0,
+      },
+    ]);
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async (runId: string) => {
+      if (runId === 'run-old') {
+        return [
+          {
+            id: 'tool-old',
+            run_id: 'run-old',
+            tool_name: 'list_agents',
+            input: JSON.stringify({}),
+            output: JSON.stringify([{ name: 'Reviewer' }]),
+            status: 'success',
+            error: null,
+            started_at: 120,
+            ended_at: 130,
+            approval_status: null,
+          },
+        ];
+      }
+      return [];
+    });
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      messages: [
+        {
+          id: 'tool-old',
+          session_id: 'session-1',
+          role: 'system',
+          content: JSON.stringify({
+            type: 'tool',
+            name: 'list_agents',
+            status: 'running',
+            input: {},
+          }),
+          created_at: 120,
+          tokens: 0,
+        },
+      ],
+    } as any);
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(window.electronAPI.db.getAgentToolCalls).toHaveBeenCalledWith('run-new');
+    expect(window.electronAPI.db.getAgentToolCalls).toHaveBeenCalledWith('run-old');
+    const parsed = JSON.parse(useSessionStore.getState().messages[0].content);
+    expect(parsed.status).toBe('success');
+    expect(parsed.output).toEqual([{ name: 'Reviewer' }]);
   });
 
   it('ignores stale selectSession message loads and errors', async () => {

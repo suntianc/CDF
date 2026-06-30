@@ -8,6 +8,7 @@ import 'katex/dist/katex.min.css';
 interface StreamdownRendererProps {
   text: string;
   isTypewriting?: boolean;
+  density?: 'default' | 'compact';
 }
 
 const mathPlugin = createMathPlugin({
@@ -39,7 +40,6 @@ const BlockquoteRenderer = ({ children }: { children: React.ReactNode }) => {
 
   if (alertMatch) {
     const type = alertMatch[1].toUpperCase();
-    const contentText = alertMatch[2];
 
     let styleClass = '';
     let titleClass = '';
@@ -80,6 +80,8 @@ const BlockquoteRenderer = ({ children }: { children: React.ReactNode }) => {
         break;
     }
 
+    const alertContent = stripAlertMarker(children);
+
     return (
       <div className={`pl-4 pr-3 py-2.5 rounded-r-lg my-3 text-sm select-text leading-relaxed ${styleClass}`}>
         <div className={`flex items-center gap-1.5 font-bold text-xs select-none tracking-wider uppercase mb-1.5 ${titleClass}`}>
@@ -87,9 +89,9 @@ const BlockquoteRenderer = ({ children }: { children: React.ReactNode }) => {
           <span>{titleText}</span>
         </div>
         <div className="text-[var(--color-text-secondary)] text-[13px] leading-relaxed font-normal">
-          <Streamdown mode="static" controls={false} lineNumbers={false} components={customComponents}>
-            {contentText}
-          </Streamdown>
+          <div className="streamdown-renderer w-full text-sm leading-relaxed text-[var(--color-text-primary)]">
+            {alertContent}
+          </div>
         </div>
       </div>
     );
@@ -101,6 +103,29 @@ const BlockquoteRenderer = ({ children }: { children: React.ReactNode }) => {
     </blockquote>
   );
 };
+
+function stripAlertMarker(children: React.ReactNode): React.ReactNode {
+  let stripped = false;
+  const markerPattern = /^\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|DANGER)\]\s*\n?/i;
+
+  const visit = (node: React.ReactNode): React.ReactNode => {
+    if (stripped) return node;
+    if (typeof node === 'string') {
+      const next = node.replace(markerPattern, '');
+      stripped = next !== node;
+      return next;
+    }
+    if (typeof node === 'number' || !node) return node;
+    if (Array.isArray(node)) return node.map(visit);
+    if (React.isValidElement(node)) {
+      const props = node.props as { children?: React.ReactNode };
+      return React.cloneElement(node, undefined, visit(props.children));
+    }
+    return node;
+  };
+
+  return visit(children);
+}
 
 // Custom code block / inline code renderer
 const CodeComponent = ({ inline, className, children, ...props }: any) => {
@@ -215,6 +240,107 @@ const AComponent = ({ children, href }: any) => (
   </a>
 );
 
+const HeadingComponent = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
+  const Tag = `h${level}` as keyof JSX.IntrinsicElements;
+  const classNameByLevel = {
+    1: 'text-lg font-semibold mt-3 mb-2 leading-snug text-[var(--color-text-primary)]',
+    2: 'text-base font-semibold mt-3 mb-1.5 leading-snug text-[var(--color-text-primary)]',
+    3: 'text-sm font-semibold mt-2.5 mb-1.5 leading-snug text-[var(--color-text-primary)]',
+    4: 'text-sm font-semibold mt-2 mb-1 leading-snug text-[var(--color-text-primary)]',
+    5: 'text-xs font-semibold mt-2 mb-1 leading-snug uppercase tracking-wide text-[var(--color-text-secondary)]',
+    6: 'text-xs font-semibold mt-2 mb-1 leading-snug uppercase tracking-wide text-[var(--color-text-muted)]',
+  }[level];
+
+  return ({ children }: { children: React.ReactNode }) => (
+    <Tag className={classNameByLevel}>{children}</Tag>
+  );
+};
+
+const SummaryComponent = ({ children }: { children: React.ReactNode }) => (
+  <summary className="font-semibold cursor-pointer select-none text-sm hover:text-[var(--color-text-primary)] transition-colors py-0.5">
+    {children}
+  </summary>
+);
+
+const DetailsComponent = ({ children }: { children: React.ReactNode }) => {
+  const childArray = React.Children.toArray(children);
+  const summary = childArray.find((child) => (
+    React.isValidElement(child) && (child.type === 'summary' || child.type === SummaryComponent)
+  ));
+  const bodyText = childArray
+    .filter((child) => child !== summary)
+    .map(getReactTextContent)
+    .join('')
+    .trim();
+
+  return (
+    <details className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+      {summary ?? <summary className="font-semibold cursor-pointer select-none text-sm py-0.5">Details</summary>}
+      {bodyText && (
+        <Streamdown
+          className="streamdown-renderer w-full text-sm leading-relaxed text-[var(--color-text-primary)]"
+          mode="static"
+          controls={false}
+          lineNumbers={false}
+          components={customComponents}
+          plugins={{ math: mathPlugin }}
+        >
+          {bodyText}
+        </Streamdown>
+      )}
+    </details>
+  );
+};
+
+type MarkdownSegment =
+  | { type: 'markdown'; text: string }
+  | { type: 'details'; summary: string; body: string };
+
+function splitDetailsBlocks(text: string): MarkdownSegment[] {
+  const segments: MarkdownSegment[] = [];
+  const detailsPattern = /<details>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = detailsPattern.exec(text)) !== null) {
+    if (match.index > cursor) {
+      segments.push({ type: 'markdown', text: text.slice(cursor, match.index) });
+    }
+    segments.push({
+      type: 'details',
+      summary: match[1].trim(),
+      body: match[2].trim(),
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    segments.push({ type: 'markdown', text: text.slice(cursor) });
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'markdown', text }];
+}
+
+function containsDetailsBlock(text: string): boolean {
+  return /<details>\s*<summary>[\s\S]*?<\/summary>[\s\S]*?<\/details>/i.test(text);
+}
+
+function renderStreamdown(text: string, isTypewriting: boolean, densityClass: string) {
+  return (
+    <Streamdown
+      className={`streamdown-renderer w-full ${densityClass} leading-relaxed text-[var(--color-text-primary)]`}
+      mode="static"
+      parseIncompleteMarkdown={isTypewriting}
+      controls={false}
+      lineNumbers={false}
+      components={customComponents}
+      plugins={{ math: mathPlugin }}
+    >
+      {text}
+    </Streamdown>
+  );
+}
+
 // Map custom component bindings
 customComponents.code = CodeComponent;
 customComponents.blockquote = BlockquoteRenderer;
@@ -228,23 +354,42 @@ customComponents.ul = UlComponent;
 customComponents.ol = OlComponent;
 customComponents.li = LiComponent;
 customComponents.a = AComponent;
+customComponents.h1 = HeadingComponent(1);
+customComponents.h2 = HeadingComponent(2);
+customComponents.h3 = HeadingComponent(3);
+customComponents.h4 = HeadingComponent(4);
+customComponents.h5 = HeadingComponent(5);
+customComponents.h6 = HeadingComponent(6);
+customComponents.details = DetailsComponent;
+customComponents.summary = SummaryComponent;
 
-export const StreamdownRenderer = memo(({ text, isTypewriting = false }: StreamdownRendererProps) => {
+export const StreamdownRenderer = memo(({ text, isTypewriting = false, density = 'default' }: StreamdownRendererProps) => {
   if (!text) return null;
 
-  return (
-    <Streamdown
-      className="streamdown-renderer w-full text-sm leading-relaxed text-[var(--color-text-primary)]"
-      mode="static"
-      parseIncompleteMarkdown={isTypewriting}
-      controls={false}
-      lineNumbers={false}
-      components={customComponents}
-      plugins={{ math: mathPlugin }}
-    >
-      {text}
-    </Streamdown>
-  );
+  const densityClass = density === 'compact' ? 'text-xs' : 'text-sm';
+  if (containsDetailsBlock(text)) {
+    const segments = splitDetailsBlocks(text);
+    return (
+      <>
+        {segments.map((segment, index) => {
+          if (segment.type === 'markdown') {
+            return segment.text.trim()
+              ? <React.Fragment key={`markdown-${index}`}>{renderStreamdown(segment.text, isTypewriting, densityClass)}</React.Fragment>
+              : null;
+          }
+
+          return (
+            <details key={`details-${index}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+              <SummaryComponent>{segment.summary}</SummaryComponent>
+              <StreamdownRenderer text={segment.body} isTypewriting={isTypewriting} density={density} />
+            </details>
+          );
+        })}
+      </>
+    );
+  }
+
+  return renderStreamdown(text, isTypewriting, densityClass);
 });
 
 StreamdownRenderer.displayName = 'StreamdownRenderer';
