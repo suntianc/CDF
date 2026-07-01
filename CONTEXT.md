@@ -96,6 +96,38 @@ _Avoid_: binding, whitelist, permission
 A Scene-specific panel that manages collected academic papers — OKF metadata files, locally stored PDFs, and vector indexes for Agent retrieval.
 _Avoid_: reference manager, paper database, Zotero
 
+**Structured Paper Parse**:
+A Markdown representation of an academic PDF optimized for Agent retrieval, citation grounding, and RAG chunking, preserving semantic structure and source location over visual fidelity.
+_Avoid_: PDF preview, layout clone, pretty Markdown export
+
+**Structured Paper Parse Contract**:
+The target output shape for PDF parsing integration, describing parsed Markdown plus block-level content and Paper Source Location metadata.
+_Avoid_: parser API, Markdown format, report template
+
+**Paper Source Location**:
+The traceable location attached to parsed paper content so an Agent can point back to the original PDF, at minimum page number plus section or heading.
+_Avoid_: citation string, markdown anchor, display position
+
+**PDF Parsing Test Corpus**:
+A small set of academic PDFs selected to cover parsing risks such as columns, language, formulas, tables, figures, references, and scan quality.
+_Avoid_: topic sample, benchmark dataset, reading list
+
+**PDF Parsing Corpus Manifest**:
+The reproducibility record for the PDF Parsing Test Corpus, listing each paper's source, version or download date, hash, parsing risk labels, and local reproduction path without committing the PDF itself.
+_Avoid_: checked-in fixture set, paper folder, bibliography
+
+**PDF Parsing Evaluation Matrix**:
+The Spike report artifact that records each parser's evidence-backed performance across the PDF Parsing Test Corpus and parsing criteria.
+_Avoid_: summary verdict, benchmark score, parser ranking
+
+**PDF Parsing Failure Sample**:
+A concrete parser failure captured during the Spike, including the original paper location, expected structure, actual output, and failure type.
+_Avoid_: bug report, fixture, error log
+
+**PDF Parsing Spike Report**:
+The repository document that records the PDF parsing Spike's corpus, evaluation matrix, output contract example, failure samples, recommendation, and handoff notes.
+_Avoid_: issue comment, experiment notes, parser docs
+
 **Knowledge Base**:
 A project-local collection of Knowledge Entries managed by CDF under the Project's local `.cdf` area and stored in Open Knowledge Format so they remain human-browsable and Agent-readable.
 _Avoid_: database, wiki, corpus
