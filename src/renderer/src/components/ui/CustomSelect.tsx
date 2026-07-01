@@ -8,15 +8,18 @@ interface Option {
 }
 
 interface CustomSelectProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   options: Option[];
   placeholder?: string;
   className?: string;
+  buttonClassName?: string;
+  ariaLabel?: string;
   disabled?: boolean;
 }
 
-export function CustomSelect({ value, onChange, options, placeholder, className = '', disabled = false }: CustomSelectProps) {
+export function CustomSelect({ id, value, onChange, options, placeholder, className = '', buttonClassName = '', ariaLabel, disabled = false }: CustomSelectProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('common.pleaseSelect', '请选择...');
   const [isOpen, setIsOpen] = useState(false);
@@ -37,12 +40,14 @@ export function CustomSelect({ value, onChange, options, placeholder, className 
   return (
     <div className={`relative w-full ${className}`} ref={containerRef}>
       <button
+        id={id}
         type="button"
         disabled={disabled}
+        aria-label={ariaLabel}
         onClick={() => setIsOpen(!isOpen)}
         className={`w-full flex items-center justify-between px-3 py-2 bg-[var(--color-bg-app)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent-dim)] rounded-lg text-xs text-[var(--color-text-primary)] outline-none transition-all ${
           disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-        }`}
+        } ${buttonClassName}`}
       >
         <span className="truncate">{selectedOption ? selectedOption.label : resolvedPlaceholder}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />

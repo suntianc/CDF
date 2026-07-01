@@ -10,7 +10,7 @@ import {
   type SkillOverrideState,
 } from '../../../../shared/skill-overrides';
 import {
-  Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2
+  Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2, CircleHelp
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
@@ -187,6 +187,31 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     }
   };
 
+  const skillOverrideOptions = SKILL_OVERRIDE_STATES.map(state => ({
+    value: state,
+    label: t(`plugins.skillOverrideStateLong.${state}`),
+  }));
+
+  const renderOverrideHelp = (id: string, label: string, tooltip: string) => (
+    <span className="group/help relative inline-flex">
+      <button
+        type="button"
+        aria-label={label}
+        aria-describedby={id}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-text-muted)] outline-none transition-colors hover:text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)]"
+      >
+        <CircleHelp className="h-3.5 w-3.5" />
+      </button>
+      <span
+        id={id}
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-56 -translate-x-1/2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2.5 py-2 text-left text-[11px] font-normal leading-relaxed text-[var(--color-text-secondary)] shadow-lg group-hover/help:block group-focus-within/help:block"
+      >
+        {tooltip}
+      </span>
+    </span>
+  );
+
   return (
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
@@ -225,13 +250,6 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
           );
           const projectOverride = projectSkillOverrides[overrideKey];
           const userOverride = userSkillOverrides[overrideKey];
-          const effectiveState = projectOverride ?? userOverride ?? 'on';
-          const effectiveSource = projectOverride
-            ? t('plugins.skillOverrideSourceProject')
-            : userOverride
-              ? t('plugins.skillOverrideSourceUser')
-              : t('plugins.skillOverrideSourceDefault');
-
           return (
           <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
             <div>
@@ -246,67 +264,56 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
                 {skill.description || t('plugins.skillNoDescription')}
               </p>
               <div className="mt-3 rounded-md border border-[var(--color-border)]/40 bg-[var(--color-bg-sidebar)]/25 p-2">
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]">
-                    {t('plugins.skillProjectOverrideLabel')}
-                  </span>
-                  <span className="text-[10px] text-[var(--color-text-muted)]">
-                    {t('plugins.skillEffectiveVisibility', {
-                      state: t(`plugins.skillOverrideStateLong.${effectiveState}`),
-                      source: effectiveSource,
-                    })}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px]">
-                  {SKILL_OVERRIDE_STATES.map(state => {
-                    const selected = (projectOverride ?? 'on') === state;
-                    return (
-                      <button
-                        key={state}
-                        type="button"
-                        aria-label={t('plugins.skillProjectOverrideButtonLabel', {
-                          name: displayName,
-                          state: t(`plugins.skillOverrideStateLong.${state}`),
-                        })}
-                        aria-pressed={selected}
-                        onClick={() => handleProjectSkillOverride(overrideKey, state)}
-                        className={`px-1.5 py-1 transition-colors ${
-                          selected
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                        }`}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="min-w-0 space-y-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <label
+                        htmlFor={`project-skill-override-${skill.id}`}
+                        className="truncate text-[10px] font-semibold text-[var(--color-text-secondary)]"
                       >
-                        {t(`plugins.skillOverrideStateShort.${state}`)}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-2 mb-1.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">
-                  {t('plugins.skillUserOverrideLabel')}
-                </div>
-                <div className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px]">
-                  {SKILL_OVERRIDE_STATES.map(state => {
-                    const selected = (userOverride ?? 'on') === state;
-                    return (
-                      <button
-                        key={state}
-                        type="button"
-                        aria-label={t('plugins.skillUserOverrideButtonLabel', {
-                          name: displayName,
-                          state: t(`plugins.skillOverrideStateLong.${state}`),
-                        })}
-                        aria-pressed={selected}
-                        onClick={() => handleUserSkillOverride(overrideKey, state)}
-                        className={`px-1.5 py-1 transition-colors ${
-                          selected
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                        }`}
+                        {t('plugins.skillProjectOverrideLabel')}
+                      </label>
+                      {renderOverrideHelp(
+                        `project-skill-override-help-${skill.id}`,
+                        t('plugins.skillProjectOverrideHelpLabel'),
+                        t('plugins.skillProjectOverrideHelp')
+                      )}
+                    </div>
+                    <CustomSelect
+                      id={`project-skill-override-${skill.id}`}
+                      value={projectOverride ?? 'on'}
+                      onChange={(visibility) => handleProjectSkillOverride(overrideKey, visibility as SkillOverrideState)}
+                      options={skillOverrideOptions}
+                      ariaLabel={t('plugins.skillProjectOverrideSelectLabel', { name: displayName })}
+                      className="w-full"
+                      buttonClassName="h-7 rounded-md bg-[var(--color-bg-surface)] px-2 py-1 text-[11px] font-medium"
+                    />
+                  </div>
+
+                  <div className="min-w-0 space-y-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <label
+                        htmlFor={`user-skill-override-${skill.id}`}
+                        className="truncate text-[10px] font-semibold text-[var(--color-text-secondary)]"
                       >
-                        {t(`plugins.skillOverrideStateShort.${state}`)}
-                      </button>
-                    );
-                  })}
+                        {t('plugins.skillUserOverrideLabel')}
+                      </label>
+                      {renderOverrideHelp(
+                        `user-skill-override-help-${skill.id}`,
+                        t('plugins.skillUserOverrideHelpLabel'),
+                        t('plugins.skillUserOverrideHelp')
+                      )}
+                    </div>
+                    <CustomSelect
+                      id={`user-skill-override-${skill.id}`}
+                      value={userOverride ?? 'on'}
+                      onChange={(visibility) => handleUserSkillOverride(overrideKey, visibility as SkillOverrideState)}
+                      options={skillOverrideOptions}
+                      ariaLabel={t('plugins.skillUserOverrideSelectLabel', { name: displayName })}
+                      className="w-full"
+                      buttonClassName="h-7 rounded-md bg-[var(--color-bg-surface)] px-2 py-1 text-[11px] font-medium"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

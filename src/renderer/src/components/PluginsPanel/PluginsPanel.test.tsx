@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../../i18n';
 import { useProjectStore } from '../../stores/projectStore';
@@ -120,30 +120,34 @@ describe('PluginsPanel Skills tab', () => {
   it('persists Project Skill Override from the Skills panel', async () => {
     render(<PluginsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /project override review off/i }));
+    fireEvent.click(screen.getByLabelText(/project level review visibility/i));
+    fireEvent.click(screen.getByText('Off'));
 
     await waitFor(() => {
       expect(setProjectSkillOverride).toHaveBeenCalledWith('project-1', 'review', 'off');
     });
-    expect(screen.getByText('Effective: Off · Project override')).toBeTruthy();
+    expect(screen.queryByText(/Effective:/)).toBeNull();
   });
 
   it('persists Project Skill Override on as an explicit project policy', async () => {
     setProjectSkillOverride.mockResolvedValueOnce({ review: 'on' });
     render(<PluginsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /project override review on/i }));
+    const projectSelect = screen.getByLabelText(/project level review visibility/i);
+    fireEvent.click(projectSelect);
+    fireEvent.click(within(projectSelect.parentElement as HTMLElement).getAllByText('On')[1]);
 
     await waitFor(() => {
       expect(setProjectSkillOverride).toHaveBeenCalledWith('project-1', 'review', 'on');
     });
-    expect(screen.getByText('Effective: On · Project override')).toBeTruthy();
+    expect(screen.queryByText(/Effective:/)).toBeNull();
   });
 
   it('persists User Skill Override as local personal policy', async () => {
     render(<PluginsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /user override teach manual only/i }));
+    fireEvent.click(screen.getByLabelText(/user level teach visibility/i));
+    fireEvent.click(screen.getByText('Manual only'));
 
     await waitFor(() => {
       expect(storeSet).toHaveBeenCalledWith('skillOverrides', {
@@ -151,13 +155,15 @@ describe('PluginsPanel Skills tab', () => {
       });
     });
     expect(setProjectSkillOverride).not.toHaveBeenCalled();
-    expect(screen.getByText('Effective: Manual only · User override')).toBeTruthy();
+    expect(screen.queryByText(/Effective:/)).toBeNull();
   });
 
   it('persists User Skill Override on as an explicit user policy', async () => {
     render(<PluginsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /user override teach on/i }));
+    const userSelect = screen.getByLabelText(/user level teach visibility/i);
+    fireEvent.click(userSelect);
+    fireEvent.click(within(userSelect.parentElement as HTMLElement).getAllByText('On')[1]);
 
     await waitFor(() => {
       expect(storeSet).toHaveBeenCalledWith('skillOverrides', {
@@ -165,17 +171,27 @@ describe('PluginsPanel Skills tab', () => {
       });
     });
     expect(setProjectSkillOverride).not.toHaveBeenCalled();
-    expect(screen.getByText('Effective: On · User override')).toBeTruthy();
+    expect(screen.queryByText(/Effective:/)).toBeNull();
   });
 
-  it('shows Project Override as the winning layer over User Override', async () => {
+  it('shows Project level as the winning layer over User level', async () => {
     getProjectSkillOverrides.mockResolvedValue({ teach: 'name-only' });
     storeGet.mockResolvedValue({ teach: 'off' });
 
     render(<PluginsPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText('Effective: Name-only · Project override')).toBeTruthy();
+      expect(screen.getByLabelText(/project level teach visibility/i).textContent).toContain('Name-only');
     });
+  });
+
+  it('shows level help tooltips for Skill Override controls', () => {
+    render(<PluginsPanel />);
+
+    expect(screen.getAllByLabelText(/project level help/i)[0]).toBeTruthy();
+    expect(screen.getAllByLabelText(/user level help/i)[0]).toBeTruthy();
+    const tooltips = screen.getAllByRole('tooltip', { hidden: true });
+    expect(tooltips.some(tooltip => tooltip.textContent?.includes('project Skills config'))).toBe(true);
+    expect(tooltips.some(tooltip => tooltip.textContent?.includes('stored locally'))).toBe(true);
   });
 });
