@@ -143,7 +143,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       project_id: currentProjectId || 'default-project',
       name: formName,
       description: formDesc,
-      provider_id: formProviderId || undefined,
+      provider_id: formProviderId || null,
       system_prompt: formSystemPrompt,
       config: {
         ...(existingAgent?.config ?? {}),

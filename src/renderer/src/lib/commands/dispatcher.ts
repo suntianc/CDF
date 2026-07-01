@@ -5,6 +5,8 @@ import { startGoalJudgeLoop, stopGoalJudgeLoop } from '@/hooks/useGoalJudge';
 import type {
   ChatRuntimeOverrides,
   CommandDispatchAction,
+  SkillAttribution,
+  SkillCommandSourceKind,
   SlashCommand,
 } from '../../../../shared/types';
 import { substituteArgs } from './argSubstitution';
@@ -167,6 +169,31 @@ function createUnavailableSkillPrompt(command: SlashCommand, args: string): stri
   return lines.join('\n');
 }
 
+function inferSkillCommandSourceKind(command: SlashCommand): SkillCommandSourceKind | null {
+  if (command.skillSourceKind) return command.skillSourceKind;
+  if (command.source === 'skill:project') return 'project';
+  if (command.source === 'skill:global') return 'user';
+  return null;
+}
+
+function createExplicitSkillAttribution(command: SlashCommand): SkillAttribution | null {
+  if (!command.skillPath) return null;
+  const sourceKind = inferSkillCommandSourceKind(command);
+  if (!sourceKind) return null;
+
+  return {
+    phase: 'explicit-invocation',
+    name: command.skillName ?? command.name,
+    qualifiedName: command.qualifiedName ?? command.name,
+    sourceKind,
+    sourceLabel: command.sourceLabel,
+    skillPath: command.skillPath,
+    visibility: command.skillVisibility ?? 'on',
+    modelDiscovery: command.modelDiscovery ?? 'full',
+    userInvocable: command.userInvocable ?? true,
+  };
+}
+
 /**
  * Execute a resolved CommandDispatchAction.
  *
@@ -271,10 +298,14 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
           );
           if (body) {
             const skillPrompt = createSkillInstructionPrompt(plan.command, plan.args, body);
+            const skillAttribution = createExplicitSkillAttribution(plan.command);
+            const sendOptions = skillAttribution
+              ? { skillAttributions: [skillAttribution] }
+              : undefined;
             if (hasOverrides) {
-              await sendMessage(projectId, skillPrompt, overrides);
+              await sendMessage(projectId, skillPrompt, overrides, undefined, sendOptions);
             } else {
-              await sendMessage(projectId, skillPrompt);
+              await sendMessage(projectId, skillPrompt, undefined, undefined, sendOptions);
             }
             return;
           }

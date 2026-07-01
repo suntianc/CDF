@@ -263,6 +263,102 @@ describe('sessionStore sendMessage', () => {
     expect(state.messages[0].role).toBe('assistant');
     expect(state.messages[0].content).toBe('继续执行中');
   });
+
+  it('persists explicit Skill attribution options as system messages', async () => {
+    const saveMessage = vi.fn(async (message) => message);
+    let chunkListener: ((event: unknown, data: unknown) => void) | null = null;
+
+    window.electronAPI = {
+      store: {
+        get: vi.fn(),
+        set: vi.fn(),
+      },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(),
+        createSession: vi.fn(),
+        deleteSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage,
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+      },
+      llm: {
+        chat: vi.fn(async () => {
+          await chunkListener?.(null, { type: 'message_chunk', text: '已使用 Skill' });
+          await chunkListener?.(null, { type: 'message_done' });
+        }),
+        judge: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn((_requestId, callback) => {
+          chunkListener = callback;
+          return () => {
+            chunkListener = null;
+          };
+        }),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
+      },
+      platform: 'darwin',
+    };
+
+    await useSessionStore.getState().sendMessage(
+      'project-1',
+      '请使用 Skill `apps/web:deploy`',
+      undefined,
+      'session-1',
+      {
+        skillAttributions: [
+          {
+            phase: 'explicit-invocation',
+            name: 'deploy',
+            qualifiedName: 'apps/web:deploy',
+            sourceKind: 'project-additional',
+            sourceLabel: 'Project Skill: apps/web',
+            skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+            visibility: 'on',
+            modelDiscovery: 'full',
+            userInvocable: true,
+          },
+        ],
+      }
+    );
+
+    const state = useSessionStore.getState();
+    expect(saveMessage).toHaveBeenCalledTimes(3);
+    expect(saveMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      role: 'system',
+    }));
+    const persistedAttribution = JSON.parse(saveMessage.mock.calls[1][0].content);
+    expect(persistedAttribution).toEqual({
+      type: 'skill_attribution',
+      attributions: [
+        expect.objectContaining({
+          phase: 'explicit-invocation',
+          qualifiedName: 'apps/web:deploy',
+        }),
+      ],
+    });
+    expect(state.messages[1].role).toBe('system');
+    expect(JSON.parse(state.messages[1].content)).toMatchObject({
+      type: 'skill_attribution',
+      attributions: [
+        {
+          phase: 'explicit-invocation',
+          qualifiedName: 'apps/web:deploy',
+        },
+      ],
+    });
+  });
 });
 
 describe('sessionStore sessionGoals (D-02/D-04/D-05)', () => {

@@ -20,7 +20,7 @@ import {
   readUserSkillOverrides,
   resolveSkillVisibility,
 } from './skills-runtime/skill-visibility';
-import type { SkillOverrideState } from '../../shared/skill-overrides';
+import type { SkillEffectiveVisibility, SkillOverrideState } from '../../shared/skill-overrides';
 
 type SkillScope = 'global' | 'project';
 
@@ -41,7 +41,7 @@ interface PhysicalSkillView {
   sourceLabel?: string;
   sourcePath?: string;
   skillPath?: string;
-  skillVisibility?: SkillOverrideState;
+  skillVisibility?: SkillEffectiveVisibility;
   visibilitySource?: string;
   modelDiscovery?: string;
   userInvocable?: boolean;
@@ -52,6 +52,14 @@ interface PhysicalSkillView {
   script_content?: string;
   created_at: number;
   updated_at: number;
+  shadowedSkills?: Array<{
+    name: string;
+    qualifiedName?: string;
+    sourceKind?: SkillSourceKind;
+    sourceLabel?: string;
+    sourcePath?: string;
+    skillPath?: string;
+  }>;
   /** 08.2 P4 D-09: pre-parsed frontmatter; consumers can read
    *  `frontmatter.disableModelInvocation` to gate LLM exposure. */
   frontmatter?: ParsedFrontmatter;
@@ -304,7 +312,7 @@ function getResolvedSkillScope(skill: ResolvedSkillCatalogEntry): SkillScope {
   return skill.sourceKind === 'user' ? 'global' : 'project';
 }
 
-function getResolvedSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
+function getResolvedSkillSourceLabel(skill: Pick<ResolvedSkillCatalogEntry, 'sourceKind' | 'qualifier'>): string {
   switch (skill.sourceKind) {
     case 'built-in':
       return 'Built-in Skill';
@@ -347,6 +355,14 @@ function buildResolvedSkillView(skill: ResolvedSkillCatalogEntry): PhysicalSkill
     resourceFiles: listResourceFiles(skillDir),
     created_at: stat.birthtimeMs || stat.ctimeMs,
     updated_at: stat.mtimeMs,
+    shadowedSkills: skill.shadowedSkills?.map((shadowed) => ({
+      name: shadowed.name,
+      qualifiedName: shadowed.qualifiedName ?? shadowed.name,
+      sourceKind: shadowed.sourceKind,
+      sourceLabel: getResolvedSkillSourceLabel(shadowed),
+      sourcePath: shadowed.sourcePath,
+      skillPath: shadowed.skillPath,
+    })),
   };
 }
 

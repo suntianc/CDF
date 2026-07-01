@@ -335,6 +335,27 @@ export function projectConversationRuntime(
     };
   }
 
+  if (event.event.type === 'skill_attribution') {
+    const message: Message = {
+      id: deps.createId(),
+      session_id: state.sessionId,
+      role: 'system',
+      content: JSON.stringify({
+        type: 'skill_attribution',
+        attributions: event.event.attributions,
+      }),
+      created_at: deps.now(),
+      tokens: 0,
+    };
+    return {
+      state: {
+        ...state,
+        messages: [...state.messages, message],
+      },
+      effects: [{ type: 'saveMessage', message }],
+    };
+  }
+
   if (event.event.type === 'message_chunk' && event.event.text) {
     const accumulatedContent = state.accumulatedContent + event.event.text;
     const hasCurrentAssistant = state.messages.some((message) => message.id === state.currentAssistantMsgId);

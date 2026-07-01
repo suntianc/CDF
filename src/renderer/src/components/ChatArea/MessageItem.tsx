@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { ToolMessageCard } from './ToolMessageCard';
 import { StreamdownRenderer } from './StreamdownRenderer';
@@ -6,6 +7,7 @@ import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { useTypewriter } from '@/hooks/useTypewriter';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
+import type { SkillAttribution } from '@shared/types';
 
 const formatDuration = (seconds: number): string => {
   if (seconds <= 0) return '< 1 秒';
@@ -43,6 +45,47 @@ interface ThinkBlockProps {
   headerText: string;
   body: string;
   showCaret?: boolean;
+}
+
+interface SkillAttributionInfo {
+  type: 'skill_attribution';
+  attributions: SkillAttribution[];
+}
+
+function getSkillAttributionPhaseLabelKey(phase: SkillAttribution['phase']): string {
+  switch (phase) {
+    case 'preload':
+      return 'chat.skillAttribution.phasePreload';
+    case 'model-triggered':
+      return 'chat.skillAttribution.phaseModelTriggered';
+    case 'explicit-invocation':
+      return 'chat.skillAttribution.phaseExplicitInvocation';
+    case 'model-discovery':
+      return 'chat.skillAttribution.phaseModelDiscovery';
+  }
+}
+
+function SkillAttributionCard({ info }: { info: SkillAttributionInfo }) {
+  const { t } = useTranslation();
+  const attributions = Array.isArray(info.attributions) ? info.attributions : [];
+  if (attributions.length === 0) return null;
+
+  return (
+    <div className="my-2 max-w-[82%] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/35 px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+      <div className="mb-1 font-semibold text-[var(--color-text-primary)]">{t('chat.skillAttribution.title')}</div>
+      <div className="space-y-1">
+        {attributions.map((item) => (
+          <div key={`${item.phase}:${item.qualifiedName}:${item.skillPath}`} className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 rounded bg-[var(--color-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
+              {t(getSkillAttributionPhaseLabelKey(item.phase))}
+            </span>
+            <span className="truncate font-medium text-[var(--color-text-primary)]">{item.qualifiedName}</span>
+            <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">{item.sourceLabel}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = false }: ThinkBlockProps) {
@@ -448,8 +491,24 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return null;
   }, [message.content, message.role]);
 
+  const skillAttributionInfo = useMemo<SkillAttributionInfo | null>(() => {
+    if (message.role !== 'system') return null;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.type === 'skill_attribution' && Array.isArray(parsed.attributions)) {
+        return parsed as SkillAttributionInfo;
+      }
+    } catch (e) {
+    }
+    return null;
+  }, [message.content, message.role]);
+
   if (toolInfo) {
     return <ToolMessageCard toolInfo={toolInfo} createdAt={message.created_at} />;
+  }
+
+  if (skillAttributionInfo) {
+    return <SkillAttributionCard info={skillAttributionInfo} />;
   }
 
   return (

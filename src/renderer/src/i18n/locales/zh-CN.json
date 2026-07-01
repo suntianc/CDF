@@ -53,6 +53,10 @@
     "skillNoDescription": "暂无说明",
     "skillSourceProject": "项目 Skill",
     "skillSourceGlobal": "全局 Skill",
+    "skillSourceUnknown": "未知来源",
+    "skillShadowsLabel": "覆盖 {{count}} 个同名 Skill",
+    "skillShadowsTitle": "被覆盖的 Skills：\n{{list}}",
+    "skillNotUserInvocable": "不可手动调用",
     "skillProjectOverrideLabel": "项目级别",
     "skillProjectOverrideSelectLabel": "项目级别 {{name}} 可见性",
     "skillProjectOverrideHelpLabel": "项目级别说明",
@@ -375,7 +379,14 @@
     "shortcutHint": "按 <kbd>/</kbd> 调命令 · <kbd>@</kbd> 选文件 · <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行",
     "hideTaskPanel": "隐藏任务展板",
     "showTaskPanel": "显示任务展板",
-    "composerPlaceholder": "给 Master Agent 发送消息..."
+    "composerPlaceholder": "给 Master Agent 发送消息...",
+    "skillAttribution": {
+      "title": "Skill 归属",
+      "phasePreload": "预加载",
+      "phaseModelTriggered": "模型触发",
+      "phaseExplicitInvocation": "显式调用",
+      "phaseModelDiscovery": "模型发现"
+    }
   },
   "goal": {
     "label": {

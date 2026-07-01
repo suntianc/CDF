@@ -474,7 +474,24 @@ describe('dispatcher.dispatch', () => {
         'Skill 指令：',
         '# Deploy Skill\n\nUse the release checklist.',
         '用户参数：prod',
-      ].join('\n')
+      ].join('\n'),
+      undefined,
+      undefined,
+      {
+        skillAttributions: [
+          expect.objectContaining({
+            phase: 'explicit-invocation',
+            name: 'deploy',
+            qualifiedName: 'apps/web:deploy',
+            sourceKind: 'project-additional',
+            sourceLabel: 'Project Skill: apps/web',
+            skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+            visibility: 'on',
+            modelDiscovery: 'full',
+            userInvocable: true,
+          }),
+        ],
+      }
     );
   });
 

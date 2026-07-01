@@ -53,6 +53,10 @@
     "skillNoDescription": "No description",
     "skillSourceProject": "Project Skill",
     "skillSourceGlobal": "Global Skill",
+    "skillSourceUnknown": "Unknown source",
+    "skillShadowsLabel": "Shadows {{count}} same-name Skill",
+    "skillShadowsTitle": "Shadowed Skills:\n{{list}}",
+    "skillNotUserInvocable": "Not available in slash invocation",
     "skillProjectOverrideLabel": "Project level",
     "skillProjectOverrideSelectLabel": "Project level {{name}} visibility",
     "skillProjectOverrideHelpLabel": "Project level help",
@@ -375,7 +379,14 @@
     "shortcutHint": "Press <kbd>/</kbd> for commands · <kbd>@</kbd> for files · <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
     "hideTaskPanel": "Hide task panel",
     "showTaskPanel": "Show task panel",
-    "composerPlaceholder": "Send a message to Master Agent..."
+    "composerPlaceholder": "Send a message to Master Agent...",
+    "skillAttribution": {
+      "title": "Skill Attribution",
+      "phasePreload": "Preloaded",
+      "phaseModelTriggered": "Model-triggered",
+      "phaseExplicitInvocation": "Explicit invocation",
+      "phaseModelDiscovery": "Model discovery"
+    }
   },
   "goal": {
     "label": {

@@ -146,7 +146,7 @@ describe('resolveSkillVisibility', () => {
     });
 
     expect(resolved).toMatchObject({
-      visibility: 'on',
+      visibility: 'model-only',
       visibilitySource: 'frontmatter',
       modelDiscovery: 'full',
       userInvocable: false,

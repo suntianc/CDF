@@ -21,6 +21,7 @@ export async function collectSkillCommands(
   const plan = resolveSkillSourcePlan(projectPath, {
     builtInSkillDirs: getBuiltInSkillDirs(),
     userSkillsDir: getScopePath(projectPath, 'global'),
+    includeNestedProjectSkills: options.includeNestedProjectSkills,
   });
   const catalog = resolveSkillCatalog(plan, options);
 

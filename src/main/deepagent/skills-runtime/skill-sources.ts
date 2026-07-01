@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseSkillMetadata } from './skill-metadata';
 import type {
+  SkillEffectiveVisibility,
   SkillModelDiscovery,
   SkillOverrideState,
   SkillVisibilitySource,
@@ -42,7 +43,22 @@ export interface ResolvedSkillCatalogEntry {
   sourceKind: SkillSourceKind;
   sourcePath: string;
   skillPath: string;
-  visibility: SkillOverrideState;
+  visibility: SkillEffectiveVisibility;
+  visibilitySource: SkillVisibilitySource;
+  modelDiscovery: SkillModelDiscovery;
+  userInvocable: boolean;
+  shadowedSkills?: ShadowedSkillCatalogEntry[];
+}
+
+export interface ShadowedSkillCatalogEntry {
+  name: string;
+  qualifiedName?: string;
+  qualifier?: string;
+  description: string;
+  sourceKind: SkillSourceKind;
+  sourcePath: string;
+  skillPath: string;
+  visibility: SkillEffectiveVisibility;
   visibilitySource: SkillVisibilitySource;
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
@@ -57,12 +73,21 @@ export interface SkillSourcePlanOptions {
   builtInSkillDirs?: string[];
   userSkillsDir?: string | null;
   enterpriseSkillDirs?: string[];
+  /**
+   * Discover nested Project Skills (`<dir>/.cdf/skills`) below the project root.
+   * Off by default: nested Skills + path-aware relevance are a later delivery
+   * slice per ADR 0012, so production stays on the flat resolution path until
+   * that slice is enabled.
+   */
+  includeNestedProjectSkills?: boolean;
 }
 
 export interface SkillCatalogOptions {
   userOverrides?: Record<string, SkillOverrideState>;
   agentOverrides?: Record<string, SkillOverrideState>;
   pathContext?: string[];
+  /** See {@link SkillSourcePlanOptions.includeNestedProjectSkills}. Gates path-aware ranking. */
+  includeNestedProjectSkills?: boolean;
 }
 
 const DEFAULT_PROJECT_SKILL_CONFIG: ProjectSkillConfig = {
@@ -255,6 +280,22 @@ function sortSkillsByPathContext(
     .map((entry) => entry.skill);
 }
 
+function toShadowedSkill(skill: ResolvedSkillCatalogEntry): ShadowedSkillCatalogEntry {
+  return {
+    name: skill.name,
+    qualifiedName: skill.qualifiedName,
+    qualifier: skill.qualifier,
+    description: skill.description,
+    sourceKind: skill.sourceKind,
+    sourcePath: skill.sourcePath,
+    skillPath: skill.skillPath,
+    visibility: skill.visibility,
+    visibilitySource: skill.visibilitySource,
+    modelDiscovery: skill.modelDiscovery,
+    userInvocable: skill.userInvocable,
+  };
+}
+
 function discoverNestedProjectSkillSources(projectPath: string): SkillSourceEntry[] {
   const normalizedProjectPath = path.resolve(projectPath);
   const cached = nestedProjectSkillSourceCache.get(normalizedProjectPath);
@@ -321,7 +362,9 @@ export function resolveSkillSourcePlan(
     sources.push({ kind: 'project', path: projectSkillsDir });
   }
 
-  sources.push(...discoverNestedProjectSkillSources(projectPath));
+  if (options.includeNestedProjectSkills) {
+    sources.push(...discoverNestedProjectSkillSources(projectPath));
+  }
 
   for (const relativeDir of config.additionalSkillDirectories) {
     const sourcePath = path.resolve(normalizedProjectPath, relativeDir);
@@ -387,7 +430,8 @@ export function resolveSkillCatalog(
       },
     });
     const mergeKey = source.qualifier ? qualifiedName : parsed.metadata.name;
-    merged.set(mergeKey, {
+    const existing = merged.get(mergeKey);
+    const entry: ResolvedSkillCatalogEntry = {
       name: parsed.metadata.name,
       qualifiedName,
       qualifier: source.qualifier,
@@ -399,7 +443,11 @@ export function resolveSkillCatalog(
       visibilitySource: visibility.visibilitySource,
       modelDiscovery: visibility.modelDiscovery,
       userInvocable: visibility.userInvocable,
-    });
+      shadowedSkills: existing
+        ? [...(existing.shadowedSkills ?? []), toShadowedSkill(existing)]
+        : undefined,
+    };
+    merged.set(mergeKey, entry);
   };
 
   for (const source of plan.sources) {
@@ -416,8 +464,11 @@ export function resolveSkillCatalog(
     }
   }
 
+  const mergedSkills = Array.from(merged.values());
   return {
-    skills: sortSkillsByPathContext(Array.from(merged.values()), options.pathContext),
+    skills: options.includeNestedProjectSkills
+      ? sortSkillsByPathContext(mergedSkills, options.pathContext)
+      : mergedSkills,
     warnings,
   };
 }

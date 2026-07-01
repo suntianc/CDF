@@ -1,5 +1,6 @@
 import {
   parseSkillOverrideState,
+  type SkillEffectiveVisibility,
   type SkillModelDiscovery,
   type SkillOverrideState,
   type SkillVisibilitySource,
@@ -24,7 +25,7 @@ export interface SkillVisibilityInput {
 export interface ResolvedSkillVisibility {
   name: string;
   qualifiedName: string;
-  visibility: SkillOverrideState;
+  visibility: SkillEffectiveVisibility;
   visibilitySource: SkillVisibilitySource;
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
@@ -78,7 +79,7 @@ export function readAgentSkillOverrides(config: unknown): {
   );
 }
 
-function flagsForVisibility(visibility: SkillOverrideState): {
+function flagsForVisibility(visibility: SkillEffectiveVisibility): {
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
 } {
@@ -91,6 +92,8 @@ function flagsForVisibility(visibility: SkillOverrideState): {
       return { modelDiscovery: 'hidden', userInvocable: true };
     case 'off':
       return { modelDiscovery: 'hidden', userInvocable: false };
+    case 'model-only':
+      return { modelDiscovery: 'full', userInvocable: false };
   }
 }
 
@@ -113,9 +116,13 @@ function firstOverride(input: SkillVisibilityInput): {
   return null;
 }
 
-function frontmatterDefault(frontmatter?: SkillVisibilityFrontmatter): SkillOverrideState {
+function frontmatterDefault(frontmatter?: SkillVisibilityFrontmatter): SkillEffectiveVisibility {
   if (frontmatter?.disableModelInvocation && frontmatter.userInvocable === false) return 'off';
   if (frontmatter?.disableModelInvocation) return 'user-invocable-only';
+  // Model can still auto-discover the Skill, but the author blocked explicit
+  // user invocation. This is `model-only`, not `on` — `on` must stay visible to
+  // both model discovery and user invocation.
+  if (frontmatter?.userInvocable === false) return 'model-only';
   return 'on';
 }
 
@@ -135,6 +142,9 @@ export function resolveSkillVisibility(input: SkillVisibilityInput): ResolvedSki
     visibility,
     visibilitySource: source,
     modelDiscovery: flags.modelDiscovery,
-    userInvocable: override ? flags.userInvocable : flags.userInvocable && input.frontmatter?.userInvocable !== false,
+    // `flags` already reflects the effective visibility (including the
+    // frontmatter-derived `model-only`), so it is the single source of truth
+    // for user-invocation availability.
+    userInvocable: flags.userInvocable,
   };
 }

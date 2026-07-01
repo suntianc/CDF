@@ -11,23 +11,23 @@ import { aggregateCurrentSessionContext, BUILTIN_TOOL_CHARS } from './context-ag
 // Mock the database + mcp-connector so we don't need a real
 // SQLite DB / MCP servers. Each test composes its own row set / behavior.
 //
-// skill-manager is also mocked with a hoisted listPhysicalSkillsMock so
-// the home directory's `~/.cdf/skills` cannot leak into unit tests.
-// Tests that need to exercise the real skill enumeration path use
-// `listPhysicalSkillsMock.mockReturnValue([...])` with explicit rows.
 const {
-  listPhysicalSkillsMock,
   getScopePathMock,
+  getBuiltInSkillDirsMock,
+  resolveAgentSkillConfigOptionsMock,
+  storeGetMock,
 } = vi.hoisted(() => {
   const path = require('path');
   const os = require('os');
   return {
-    listPhysicalSkillsMock: vi.fn((): any[] => []),
     getScopePathMock: vi.fn((_p: string, scope: string) =>
       scope === 'global'
-        ? path.join(os.homedir(), '.cdf', 'skills')
+        ? path.join(os.tmpdir(), 'cdf-ctx-agg-empty-global-skills')
         : path.join(_p, '.cdf', 'skills')
     ),
+    getBuiltInSkillDirsMock: vi.fn((): string[] => []),
+    resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({ options: undefined, warnings: [] })),
+    storeGetMock: vi.fn(() => ({})),
   };
 });
 
@@ -38,12 +38,19 @@ vi.mock('../database', () => ({
 }));
 
 vi.mock('./skill-manager', () => ({
-  listPhysicalSkills: listPhysicalSkillsMock,
   getScopePath: getScopePathMock,
+  getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
 }));
 
 vi.mock('./mcp-connector', () => ({
   loadMcpTools: vi.fn(async () => ({ client: null, tools: [] })),
+}));
+
+vi.mock('../store', () => ({
+  default: {
+    get: storeGetMock,
+  },
 }));
 
 import db from '../database';
@@ -67,6 +74,7 @@ interface FakeQueryPlan {
   // Used when the test wants to control modelName / system_prompt
   // independently of the project lookup row.
   agentRow?: Record<string, unknown>;
+  agentSkillRows?: Array<{ skill_name: string }>;
   // 08.2 polish: dedicated row for the project lookup
   // (SELECT p.name, p.path FROM projects p JOIN sessions s). Used for
   // sizing systemPrompt via buildProjectContext.
@@ -125,6 +133,12 @@ function installFakeDb(plan: FakeQueryPlan): void {
         all: () => [],
       };
     }
+    if (/FROM agent_skills/.test(sql)) {
+      return {
+        get: () => undefined,
+        all: () => plan.agentSkillRows ?? [],
+      };
+    }
     if (/FROM messages/.test(sql)) {
       return {
         get: (sessionId: string) => {
@@ -166,6 +180,14 @@ beforeEach(() => {
   fs.rmSync(tempProjectPath, { recursive: true, force: true });
   fs.mkdirSync(tempProjectPath, { recursive: true });
   vi.clearAllMocks();
+  getScopePathMock.mockImplementation((_p: string, scope: string) =>
+    scope === 'global'
+      ? path.join(os.tmpdir(), 'cdf-ctx-agg-empty-global-skills')
+      : path.join(_p, '.cdf', 'skills')
+  );
+  getBuiltInSkillDirsMock.mockReturnValue([]);
+  resolveAgentSkillConfigOptionsMock.mockReturnValue({ options: undefined, warnings: [] });
+  storeGetMock.mockReturnValue({});
 });
 
 afterEach(() => {
@@ -217,10 +239,6 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     // skill. Reading a 30KB SKILL.md shouldn't cost 7.5k tokens in the
     // breakdown — the LLM only sees the description field at start.
     //
-    // We use the real listPhysicalSkills (driven by the tempProjectPath
-    // directory created in beforeEach) instead of mocking the return
-    // value. That keeps the test exercising the actual skill enumeration
-    // and frontmatter parsing path end-to-end.
     const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'big-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     const tinyDesc = 'Create things.';
@@ -230,27 +248,16 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
       `---\nname: big-skill\ndescription: ${tinyDesc}\n---\n${bigBody}\n`,
       'utf-8'
     );
-    // Skill enumeration also picks up 'myskill' from the global
-    // beforeEach. We only care about big-skill here.
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'project:big-skill',
-        name: 'big-skill',
-        scope: 'project',
-      } as any,
-    ]);
     const result = await aggregateCurrentSessionContext('session-1');
     const bigSkillRow = result.breakdown.skillsPerSkill.find(
       (s) => s.name === 'big-skill'
     );
     expect(bigSkillRow).toBeDefined();
-    // big-skill: description "Create things." (14) + name "big-skill" (9)
-    // + path prefix "/skills/" (8) ≈ 31 chars → ceil(31 * 0.25) = 8 tokens.
-    // The pre-polish number would have been 30014+ / 4 ≈ 7500 tokens.
-    expect(bigSkillRow!.tokens).toBeLessThan(20);
+    // The resolved prompt counts visible metadata + read path, not the 30KB body.
+    expect(bigSkillRow!.tokens).toBeLessThan(100);
   });
 
   it('skills tokens use the shared Skill metadata description limit', async () => {
@@ -272,27 +279,15 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: `project:${skillName}`,
-        name: skillName,
-        scope: 'project',
-      } as any,
-    ]);
 
     const result = await aggregateCurrentSessionContext('session-1');
     const skillRow = result.breakdown.skillsPerSkill.find((s) => s.name === skillName);
 
-    expect(skillRow?.tokens).toBe(
-      Math.ceil((1024 + skillName.length + '/skills/'.length) * 0.25)
-    );
+    expect(skillRow?.tokens).toBeGreaterThan(Math.ceil(1024 * 0.25));
+    expect(skillRow?.tokens).toBeLessThan(Math.ceil(1300 * 0.25));
   });
 
-  it('skills fallback: malformed SKILL.md (no frontmatter) falls back to file size', async () => {
-    // Defensive: if SKILL.md is missing frontmatter entirely, we cannot
-    // extract description. The aggregator should still report *something*
-    // (the full file size as a worst-case) rather than silently dropping
-    // the skill from the breakdown.
+  it('skips malformed Skills through the resolved catalog without breaking accounting', async () => {
     const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'malformed-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     const body = 'no frontmatter here, just body text\n'.repeat(100);
@@ -300,23 +295,57 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'project:malformed-skill',
-        name: 'malformed-skill',
-        scope: 'project',
-      } as any,
-    ]);
     const result = await aggregateCurrentSessionContext('session-1');
     const malformedRow = result.breakdown.skillsPerSkill.find(
       (s) => s.name === 'malformed-skill'
     );
-    expect(malformedRow).toBeDefined();
-    // No frontmatter → fallback to safeFileSize (body is ~3500 chars
-    // → ~875 tokens). The pre-polish number was the same; we just assert
-    // the fallback is non-zero so a future regression that silently
-    // drops malformed skills gets caught.
-    expect(malformedRow!.tokens).toBeGreaterThan(500);
+    expect(malformedRow).toBeUndefined();
+  });
+
+  it('accounts Skill visibility states and preloaded full instructions from the resolved catalog', async () => {
+    const writeSkill = (name: string, description: string, body = '') => {
+      const skillDir = path.join(tempProjectPath, '.cdf', 'skills', name);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n${body}`,
+        'utf-8'
+      );
+    };
+    writeSkill('visible-skill', 'Visible description');
+    writeSkill('name-skill', 'Hidden name-only description');
+    writeSkill('manual-skill', 'Manual description');
+    writeSkill('off-skill', 'Off description');
+    writeSkill('preloaded-skill', 'Preloaded description', 'P'.repeat(1000));
+    fs.mkdirSync(path.join(tempProjectPath, '.cdf'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempProjectPath, '.cdf', 'skills.config.json'),
+      JSON.stringify({
+        version: 1,
+        overrides: {
+          'name-skill': 'name-only',
+          'manual-skill': 'user-invocable-only',
+          'off-skill': 'off',
+        },
+        additionalSkillDirectories: [],
+      }),
+      'utf-8'
+    );
+    installFakeDb({
+      agentRow: { id: 'agent-1', system_prompt: '', provider_id: 'provider-1', model_name: 'test', context_limit: 200_000 },
+      projectsRow: { name: 'CDF', path: tempProjectPath },
+      agentSkillRows: [{ skill_name: 'project:preloaded-skill' }],
+    });
+
+    const result = await aggregateCurrentSessionContext('session-1');
+    const byName = new Map(result.breakdown.skillsPerSkill.map((row) => [row.name, row]));
+
+    expect(byName.get('visible-skill')).toMatchObject({ visibility: 'on', preloaded: false });
+    expect(byName.get('name-skill')).toMatchObject({ visibility: 'name-only', preloaded: false });
+    expect(byName.get('manual-skill')).toBeUndefined();
+    expect(byName.get('off-skill')).toBeUndefined();
+    expect(byName.get('preloaded-skill')).toMatchObject({ visibility: 'on', preloaded: true });
+    expect(byName.get('preloaded-skill')!.tokens).toBeGreaterThan(byName.get('visible-skill')!.tokens);
   });
 
   it('freeSpace = max(0, contextLimit - total - autocompactBuffer)', async () => {

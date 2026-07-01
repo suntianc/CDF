@@ -347,6 +347,20 @@ describe('resolveSkillCatalog', () => {
       sourcePath: userSkillsDir,
       skillPath: path.join(userSkillsDir, 'review', 'SKILL.md'),
     });
+    expect(catalog.skills[0].shadowedSkills).toEqual([
+      expect.objectContaining({
+        name: 'review',
+        description: 'Built-in review instructions',
+        sourceKind: 'built-in',
+        sourcePath: builtInSkillsDir,
+      }),
+      expect.objectContaining({
+        name: 'review',
+        description: 'Project review instructions',
+        sourceKind: 'project',
+        sourcePath: projectSkillsDir,
+      }),
+    ]);
     expect(catalog.warnings).toEqual([]);
   });
 
@@ -425,6 +439,7 @@ describe('resolveSkillCatalog', () => {
         sourcePath: additionalSkillsDir,
       }),
     ]);
+    expect(catalog.skills.flatMap((skill) => skill.shadowedSkills ?? [])).toEqual([]);
   });
 
   it('discovers nested Project Skills as qualified entries alongside root Skills', () => {
@@ -436,9 +451,10 @@ describe('resolveSkillCatalog', () => {
     const plan = resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
+      includeNestedProjectSkills: true,
     });
 
-    const catalog = resolveSkillCatalog(plan);
+    const catalog = resolveSkillCatalog(plan, { includeNestedProjectSkills: true });
 
     expect(catalog.skills).toEqual([
       expect.objectContaining({
@@ -468,10 +484,12 @@ describe('resolveSkillCatalog', () => {
     const plan = resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
+      includeNestedProjectSkills: true,
     });
 
     const catalog = resolveSkillCatalog(plan, {
       pathContext: ['apps/web/src/App.tsx'],
+      includeNestedProjectSkills: true,
     });
 
     expect(catalog.skills.map((skill) => skill.qualifiedName)).toEqual([
@@ -489,9 +507,10 @@ describe('resolveSkillCatalog', () => {
     const plan = resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
+      includeNestedProjectSkills: true,
     });
 
-    const catalog = resolveSkillCatalog(plan);
+    const catalog = resolveSkillCatalog(plan, { includeNestedProjectSkills: true });
 
     expect(catalog.skills.map((skill) => skill.qualifiedName)).toEqual(['deploy']);
     expect(catalog.skills[0].sourcePath).toBe(projectSkillsDir);
@@ -505,11 +524,13 @@ describe('resolveSkillCatalog', () => {
     const firstPlan = resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
+      includeNestedProjectSkills: true,
     });
     readdirSpy.mockClear();
     const secondPlan = resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
+      includeNestedProjectSkills: true,
     });
 
     expect(secondPlan.sources).toEqual(firstPlan.sources);
@@ -536,9 +557,10 @@ describe('resolveSkillCatalog', () => {
     const plan = resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
+      includeNestedProjectSkills: true,
     });
 
-    const catalog = resolveSkillCatalog(plan);
+    const catalog = resolveSkillCatalog(plan, { includeNestedProjectSkills: true });
 
     expect(catalog.skills).toEqual([
       expect.objectContaining({

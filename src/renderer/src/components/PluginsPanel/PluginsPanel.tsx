@@ -31,6 +31,12 @@ function readSkillOverrideRecord(raw: unknown): Record<string, SkillOverrideStat
   return overrides;
 }
 
+function getUnknownErrorMessage(error: unknown): string | null {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error) return error;
+  return null;
+}
+
 export function PluginsPanel() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'skills' | 'mcp'>('skills');
@@ -141,8 +147,8 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
       await window.electronAPI.db.importSkillDirectory(dirPath);
       if (currentProjectId) await fetchSkills(currentProjectId);
       showToast(t('plugins.skillImportSuccess'), 'success');
-    } catch (e: any) {
-      showToast(e.message || t('plugins.skillImportError'), 'error');
+    } catch (error: unknown) {
+      showToast(getUnknownErrorMessage(error) || t('plugins.skillImportError'), 'error');
     }
   };
 
@@ -170,8 +176,8 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     try {
       const overrides = await window.electronAPI.db.setProjectSkillOverride(currentProjectId, skillName, visibility);
       setProjectSkillOverrides(overrides);
-    } catch (e: any) {
-      showToast(e.message || t('plugins.skillOverrideSaveError'), 'error');
+    } catch (error: unknown) {
+      showToast(getUnknownErrorMessage(error) || t('plugins.skillOverrideSaveError'), 'error');
     }
   };
 
@@ -182,8 +188,8 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     try {
       await window.electronAPI.store.set('skillOverrides', nextOverrides);
       setUserSkillOverrides(nextOverrides);
-    } catch (e: any) {
-      showToast(e.message || t('plugins.skillOverrideSaveError'), 'error');
+    } catch (error: unknown) {
+      showToast(getUnknownErrorMessage(error) || t('plugins.skillOverrideSaveError'), 'error');
     }
   };
 
@@ -250,8 +256,12 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
           );
           const projectOverride = projectSkillOverrides[overrideKey];
           const userOverride = userSkillOverrides[overrideKey];
+          const shadowedSkills = skill.shadowedSkills ?? [];
+          const shadowedSummary = shadowedSkills
+            .map((shadowed) => `${shadowed.qualifiedName ?? shadowed.name} (${shadowed.sourceLabel ?? shadowed.sourceKind ?? t('plugins.skillSourceUnknown')})`)
+            .join('\n');
           return (
-          <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
+            <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Code className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
@@ -263,6 +273,19 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
               <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 line-clamp-2" title={skill.description}>
                 {skill.description || t('plugins.skillNoDescription')}
               </p>
+              {shadowedSkills.length > 0 && (
+                <div
+                  className="mt-1 text-[10px] text-[var(--color-text-muted)]"
+                  title={t('plugins.skillShadowsTitle', { list: shadowedSummary })}
+                >
+                  {t('plugins.skillShadowsLabel', { count: shadowedSkills.length })}
+                </div>
+              )}
+              {skill.userInvocable === false && (
+                <div className="mt-1 text-[10px] text-[var(--color-warning)]">
+                  {t('plugins.skillNotUserInvocable')}
+                </div>
+              )}
               <div className="mt-3 rounded-md border border-[var(--color-border)]/40 bg-[var(--color-bg-sidebar)]/25 p-2">
                 <div className="grid grid-cols-2 gap-2">
                   <div className="min-w-0 space-y-1.5">
@@ -329,7 +352,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
                 </button>
               </div>
             )}
-          </div>
+            </div>
           );
         })}
 
@@ -464,8 +487,8 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
       } else {
         showToast(t('plugins.mcpHealthCheckFail', { name, message: res.message || t('plugins.mcpHealthTimeout') }), 'error');
       }
-    } catch (err: any) {
-      showToast(t('plugins.mcpHealthCheckException', { message: err.message }), 'error');
+    } catch (error: unknown) {
+      showToast(t('plugins.mcpHealthCheckException', { message: getUnknownErrorMessage(error) || t('plugins.mcpHealthTimeout') }), 'error');
     } finally {
       setTestingId(null);
     }

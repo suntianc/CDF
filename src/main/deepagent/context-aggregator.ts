@@ -1,5 +1,5 @@
 // D-07/D-08/D-09: Aggregate token breakdown for the current session's loaded context.
-// Data sources: conversation (messages table), skills (listPhysicalSkills),
+// Data sources: conversation (messages table), skills (resolved CDF Skill catalog),
 // MCP tools (loadMcpTools), workflows (workflows table graph_data),
 // system prompt (agents.system_prompt + buildProjectContext),
 // system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/knowledge_create/tavily/anysearch/arxiv).
@@ -16,10 +16,13 @@
 import fs from 'fs';
 import path from 'path';
 import db from '../database';
-import { listPhysicalSkills, getScopePath } from './skill-manager';
+import store from '../store';
+import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
 import type { MCPServer } from '../../shared/types';
-import { parseSkillMetadata } from './skills-runtime/skill-metadata';
+import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
+import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
+import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
 
 export interface MCPToolDetail {
   tool: string;
@@ -35,6 +38,9 @@ export interface SkillDetail {
   name: string;
   scope: 'global' | 'project';
   tokens: number;
+  visibility?: string;
+  sourceLabel?: string;
+  preloaded?: boolean;
 }
 export interface WorkflowDetail {
   id: string;
@@ -118,28 +124,84 @@ function safeFileSize(filePath: string): number {
   }
 }
 
-/**
- * Read the YAML frontmatter `description` field from a SKILL.md file.
- *
- * Why this exists: deepagent's progressive-disclosure pattern only injects
- * `name + description + path` for each skill into the LLM's system
- * prompt. The full SKILL.md body is only read on demand via read_file.
- * Aggregator should reflect what the LLM actually sees — the description
- * field, not the entire file.
- *
- * Returns 0 if the file is missing, the frontmatter is unparseable, or
- * the description field is absent — the caller falls back to a sensible
- * default in that case (file size for the rough-worst-case number).
- */
-function readSkillDescriptionChars(skillMdPath: string): number {
-  try {
-    return parseSkillMetadata(path.dirname(skillMdPath)).metadata?.description.length ?? 0;
-  } catch {
-    return 0;
+const DEFAULT_CONTEXT_LIMIT = 200_000;
+
+function stripSkillFrontmatter(content: string): string {
+  if (!content.startsWith('---\n')) return content;
+  const end = content.indexOf('\n---', 4);
+  return end === -1
+    ? content
+    : content.slice(end + '\n---'.length).replace(/^\s+/, '');
+}
+
+function getSkillDisplayName(skill: ResolvedSkillCatalogEntry): string {
+  return skill.qualifiedName ?? skill.name;
+}
+
+function getSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
+  switch (skill.sourceKind) {
+    case 'built-in':
+      return 'Built-in Skill';
+    case 'project':
+      return 'Project Skill';
+    case 'project-nested':
+      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
+    case 'project-additional':
+      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
+    case 'user':
+      return 'Global Skill';
+    case 'enterprise':
+      return 'Managed Skill';
   }
 }
 
-const DEFAULT_CONTEXT_LIMIT = 200_000;
+function isPreloadedSkill(skill: ResolvedSkillCatalogEntry, preloadSkillNames: string[]): boolean {
+  const preloadNames = new Set(preloadSkillNames);
+  const displayName = getSkillDisplayName(skill);
+  return preloadNames.has(skill.name) || preloadNames.has(displayName);
+}
+
+function getSkillScope(skill: ResolvedSkillCatalogEntry): 'global' | 'project' {
+  return skill.sourceKind === 'user' || skill.sourceKind === 'built-in' || skill.sourceKind === 'enterprise'
+    ? 'global'
+    : 'project';
+}
+
+function estimateResolvedSkillContextChars(
+  skill: ResolvedSkillCatalogEntry,
+  preloadSkillNames: string[]
+): { chars: number; preloaded: boolean } {
+  const displayName = getSkillDisplayName(skill);
+  let chars = 0;
+
+  if (skill.modelDiscovery === 'name-only') {
+    chars += `- **${displayName}** (name-only)`.length;
+  } else if (skill.modelDiscovery === 'full') {
+    chars += [
+      `- **${displayName}**: ${skill.description}`,
+      `  -> Read \`${skill.skillPath}\` for full instructions`,
+    ].join('\n').length;
+  }
+
+  const preloaded = skill.visibility === 'on' &&
+    skill.modelDiscovery === 'full' &&
+    isPreloadedSkill(skill, preloadSkillNames);
+  if (preloaded) {
+    try {
+      const body = stripSkillFrontmatter(fs.readFileSync(skill.skillPath, 'utf-8'));
+      chars += [
+        `### ${displayName}`,
+        `Path: \`${skill.skillPath}\``,
+        '',
+        body,
+      ].join('\n').length;
+    } catch {
+      chars += safeFileSize(skill.skillPath);
+    }
+  }
+
+  return { chars, preloaded };
+}
 
 // === System-prompt estimate ===============================================
 // runtime.ts:296 (buildProjectContext) appends a fixed CJK block describing
@@ -366,6 +428,8 @@ export async function aggregateCurrentSessionContext(
   // Resolve contextLimit + modelName from the active provider (P10 — provider-specific).
   let resolvedLimit = DEFAULT_CONTEXT_LIMIT;
   let modelName = '';
+  let agentIdForContext: string | undefined;
+  let agentConfigForContext: string | null | undefined;
   let agentSystemPrompt: string | null = null;
   let projectName: string | undefined;
   let projectPathFromAgent: string | undefined;
@@ -373,7 +437,7 @@ export async function aggregateCurrentSessionContext(
     // ALWAYS look up the session's agent → active provider to resolve modelName and agentSystemPrompt.
     const agent = db
       .prepare(
-        `SELECT a.id, a.system_prompt, a.provider_id, p.context_limit,
+        `SELECT a.id, a.system_prompt, a.provider_id, a.config, p.context_limit,
                 p.default_model AS model_name, p.name AS provider_name
          FROM agents a
          JOIN sessions s ON s.agent_id = a.id
@@ -385,6 +449,7 @@ export async function aggregateCurrentSessionContext(
           id: string;
           system_prompt: string | null;
           provider_id: string;
+          config?: string | null;
           context_limit: number;
           model_name: string;
           provider_name: string;
@@ -396,6 +461,8 @@ export async function aggregateCurrentSessionContext(
       resolvedLimit = agent.context_limit;
     }
     modelName = overriddenModelName || agent?.model_name || '';
+    agentIdForContext = agent?.id;
+    agentConfigForContext = agent?.config;
     agentSystemPrompt = agent?.system_prompt ?? null;
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
@@ -436,16 +503,8 @@ export async function aggregateCurrentSessionContext(
   }
 
   // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown.
-  //
-  // 08.2 polish: deepagent's design (per the package's progressive-
-  // disclosure pattern) injects only `name + description + path` for
-  // each skill into the LLM's system prompt. The full SKILL.md is
-  // only read on demand via read_file. Previously the aggregator
-  // counted the entire SKILL.md byte size (e.g. skill-creator's
-  // 33KB SKILL.md reported as 8.3k tokens), which overstated the
-  // LLM-visible cost by 30-100x. We now read only the YAML
-  // frontmatter description field, which is what the LLM actually
-  // sees at conversation start.
+  // Consume the same resolved CDF Skills runtime as Chat / worker / workflow
+  // paths so override visibility and preload semantics are accounted once.
   let skills = 0;
   let projectPath: string | undefined;
   let skillsPerSkill: SkillDetail[] = [];
@@ -460,31 +519,38 @@ export async function aggregateCurrentSessionContext(
 
     if (project?.path) {
       projectPath = project.path;
-      const physicalSkills = listPhysicalSkills(projectPath);
+      let preloadSkillNames: string[] = [];
+      if (agentIdForContext) {
+        const rows = db
+          .prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?')
+          .all(agentIdForContext) as Array<{ skill_name: string }>;
+        preloadSkillNames = skillReferencesToPreloadNames(rows.map((row) => row.skill_name));
+      }
+      const skillOverrideOptions = resolveAgentSkillConfigOptions(agentConfigForContext, (key) => store.get(key));
+      for (const warning of skillOverrideOptions.warnings) {
+        console.warn('[context-aggregator] Ignored invalid Skill override:', warning);
+      }
+      const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
+        ...skillOverrideOptions.options,
+        builtInSkillDirs: getBuiltInSkillDirs(),
+        userSkillsDir: getScopePath(projectPath, 'global'),
+        preloadSkillNames,
+      });
+      for (const warning of skillsRuntime.warnings) {
+        console.warn('[context-aggregator] Ignored invalid Skill runtime input:', warning);
+      }
       let skillsChars = 0;
-      for (const skill of physicalSkills) {
-        const scope = (skill.scope === 'global' ? 'global' : 'project') as
-          | 'global'
-          | 'project';
-        const baseDir =
-          scope === 'global'
-            ? getScopePath(projectPath, 'global')
-            : getScopePath(projectPath, 'project');
-        const skillMdPath = path.join(baseDir, skill.name, 'SKILL.md');
-        // 08.2 polish: count only the description field (the LLM-visible
-        // portion), not the full file. Fall back to the full file size
-        // only if the file is missing or the frontmatter is unparseable
-        // (defensive — never let aggregator crash on a malformed skill).
-        const descChars = readSkillDescriptionChars(skillMdPath);
-        const chars =
-          descChars > 0
-            ? descChars + skill.name.length + '/skills/'.length
-            : safeFileSize(skillMdPath);
+      for (const skill of skillsRuntime.skills) {
+        const { chars, preloaded } = estimateResolvedSkillContextChars(skill, preloadSkillNames);
+        if (chars <= 0) continue;
         skillsChars += chars;
         skillsPerSkill.push({
-          name: skill.name,
-          scope,
+          name: getSkillDisplayName(skill),
+          scope: getSkillScope(skill),
           tokens: safeMath(chars),
+          visibility: skill.visibility,
+          sourceLabel: getSkillSourceLabel(skill),
+          preloaded,
         });
       }
       skills = safeMath(skillsChars);

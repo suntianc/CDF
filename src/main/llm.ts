@@ -10,6 +10,7 @@ import type {
   AgentToolCallStatus,
   ChatRuntimeOverrides,
   ExecutionStep,
+  SkillAttribution,
 } from '../shared/types';
 
 /**
@@ -342,6 +343,34 @@ async function checkAndSendTodos(
   }
 }
 
+function getToolInputPath(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const record = input as Record<string, unknown>;
+  const rawPath = record.path ?? record.file_path ?? record.filePath ?? record.AbsolutePath ?? record.TargetFile;
+  return typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : null;
+}
+
+function findModelTriggeredSkillAttribution(
+  toolName: string,
+  input: unknown,
+  attributions: SkillAttribution[] | undefined,
+  emittedSkillPaths: Set<string>
+): SkillAttribution | null {
+  if (toolName !== 'read_file') return null;
+  const requestedPath = getToolInputPath(input);
+  if (!requestedPath || !attributions?.length) return null;
+  const attribution = attributions.find((item) => (
+    item.phase === 'model-discovery' &&
+    item.skillPath === requestedPath
+  ));
+  if (!attribution || emittedSkillPaths.has(attribution.skillPath)) return null;
+  emittedSkillPaths.add(attribution.skillPath);
+  return {
+    ...attribution,
+    phase: 'model-triggered',
+  };
+}
+
 
 export async function runLLMChat(sender: WebContents, requestId: string, payload: ChatPayload): Promise<void> {
   const channel = `llm:chunk-${requestId}`;
@@ -367,10 +396,19 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
     const runId = createRun(payload.sessionId, runtime.agentId, requestId);
     sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
+    const preloadedSkillAttributions = (runtime.skillAttributions as SkillAttribution[] | undefined)
+      ?.filter((item) => item.phase === 'preload') ?? [];
+    if (preloadedSkillAttributions.length > 0) {
+      sender.send(channel, {
+        type: 'skill_attribution',
+        attributions: preloadedSkillAttributions,
+      });
+    }
 
     await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
 
     let nextInput: any = { messages: runtime.inputMessages };
+    const emittedModelTriggeredSkillPaths = new Set<string>();
 
     while (!controller.signal.aborted) {
       accumulator.hasSentText = false;
@@ -535,6 +573,18 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           const existingSubagentTaskId = call.name === 'task' ? _subagentActiveTaskIds.get(agentSlug) : undefined;
           const toolCallId = existingSubagentTaskId || call.callId || crypto.randomUUID();
           upsertToolCall(runId, toolCallId, call.name, call.input);
+          const triggeredSkill = findModelTriggeredSkillAttribution(
+            call.name,
+            call.input,
+            runtime.skillAttributions,
+            emittedModelTriggeredSkillPaths
+          );
+          if (triggeredSkill) {
+            sender.send(channel, {
+              type: 'skill_attribution',
+              attributions: [triggeredSkill],
+            });
+          }
           sender.send(channel, {
             type: 'tool_start',
             id: toolCallId,

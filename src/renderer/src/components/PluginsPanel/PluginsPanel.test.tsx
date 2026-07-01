@@ -52,6 +52,16 @@ describe('PluginsPanel Skills tab', () => {
           scope: 'project',
           sourceKind: 'project',
           sourceLabel: 'Project Skill',
+          shadowedSkills: [
+            {
+              name: 'review',
+              qualifiedName: 'review',
+              sourceKind: 'built-in',
+              sourceLabel: 'Built-in Skill',
+              sourcePath: '/tmp/built-in-skills',
+              skillPath: '/tmp/built-in-skills/review/SKILL.md',
+            },
+          ],
           resourceFiles: [],
           created_at: 0,
           updated_at: 0,
@@ -64,6 +74,7 @@ describe('PluginsPanel Skills tab', () => {
           scope: 'global',
           sourceKind: 'user',
           sourceLabel: 'Global Skill',
+          userInvocable: false,
           resourceFiles: [],
           created_at: 0,
           updated_at: 0,
@@ -88,6 +99,8 @@ describe('PluginsPanel Skills tab', () => {
     expect(screen.getByText('teach')).toBeTruthy();
     expect(screen.getByText('Project Skill')).toBeTruthy();
     expect(screen.getByText('Global Skill')).toBeTruthy();
+    expect(screen.getByText('Shadows 1 same-name Skill')).toBeTruthy();
+    expect(screen.getByText('Not available in slash invocation')).toBeTruthy();
   });
 
   it('uses resolved qualified names and source labels from the Skill catalog', () => {

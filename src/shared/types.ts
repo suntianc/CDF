@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
+import type { SkillEffectiveVisibility, SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
 
 // D-03/D-10: Schema for subagent delegated task results
 export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
@@ -84,7 +84,7 @@ export interface Skill {
   sourceLabel?: string;
   sourcePath?: string;
   skillPath?: string;
-  skillVisibility?: SkillOverrideState;
+  skillVisibility?: SkillEffectiveVisibility;
   visibilitySource?: SkillVisibilitySource;
   modelDiscovery?: SkillModelDiscovery;
   userInvocable?: boolean;
@@ -92,6 +92,34 @@ export interface Skill {
   resourceFiles: string[];
   created_at: number;
   updated_at: number;
+  shadowedSkills?: SkillShadowedEntry[];
+}
+
+export interface SkillShadowedEntry {
+  name: string;
+  qualifiedName?: string;
+  sourceKind?: SkillCommandSourceKind;
+  sourceLabel?: string;
+  sourcePath?: string;
+  skillPath?: string;
+}
+
+export type SkillAttributionPhase =
+  | 'model-discovery'
+  | 'preload'
+  | 'explicit-invocation'
+  | 'model-triggered';
+
+export interface SkillAttribution {
+  phase: SkillAttributionPhase;
+  name: string;
+  qualifiedName: string;
+  sourceKind: SkillCommandSourceKind;
+  sourceLabel: string;
+  skillPath: string;
+  visibility: SkillEffectiveVisibility;
+  modelDiscovery: SkillModelDiscovery;
+  userInvocable: boolean;
 }
 
 export interface MCPServer {
@@ -142,6 +170,7 @@ export type LLMStreamEvent =
   | { type: 'tool_start'; id?: string; name: string; input?: unknown }
   | { type: 'tool_end'; id?: string; name: string; output?: unknown }
   | { type: 'tool_error'; id?: string; name: string; error: string }
+  | { type: 'skill_attribution'; attributions: SkillAttribution[] }
   | { type: 'approval_required'; approval: AgentApprovalRequest }
   | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
   | { type: 'runtime_error'; error: string }
@@ -196,7 +225,7 @@ export interface SlashCommand {
   /** Absolute path to the Skill's SKILL.md. Present for Skill commands. */
   skillPath?: string;
   /** Effective Skill Override state. Present for Skill commands. */
-  skillVisibility?: SkillOverrideState;
+  skillVisibility?: SkillEffectiveVisibility;
   /** Effective model-discovery exposure. Present for Skill commands. */
   modelDiscovery?: SkillModelDiscovery;
   /** Whether this Skill can be explicitly invoked by the user. Present for Skill commands. */

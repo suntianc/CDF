@@ -45,7 +45,52 @@ describe('buildCdfSkillsRuntime', () => {
     expect(runtime.prompt).toContain('name-only');
     expect(runtime.prompt).not.toContain('Sensitive trigger text');
     expect(runtime.prompt).not.toContain('Full secret review instructions');
+    expect(runtime.attributions).toEqual([
+      expect.objectContaining({
+        phase: 'model-discovery',
+        name: 'secret-review',
+        qualifiedName: 'secret-review',
+        sourceLabel: 'Project Skill',
+        visibility: 'name-only',
+      }),
+    ]);
     expect(runtime.warnings).toEqual([]);
+  });
+
+  it('attributes preloaded Skills separately from model discovery', () => {
+    const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'preload-review');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: preload-review',
+        'description: Preload review',
+        '---',
+        '',
+        '# Preload Review',
+      ].join('\n'),
+      'utf-8'
+    );
+
+    const runtime = buildCdfSkillsRuntime(tempProjectPath, {
+      preloadSkillNames: ['preload-review'],
+    });
+
+    expect(runtime.attributions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phase: 'model-discovery',
+          qualifiedName: 'preload-review',
+        }),
+        expect.objectContaining({
+          phase: 'preload',
+          qualifiedName: 'preload-review',
+          sourceLabel: 'Project Skill',
+          modelDiscovery: 'full',
+        }),
+      ])
+    );
   });
 
   it('orders nested Project Skills before root Skills when path context matches', () => {
@@ -80,6 +125,7 @@ describe('buildCdfSkillsRuntime', () => {
 
     const runtime = buildCdfSkillsRuntime(tempProjectPath, {
       pathContext: ['apps/web/src/App.tsx'],
+      includeNestedProjectSkills: true,
     });
 
     expect(runtime.skills.map((skill) => skill.qualifiedName)).toEqual([

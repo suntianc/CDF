@@ -673,6 +673,7 @@ export async function createDeepAgentRuntime(
     agent: deepAgent,
     model,
     inputMessages: messages,
+    skillAttributions: skillsRuntime.attributions,
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
     },

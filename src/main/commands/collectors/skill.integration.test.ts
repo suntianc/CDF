@@ -134,7 +134,9 @@ describe('collectSkillCommands integration', () => {
     writeSkill(projectSkillsDir, 'deploy', 'Deploy the whole project');
     writeSkill(webSkillsDir, 'deploy', 'Deploy the web app');
 
-    const commands = await collectSkillCommands(tempProjectPath);
+    const commands = await collectSkillCommands(tempProjectPath, {
+      includeNestedProjectSkills: true,
+    });
     const deployCommands = commands
       .filter((command) => command.skillName === 'deploy')
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -169,6 +171,7 @@ describe('collectSkillCommands integration', () => {
 
     const commands = await collectSkillCommands(tempProjectPath, {
       pathContext: ['apps/web/src/App.tsx'],
+      includeNestedProjectSkills: true,
     });
     const deployCommands = commands.filter((command) => command.skillName === 'deploy');
 

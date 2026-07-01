@@ -16,6 +16,7 @@ import {
   LLMStreamEvent,
   Message,
   Session,
+  SkillAttribution,
   TodoItem,
 } from '../../../shared/types';
 
@@ -202,6 +203,7 @@ let nextActivityFetchRequestId = 0;
 interface SendMessageOptions {
   hiddenUserMessage?: boolean;
   imageBase64?: string[];
+  skillAttributions?: SkillAttribution[];
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -633,10 +635,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       created_at: Date.now(),
       ...(options?.imageBase64?.length ? { imageBase64: options.imageBase64 } : {}),
     };
+    const skillAttributionMessages: Message[] = options?.skillAttributions?.length
+      ? [{
+        id: window.crypto.randomUUID(),
+        session_id: sessionId,
+        role: 'system',
+        content: JSON.stringify({
+          type: 'skill_attribution',
+          attributions: options.skillAttributions,
+        }),
+        tokens: 0,
+        created_at: Date.now(),
+      }]
+      : [];
 
     try {
       if (!options?.hiddenUserMessage) {
         await window.electronAPI.db.saveMessage(userMsg);
+      }
+      for (const message of skillAttributionMessages) {
+        await window.electronAPI.db.saveMessage(message);
       }
 
       // Append User message and placeholder Assistant message
@@ -658,6 +676,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         messages: [
           ...baseMessages,
           ...(options?.hiddenUserMessage ? [] : [userMsg]),
+          ...skillAttributionMessages,
           assistantMsgPlaceholder,
         ],
         todos: [],

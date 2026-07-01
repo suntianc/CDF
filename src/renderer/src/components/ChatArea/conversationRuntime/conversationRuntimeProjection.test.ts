@@ -17,6 +17,75 @@ describe('Conversation Runtime Projection', () => {
     estimateTokens: (text) => text.length,
   };
 
+  it('persists Skill attribution stream events as system messages', () => {
+    const localDeps: ConversationRuntimeProjectionDeps = {
+      now: () => 1234,
+      createId: () => 'skill-attribution-1',
+      estimateTokens: (text) => text.length,
+    };
+    const initial = createConversationRuntimeState({
+      sessionId: 'session-1',
+      streamingMessageId: 'assistant-current',
+      currentAssistantMsgId: 'assistant-current',
+    });
+
+    const result = projectConversationRuntime(
+      initial,
+      {
+        kind: 'llm',
+        event: {
+          type: 'skill_attribution',
+          attributions: [
+            {
+              phase: 'preload',
+              name: 'review',
+              qualifiedName: 'review',
+              sourceKind: 'project',
+              sourceLabel: 'Project Skill',
+              skillPath: '/project/.cdf/skills/review/SKILL.md',
+              visibility: 'on',
+              modelDiscovery: 'full',
+              userInvocable: true,
+            },
+          ],
+        },
+      },
+      localDeps,
+    );
+
+    expect(result.state.messages).toEqual([
+      {
+        id: 'skill-attribution-1',
+        session_id: 'session-1',
+        role: 'system',
+        content: JSON.stringify({
+          type: 'skill_attribution',
+          attributions: [
+            {
+              phase: 'preload',
+              name: 'review',
+              qualifiedName: 'review',
+              sourceKind: 'project',
+              sourceLabel: 'Project Skill',
+              skillPath: '/project/.cdf/skills/review/SKILL.md',
+              visibility: 'on',
+              modelDiscovery: 'full',
+              userInvocable: true,
+            },
+          ],
+        }),
+        created_at: 1234,
+        tokens: 0,
+      },
+    ]);
+    expect(result.effects).toEqual([
+      {
+        type: 'saveMessage',
+        message: result.state.messages[0],
+      },
+    ]);
+  });
+
   it('saves an assistant segment and starts a tool card when tool activity begins', () => {
     const assistant: Message = {
       id: 'assistant-current',
