@@ -2,7 +2,7 @@
 // Data sources: conversation (messages table), skills (resolved CDF Skill catalog),
 // MCP tools (loadMcpTools), workflows (workflows table graph_data),
 // system prompt (agents.system_prompt + buildProjectContext),
-// system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/knowledge_create/tavily/anysearch/arxiv).
+// system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/knowledge_create/parse_pdf/pdf_parse_status/pdf_parse_cancel/tavily/anysearch/arxiv).
 // Token heuristic: Math.ceil(chars * 0.25) — OpenAI rough 1 token ≈ 4 chars.
 // Per-source try-catch: if one source fails, the others still report real values.
 //
@@ -219,6 +219,7 @@ function buildProjectContextString(projectName: string, projectPath: string): st
 //   - file-tools.ts (DELETE_FILE_SCHEMA)
 //   - bash-tool.ts (inline schema for `bash`)
 //   - knowledge-base.ts (KNOWLEDGE_SEARCH_SCHEMA, KNOWLEDGE_CREATE_SCHEMA)
+//   - pdf-parse-tool.ts (PARSE_PDF_SCHEMA, PDF_PARSE_JOB_SCHEMA)
 //   - search-tools.ts (TAVILY_SCHEMA, ANYSEARCH_SCHEMA)
 //   - arxiv-tool.ts (ARXIV_SCHEMA)
 // Schema strings are duplicated here rather than imported so the aggregator
@@ -322,6 +323,53 @@ const KNOWLEDGE_CREATE_META = {
     'Create a project-local Knowledge Entry under .cdf/knowledge with managed OKF frontmatter, safe path handling, and collision protection. Does not update or delete entries.',
 };
 
+const PARSE_PDF_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    filePath: {
+      type: 'string',
+      description: 'Readable absolute local path to a PDF file. Relative paths and non-PDF files are rejected.',
+    },
+    parser: { type: 'string', enum: ['marker'], description: 'Parser to run. Defaults to marker.', default: 'marker' },
+    pageRange: { type: 'string', description: 'Optional Marker page range for previews, tests, or recovery-focused parsing.' },
+    fallback: {
+      type: 'string',
+      enum: ['none', 'agent-on-marker-failure', 'agent-for-selected-pages'],
+      description: 'Agent-mediated recovery request shape. Non-none fallback is reported as not implemented in this slice.',
+      default: 'none',
+    },
+    timeoutMs: {
+      type: 'number',
+      description: 'How long to wait for completion before returning a running PDF Parse Job.',
+      default: 12000,
+    },
+  },
+  required: ['filePath'],
+  additionalProperties: false,
+};
+const PARSE_PDF_META = {
+  name: 'parse_pdf',
+  description:
+    'Parse a readable absolute local PDF path into a Structured Paper Parse using local Marker. Long parses continue as cancellable PDF Parse Jobs; use pdf_parse_status and pdf_parse_cancel with the returned jobId.',
+};
+
+const PDF_PARSE_JOB_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    jobId: { type: 'string', description: 'PDF Parse Job ID returned by parse_pdf.' },
+  },
+  required: ['jobId'],
+  additionalProperties: false,
+};
+const PDF_PARSE_STATUS_META = {
+  name: 'pdf_parse_status',
+  description: 'Return the current status, diagnostics, and completed parse result for a PDF Parse Job.',
+};
+const PDF_PARSE_CANCEL_META = {
+  name: 'pdf_parse_cancel',
+  description: 'Cancel a running PDF Parse Job. Completed, failed, or already canceled jobs are returned unchanged.',
+};
+
 const TAVILY_SCHEMA: unknown = {
   type: 'object',
   properties: {
@@ -367,6 +415,9 @@ const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: st
   { meta: BASH_META, schema: BASH_SCHEMA },
   { meta: KNOWLEDGE_SEARCH_META, schema: KNOWLEDGE_SEARCH_SCHEMA },
   { meta: KNOWLEDGE_CREATE_META, schema: KNOWLEDGE_CREATE_SCHEMA },
+  { meta: PARSE_PDF_META, schema: PARSE_PDF_SCHEMA },
+  { meta: PDF_PARSE_STATUS_META, schema: PDF_PARSE_JOB_SCHEMA },
+  { meta: PDF_PARSE_CANCEL_META, schema: PDF_PARSE_JOB_SCHEMA },
   { meta: TAVILY_META, schema: TAVILY_SCHEMA },
   { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
   { meta: ARXIV_META, schema: ARXIV_SCHEMA },
@@ -676,6 +727,7 @@ export async function aggregateCurrentSessionContext(
   //     every agent regardless of MCP bindings or Skill Preload selections:
   //       [fetch, delete_file (plan-mode stripped), bash (plan-mode stripped),
   //        knowledge_search, knowledge_create,
+  //        parse_pdf, pdf_parse_status, pdf_parse_cancel,
   //        tavily / anysearch / arxiv (tool_configs.is_enabled=1 only)]
   //     We sum the character length of name+description+schema for all mirrored
   //     built-ins here; plan-mode strips only the write/shell tools.

@@ -1,0 +1,3 @@
+# Parse PDF accepts local absolute paths
+
+CDF's `parse_pdf` capability will accept readable absolute PDF paths on the user's machine instead of limiting input to files under the current Project root. The tool is a general local PDF parsing capability, not a Project file tool; it should still reject relative paths, unreadable files, directories, and non-PDF inputs, pass paths as process arguments rather than shell strings, record the real input path in diagnostics, and keep Marker outputs inside CDF-managed job or temporary directories unless a separate import workflow claims the PDF for the Paper Library.

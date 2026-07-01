@@ -356,7 +356,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     // total = conversation(0) + skills(0) + mcp(0) + workflows(0) +
     //         projectCommandBodies(0) + systemPrompt(0) + systemTools(BUILTIN_CHARS/4) +
     //         customAgents(0) + memoryFiles(0) + messages(0)
-    // 08.2 polish: systemTools is now a real calculation (8 built-in tool
+    // 08.2 polish: systemTools is now a real calculation (built-in tool
     // schemas) and counts toward the total, so the expected freeSpace
     // reflects that.
     const result = await aggregateCurrentSessionContext('session-1', 200_000);
@@ -365,6 +365,9 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(result.breakdown.freeSpace).toBe(200_000 - expectedTotal - 30_000);
     // Sanity: confirm we actually computed the BUILTIN_TOOL_CHARS total
     expect(result.breakdown.systemTools).toBe(expectedSystemTools);
+    expect(result.breakdown.systemToolsPerTool.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel']),
+    );
   });
 
   it('freeSpace clamps to 0 when total exceeds limit', async () => {
@@ -479,7 +482,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
   it('systemPrompt + systemTools now report real values (08.2 polish promoted placeholders to real calculations)', async () => {
     // 08.2 polish: systemPrompt now reads agents.system_prompt + the static
     // buildProjectContext template, and systemTools now sums the mirrored built-in
-    // tool schemas (fetch / delete_file / bash / tavily / anysearch / arxiv).
+    // tool schemas, including PDF Parse tools.
     // Both should be > 0 for a session backed by a real agent row.
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     installFakeDb({

@@ -33,6 +33,14 @@ vi.mock('./obscura-tool', () => ({
   createObscuraCliRunner: vi.fn(() => ({ browse: vi.fn() })),
 }));
 
+vi.mock('./pdf-parse-tool', () => ({
+  createPdfParseTools: vi.fn(() => [
+    { name: 'parse_pdf' },
+    { name: 'pdf_parse_status' },
+    { name: 'pdf_parse_cancel' },
+  ]),
+}));
+
 vi.mock('./search-tools', () => ({
   createTavilyTool: vi.fn(() => ({ name: 'tavily' })),
   createAnysearchTool: vi.fn(() => ({ name: 'anysearch' })),
@@ -184,6 +192,9 @@ describe('createBuiltInTools', () => {
       'obscura_browse',
       'knowledge_search',
       'knowledge_create',
+      'parse_pdf',
+      'pdf_parse_status',
+      'pdf_parse_cancel',
     ]);
   });
 });

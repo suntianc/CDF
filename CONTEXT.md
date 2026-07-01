@@ -104,6 +104,26 @@ _Avoid_: PDF preview, layout clone, pretty Markdown export
 The target output shape for PDF parsing integration, describing parsed Markdown plus block-level content and Paper Source Location metadata.
 _Avoid_: parser API, Markdown format, report template
 
+**Marker Parser Runner**:
+The main-process boundary that invokes the locally available Marker command to produce a Structured Paper Parse. It is not an embedded CDF parser distribution.
+_Avoid_: bundled parser, PDF engine, Marker integration
+
+**PDF Parse Job**:
+A cancellable background execution of a PDF parse request that may outlive the Agent tool call that started it.
+_Avoid_: parser promise, blocking parse call, conversion task
+
+**Local PDF Input**:
+An absolute path to a readable PDF on the user's machine that a PDF parsing capability may consume without first importing it into the Project.
+_Avoid_: project file, Paper Library item, attachment
+
+**PDF Parse Diagnostic**:
+A structured signal emitted by a PDF parse attempt, combining severity, stable code, message, and optional page information so Agents can decide whether to retry, narrow the page range, warn the user, or request fallback work.
+_Avoid_: log line, parser stderr, free-text warning
+
+**Agent-Mediated PDF Recovery**:
+A later PDF recovery path where a configured Agent uses project-approved model providers and page-scoped parser evidence to repair or enrich selected PDF parse results.
+_Avoid_: hardcoded LLM API fallback, parser-internal model call, silent reparse
+
 **Paper Source Location**:
 The traceable location attached to parsed paper content so an Agent can point back to the original PDF, at minimum page number plus section or heading.
 _Avoid_: citation string, markdown anchor, display position
