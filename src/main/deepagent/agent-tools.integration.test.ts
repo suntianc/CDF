@@ -210,15 +210,29 @@ describe('create_agent / update_agent: duplicate join rows surface as tool error
     // succeed and only persist the unique ones.
     const result = await invokeTool('update_agent', {
       id: agentId,
-      skillNames: ['global:foo', 'global:foo', 'global:bar'],
+      skillNames: [
+        'global:foo',
+        'global:foo',
+        'project:bar',
+        'project-additional:docs:review',
+        'project-additional:docs:review',
+      ],
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.skillNames.sort()).toEqual(['global:bar', 'global:foo']);
+    expect(result.skillNames.sort()).toEqual([
+      'global:foo',
+      'project-additional:docs:review',
+      'project:bar',
+    ]);
     const persisted = db
       .prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ? ORDER BY skill_name')
       .all(agentId) as any[];
-    expect(persisted.map((r) => r.skill_name)).toEqual(['global:bar', 'global:foo']);
+    expect(persisted.map((r) => r.skill_name)).toEqual([
+      'global:foo',
+      'project-additional:docs:review',
+      'project:bar',
+    ]);
   });
 });
 

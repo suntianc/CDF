@@ -111,7 +111,7 @@ export function getAgentMcpServers(agentId: string): MCPServer[] {
 }
 
 /**
- * 查询 Agent 绑定的 Skill 名称列表
+ * 查询 Agent 的 Skill Preload 引用列表
  */
 export function getAgentSkillNames(agentId: string): string[] {
   const rows = db

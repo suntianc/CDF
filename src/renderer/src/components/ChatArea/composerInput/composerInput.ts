@@ -306,20 +306,24 @@ export function getComposerInputRenderModel(
   let remaining = state.text;
 
   if (remaining.startsWith('/')) {
-    const match = remaining.match(/^\/([\w-]+)(?=\s)/);
-    if (match) {
-      const command = commands.find((candidate) => candidate.name === match[1]);
-      if (command) {
-        leadingItems.push({
-          type: 'commandEntry',
-          name: command.name,
-          raw: `/${command.name}`,
-          source: command.source,
-        });
-        remaining = remaining.slice(command.name.length + 1);
-        if (remaining.startsWith(' ')) {
-          remaining = remaining.slice(1);
-        }
+    const command = commands.find((candidate) => {
+      const commandPrefix = `/${candidate.name}`;
+      return (
+        remaining === commandPrefix ||
+        remaining === `${commandPrefix} ` ||
+        remaining.startsWith(`${commandPrefix} `)
+      );
+    });
+    if (command) {
+      leadingItems.push({
+        type: 'commandEntry',
+        name: command.name,
+        raw: `/${command.name}`,
+        source: command.source,
+      });
+      remaining = remaining.slice(command.name.length + 1);
+      if (remaining.startsWith(' ')) {
+        remaining = remaining.slice(1);
       }
     }
   }

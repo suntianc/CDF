@@ -26,6 +26,17 @@ const goalCommand: SlashCommand = {
   badge: '[system]',
 };
 
+const qualifiedSkillCommand: SlashCommand = {
+  name: 'apps/web:deploy',
+  qualifiedName: 'apps/web:deploy',
+  skillName: 'deploy',
+  description: 'Deploy the web app',
+  source: 'skill:project',
+  target: 'project:apps/web:deploy',
+  sourceLabel: 'Project Skill: apps/web',
+  badge: '[skill:project]',
+};
+
 describe('composerInput', () => {
   it('submits normal text in session mode and clears the prepared instruction', () => {
     const initial = createComposerInputState();
@@ -320,6 +331,26 @@ describe('composerInput', () => {
         },
       ],
       visibleTail: 'fix it',
+    });
+  });
+
+  it('builds a command token for qualified Skill slash names', () => {
+    const state = updateComposerInputText(createComposerInputState(), {
+      value: '/apps/web:deploy prod',
+      cursor: '/apps/web:deploy prod'.length,
+      hasProject: true,
+    });
+
+    expect(getComposerInputRenderModel(state, [qualifiedSkillCommand])).toEqual({
+      leadingItems: [
+        {
+          type: 'commandEntry',
+          name: 'apps/web:deploy',
+          raw: '/apps/web:deploy',
+          source: 'skill:project',
+        },
+      ],
+      visibleTail: 'prod',
     });
   });
 

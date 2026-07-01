@@ -8,6 +8,7 @@ const mockGetSessionState = vi.fn();
 const mockSetSessionGoal = vi.fn();
 const mockContextCurrentSession = vi.fn();
 const mockReadBody = vi.fn();
+const mockReadSkillBody = vi.fn();
 const mockContextModalOpen = vi.fn();
 const mockStartGoalJudgeLoop = vi.fn();
 const mockStopGoalJudgeLoop = vi.fn();
@@ -75,6 +76,23 @@ const workflowCmd: SlashCommand = {
   badge: '[workflow]',
 };
 
+const skillCmd: SlashCommand = {
+  name: 'apps/web:deploy',
+  qualifiedName: 'apps/web:deploy',
+  skillName: 'deploy',
+  description: 'Deploy the web app',
+  source: 'skill:project',
+  target: 'project:apps/web:deploy',
+  sourceLabel: 'Project Skill: apps/web',
+  badge: '[skill:project]',
+  skillSourceKind: 'project-additional',
+  sourcePath: '/repo/apps/web/.cdf/skills',
+  skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+  skillVisibility: 'on',
+  modelDiscovery: 'full',
+  userInvocable: true,
+};
+
 describe('dispatcher.resolve', () => {
   it('returns GoalLoop for /goal (08.2 P3 C1-05)', () => {
     const plan = resolve('/goal', [goalCmd]);
@@ -126,6 +144,114 @@ describe('dispatcher.resolve', () => {
     });
   });
 
+  it('PluginRewrite for Skill keeps fallback prompt free of instruction paths', () => {
+    const plan = resolve('/apps/web:deploy prod', [skillCmd]);
+    expect(plan).toEqual({
+      kind: 'PluginRewrite',
+      command: skillCmd,
+      args: 'prod',
+      prompt: [
+        '请使用 Skill `apps/web:deploy` 处理下面的请求。',
+        'Skill 来源：Project Skill: apps/web。',
+        '该 Skill 的完整说明会由 CDF 在执行时注入；不要自行读取 Skill 指令路径。',
+        '用户参数：prod',
+      ].join('\n'),
+    });
+    expect(plan?.prompt).not.toContain('/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+  });
+
+  it('resolves a root Skill command to a matching nested Skill when args mention that nested path', () => {
+    const rootDeploy: SlashCommand = {
+      ...skillCmd,
+      name: 'deploy',
+      qualifiedName: 'deploy',
+      skillSourceKind: 'project',
+      sourceLabel: 'Project Skill',
+      target: 'project:deploy',
+      sourcePath: '/repo/.cdf/skills',
+      skillPath: '/repo/.cdf/skills/deploy/SKILL.md',
+    };
+    const nestedDeploy: SlashCommand = {
+      ...skillCmd,
+      skillSourceKind: 'project-nested',
+      sourceLabel: 'Nested Project Skill: apps/web',
+      target: 'project-nested:apps/web:deploy',
+    };
+
+    const plan = resolve('/deploy @apps/web/src/App.tsx', [
+      rootDeploy,
+      nestedDeploy,
+    ]);
+
+    expect(plan).toMatchObject({
+      kind: 'PluginRewrite',
+      command: nestedDeploy,
+      args: '@apps/web/src/App.tsx',
+    });
+  });
+
+  it('normalizes Windows-style path mentions when resolving nested Skill commands', () => {
+    const rootDeploy: SlashCommand = {
+      ...skillCmd,
+      name: 'deploy',
+      qualifiedName: 'deploy',
+      skillSourceKind: 'project',
+      sourceLabel: 'Project Skill',
+      target: 'project:deploy',
+      sourcePath: '/repo/.cdf/skills',
+      skillPath: '/repo/.cdf/skills/deploy/SKILL.md',
+    };
+    const nestedDeploy: SlashCommand = {
+      ...skillCmd,
+      skillSourceKind: 'project-nested',
+      sourceLabel: 'Nested Project Skill: apps/web',
+      target: 'project-nested:apps/web:deploy',
+    };
+
+    const plan = resolve('/deploy @apps\\web\\src\\App.tsx', [
+      rootDeploy,
+      nestedDeploy,
+    ]);
+
+    expect(plan).toMatchObject({
+      kind: 'PluginRewrite',
+      command: nestedDeploy,
+      args: '@apps\\web\\src\\App.tsx',
+    });
+  });
+
+  it('does not override an explicitly qualified nested Skill command with path-aware ranking', () => {
+    const webDeploy: SlashCommand = {
+      ...skillCmd,
+      name: 'apps/web:deploy',
+      qualifiedName: 'apps/web:deploy',
+      skillName: 'deploy',
+      skillSourceKind: 'project-nested',
+      sourceLabel: 'Nested Project Skill: apps/web',
+      target: 'project-nested:apps/web:deploy',
+    };
+    const apiDeploy: SlashCommand = {
+      ...skillCmd,
+      name: 'apps/api:deploy',
+      qualifiedName: 'apps/api:deploy',
+      skillName: 'deploy',
+      skillSourceKind: 'project-nested',
+      sourceLabel: 'Nested Project Skill: apps/api',
+      target: 'project-nested:apps/api:deploy',
+    };
+
+    const plan = resolve('/apps/web:deploy @apps/api/src/server.ts', [
+      webDeploy,
+      apiDeploy,
+    ]);
+
+    expect(plan).toMatchObject({
+      kind: 'PluginRewrite',
+      command: webDeploy,
+      args: '@apps/api/src/server.ts',
+    });
+  });
+
   it('returns null for non-slash input', () => {
     expect(resolve('hello', [goalCmd])).toBeNull();
   });
@@ -148,6 +274,7 @@ describe('dispatcher.dispatch', () => {
     mockSetSessionGoal.mockReset();
     mockContextCurrentSession.mockReset();
     mockReadBody.mockReset();
+    mockReadSkillBody.mockReset();
     mockContextModalOpen.mockReset();
     mockStartGoalJudgeLoop.mockReset();
     mockStopGoalJudgeLoop.mockReset();
@@ -155,7 +282,7 @@ describe('dispatcher.dispatch', () => {
     mockStopGoalJudgeLoop.mockResolvedValue(undefined);
     (window as any).electronAPI = {
       context: { currentSession: mockContextCurrentSession },
-      commands: { readBody: mockReadBody },
+      commands: { readBody: mockReadBody, readSkillBody: mockReadSkillBody },
     };
   });
 
@@ -316,6 +443,68 @@ describe('dispatcher.dispatch', () => {
       'project-1',
       '请使用 arxiv MCP 服务器上的合适工具处理：foo'
     );
+  });
+
+  it('PluginRewrite for explicit Skill invocation injects full Skill instructions into the user message', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: 'session-1',
+      sessions: [{ id: 'session-1', agent_id: 'agent-1' }],
+      sendMessage: mockSendMessage,
+    });
+    mockSendMessage.mockResolvedValue(undefined);
+    mockReadSkillBody.mockResolvedValue({
+      body: '# Deploy Skill\n\nUse the release checklist.',
+      mtimeMs: 12345,
+    });
+
+    await dispatch({
+      kind: 'PluginRewrite',
+      command: skillCmd,
+      args: 'prod',
+      prompt: 'fallback prompt',
+    });
+
+    expect(mockReadSkillBody).toHaveBeenCalledWith('project-1', 'agent-1', '/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      'project-1',
+      [
+        '请使用 Skill `apps/web:deploy` 处理下面的请求。',
+        'Skill 来源：Project Skill: apps/web。',
+        'Skill 指令：',
+        '# Deploy Skill\n\nUse the release checklist.',
+        '用户参数：prod',
+      ].join('\n')
+    );
+  });
+
+  it('does not leak a Skill instruction path when explicit Skill body is unavailable', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: 'session-1',
+      sessions: [{ id: 'session-1', agent_id: 'agent-1' }],
+      sendMessage: mockSendMessage,
+    });
+    mockSendMessage.mockResolvedValue(undefined);
+    mockReadSkillBody.mockResolvedValue({ body: '', mtimeMs: 0 });
+
+    await dispatch({
+      kind: 'PluginRewrite',
+      command: skillCmd,
+      args: 'prod',
+      prompt: [
+        '请使用 Skill `apps/web:deploy` 处理下面的请求。',
+        '先读取 Skill 指令文件 `/repo/apps/web/.cdf/skills/deploy/SKILL.md`，再按该 Skill 的说明执行。',
+        '用户参数：prod',
+      ].join('\n'),
+    });
+
+    expect(mockReadSkillBody).toHaveBeenCalledWith('project-1', 'agent-1', '/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+    const sentContent = mockSendMessage.mock.calls[0][1] as string;
+    expect(sentContent).toContain('Skill `apps/web:deploy` 当前不可用或无法读取');
+    expect(sentContent).toContain('用户参数：prod');
+    expect(sentContent).not.toContain('/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+    expect(sentContent).not.toContain('先读取 Skill 指令文件');
   });
 
   it('PluginRewrite with frontmatter.allowedTools: passes overrides.allowedTools to sendMessage (D-09 type-level)', async () => {

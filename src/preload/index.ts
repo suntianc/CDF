@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteAgent: (id: string) => ipcRenderer.invoke('db:deleteAgent', id),
     // Phase 3: Skills
     getSkills: (projectId: string) => ipcRenderer.invoke('db:getSkills', projectId),
+    getProjectSkillOverrides: (projectId: string) => ipcRenderer.invoke('db:getProjectSkillOverrides', projectId),
+    setProjectSkillOverride: (projectId: string, skillName: string, visibility: string) =>
+      ipcRenderer.invoke('db:setProjectSkillOverride', projectId, skillName, visibility),
     saveSkill: (projectId: string, skill: any) => ipcRenderer.invoke('db:saveSkill', projectId, skill),
     deleteSkill: (projectId: string, id: string) => ipcRenderer.invoke('db:deleteSkill', projectId, id),
     importSkillDirectory: (sourceDir: string) => ipcRenderer.invoke('db:importSkillDirectory', sourceDir),
@@ -162,6 +165,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // empty values on path-traversal/missing-file/IO failure.
     readBody: (bodyPath: string): Promise<{ body: string; mtimeMs: number }> =>
       ipcRenderer.invoke('commands:readBody', bodyPath),
+    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string): Promise<{ body: string; mtimeMs: number }> =>
+      ipcRenderer.invoke('commands:readSkillBody', projectId, agentId, skillPath),
     onChanged: (callback: (event: any, data: { source: string }) => void) => {
       const listener = (event: any, data: { source: string }) => callback(event, data);
       ipcRenderer.on('commands:changed', listener);

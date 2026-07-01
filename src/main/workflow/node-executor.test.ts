@@ -7,13 +7,29 @@ const {
   createLangChainModelMock,
   loadMcpToolsMock,
   resolveAgentSkillsConfigMock,
+  resolveAgentSkillConfigOptionsMock,
+  getScopePathMock,
+  getBuiltInSkillDirsMock,
+  buildCdfSkillsRuntimeMock,
+  storeGetMock,
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   decryptApiKeyMock: vi.fn((value: string) => `decrypted:${value}`),
   createLangChainModelMock: vi.fn(() => ({ model: 'mock-model' })),
   loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
-  resolveAgentSkillsConfigMock: vi.fn(() => ({ skillsSources: [] })),
+  resolveAgentSkillsConfigMock: vi.fn((): any => ({ skillsSources: [] })),
+  resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({ options: undefined, warnings: [] })),
+  getScopePathMock: vi.fn((_projectPath: string, scope: string) =>
+    scope === 'global' ? '/tmp/global-skills' : `${_projectPath}/.cdf/skills`
+  ),
+  getBuiltInSkillDirsMock: vi.fn(() => ['/tmp/cdf-built-in-skills/knowledge-base']),
+  buildCdfSkillsRuntimeMock: vi.fn(() => ({
+    skills: [],
+    prompt: '## Skills System\n\nworkflow skills prompt',
+    warnings: [],
+  })),
+  storeGetMock: vi.fn((key?: string): unknown => key === 'skillOverrides' ? {} : undefined),
 }));
 
 vi.mock('deepagents', () => ({
@@ -42,7 +58,20 @@ vi.mock('../deepagent/mcp-connector', () => ({
 }));
 
 vi.mock('../deepagent/skill-manager', () => ({
+  getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  getScopePath: getScopePathMock,
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
+  resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
+}));
+
+vi.mock('../deepagent/skills-runtime/cdf-skills-runtime', () => ({
+  buildCdfSkillsRuntime: buildCdfSkillsRuntimeMock,
+}));
+
+vi.mock('../store', () => ({
+  default: {
+    get: storeGetMock,
+  },
 }));
 
 vi.mock('fs', () => ({
@@ -61,6 +90,8 @@ const VALID_TASK_JSON = '{"summary":"done","status":"success"}';
 describe('createAgentNodeExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resolveAgentSkillConfigOptionsMock.mockReturnValue({ options: undefined, warnings: [] });
+    storeGetMock.mockImplementation((key?: string) => key === 'skillOverrides' ? {} : undefined);
     createDeepAgentMock.mockReturnValue({
       invoke: vi.fn(async () => ({
         messages: [{ role: 'assistant', content: VALID_TASK_JSON }],
@@ -113,6 +144,200 @@ describe('createAgentNodeExecutor', () => {
       apiUrl: 'https://api.minimaxi.com/anthropic/v1',
       defaultModel: 'MiniMax-M2.7',
       providerType: 'minimax',
+    }));
+  });
+
+  it('passes user and agent skill overrides into workflow agent skill resolution', async () => {
+    const agentConfig = JSON.stringify({
+      skillOverrides: {
+        'agent-hidden': 'off',
+      },
+    });
+    resolveAgentSkillConfigOptionsMock.mockReturnValueOnce({
+      options: {
+        userOverrides: {
+          'user-hidden': 'off',
+        },
+        agentOverrides: {
+          'agent-hidden': 'off',
+        },
+      },
+      warnings: [],
+    });
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM agents WHERE id')) {
+          return {
+            id: arg,
+            project_id: 'project-1',
+            name: 'Workflow Agent',
+            provider_id: 'provider-1',
+            description: 'does work',
+            system_prompt: 'system',
+            config: agentConfig,
+          };
+        }
+        if (sql.includes('FROM llm_providers')) {
+          return {
+            id: 'provider-1',
+            provider_type: 'minimax',
+            api_key: 'encrypted-key',
+            api_url: 'https://api.minimaxi.com/anthropic/v1',
+            default_model: 'MiniMax-M2.7',
+          };
+        }
+        if (sql.includes('FROM projects')) {
+          return { id: 'project-1', name: 'Project', path: '/tmp/project' };
+        }
+        return undefined;
+      },
+      all: () => [],
+    }));
+
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Node 1' },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(resolveAgentSkillConfigOptionsMock).toHaveBeenCalledWith(agentConfig, expect.any(Function));
+    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith('/tmp/project', [], {
+      userOverrides: {
+        'user-hidden': 'off',
+      },
+      agentOverrides: {
+        'agent-hidden': 'off',
+      },
+    });
+  });
+
+  it('wires workflow agent skills through the CDF Skills Runtime prompt', async () => {
+    resolveAgentSkillsConfigMock.mockReturnValueOnce({
+      skillsSources: ['/.cdf/skills'],
+      permissions: [{ operations: ['read'], paths: ['/tmp/project'] }],
+    });
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM agents WHERE id')) {
+          return {
+            id: arg,
+            project_id: 'project-1',
+            name: 'Workflow Agent',
+            provider_id: 'provider-1',
+            description: 'does work',
+            system_prompt: 'system',
+          };
+        }
+        if (sql.includes('FROM llm_providers')) {
+          return {
+            id: 'provider-1',
+            provider_type: 'minimax',
+            api_key: 'encrypted-key',
+            api_url: 'https://api.minimaxi.com/anthropic/v1',
+            default_model: 'MiniMax-M2.7',
+          };
+        }
+        if (sql.includes('FROM projects')) {
+          return { id: 'project-1', name: 'Project', path: '/tmp/project' };
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agent_skills')) {
+          return arg === 'agent-1' ? [{ skill_name: 'project:workflow-skill' }] : [];
+        }
+        return [];
+      },
+    }));
+
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Node 1' },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    const params = createDeepAgentMock.mock.calls[0][0];
+    expect(params.systemPrompt).toContain('system');
+    expect(params.systemPrompt).toContain('workflow skills prompt');
+    expect(params.skills).toBeUndefined();
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith('/tmp/project', expect.objectContaining({
+      builtInSkillDirs: ['/tmp/cdf-built-in-skills/knowledge-base'],
+      preloadSkillNames: ['workflow-skill'],
+    }));
+  });
+
+  it('passes workflow node path mentions into CDF Skills Runtime for nested Skill ranking', async () => {
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: {
+        agentId: 'agent-1',
+        label: 'Node 1',
+        taskDescription: 'Deploy @apps/web/src/App.tsx',
+      },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith('/tmp/project', expect.objectContaining({
+      pathContext: ['apps/web/src/App.tsx'],
+    }));
+  });
+
+  it('preserves qualified additional workflow skill names when building preload hints', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM agents WHERE id')) {
+          return {
+            id: arg,
+            project_id: 'project-1',
+            name: 'Workflow Agent',
+            provider_id: 'provider-1',
+            description: 'does work',
+            system_prompt: 'system',
+          };
+        }
+        if (sql.includes('FROM llm_providers')) {
+          return {
+            id: 'provider-1',
+            provider_type: 'minimax',
+            api_key: 'encrypted-key',
+            api_url: 'https://api.minimaxi.com/anthropic/v1',
+            default_model: 'MiniMax-M2.7',
+          };
+        }
+        if (sql.includes('FROM projects')) {
+          return { id: 'project-1', name: 'Project', path: '/tmp/project' };
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agent_skills')) {
+          return arg === 'agent-1' ? [{ skill_name: 'project-additional:docs:review' }] : [];
+        }
+        return [];
+      },
+    }));
+
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Node 1' },
+    });
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith('/tmp/project', ['project-additional:docs:review']);
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith('/tmp/project', expect.objectContaining({
+      preloadSkillNames: ['docs:review'],
     }));
   });
 
@@ -408,4 +633,3 @@ describe('createAgentNodeExecutor', () => {
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 });
-

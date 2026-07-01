@@ -1,5 +1,6 @@
 import Store from 'electron-store';
 import type { ApprovalMode } from '../shared/types';
+import type { SkillOverrideState } from '../shared/skill-overrides';
 
 interface StoreSchema {
   theme: 'light' | 'dark' | 'system';
@@ -16,6 +17,7 @@ interface StoreSchema {
   // Phase 14: 全局审批模式默认值
   approvalMode: ApprovalMode;
   autoSave: boolean;
+  skillOverrides: Record<string, SkillOverrideState>;
 }
 
 const store = new Store<StoreSchema>({
@@ -28,6 +30,7 @@ const store = new Store<StoreSchema>({
     language: 'zh-CN',
     approvalMode: 'strict',
     autoSave: false,
+    skillOverrides: {},
   },
   schema: {
     theme: { type: 'string', enum: ['light', 'dark', 'system'] },
@@ -47,6 +50,13 @@ const store = new Store<StoreSchema>({
     language: { type: 'string', enum: ['zh-CN', 'en-US'] },
     approvalMode: { type: 'string', enum: ['strict', 'agent_decides', 'bypass'] },
     autoSave: { type: 'boolean' },
+    skillOverrides: {
+      type: 'object',
+      additionalProperties: {
+        type: 'string',
+        enum: ['on', 'name-only', 'user-invocable-only', 'off'],
+      },
+    },
   },
   clearInvalidConfig: true,
 });

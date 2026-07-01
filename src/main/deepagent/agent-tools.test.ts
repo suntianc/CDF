@@ -634,18 +634,17 @@ describe('createAgentTools', () => {
       expect(result.provider_id).toBe('p-1');
     });
 
-    it('attaches MCP servers and skills (only global-scoped skills)', async () => {
+    it('attaches MCP servers and preserves Skill Preload references', async () => {
       seedProvider('p-default');
       dbState.mcpServers.set('m1', { id: 'm1', project_id: PROJECT_ID });
       const result = await invoke('create_agent', {
         name: 'attached',
         mcpServerIds: ['m1', 'nonexistent'],
-        skillNames: ['global:foo', 'project:bar'],
+        skillNames: ['global:foo', 'project:bar', 'project-additional:docs:review'],
       });
       // only m1 exists → only m1 attached
       expect(result.mcpServerIds).toEqual(['m1']);
-      // only global:foo kept
-      expect(result.skillNames).toEqual(['global:foo']);
+      expect(result.skillNames).toEqual(['global:foo', 'project:bar', 'project-additional:docs:review']);
     });
 
     it('first agent becomes default; setting is_default on second resets first', async () => {

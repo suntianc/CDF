@@ -1,22 +1,98 @@
-import { listPhysicalSkills } from '../../deepagent/skill-manager';
-import type { SlashCommand } from '../../../shared/types';
+import { getBuiltInSkillDirs, getScopePath } from '../../deepagent/skill-manager';
+import {
+  resolveSkillCatalog,
+  resolveSkillSourcePlan,
+  type SkillCatalogOptions,
+  type ResolvedSkillCatalogEntry,
+} from '../../deepagent/skills-runtime/skill-sources';
+import type { CommandSource, SkillCommandSourceKind, SlashCommand } from '../../../shared/types';
 
 /**
- * Phase 6 Skills collector.
+ * Skills collector for Claude Code-style explicit Skill invocation.
  *
- * - Reuses `listPhysicalSkills(projectPath)` from skill-manager.ts (D-22 same-name
- *   project wins is already enforced by that function).
- * - Maps `scope: 'project' | 'global'` to `source: 'skill:project' | 'skill:global'`.
- * - `target` is `${scope}:${name}` (matches the `id` returned by listPhysicalSkills).
+ * The command name is the user-invocable Skill name without a leading `/`.
+ * Root Skills use the short name; later nested/plugin Skills can supply
+ * qualified names while retaining the same attribution fields.
  */
-export async function collectSkillCommands(projectPath: string): Promise<SlashCommand[]> {
-  const skills = listPhysicalSkills(projectPath);
-  return skills.map((skill) => ({
-    name: skill.name,
+export async function collectSkillCommands(
+  projectPath: string,
+  options: SkillCatalogOptions = {}
+): Promise<SlashCommand[]> {
+  const plan = resolveSkillSourcePlan(projectPath, {
+    builtInSkillDirs: getBuiltInSkillDirs(),
+    userSkillsDir: getScopePath(projectPath, 'global'),
+  });
+  const catalog = resolveSkillCatalog(plan, options);
+
+  return catalog.skills
+    .filter((skill) => skill.userInvocable)
+    .map(skillToCommand);
+}
+
+function skillToCommand(skill: ResolvedSkillCatalogEntry): SlashCommand {
+  const source = getCommandSource(skill.sourceKind);
+  const qualifiedName = skill.qualifiedName ?? skill.name;
+  return {
+    name: qualifiedName,
+    qualifiedName,
+    skillName: skill.name,
+    skillSourceKind: skill.sourceKind as SkillCommandSourceKind,
+    sourcePath: skill.sourcePath,
+    skillPath: skill.skillPath,
+    skillVisibility: skill.visibility,
+    modelDiscovery: skill.modelDiscovery,
+    userInvocable: skill.userInvocable,
     description: skill.description,
-    source: skill.scope === 'project' ? 'skill:project' : 'skill:global',
-    target: `${skill.scope}:${skill.name}`,
-    sourceLabel: `skill:${skill.scope}`,
-    badge: `[skill:${skill.scope}]`,
-  }));
+    source,
+    target: `${getTargetScope(skill.sourceKind)}:${qualifiedName}`,
+    sourceLabel: getSourceLabel(skill),
+    badge: `[${source}]`,
+  };
+}
+
+function getCommandSource(sourceKind: ResolvedSkillCatalogEntry['sourceKind']): CommandSource {
+  switch (sourceKind) {
+    case 'project':
+    case 'project-nested':
+    case 'project-additional':
+      return 'skill:project';
+    case 'built-in':
+    case 'user':
+    case 'enterprise':
+      return 'skill:global';
+  }
+}
+
+function getTargetScope(sourceKind: ResolvedSkillCatalogEntry['sourceKind']): string {
+  switch (sourceKind) {
+    case 'built-in':
+      return 'built-in';
+    case 'project':
+      return 'project';
+    case 'project-nested':
+      return 'project-nested';
+    case 'project-additional':
+      return 'project';
+    case 'user':
+      return 'global';
+    case 'enterprise':
+      return 'enterprise';
+  }
+}
+
+function getSourceLabel(skill: ResolvedSkillCatalogEntry): string {
+  switch (skill.sourceKind) {
+    case 'built-in':
+      return 'Built-in Skill';
+    case 'project':
+      return 'Project Skill';
+    case 'project-nested':
+      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
+    case 'project-additional':
+      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
+    case 'user':
+      return 'Global Skill';
+    case 'enterprise':
+      return 'Enterprise Skill';
+  }
 }

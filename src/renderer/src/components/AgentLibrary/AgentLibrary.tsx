@@ -157,7 +157,7 @@ export function AgentLibrary() {
                     </span>
                     <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
                       <Code className="w-3 h-3 text-[var(--color-text-muted)]" />
-                      <span>{t('agent.skillBindings', { count: agent.skillNames?.length || 0 })}</span>
+                      <span>{t('agent.skillPreloads', { count: agent.skillNames?.length || 0 })}</span>
                     </span>
                   </div>
                 </div>

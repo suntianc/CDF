@@ -5,6 +5,7 @@ import { collectSkillCommands } from './collectors/skill';
 import { collectSystemCommands } from './collectors/system';
 import { collectWorkflowCommands } from './collectors/workflow';
 import { detectConflicts } from './conflict-detector';
+import type { SkillCatalogOptions } from '../deepagent/skills-runtime/skill-sources';
 
 export interface HealthWarning {
   type: 'mcp_health_warning';
@@ -30,7 +31,8 @@ export interface RegistryResult {
  */
 export async function collectAllCommands(
   projectPath: string,
-  agentId: string
+  agentId: string,
+  skillOptions: SkillCatalogOptions = {}
 ): Promise<RegistryResult> {
   // Run all 5 collectors through Promise.allSettled. The system collector is
   // sync but we still wrap it in a settled promise to ensure uniform error
@@ -38,7 +40,7 @@ export async function collectAllCommands(
   const [system, mcp, skills, workflows, projects] = await Promise.allSettled([
     Promise.resolve().then(() => collectSystemCommands()),
     collectMcpCommands(agentId),
-    collectSkillCommands(projectPath),
+    collectSkillCommands(projectPath, skillOptions),
     collectWorkflowCommands(projectPath),
     collectProjectCommands(projectPath),
   ]);

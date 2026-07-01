@@ -10,7 +10,8 @@ import db from '../database';
 import store from '../store';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
-import { resolveAgentSkillsConfig } from './skill-manager';
+import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from './skill-manager';
+import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import {
   getProvider,
   getAgentMcpServers,
@@ -25,6 +26,7 @@ import {
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
 import { createParallelTaskTool } from './parallel-task-tool';
+import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
 import { getCurrentStreamAccumulator } from './stream-accumulator';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
@@ -264,7 +266,7 @@ async function buildInputMessages(sessionId: string, currentMessage: RuntimeInpu
 }
 
 function buildProjectContext(project: RuntimeProjectRow): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${project.path}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${project.path}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（对所有项目默认可见）\n- Agent 选择 Skill 只表示预加载或强调，不表示访问授权\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
 }
 
 function generateSlug(name: string): string {
@@ -471,6 +473,38 @@ function createSubagentResilienceMiddleware() {
   ];
 }
 
+function buildSkillOverrideOptions(agentRow: RuntimeAgentRow) {
+  const resolved = resolveAgentSkillConfigOptions(agentRow.config, (key) => store.get(key));
+  for (const warning of resolved.warnings) {
+    console.warn('[runtime] Ignored invalid Skill override:', warning);
+  }
+  return resolved.options;
+}
+
+function getPreloadSkillNames(skillIds: string[]): string[] {
+  return skillReferencesToPreloadNames(skillIds);
+}
+
+function extractPathMentionContext(content: string): string[] {
+  const seen = new Set<string>();
+  for (const match of content.matchAll(/@([^\s]+)/g)) {
+    const normalized = match[1]
+      .trim()
+      .replace(/[),.;:，。；：）]+$/g, '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//g, '')
+      .replace(/^\/+/g, '');
+    if (normalized) seen.add(normalized);
+  }
+  return Array.from(seen);
+}
+
+function appendRuntimePrompt(basePrompt: string, runtimePrompt: string): string {
+  const trimmedRuntimePrompt = runtimePrompt.trim();
+  if (!trimmedRuntimePrompt) return basePrompt;
+  return `${basePrompt}\n\n${trimmedRuntimePrompt}`;
+}
+
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
@@ -495,7 +529,22 @@ export async function createDeepAgentRuntime(
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
   const checkpointer = getCheckpointSaver();
-  const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+  const skillOverrideOptions = buildSkillOverrideOptions(agentRow);
+  const agentSkillNames = getAgentSkillNames(agentRow.id);
+  const pathContext = extractPathMentionContext(currentMessage.content);
+  const { permissions } = skillOverrideOptions
+    ? resolveAgentSkillsConfig(project.path, agentSkillNames, skillOverrideOptions)
+    : resolveAgentSkillsConfig(project.path, agentSkillNames);
+  const skillsRuntime = buildCdfSkillsRuntime(project.path, {
+    ...skillOverrideOptions,
+    builtInSkillDirs: getBuiltInSkillDirs(),
+    userSkillsDir: getScopePath(project.path, 'global'),
+    preloadSkillNames: getPreloadSkillNames(agentSkillNames),
+    pathContext,
+  });
+  for (const warning of skillsRuntime.warnings) {
+    console.warn('[runtime] Ignored invalid Skill runtime input:', warning);
+  }
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
   const mcpServers = getAgentMcpServers(agentRow.id);
   const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers);
@@ -504,7 +553,7 @@ export async function createDeepAgentRuntime(
     .map((fileName) => path.join(project.path, fileName))
     .slice(0, 1);
 
-  const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
+  const systemPrompt = appendRuntimePrompt((agentRow.system_prompt || '') + buildProjectContext(project), skillsRuntime.prompt);
 
   const builtInTools: any[] = createBuiltInTools(project.path);
 
@@ -565,7 +614,22 @@ export async function createDeepAgentRuntime(
 
       const subMcpServers = getAgentMcpServers(agentRow.id);
       const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
-      const { skillsSources: subSkillsSources, permissions: _subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+      const subSkillNames = getAgentSkillNames(agentRow.id);
+      const subSkillOverrideOptions = buildSkillOverrideOptions(agentRow);
+      const { permissions: _subPermissions } =
+        subSkillOverrideOptions
+          ? resolveAgentSkillsConfig(project.path, subSkillNames, subSkillOverrideOptions)
+          : resolveAgentSkillsConfig(project.path, subSkillNames);
+      const subSkillsRuntime = buildCdfSkillsRuntime(project.path, {
+        ...subSkillOverrideOptions,
+        builtInSkillDirs: getBuiltInSkillDirs(),
+        userSkillsDir: getScopePath(project.path, 'global'),
+        preloadSkillNames: getPreloadSkillNames(subSkillNames),
+        pathContext,
+      });
+      for (const warning of subSkillsRuntime.warnings) {
+        console.warn('[runtime] Ignored invalid subagent Skill runtime input:', warning);
+      }
 
       const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
       const subagentModel = createLangChainModel({
@@ -580,9 +644,8 @@ export async function createDeepAgentRuntime(
       subagents.push({
         name: agentSlug,  // D-03: slug as stable key
         description: agentRow.description || '',
-        systemPrompt: agentRow.system_prompt || '',
+        systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', subSkillsRuntime.prompt),
         tools: [...subMcpRuntime.tools, ...builtInTools],
-        skills: subSkillsSources.length > 0 ? subSkillsSources : undefined,
         model: subagentModel,
         middleware: createSubagentResilienceMiddleware(),
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
@@ -596,7 +659,6 @@ export async function createDeepAgentRuntime(
     model,
     backend,
     systemPrompt: systemPrompt || undefined,
-    skills: skillsSources,
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17

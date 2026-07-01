@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
 
 // D-03/D-10: Schema for subagent delegated task results
 export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
@@ -76,8 +77,18 @@ export interface Agent {
 export interface Skill {
   id: string;
   name: string;
+  qualifiedName?: string;
   description?: string;
   scope: 'project' | 'global';
+  sourceKind?: SkillCommandSourceKind;
+  sourceLabel?: string;
+  sourcePath?: string;
+  skillPath?: string;
+  skillVisibility?: SkillOverrideState;
+  visibilitySource?: SkillVisibilitySource;
+  modelDiscovery?: SkillModelDiscovery;
+  userInvocable?: boolean;
+  editable?: boolean;
   resourceFiles: string[];
   created_at: number;
   updated_at: number;
@@ -153,6 +164,14 @@ export type CommandSource =
   | 'cmd:project'
   | 'cmd:system';
 
+export type SkillCommandSourceKind =
+  | 'built-in'
+  | 'project'
+  | 'project-nested'
+  | 'project-additional'
+  | 'user'
+  | 'enterprise';
+
 export interface SlashCommand {
   /** Command name without the leading `/` */
   name: string;
@@ -166,6 +185,22 @@ export interface SlashCommand {
   sourceLabel: string;
   /** Source badge text rendered in popup, e.g. `[system]`, `[mcp:arxiv_search]`. */
   badge: string;
+  /** Skill short name. Present for Skill commands. */
+  skillName?: string;
+  /** Skill invocation name without the leading `/`; may include a qualified prefix. */
+  qualifiedName?: string;
+  /** Resolved Skill source kind. Present for Skill commands. */
+  skillSourceKind?: SkillCommandSourceKind;
+  /** Directory that contributed the Skill. Present for Skill commands. */
+  sourcePath?: string;
+  /** Absolute path to the Skill's SKILL.md. Present for Skill commands. */
+  skillPath?: string;
+  /** Effective Skill Override state. Present for Skill commands. */
+  skillVisibility?: SkillOverrideState;
+  /** Effective model-discovery exposure. Present for Skill commands. */
+  modelDiscovery?: SkillModelDiscovery;
+  /** Whether this Skill can be explicitly invoked by the user. Present for Skill commands. */
+  userInvocable?: boolean;
   /** Optional arg hint for custom commands (D-20). */
   argumentHint?: string;
   /** D-05: absolute path to the .md file. Set for cmd:project / cmd:system;
@@ -642,6 +677,8 @@ export interface ElectronAPI {
     deleteAgent: (id: string) => Promise<void>;
     // Phase 3: Skills
     getSkills: (projectId: string) => Promise<Skill[]>;
+    getProjectSkillOverrides: (projectId: string) => Promise<Record<string, SkillOverrideState>>;
+    setProjectSkillOverride: (projectId: string, skillName: string, visibility: SkillOverrideState) => Promise<Record<string, SkillOverrideState>>;
     saveSkill: (projectId: string, skill: any) => Promise<Skill>;
     deleteSkill: (projectId: string, id: string) => Promise<void>;
     importSkillDirectory: (sourceDir: string) => Promise<Skill>;
@@ -724,6 +761,7 @@ export interface ElectronAPI {
     }>;
     readProjectCommands: (projectId: string) => Promise<{ commands: SlashCommand[] }>;
     readBody: (bodyPath: string) => Promise<{ body: string; mtimeMs: number }>;
+    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string) => Promise<{ body: string; mtimeMs: number }>;
     onChanged: (callback: (event: any, data: { source: string }) => void) => () => void;
     // Phase 8 — D-16: chokidar fallback notification bridge
     onFallback: (

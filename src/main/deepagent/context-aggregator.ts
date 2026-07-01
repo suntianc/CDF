@@ -15,11 +15,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import YAML from 'yaml';
 import db from '../database';
 import { listPhysicalSkills, getScopePath } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
 import type { MCPServer } from '../../shared/types';
+import { parseSkillMetadata } from './skills-runtime/skill-metadata';
 
 export interface MCPToolDetail {
   tool: string;
@@ -133,18 +133,7 @@ function safeFileSize(filePath: string): number {
  */
 function readSkillDescriptionChars(skillMdPath: string): number {
   try {
-    if (!fs.existsSync(skillMdPath)) return 0;
-    const raw = fs.readFileSync(skillMdPath, 'utf-8');
-    // Frontmatter is delimited by `---` lines at the start of the file.
-    if (!raw.startsWith('---')) return 0;
-    const end = raw.indexOf('\n---', 3);
-    if (end < 0) return 0;
-    const fmBlock = raw.slice(3, end);
-    const parsed = YAML.parse(fmBlock);
-    if (!parsed || typeof parsed !== 'object') return 0;
-    const desc = (parsed as Record<string, unknown>).description;
-    if (typeof desc !== 'string') return 0;
-    return desc.length;
+    return parseSkillMetadata(path.dirname(skillMdPath)).metadata?.description.length ?? 0;
   } catch {
     return 0;
   }
@@ -159,7 +148,7 @@ const DEFAULT_CONTEXT_LIMIT = 200_000;
 // bytes that the LLM actually receives. Update both sites in lockstep if
 // the runtime template changes.
 function buildProjectContextString(projectName: string, projectPath: string): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（对所有项目默认可见）\n- Agent 选择 Skill 只表示预加载或强调，不表示访问授权\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
 }
 
 // === Built-in tool schemas (08.2 polish) =================================
@@ -618,7 +607,7 @@ export async function aggregateCurrentSessionContext(
 
   // 7. systemTools (08.2 polish — promoted to real calculation).
   //     runtime.ts mounts a fixed array of built-in tools into
-  //     every agent regardless of MCP / skill bindings:
+  //     every agent regardless of MCP bindings or Skill Preload selections:
   //       [fetch, delete_file (plan-mode stripped), bash (plan-mode stripped),
   //        knowledge_search, knowledge_create,
   //        tavily / anysearch / arxiv (tool_configs.is_enabled=1 only)]

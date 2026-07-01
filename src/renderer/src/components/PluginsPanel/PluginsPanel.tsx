@@ -5,6 +5,11 @@ import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { MCPServer } from '../../../../shared/types';
 import {
+  SKILL_OVERRIDE_STATES,
+  parseSkillOverrideState,
+  type SkillOverrideState,
+} from '../../../../shared/skill-overrides';
+import {
   Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -13,6 +18,17 @@ interface Toast {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
+}
+
+function readSkillOverrideRecord(raw: unknown): Record<string, SkillOverrideState> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+
+  const overrides: Record<string, SkillOverrideState> = {};
+  for (const [skillName, value] of Object.entries(raw)) {
+    const state = parseSkillOverrideState(value);
+    if (state) overrides[skillName] = state;
+  }
+  return overrides;
 }
 
 export function PluginsPanel() {
@@ -94,11 +110,29 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
   const { currentProjectId } = useProjectStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [projectSkillOverrides, setProjectSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
+  const [userSkillOverrides, setUserSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
 
   useEffect(() => {
     if (!currentProjectId) return;
     fetchSkills(currentProjectId);
   }, [currentProjectId]);
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      setProjectSkillOverrides({});
+      return;
+    }
+    window.electronAPI.db.getProjectSkillOverrides(currentProjectId)
+      .then(setProjectSkillOverrides)
+      .catch(() => setProjectSkillOverrides({}));
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    window.electronAPI.store.get('skillOverrides')
+      .then((raw: unknown) => setUserSkillOverrides(readSkillOverrideRecord(raw)))
+      .catch(() => setUserSkillOverrides({}));
+  }, []);
 
   const handleImportSkillDirectory = async () => {
     try {
@@ -124,11 +158,34 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
   };
 
   const filteredSkills = skills
-    .filter(s => s.scope === 'global')
     .filter(s =>
       s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+      (s.qualifiedName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.sourceLabel || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+  const handleProjectSkillOverride = async (skillName: string, visibility: SkillOverrideState) => {
+    if (!currentProjectId) return;
+    try {
+      const overrides = await window.electronAPI.db.setProjectSkillOverride(currentProjectId, skillName, visibility);
+      setProjectSkillOverrides(overrides);
+    } catch (e: any) {
+      showToast(e.message || t('plugins.skillOverrideSaveError'), 'error');
+    }
+  };
+
+  const handleUserSkillOverride = async (skillName: string, visibility: SkillOverrideState) => {
+    const nextOverrides = { ...userSkillOverrides };
+    nextOverrides[skillName] = visibility;
+
+    try {
+      await window.electronAPI.store.set('skillOverrides', nextOverrides);
+      setUserSkillOverrides(nextOverrides);
+    } catch (e: any) {
+      showToast(e.message || t('plugins.skillOverrideSaveError'), 'error');
+    }
+  };
 
   return (
     <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
@@ -160,29 +217,114 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredSkills.map((skill) => (
+        {filteredSkills.map((skill) => {
+          const displayName = skill.qualifiedName ?? skill.name;
+          const overrideKey = displayName;
+          const sourceLabel = skill.sourceLabel ?? (
+            skill.scope === 'project' ? t('plugins.skillSourceProject') : t('plugins.skillSourceGlobal')
+          );
+          const projectOverride = projectSkillOverrides[overrideKey];
+          const userOverride = userSkillOverrides[overrideKey];
+          const effectiveState = projectOverride ?? userOverride ?? 'on';
+          const effectiveSource = projectOverride
+            ? t('plugins.skillOverrideSourceProject')
+            : userOverride
+              ? t('plugins.skillOverrideSourceUser')
+              : t('plugins.skillOverrideSourceDefault');
+
+          return (
           <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Code className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
-                <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate flex-1" title={skill.name}>{skill.name}</div>
+                <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate flex-1" title={displayName}>{displayName}</div>
+                <span className="rounded bg-[var(--color-bg-sunken)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)] shrink-0">
+                  {sourceLabel}
+                </span>
               </div>
               <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 line-clamp-2" title={skill.description}>
                 {skill.description || t('plugins.skillNoDescription')}
               </p>
+              <div className="mt-3 rounded-md border border-[var(--color-border)]/40 bg-[var(--color-bg-sidebar)]/25 p-2">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                    {t('plugins.skillProjectOverrideLabel')}
+                  </span>
+                  <span className="text-[10px] text-[var(--color-text-muted)]">
+                    {t('plugins.skillEffectiveVisibility', {
+                      state: t(`plugins.skillOverrideStateLong.${effectiveState}`),
+                      source: effectiveSource,
+                    })}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px]">
+                  {SKILL_OVERRIDE_STATES.map(state => {
+                    const selected = (projectOverride ?? 'on') === state;
+                    return (
+                      <button
+                        key={state}
+                        type="button"
+                        aria-label={t('plugins.skillProjectOverrideButtonLabel', {
+                          name: displayName,
+                          state: t(`plugins.skillOverrideStateLong.${state}`),
+                        })}
+                        aria-pressed={selected}
+                        onClick={() => handleProjectSkillOverride(overrideKey, state)}
+                        className={`px-1.5 py-1 transition-colors ${
+                          selected
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+                        }`}
+                      >
+                        {t(`plugins.skillOverrideStateShort.${state}`)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 mb-1.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                  {t('plugins.skillUserOverrideLabel')}
+                </div>
+                <div className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px]">
+                  {SKILL_OVERRIDE_STATES.map(state => {
+                    const selected = (userOverride ?? 'on') === state;
+                    return (
+                      <button
+                        key={state}
+                        type="button"
+                        aria-label={t('plugins.skillUserOverrideButtonLabel', {
+                          name: displayName,
+                          state: t(`plugins.skillOverrideStateLong.${state}`),
+                        })}
+                        aria-pressed={selected}
+                        onClick={() => handleUserSkillOverride(overrideKey, state)}
+                        className={`px-1.5 py-1 transition-colors ${
+                          selected
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+                        }`}
+                      >
+                        {t(`plugins.skillOverrideStateShort.${state}`)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
-              <button
-                className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
-                onClick={() => handleDeleteSkill(skill.id, skill.name)}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{t('common.delete')}</span>
-              </button>
-            </div>
+            {skill.editable !== false && (
+              <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
+                <button
+                  className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                  onClick={() => handleDeleteSkill(skill.id, displayName)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{t('common.delete')}</span>
+                </button>
+              </div>
+            )}
           </div>
-        ))}
+          );
+        })}
 
         {filteredSkills.length === 0 && (
           <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">

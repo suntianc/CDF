@@ -17,10 +17,15 @@ import { readDirectory, readFile, getFileInfo, writeFile, createFile, createDire
 import { ensureFileWatcher, watchDirectory, unwatchDirectory } from './services/file-watcher';
 import {
   listPhysicalSkills,
+  listResolvedSkillViews,
+  resolveAgentSkillConfigOptions,
   savePhysicalSkill,
   deletePhysicalSkill,
   importPhysicalSkillDirectory,
 } from './deepagent/skill-manager';
+import { resolveSkillSourcePlan, updateProjectSkillOverride } from './deepagent/skills-runtime/skill-sources';
+import { parseSkillOverrideState } from '../shared/skill-overrides';
+import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import { MCPServer } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
@@ -508,10 +513,8 @@ export function registerIpcHandlers() {
         const uniqueSkillNames = Array.from(new Set(skillNames));
         const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
         for (const skillId of uniqueSkillNames) {
-          const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
-          if (scope === 'global') {
-            insertSkill.run(id, skillId);
-          }
+          const normalizedSkillId = String(skillId).trim();
+          if (normalizedSkillId) insertSkill.run(id, normalizedSkillId);
         }
       }
     });
@@ -543,7 +546,30 @@ export function registerIpcHandlers() {
     if (!project) {
       return [];
     }
-    return listPhysicalSkills(project.path);
+    const userOverrides = readUserSkillOverrides((key) => store.get(key));
+    return listResolvedSkillViews(project.path, {
+      userOverrides: userOverrides.overrides,
+    });
+  });
+
+  ipcMain.handle('db:getProjectSkillOverrides', (_, projectId: string) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!project) {
+      return {};
+    }
+    return resolveSkillSourcePlan(project.path).config.overrides;
+  });
+
+  ipcMain.handle('db:setProjectSkillOverride', (_, projectId: string, skillName: string, rawVisibility: unknown) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!project) {
+      throw new Error('Project not found');
+    }
+    const visibility = parseSkillOverrideState(rawVisibility);
+    if (!visibility) {
+      throw new Error(`Invalid Skill Override state: ${String(rawVisibility)}`);
+    }
+    return updateProjectSkillOverride(project.path, skillName, visibility).overrides;
   });
 
   ipcMain.handle('db:saveSkill', (_, projectId: string, skill: any) => {
@@ -953,7 +979,14 @@ export function registerIpcHandlers() {
       }
       // Lazily start project-scoped chokidar watcher on first call.
       ensureProjectWatcher(project.path);
-      return await collectAllCommands(project.path, agentId);
+      const agent = agentId
+        ? db.prepare('SELECT config FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as { config?: string | null } | undefined
+        : undefined;
+      const skillOverrideOptions = resolveAgentSkillConfigOptions(agent?.config, (key) => store.get(key));
+      for (const warning of skillOverrideOptions.warnings) {
+        console.warn('[commands:list] Ignored invalid Skill override:', warning);
+      }
+      return await collectAllCommands(project.path, agentId, skillOverrideOptions.options ?? {});
     } catch (err) {
       console.error('[commands:list] failed:', err);
       return { commands: [], conflicts: [], warnings: [] };
@@ -1021,6 +1054,59 @@ export function registerIpcHandlers() {
       return { body, mtimeMs: stat.mtimeMs };
     } catch (err) {
       console.error('[commands:readBody] failed:', err);
+      return { body: '', mtimeMs: 0 };
+    }
+  });
+
+  ipcMain.handle('commands:readSkillBody', async (_evt, projectId: string, agentId: string | null | undefined, skillPath: string) => {
+    try {
+      if (
+        typeof projectId !== 'string' ||
+        typeof skillPath !== 'string' ||
+        !projectId ||
+        !skillPath ||
+        skillPath.length > 2048
+      ) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      if (!project?.path) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const resolved = path.resolve(skillPath);
+      if (!fs.existsSync(resolved)) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const realResolved = fs.realpathSync(resolved);
+      const agent = agentId
+        ? db.prepare('SELECT config FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as { config?: string | null } | undefined
+        : undefined;
+      const skillOverrideOptions = resolveAgentSkillConfigOptions(agent?.config, (key) => store.get(key));
+      for (const warning of skillOverrideOptions.warnings) {
+        console.warn('[commands:readSkillBody] Ignored invalid Skill override:', warning);
+      }
+      const isResolvedSkillPath = listResolvedSkillViews(project.path, skillOverrideOptions.options ?? {}).some((skill) => {
+        if (skill.userInvocable !== true) return false;
+        if (!skill.skillPath) return false;
+        try {
+          return fs.realpathSync(skill.skillPath) === realResolved;
+        } catch {
+          return false;
+        }
+      });
+      if (!isResolvedSkillPath) {
+        console.warn('[commands:readSkillBody] path is not a resolved Skill:', skillPath);
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const stat = fs.statSync(realResolved);
+      const content = fs.readFileSync(realResolved, 'utf-8');
+      return { body: stripMarkdownFrontmatter(content).replace(/^\s+/, ''), mtimeMs: stat.mtimeMs };
+    } catch (err) {
+      console.error('[commands:readSkillBody] failed:', err);
       return { body: '', mtimeMs: 0 };
     }
   });

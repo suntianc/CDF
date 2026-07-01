@@ -52,12 +52,14 @@ interface TestHarnessHandle {
 function TestHarness({
   refSetter,
   commands,
+  pathContext,
   hasMcpWarning,
   mcpWarningMessage,
   loading,
 }: {
   refSetter?: (h: TestHarnessHandle) => void;
   commands?: import('../../../../shared/types').SlashCommand[];
+  pathContext?: string[];
   hasMcpWarning?: boolean;
   mcpWarningMessage?: string;
   loading?: 'idle' | 'pending' | 'slow' | 'ready' | 'error';
@@ -188,6 +190,7 @@ function TestHarness({
           onInsert={handleSlashInsert}
           onClose={() => setSlashOpen(false)}
           commands={commands}
+          pathContext={pathContext}
           hasMcpWarning={hasMcpWarning}
           mcpWarningMessage={mcpWarningMessage}
           loading={loading}
@@ -658,6 +661,104 @@ describe('Phase 6 source badges + warnings', () => {
       fireEvent.change(textarea, { target: { value: '/co' } });
     });
     expect(screen.getByText('[skill:project]')).toBeTruthy();
+  });
+
+  it('renders Skill source labels for qualified Skill rows', () => {
+    render(<TestHarness commands={[{
+      name: 'apps/web:deploy',
+      qualifiedName: 'apps/web:deploy',
+      skillName: 'deploy',
+      description: 'Deploy the web app',
+      source: 'skill:project',
+      target: 'project:apps/web:deploy',
+      sourceLabel: 'Project Skill: apps/web',
+      badge: '[skill:project]',
+      skillSourceKind: 'project-additional',
+      sourcePath: '/repo/apps/web/.cdf/skills',
+      skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+      skillVisibility: 'on',
+      modelDiscovery: 'full',
+      userInvocable: true,
+    }]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/apps' } });
+    });
+
+    expect(screen.getByText('/apps/web:deploy')).toBeTruthy();
+    expect(screen.getByText('Project Skill: apps/web')).toBeTruthy();
+  });
+
+  it('renders Nested Project Skill source labels for nested Skill rows', () => {
+    render(<TestHarness commands={[{
+      name: 'apps/web:deploy',
+      qualifiedName: 'apps/web:deploy',
+      skillName: 'deploy',
+      description: 'Deploy the web app',
+      source: 'skill:project',
+      target: 'project-nested:apps/web:deploy',
+      sourceLabel: 'Nested Project Skill: apps/web',
+      badge: '[skill:project]',
+      skillSourceKind: 'project-nested',
+      sourcePath: '/repo/apps/web/.cdf/skills',
+      skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+      skillVisibility: 'on',
+      modelDiscovery: 'full',
+      userInvocable: true,
+    }]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/apps' } });
+    });
+
+    expect(screen.getByText('/apps/web:deploy')).toBeTruthy();
+    expect(screen.getByText('Nested Project Skill: apps/web')).toBeTruthy();
+  });
+
+  it('ranks nested Skill rows first when Path Mention context matches', () => {
+    render(<TestHarness commands={[
+      {
+        name: 'deploy',
+        qualifiedName: 'deploy',
+        skillName: 'deploy',
+        description: 'Deploy the project',
+        source: 'skill:project',
+        target: 'project:deploy',
+        sourceLabel: 'Project Skill',
+        badge: '[skill:project]',
+        skillSourceKind: 'project',
+        sourcePath: '/repo/.cdf/skills',
+        skillPath: '/repo/.cdf/skills/deploy/SKILL.md',
+        skillVisibility: 'on',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      },
+      {
+        name: 'apps/web:deploy',
+        qualifiedName: 'apps/web:deploy',
+        skillName: 'deploy',
+        description: 'Deploy the web app',
+        source: 'skill:project',
+        target: 'project-nested:apps/web:deploy',
+        sourceLabel: 'Nested Project Skill: apps/web',
+        badge: '[skill:project]',
+        skillSourceKind: 'project-nested',
+        sourcePath: '/repo/apps/web/.cdf/skills',
+        skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+        skillVisibility: 'on',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      },
+    ]} pathContext={['apps/web/src/App.tsx']} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/deploy' } });
+    });
+
+    const rows = Array.from(
+      document.querySelectorAll('[cmdk-item]')
+    ).map((node) => node.textContent ?? '');
+    expect(rows[0]).toContain('/apps/web:deploy');
   });
 
   it('renders source badge for cmd:system', () => {

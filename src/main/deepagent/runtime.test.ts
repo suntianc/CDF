@@ -10,7 +10,11 @@ const {
   checkpointGetTupleMock,
   dbPrepareMock,
   storeGetMock,
+  getScopePathMock,
+  getBuiltInSkillDirsMock,
   resolveAgentSkillsConfigMock,
+  resolveAgentSkillConfigOptionsMock,
+  buildCdfSkillsRuntimeMock,
   loadMcpToolsMock,
   registerHarnessProfileMock,
 } = vi.hoisted(() => ({
@@ -18,12 +22,25 @@ const {
   fromConnStringMock: vi.fn(),
   checkpointGetTupleMock: vi.fn(),
   dbPrepareMock: vi.fn(),
-  storeGetMock: vi.fn(() => 'strict'),
+  storeGetMock: vi.fn((key?: string): unknown => key === 'skillOverrides' ? {} : 'strict'),
+  getScopePathMock: vi.fn((_projectPath: string, scope: string) =>
+    scope === 'global' ? path.join(os.tmpdir(), 'cdf-runtime-test-global-skills') : path.join(_projectPath, '.cdf', 'skills')
+  ),
+  getBuiltInSkillDirsMock: vi.fn(() => [path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base')]),
   loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
   registerHarnessProfileMock: vi.fn(),
   resolveAgentSkillsConfigMock: vi.fn(() => ({
     skillsSources: ['/.cdf/skills'],
     permissions: [{ operations: ['read', 'write'], paths: ['/*', '/**/*'] }],
+  })),
+  resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({
+    options: undefined,
+    warnings: [],
+  })),
+  buildCdfSkillsRuntimeMock: vi.fn(() => ({
+    skills: [],
+    prompt: '## Skills System\n\nCDF-owned skills prompt',
+    warnings: [],
   })),
 }));
 
@@ -85,7 +102,14 @@ vi.mock('./mcp-connector', () => ({
 }));
 
 vi.mock('./skill-manager', () => ({
+  getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  getScopePath: getScopePathMock,
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
+  resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
+}));
+
+vi.mock('./skills-runtime/cdf-skills-runtime', () => ({
+  buildCdfSkillsRuntime: buildCdfSkillsRuntimeMock,
 }));
 
 import { createDeepAgentRuntime } from './runtime';
@@ -130,7 +154,13 @@ describe('createDeepAgentRuntime', () => {
     fs.writeFileSync(path.join(tempProjectPath, 'AGENTS.md'), 'Must use Chinese.', 'utf-8');
 
     vi.clearAllMocks();
-    storeGetMock.mockReturnValue('strict');
+    storeGetMock.mockImplementation((key?: string) =>
+      key === 'skillOverrides' ? {} : 'strict'
+    );
+    resolveAgentSkillConfigOptionsMock.mockReturnValue({
+      options: undefined,
+      warnings: [],
+    });
     const checkpointer = { getTuple: checkpointGetTupleMock };
     fromConnStringMock.mockReturnValue(checkpointer);
     checkpointGetTupleMock.mockResolvedValue(undefined);
@@ -192,6 +222,15 @@ describe('createDeepAgentRuntime', () => {
     expect(params.systemPrompt).toContain(tempProjectPath + '/src/main.ts');
     expect(params.systemPrompt).toContain('必须在当前轮次继续调用合适的文件工具');
     expect(params.systemPrompt).toContain(tempProjectPath);
+    expect(params.systemPrompt).toContain('全局 Skill 写入 `~/.cdf/skills/{skill名称}/SKILL.md`（对所有项目默认可见）');
+    expect(params.systemPrompt).toContain('Agent 选择 Skill 只表示预加载或强调，不表示访问授权');
+    expect(params.systemPrompt).toContain('CDF-owned skills prompt');
+    expect(params.skills).toBeUndefined();
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
+      builtInSkillDirs: [path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base')],
+      preloadSkillNames: ['test-skill'],
+    }));
+    expect(params.systemPrompt).not.toContain('绑定后才可见');
     expect(params.systemPrompt).not.toContain('Knowledge Base 使用规范');
     expect(params.systemPrompt).not.toContain('knowledge_search');
     expect(params.systemPrompt).not.toContain('[可委派 Agent]');
@@ -229,7 +268,7 @@ describe('createDeepAgentRuntime', () => {
     expect(runtime.inputMessages).toEqual([{ role: 'user', content: '新问题' }]);
   });
 
-  it('should use the requested agent and filter skills by binding', async () => {
+  it('should use the requested agent and pass its skill selections as preload hints', async () => {
     const runtime = await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
 
     expect(runtime.agentId).toBe('agent-2');
@@ -237,6 +276,101 @@ describe('createDeepAgentRuntime', () => {
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.systemPrompt).toContain('Agent 2 prompt');
     expect(params.subagents).toBeUndefined();
+  });
+
+  it('preserves qualified additional skill names when building preload hints', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('FROM agents WHERE id')) return arg === 'agent-2' ? agent2 : undefined;
+        if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-2' ? provider2 : undefined;
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agent_skills')) {
+          return arg === 'agent-2' ? [{ skill_name: 'project-additional:docs:review' }] : [];
+        }
+        if (sql.includes('FROM messages')) return [];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
+
+    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith(tempProjectPath, ['project-additional:docs:review']);
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
+      preloadSkillNames: ['docs:review'],
+    }));
+  });
+
+  it('passes current message path mentions into CDF Skills Runtime for nested Skill ranking', async () => {
+    await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: '部署 @apps/web/src/App.tsx' },
+      'agent-1'
+    );
+
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
+      pathContext: ['apps/web/src/App.tsx'],
+    }));
+  });
+
+  it('passes user and agent skill overrides into runtime skill resolution', async () => {
+    const agentWithOverrides = {
+      ...agent,
+      config: JSON.stringify({
+        skillOverrides: {
+          'agent-hidden': 'off',
+        },
+      }),
+    };
+    resolveAgentSkillConfigOptionsMock.mockReturnValueOnce({
+      options: {
+        userOverrides: {
+          'user-hidden': 'off',
+        },
+        agentOverrides: {
+          'agent-hidden': 'off',
+        },
+      },
+      warnings: [],
+    });
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('FROM llm_providers WHERE id')) {
+          if (arg === 'provider-1') return provider;
+          return undefined;
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agentWithOverrides];
+        if (sql.includes('FROM agent_skills')) return [{ skill_name: 'project:test-skill' }];
+        if (sql.includes('FROM messages')) return [];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
+
+    expect(resolveAgentSkillConfigOptionsMock).toHaveBeenCalledWith(
+      agentWithOverrides.config,
+      expect.any(Function)
+    );
+    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith(tempProjectPath, ['project:test-skill'], {
+      userOverrides: {
+        'user-hidden': 'off',
+      },
+      agentOverrides: {
+        'agent-hidden': 'off',
+      },
+    });
   });
 
   it('should not fail runtime creation when harness profile registration rejects', async () => {
@@ -279,7 +413,7 @@ describe('createDeepAgentRuntime', () => {
       run: vi.fn(),
     }));
 
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, 'agent-1', undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents).toBeDefined();
@@ -292,6 +426,44 @@ describe('createDeepAgentRuntime', () => {
     expect(params.subagents[0].middleware.map((item: { name?: string }) => item.name)).toEqual(
       expect.arrayContaining(['RecoverableToolErrorMiddleware', 'toolRetryMiddleware', 'modelRetryMiddleware'])
     );
+  });
+
+  it('should wire subagent skill selections through the CDF Skills Runtime prompt', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('FROM agents WHERE id')) {
+          if (arg === 'agent-2') return { ...agent2, slug: 'code-agent' };
+          if (arg === 'agent-1') return agent;
+          return undefined;
+        }
+        if (sql.includes('FROM llm_providers')) {
+          if (arg === 'provider-1') return provider;
+          if (arg === 'provider-2') return provider2;
+          return undefined;
+        }
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
+        if (sql.includes('FROM agent_skills')) return arg === 'agent-2' ? [{ skill_name: 'project:sub-skill' }] : [];
+        if (sql.includes('FROM messages')) return [];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, 'agent-1', undefined, ['agent-2']);
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.subagents[0].systemPrompt).toContain('Agent 2 prompt');
+    expect(params.subagents[0].systemPrompt).toContain('CDF-owned skills prompt');
+    expect(params.subagents[0].skills).toBeUndefined();
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
+      preloadSkillNames: ['sub-skill'],
+      pathContext: ['apps/web/src/App.tsx'],
+    }));
   });
 
   it('should pass MiniMax subagent models as model instances instead of provider strings', async () => {

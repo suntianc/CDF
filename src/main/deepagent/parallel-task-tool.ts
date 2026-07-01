@@ -4,9 +4,12 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import db from '../database';
+import store from '../store';
 import { resolveAgentSlug } from './agent-slug';
 import { createLangChainModel } from './llm-adapter';
-import { resolveAgentSkillsConfig } from './skill-manager';
+import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from './skill-manager';
+import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
+import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import {
   getProvider,
   getAgentMcpServers,
@@ -101,6 +104,30 @@ function normalizeToolArgs(input: unknown): unknown {
   return input;
 }
 
+function getPreloadSkillNames(skillIds: string[]): string[] {
+  return skillReferencesToPreloadNames(skillIds);
+}
+
+function extractPathMentionContext(content: string): string[] {
+  const seen = new Set<string>();
+  for (const match of content.matchAll(/@([^\s]+)/g)) {
+    const normalized = match[1]
+      .trim()
+      .replace(/[),.;:，。；：）]+$/g, '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//g, '')
+      .replace(/^\/+/g, '');
+    if (normalized) seen.add(normalized);
+  }
+  return Array.from(seen);
+}
+
+function appendRuntimePrompt(basePrompt: string, runtimePrompt: string): string {
+  const trimmedRuntimePrompt = runtimePrompt.trim();
+  if (!trimmedRuntimePrompt) return basePrompt;
+  return `${basePrompt}\n\n${trimmedRuntimePrompt}`;
+}
+
 // ---- Worker invocation ----
 
 async function invokeWorker(
@@ -122,7 +149,23 @@ async function invokeWorker(
   const mcpServers = getAgentMcpServers(agentId);
   const skillNames = getAgentSkillNames(agentId);
   const mcpRuntime = await loadMcpTools(agentId, mcpServers);
-  const { skillsSources, permissions } = resolveAgentSkillsConfig(projectPath, skillNames);
+  const skillOverrideOptions = resolveAgentSkillConfigOptions(agentRow.config, (key) => store.get(key));
+  for (const warning of skillOverrideOptions.warnings) {
+    console.warn('[parallel-task] Ignored invalid Skill override:', warning);
+  }
+  const { permissions } = skillOverrideOptions.options
+    ? resolveAgentSkillsConfig(projectPath, skillNames, skillOverrideOptions.options)
+    : resolveAgentSkillsConfig(projectPath, skillNames);
+  const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
+    ...skillOverrideOptions.options,
+    builtInSkillDirs: getBuiltInSkillDirs(),
+    userSkillsDir: getScopePath(projectPath, 'global'),
+    preloadSkillNames: getPreloadSkillNames(skillNames),
+    pathContext: extractPathMentionContext(taskDescription),
+  });
+  for (const warning of skillsRuntime.warnings) {
+    console.warn('[parallel-task] Ignored invalid Skill runtime input:', warning);
+  }
 
   const backend = new CompositeBackend(new StateBackend(), {
     '/': new FilesystemBackend({ rootDir: '/', virtualMode: false }),
@@ -134,8 +177,7 @@ async function invokeWorker(
   const agent = createDeepAgent({
     model,
     backend,
-    systemPrompt: agentRow.system_prompt || undefined,
-    skills: skillsSources.length > 0 ? skillsSources : undefined,
+    systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', skillsRuntime.prompt) || undefined,
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools],
     interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,

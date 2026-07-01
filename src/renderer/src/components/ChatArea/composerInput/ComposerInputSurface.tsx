@@ -79,6 +79,9 @@ export function ComposerInputSurface({
   const tokenOverlayRef = useRef<HTMLDivElement>(null);
   const [indentWidth, setIndentWidth] = useState(0);
   const leadingTokens = controller.renderModel.leadingItems;
+  const pathContext = leadingTokens
+    .filter((token) => token.type === 'pathMention')
+    .map((token) => token.name);
   const visibleTail = controller.renderModel.visibleTail;
   const inputClassName =
     variant === 'welcome'
@@ -330,6 +333,7 @@ export function ComposerInputSurface({
             onInsert={onCommandInsert}
             onClose={controller.closeCommandEntry}
             commands={commands}
+            pathContext={pathContext}
             hasMcpWarning={commandWarnings.some((warning) => warning.type === 'mcp_health_warning')}
             mcpWarningMessage={commandWarnings.find((warning) => warning.type === 'mcp_health_warning')?.message}
             loading={commandLoading}

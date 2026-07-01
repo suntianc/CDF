@@ -254,9 +254,8 @@ export function createAgentTools(
               'INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)',
             );
             for (const skillId of uniqueSkillNames) {
-              // 与 db:saveAgent 保持一致:仅保留 global scope 的 skill
-              const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
-              if (scope === 'global') insertSkill.run(id, skillId);
+              const normalizedSkillId = String(skillId).trim();
+              if (normalizedSkillId) insertSkill.run(id, normalizedSkillId);
             }
           }
         });
@@ -312,7 +311,7 @@ export function createAgentTools(
       {
         name: 'create_agent',
         description:
-          '在当前项目下创建一个新 agent。可选挂载 MCP server (mcpServerIds)、skill (skillNames)、关联 provider。' +
+          '在当前项目下创建一个新 agent。可选挂载 MCP server (mcpServerIds)、预加载 Skill (skillNames)、关联 provider。' +
           'name 必须是英文/数字/空格/连字符/下划线。is_default 只能同时有一个 agent 拥有,设置后其他 agent 自动取消默认。' +
           '返回创建成功的 agent 完整信息(含生成的 id、effective_slug)。' +
           '⚠️ **新 agent 在当前 chat turn 内不可用于 task() 委托** — runtime 在 createDeepAgentRuntime 启动时 ' +
@@ -331,7 +330,7 @@ export function createAgentTools(
             .array(z.string())
             .optional()
             .describe('挂载的 MCP server ID 列表(可选)'),
-          skillNames: z.array(z.string()).optional().describe('挂载的 skill 名称列表(可选)'),
+          skillNames: z.array(z.string()).optional().describe('预加载的 Skill 引用列表(可选)'),
           is_default: z
             .boolean()
             .optional()
@@ -502,8 +501,8 @@ export function createAgentTools(
               'INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)',
             );
             for (const skillId of uniqueSkillNames) {
-              const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
-              if (scope === 'global') insertSkill.run(input.id, skillId);
+              const normalizedSkillId = String(skillId).trim();
+              if (normalizedSkillId) insertSkill.run(input.id, normalizedSkillId);
             }
           }
         });
@@ -535,7 +534,7 @@ export function createAgentTools(
         name: 'update_agent',
         description:
           '更新已有 agent。仅更新提供的字段;未提供的字段保持不变。' +
-          'mcpServerIds / skillNames 整体替换(若提供,内部去重)。' +
+          'mcpServerIds / skillNames 整体替换(若提供,内部去重);skillNames 表示 Agent Skill Preload,不是访问授权。' +
           'provider_id 不允许传 null 或空字符串(workflow node-executor.ts 读 provider_id,' +
           'null 会抛错;chat runtime 也读);想换 provider 显式传合法 id,想保留 omit(不传)该字段。' +
           '**Slug 跟随 name**:改 name 会重算 effective_slug,自动用 `generateSlug(name)` ' +
@@ -552,7 +551,7 @@ export function createAgentTools(
           provider_id: z.string().nullable().optional().describe('新 provider ID'),
           system_prompt: z.string().optional().describe('新系统提示词'),
           mcpServerIds: z.array(z.string()).optional().describe('新的 MCP server ID 列表(内部去重)'),
-          skillNames: z.array(z.string()).optional().describe('新的 skill 名称列表(内部去重)'),
+          skillNames: z.array(z.string()).optional().describe('新的 Skill Preload 引用列表(内部去重)'),
           is_default: z.boolean().optional().describe('是否设为默认'),
           config: z.record(z.string(), z.unknown()).optional().describe('新 config 对象'),
         }),

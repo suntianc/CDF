@@ -1,9 +1,26 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import YAML from 'yaml';
 import { listSkills, type FilesystemPermission } from 'deepagents';
 import type { ParsedFrontmatter } from '../../shared/types';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
+import {
+  invalidateSkillSourceCaches,
+  resolveSkillCatalog,
+  resolveSkillSourcePlan,
+  type ResolvedSkillCatalogEntry,
+  type SkillCatalogOptions,
+  type SkillSourceKind,
+  type SkillSourcePlanOptions,
+} from './skills-runtime/skill-sources';
+import { parseSkillMetadata, validateSkillName } from './skills-runtime/skill-metadata';
+import {
+  readAgentSkillOverrides,
+  readUserSkillOverrides,
+  resolveSkillVisibility,
+} from './skills-runtime/skill-visibility';
+import type { SkillOverrideState } from '../../shared/skill-overrides';
 
 type SkillScope = 'global' | 'project';
 
@@ -17,8 +34,18 @@ interface PhysicalSkillInput {
 interface PhysicalSkillView {
   id: string;
   name: string;
+  qualifiedName?: string;
   description: string;
   scope: SkillScope;
+  sourceKind?: SkillSourceKind;
+  sourceLabel?: string;
+  sourcePath?: string;
+  skillPath?: string;
+  skillVisibility?: SkillOverrideState;
+  visibilitySource?: string;
+  modelDiscovery?: string;
+  userInvocable?: boolean;
+  editable?: boolean;
   resourceFiles: string[];
   script_type?: string;
   entryScript?: string;
@@ -28,6 +55,18 @@ interface PhysicalSkillView {
   /** 08.2 P4 D-09: pre-parsed frontmatter; consumers can read
    *  `frontmatter.disableModelInvocation` to gate LLM exposure. */
   frontmatter?: ParsedFrontmatter;
+}
+
+export type ListResolvedSkillViewsOptions = SkillSourcePlanOptions & SkillCatalogOptions;
+
+export interface ResolveAgentSkillsConfigOptions {
+  userOverrides?: Record<string, SkillOverrideState>;
+  agentOverrides?: Record<string, SkillOverrideState>;
+}
+
+export interface ResolvedAgentSkillConfigOptions {
+  options?: ResolveAgentSkillsConfigOptions;
+  warnings: string[];
 }
 
 function ensureDir(targetDir: string): void {
@@ -43,56 +82,67 @@ function ensureBuiltInKnowledgeBaseSkill(): string {
   return skillDir;
 }
 
-/**
- * Parse the YAML frontmatter from a skill's SKILL.md. 08.2 P4 D-09 extends
- * the legacy hand-rolled parser to also pick up the 4 Claude Code-aligned
- * fields. Returns a partial `ParsedFrontmatter` (camelCase keys) — consumers
- * apply D-10 defaults themselves.
- *
- * We intentionally keep the simple hand-rolled parser here (vs pulling in
- * `yaml@2.9.0`) because:
- *   1. The skill frontmatter is human-authored and tiny (typically 3-5 lines).
- *   2. Boolean values default to undefined when absent (matches D-10: "absence
- *      means false"); we don't need YAML's typed coercion.
- *   3. Avoids a transitive dep edge from a `deepagent/*` file to project-commands
- *      which is currently in the slash-command subsystem.
- */
-function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {
-  if (!fs.existsSync(filePath)) return {};
-  const content = fs.readFileSync(filePath, 'utf-8');
-  if (!content.startsWith('---\n')) return {};
-
-  const end = content.indexOf('\n---', 4);
-  if (end === -1) return {};
-
-  const lines = content.slice(4, end).split('\n');
-  const result: Record<string, string> = {};
-  for (const line of lines) {
-    const [rawKey, ...rawValue] = line.split(':');
-    if (!rawKey || rawValue.length === 0) continue;
-    result[rawKey.trim()] = rawValue.join(':').trim();
-  }
-
-  // 08.2 P4 D-09: parse the 4 Claude Code-aligned fields (kebab-case → camelCase).
-  // Booleans are recognized by literal "true" / "false" — absence leaves the
-  // field undefined so the D-10 default ("absence means false") applies downstream.
-  const disableRaw = result['disable-model-invocation'];
-  const userInvocableRaw = result['user-invocable'];
-  const result_: ParsedFrontmatter & { name?: string; description?: string } = {
-    name: result['name'],
-    description: result['description'],
-    disableModelInvocation:
-      disableRaw === 'true' ? true : disableRaw === 'false' ? false : undefined,
-    userInvocable:
-      userInvocableRaw === 'true' ? true : userInvocableRaw === 'false' ? false : undefined,
-    whenToUse: result['when_to_use'] || '',
-  };
-  return result_;
+export function getBuiltInSkillDirs(): string[] {
+  return [ensureBuiltInKnowledgeBaseSkill()];
 }
 
-/** 08.2 P4 D-09: does this skill's SKILL.md mark `disable-model-invocation: true`? */
-function isSkillDisabledFromLLM(skillDir: string): boolean {
-  return parseFrontmatter(path.join(skillDir, 'SKILL.md')).disableModelInvocation === true;
+function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {
+  const parsed = parseSkillMetadata(path.dirname(filePath));
+  if (!parsed.metadata) return {};
+
+  return {
+    name: parsed.metadata.name,
+    description: parsed.metadata.description,
+    disableModelInvocation: parsed.metadata.disableModelInvocation,
+    userInvocable: parsed.metadata.userInvocable,
+    allowedTools: parsed.metadata.allowedTools,
+    whenToUse: parsed.metadata.whenToUse,
+  };
+}
+
+function isSkillHiddenFromModel(
+  skillDir: string,
+  overrides: {
+    project?: Record<string, SkillOverrideState>;
+    user?: Record<string, SkillOverrideState>;
+    agent?: Record<string, SkillOverrideState>;
+  } = {}
+): boolean {
+  const parsed = parseSkillMetadata(skillDir);
+  if (!parsed.metadata) return false;
+  const visibility = resolveSkillVisibility({
+    name: parsed.metadata.name,
+    frontmatter: {
+      disableModelInvocation: parsed.metadata.disableModelInvocation,
+      userInvocable: parsed.metadata.userInvocable,
+    },
+    overrides,
+  });
+  return visibility.modelDiscovery === 'hidden';
+}
+
+function isInsideDirectory(rootPath: string, candidatePath: string): boolean {
+  const relative = path.relative(path.resolve(rootPath), path.resolve(candidatePath));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function buildSkillSourceReadPermissions(
+  projectPath: string,
+  sourcePaths: string[]
+): FilesystemPermission[] {
+  const permissions: FilesystemPermission[] = [];
+  const seen = new Set<string>();
+  for (const sourcePath of sourcePaths) {
+    if (isInsideDirectory(projectPath, sourcePath)) continue;
+    const normalized = path.resolve(sourcePath);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    permissions.push({
+      operations: ['read'] as const,
+      paths: [path.join(normalized, '*'), path.join(normalized, '**', '*')],
+    });
+  }
+  return permissions;
 }
 
 function getSkillDir(projectPath: string, scope: SkillScope, skillName: string): string {
@@ -108,8 +158,63 @@ function listResourceFiles(skillDir: string): string[] {
 }
 
 function buildSkillMarkdown(skill: PhysicalSkillInput): string {
-  const lines = ['---', `name: ${skill.name}`, `description: ${skill.description || ''}`, '---', '', `# ${skill.name}`, '', skill.description || ''];
+  const frontmatter = YAML.stringify({
+    name: skill.name,
+    description: skill.description || '',
+  }).trimEnd();
+  const lines = ['---', frontmatter, '---', '', `# ${skill.name}`, '', skill.description || ''];
   return `${lines.join('\n')}\n`;
+}
+
+function validateSkillInput(skill: PhysicalSkillInput): void {
+  if (!skill.name || !skill.name.trim()) {
+    throw new Error('Skill 名称不能为空');
+  }
+  const nameErrors = validateSkillName(skill.name);
+  if (nameErrors.length > 0) {
+    throw new Error(nameErrors[0]);
+  }
+  if (!skill.description || !skill.description.trim()) {
+    throw new Error('Skill 描述不能为空');
+  }
+}
+
+function parseAgentConfig(config: string | null | undefined): Record<string, unknown> {
+  if (!config) return {};
+  try {
+    const parsed = JSON.parse(config) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      __config_parse_error__: message,
+    };
+  }
+}
+
+export function resolveAgentSkillConfigOptions(
+  agentConfig: string | null | undefined,
+  getStoreValue: (key: string) => unknown
+): ResolvedAgentSkillConfigOptions {
+  const user = readUserSkillOverrides(getStoreValue);
+  const parsedAgentConfig = parseAgentConfig(agentConfig);
+  const warnings = [...user.warnings];
+  if (typeof parsedAgentConfig.__config_parse_error__ === 'string') {
+    warnings.push(`Failed to parse agent config for Skill overrides: ${parsedAgentConfig.__config_parse_error__}`);
+  }
+  const agent = readAgentSkillOverrides(parsedAgentConfig);
+  warnings.push(...agent.warnings);
+
+  const options: ResolveAgentSkillsConfigOptions = {};
+  if (Object.keys(user.overrides).length > 0) options.userOverrides = user.overrides;
+  if (Object.keys(agent.overrides).length > 0) options.agentOverrides = agent.overrides;
+
+  return {
+    options: Object.keys(options).length > 0 ? options : undefined,
+    warnings,
+  };
 }
 
 function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillName: string): PhysicalSkillView {
@@ -146,6 +251,7 @@ function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillNam
     frontmatter: {
       disableModelInvocation: fm.disableModelInvocation,
       userInvocable: fm.userInvocable,
+      allowedTools: fm.allowedTools,
       whenToUse: fm.whenToUse,
     },
   };
@@ -177,7 +283,95 @@ export function listPhysicalSkills(projectPath: string): PhysicalSkillView[] {
   );
 }
 
+function getResolvedSkillId(skill: ResolvedSkillCatalogEntry): string {
+  switch (skill.sourceKind) {
+    case 'project':
+      return `project:${skill.qualifiedName ?? skill.name}`;
+    case 'project-nested':
+      return `project-nested:${skill.qualifiedName ?? skill.name}`;
+    case 'project-additional':
+      return `project-additional:${skill.qualifiedName ?? skill.name}`;
+    case 'user':
+      return `global:${skill.qualifiedName ?? skill.name}`;
+    case 'built-in':
+      return `built-in:${skill.qualifiedName ?? skill.name}`;
+    case 'enterprise':
+      return `enterprise:${skill.qualifiedName ?? skill.name}`;
+  }
+}
+
+function getResolvedSkillScope(skill: ResolvedSkillCatalogEntry): SkillScope {
+  return skill.sourceKind === 'user' ? 'global' : 'project';
+}
+
+function getResolvedSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
+  switch (skill.sourceKind) {
+    case 'built-in':
+      return 'Built-in Skill';
+    case 'project':
+      return 'Project Skill';
+    case 'project-nested':
+      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
+    case 'project-additional':
+      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
+    case 'user':
+      return 'Global Skill';
+    case 'enterprise':
+      return 'Managed Skill';
+  }
+}
+
+function isResolvedSkillEditable(skill: ResolvedSkillCatalogEntry): boolean {
+  return skill.sourceKind === 'project' || skill.sourceKind === 'user';
+}
+
+function buildResolvedSkillView(skill: ResolvedSkillCatalogEntry): PhysicalSkillView {
+  const skillDir = path.dirname(skill.skillPath);
+  const stat = fs.statSync(skillDir);
+
+  return {
+    id: getResolvedSkillId(skill),
+    name: skill.name,
+    qualifiedName: skill.qualifiedName ?? skill.name,
+    description: skill.description,
+    scope: getResolvedSkillScope(skill),
+    sourceKind: skill.sourceKind,
+    sourceLabel: getResolvedSkillSourceLabel(skill),
+    sourcePath: skill.sourcePath,
+    skillPath: skill.skillPath,
+    skillVisibility: skill.visibility,
+    visibilitySource: skill.visibilitySource,
+    modelDiscovery: skill.modelDiscovery,
+    userInvocable: skill.userInvocable,
+    editable: isResolvedSkillEditable(skill),
+    resourceFiles: listResourceFiles(skillDir),
+    created_at: stat.birthtimeMs || stat.ctimeMs,
+    updated_at: stat.mtimeMs,
+  };
+}
+
+export function listResolvedSkillViews(
+  projectPath: string,
+  options: ListResolvedSkillViewsOptions = {}
+): PhysicalSkillView[] {
+  const plan = resolveSkillSourcePlan(projectPath, {
+    builtInSkillDirs: options.builtInSkillDirs ?? getBuiltInSkillDirs(),
+    userSkillsDir: options.userSkillsDir === undefined
+      ? getScopePath(projectPath, 'global')
+      : options.userSkillsDir,
+    enterpriseSkillDirs: options.enterpriseSkillDirs,
+  });
+  const catalog = resolveSkillCatalog(plan, {
+    userOverrides: options.userOverrides,
+    agentOverrides: options.agentOverrides,
+  });
+
+  return catalog.skills.map(buildResolvedSkillView);
+}
+
 export function savePhysicalSkill(projectPath: string, scope: SkillScope, skill: PhysicalSkillInput): PhysicalSkillView {
+  validateSkillInput(skill);
+  invalidateSkillSourceCaches(projectPath);
   const baseDir = getScopePath(projectPath, scope);
   const skillDir = getSkillDir(projectPath, scope, skill.name);
   ensureDir(baseDir);
@@ -196,7 +390,12 @@ export function importPhysicalSkillDirectory(sourceDir: string): PhysicalSkillVi
     throw new Error('所选目录中未找到 SKILL.md 文件，请选择包含 SKILL.md 的 Skill 目录');
   }
 
-  const skillName = path.basename(sourceDir);
+  const parsed = parseSkillMetadata(sourceDir);
+  if (!parsed.metadata) {
+    throw new Error(`Skill 元数据无效：${parsed.errors.join('；')}`);
+  }
+
+  const skillName = parsed.metadata.name;
   const scopeDir = path.join(os.homedir(), '.cdf', 'skills');
   const targetDir = path.join(scopeDir, skillName);
 
@@ -207,41 +406,37 @@ export function importPhysicalSkillDirectory(sourceDir: string): PhysicalSkillVi
   }
 
   fs.cpSync(sourceDir, targetDir, { recursive: true });
+  invalidateSkillSourceCaches();
   return buildPhysicalSkillView(path.join(os.homedir(), '.cdf'), 'global', skillName);
 }
 
 export function deletePhysicalSkill(projectPath: string, scope: SkillScope, name: string): void {
+  invalidateSkillSourceCaches(projectPath);
   const skillDir = getSkillDir(projectPath, scope, name);
   if (fs.existsSync(skillDir)) {
     fs.rmSync(skillDir, { recursive: true, force: true });
   }
 }
 
-export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: string[]): { skillsSources: string[]; permissions: FilesystemPermission[] } {
+export function resolveAgentSkillsConfig(
+  projectPath: string,
+  preloadSkillIds?: string[],
+  options: ResolveAgentSkillsConfigOptions = {}
+): { skillsSources: string[]; permissions: FilesystemPermission[] } {
+  // `preloadSkillIds` is retained for API compatibility with stored
+  // agent_skills rows; Agent Skill selection now means Skill Preload.
+  void preloadSkillIds;
   const globalSkillsDir = getScopePath(projectPath, 'global');
-  const projectSkillsDir = getScopePath(projectPath, 'project');
-  const sources: string[] = [ensureBuiltInKnowledgeBaseSkill()];
-
-  // 项目级 skills: 始终全量加载，不经过白名单
-  if (fs.existsSync(projectSkillsDir)) {
-    sources.push(projectSkillsDir);
-  }
-
-  // 全局 skills: 按绑定白名单过滤
-  const enabled = Array.isArray(enabledSkillIds) && enabledSkillIds.length > 0 ? enabledSkillIds : null;
-  if (enabled) {
-    for (const skillId of enabled) {
-      const [scope, skillName] = skillId.includes(':') ? skillId.split(':', 2) : ['global', skillId];
-      if (scope === 'global') {
-        const physicalPath = path.join(globalSkillsDir, skillName);
-        if (fs.existsSync(physicalPath)) {
-          sources.push(physicalPath);
-        }
-      }
-    }
-  } else if (fs.existsSync(globalSkillsDir)) {
-    sources.push(globalSkillsDir);
-  }
+  const sourcePlan = resolveSkillSourcePlan(projectPath, {
+    builtInSkillDirs: getBuiltInSkillDirs(),
+    userSkillsDir: globalSkillsDir,
+  });
+  const sources = sourcePlan.sources.map((source) => source.path);
+  const visibilityOverrides = {
+    user: options.userOverrides,
+    project: sourcePlan.config.overrides,
+    agent: options.agentOverrides,
+  };
 
   // 08.2 P4 D-09 disable-model-invocation enforcement: filter the LLM-visible
   // sources so deepagents never sees a skill marked disable-model-invocation: true.
@@ -262,7 +457,7 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
     // dir never has disabled siblings to filter, so just push it.
     const hasSkillMd = fs.existsSync(path.join(src, 'SKILL.md'));
     if (hasSkillMd) {
-      if (!isSkillDisabledFromLLM(src)) {
+      if (!isSkillHiddenFromModel(src, visibilityOverrides)) {
         filtered.push(src);
       }
       continue;
@@ -273,7 +468,7 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
     for (const entry of fs.readdirSync(src)) {
       const entryPath = path.join(src, entry);
       if (!fs.statSync(entryPath).isDirectory()) continue;
-      if (isSkillDisabledFromLLM(entryPath)) {
+      if (isSkillHiddenFromModel(entryPath, visibilityOverrides)) {
         allKept = false;
         continue;
       }
@@ -292,6 +487,7 @@ export function resolveAgentSkillsConfig(projectPath: string, enabledSkillIds?: 
     skillsSources: filtered,
     permissions: [
       { operations: ['read', 'write'] as const, paths: [path.join(projectPath, '*'), path.join(projectPath, '**', '*')] },
+      ...buildSkillSourceReadPermissions(projectPath, filtered),
     ],
   };
 }

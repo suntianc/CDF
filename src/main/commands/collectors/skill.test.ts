@@ -1,11 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { listPhysicalSkillsMock } = vi.hoisted(() => ({
-  listPhysicalSkillsMock: vi.fn(),
+const {
+  getBuiltInSkillDirsMock,
+  getScopePathMock,
+  resolveSkillSourcePlanMock,
+  resolveSkillCatalogMock,
+} = vi.hoisted(() => ({
+  getBuiltInSkillDirsMock: vi.fn(() => ['/tmp/built-in/knowledge-base']),
+  getScopePathMock: vi.fn((_projectPath: string, scope: string) =>
+    scope === 'global' ? '/tmp/global-skills' : `${_projectPath}/.cdf/skills`
+  ),
+  resolveSkillSourcePlanMock: vi.fn(() => ({
+    config: { version: 1, overrides: {}, additionalSkillDirectories: [] },
+    sources: [],
+    warnings: [],
+  })),
+  resolveSkillCatalogMock: vi.fn((): any => ({ skills: [], warnings: [] })),
 }));
 
 vi.mock('../../deepagent/skill-manager', () => ({
-  listPhysicalSkills: listPhysicalSkillsMock,
+  getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  getScopePath: getScopePathMock,
+}));
+
+vi.mock('../../deepagent/skills-runtime/skill-sources', () => ({
+  resolveSkillSourcePlan: resolveSkillSourcePlanMock,
+  resolveSkillCatalog: resolveSkillCatalogMock,
 }));
 
 import { collectSkillCommands } from './skill';
@@ -13,80 +33,140 @@ import { collectSkillCommands } from './skill';
 describe('collectors/skill', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBuiltInSkillDirsMock.mockReturnValue(['/tmp/built-in/knowledge-base']);
+    getScopePathMock.mockImplementation((_projectPath: string, scope: string) =>
+      scope === 'global' ? '/tmp/global-skills' : `${_projectPath}/.cdf/skills`
+    );
+    resolveSkillSourcePlanMock.mockReturnValue({
+      config: { version: 1, overrides: {}, additionalSkillDirectories: [] },
+      sources: [],
+      warnings: [],
+    });
+    resolveSkillCatalogMock.mockReturnValue({ skills: [], warnings: [] });
   });
 
-  it('returns [] when no skills exist', async () => {
-    listPhysicalSkillsMock.mockReturnValueOnce([]);
+  it('returns [] when no user-invocable skills exist', async () => {
     const result = await collectSkillCommands('/tmp/proj');
+
     expect(result).toEqual([]);
+    expect(resolveSkillSourcePlanMock).toHaveBeenCalledWith('/tmp/proj', {
+      builtInSkillDirs: ['/tmp/built-in/knowledge-base'],
+      userSkillsDir: '/tmp/global-skills',
+    });
   });
 
-  it('maps project skill to source=skill:project with badge [skill:project]', async () => {
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'project:simplify',
-        name: 'simplify',
-        description: 'simplify code',
-        scope: 'project',
-        resourceFiles: [],
-        created_at: 0,
-        updated_at: 0,
+  it('passes User and Agent Skill Overrides into catalog resolution', async () => {
+    await collectSkillCommands('/tmp/proj', {
+      userOverrides: {
+        review: 'off',
       },
-    ]);
+      agentOverrides: {
+        'docs:review': 'user-invocable-only',
+      },
+    });
+
+    expect(resolveSkillCatalogMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      {
+        userOverrides: {
+          review: 'off',
+        },
+        agentOverrides: {
+          'docs:review': 'user-invocable-only',
+        },
+      }
+    );
+  });
+
+  it('maps project catalog entries to attributable Skill commands', async () => {
+    resolveSkillCatalogMock.mockReturnValueOnce({
+      skills: [
+        {
+          name: 'simplify',
+          description: 'simplify code',
+          sourceKind: 'project',
+          sourcePath: '/tmp/proj/.cdf/skills',
+          skillPath: '/tmp/proj/.cdf/skills/simplify/SKILL.md',
+          visibility: 'on',
+          visibilitySource: 'default',
+          modelDiscovery: 'full',
+          userInvocable: true,
+        },
+      ],
+      warnings: [],
+    });
+
     const result = await collectSkillCommands('/tmp/proj');
+
     expect(result).toEqual([
       {
         name: 'simplify',
+        qualifiedName: 'simplify',
+        skillName: 'simplify',
+        skillSourceKind: 'project',
+        sourcePath: '/tmp/proj/.cdf/skills',
+        skillPath: '/tmp/proj/.cdf/skills/simplify/SKILL.md',
+        skillVisibility: 'on',
+        modelDiscovery: 'full',
+        userInvocable: true,
         description: 'simplify code',
         source: 'skill:project',
         target: 'project:simplify',
-        sourceLabel: 'skill:project',
+        sourceLabel: 'Project Skill',
         badge: '[skill:project]',
       },
     ]);
   });
 
-  it('maps global skill to source=skill:global with badge [skill:global]', async () => {
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'global:explore',
-        name: 'explore',
-        description: 'explore repo',
-        scope: 'global',
-        resourceFiles: [],
-        created_at: 0,
-        updated_at: 0,
-      },
-    ]);
+  it('maps global catalog entries to global Skill command labels', async () => {
+    resolveSkillCatalogMock.mockReturnValueOnce({
+      skills: [
+        {
+          name: 'explore',
+          description: 'explore repo',
+          sourceKind: 'user',
+          sourcePath: '/tmp/global-skills',
+          skillPath: '/tmp/global-skills/explore/SKILL.md',
+          visibility: 'on',
+          visibilitySource: 'default',
+          modelDiscovery: 'full',
+          userInvocable: true,
+        },
+      ],
+      warnings: [],
+    });
+
     const result = await collectSkillCommands('/tmp/proj');
-    expect(result[0].source).toBe('skill:global');
-    expect(result[0].badge).toBe('[skill:global]');
-    expect(result[0].target).toBe('global:explore');
+
+    expect(result[0]).toMatchObject({
+      name: 'explore',
+      source: 'skill:global',
+      target: 'global:explore',
+      sourceLabel: 'Global Skill',
+      badge: '[skill:global]',
+    });
   });
 
-  it('returns both project and global skills in the same call', async () => {
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'project:simplify',
-        name: 'simplify',
-        description: 'proj',
-        scope: 'project',
-        resourceFiles: [],
-        created_at: 0,
-        updated_at: 0,
-      },
-      {
-        id: 'global:explore',
-        name: 'explore',
-        description: 'global',
-        scope: 'global',
-        resourceFiles: [],
-        created_at: 0,
-        updated_at: 0,
-      },
-    ]);
+  it('omits catalog entries that are not user-invocable', async () => {
+    resolveSkillCatalogMock.mockReturnValueOnce({
+      skills: [
+        {
+          name: 'disabled',
+          description: 'off',
+          sourceKind: 'project',
+          sourcePath: '/tmp/proj/.cdf/skills',
+          skillPath: '/tmp/proj/.cdf/skills/disabled/SKILL.md',
+          visibility: 'off',
+          visibilitySource: 'project',
+          modelDiscovery: 'hidden',
+          userInvocable: false,
+        },
+      ],
+      warnings: [],
+    });
+
     const result = await collectSkillCommands('/tmp/proj');
-    expect(result).toHaveLength(2);
-    expect(result.map((r) => r.source)).toEqual(['skill:project', 'skill:global']);
+
+    expect(result).toEqual([]);
   });
 });

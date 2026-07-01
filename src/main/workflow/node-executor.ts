@@ -9,8 +9,10 @@ import fs from 'fs';
 import path from 'path';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import db from '../database';
+import store from '../store';
 import { createLangChainModel } from '../deepagent/llm-adapter';
-import { resolveAgentSkillsConfig } from '../deepagent/skill-manager';
+import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from '../deepagent/skill-manager';
+import { buildCdfSkillsRuntime } from '../deepagent/skills-runtime/cdf-skills-runtime';
 import {
   getAgentRow,
   getProvider,
@@ -24,6 +26,7 @@ import {
   resolveInterruptOn,
 } from '../deepagent/shared-infra';
 import { resolveProjectFile } from '../utils/path-safety';
+import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import type { ApprovalMode, ExecutionStep, WorkflowApprovalResolution, WorkflowNode } from '../../shared/types';
 
 // ---- Error Types ----
@@ -77,6 +80,35 @@ export function createNodeStateExtractor(
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_LOOP_NODE_ITERATIONS = 50;
+
+function toPathMentionText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+function extractPathMentionContext(...values: unknown[]): string[] {
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const content = toPathMentionText(value);
+    for (const match of content.matchAll(/@([^\s"'`<>]+)/g)) {
+      const normalized = match[1]
+        .trim()
+        .replace(/[\]),.;:，。；：）}"']+$/g, '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//g, '')
+        .replace(/^\/+/g, '');
+      if (normalized) seen.add(normalized);
+    }
+  }
+
+  return Array.from(seen);
+}
 
 export function extractJsonCandidate(text: string): unknown {
   const trimmed = text.trim();
@@ -224,6 +256,16 @@ function tryParseJson(value: string): unknown {
   try { return JSON.parse(trimmed); } catch { return value; }
 }
 
+function getPreloadSkillNames(skillIds: string[]): string[] {
+  return skillReferencesToPreloadNames(skillIds);
+}
+
+function appendRuntimePrompt(basePrompt: string, runtimePrompt: string): string {
+  const trimmedRuntimePrompt = runtimePrompt.trim();
+  if (!trimmedRuntimePrompt) return basePrompt;
+  return `${basePrompt}\n\n${trimmedRuntimePrompt}`;
+}
+
 /**
  * 创建 Agent 节点执行器
  *
@@ -284,6 +326,15 @@ export function createAgentNodeExecutor(
 
       // 3. 构造 user message：只传递 inputs + 相关上游 nodeOutputs
       const { inputs, upstreamOutputs } = extractState(state);
+      const pathContext = extractPathMentionContext(
+        node.data.taskDescription,
+        node.data.description,
+        node.data.reviewSpec,
+        node.data.reviewRules,
+        node.data.dataSource,
+        inputs,
+        upstreamOutputs,
+      );
 
       // 找到工作区路径（优先使用 Start 节点的 workspace，其次使用项目路径）
       const workflowStart = inputs.workflowStart as Record<string, unknown> | undefined;
@@ -291,7 +342,23 @@ export function createAgentNodeExecutor(
       const workingDir = workspacePath || project.path;
 
       // 加载 Skills 配置与权限
-      const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, skillNames);
+      const skillOverrideOptions = resolveAgentSkillConfigOptions(agentRow.config, (key) => store.get(key));
+      for (const warning of skillOverrideOptions.warnings) {
+        console.warn('[workflow] Ignored invalid Skill override:', warning);
+      }
+      const { permissions } = skillOverrideOptions.options
+        ? resolveAgentSkillsConfig(project.path, skillNames, skillOverrideOptions.options)
+        : resolveAgentSkillsConfig(project.path, skillNames);
+      const skillsRuntime = buildCdfSkillsRuntime(project.path, {
+        ...skillOverrideOptions.options,
+        builtInSkillDirs: getBuiltInSkillDirs(),
+        userSkillsDir: getScopePath(project.path, 'global'),
+        preloadSkillNames: getPreloadSkillNames(skillNames),
+        pathContext,
+      });
+      for (const warning of skillsRuntime.warnings) {
+        console.warn('[workflow] Ignored invalid Skill runtime input:', warning);
+      }
 
       // 配置 Filesystem Backend，根目录指向当前工作区目录
       const backend = new CompositeBackend(new StateBackend(), {
@@ -308,8 +375,7 @@ export function createAgentNodeExecutor(
       const agent = createDeepAgent({
         model,
         backend,
-        systemPrompt: agentRow.system_prompt || undefined,
-        skills: skillsSources.length > 0 ? skillsSources : undefined,
+        systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', skillsRuntime.prompt) || undefined,
         permissions,
         tools: [...mcpRuntime.tools, ...builtInTools],
         interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,

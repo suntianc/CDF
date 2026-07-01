@@ -5,6 +5,7 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { SKILL_OVERRIDE_STATES, type SkillOverrideState } from '../../../../shared/skill-overrides';
 import {
   X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
@@ -15,6 +16,25 @@ interface AgentEditDialogProps {
   onClose: () => void;
   agentId: string | null; // Null means create, non-null means edit
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+function isSkillOverrideState(value: unknown): value is SkillOverrideState {
+  return typeof value === 'string' && (SKILL_OVERRIDE_STATES as readonly string[]).includes(value);
+}
+
+function readSkillOverridesFromConfig(config?: Record<string, unknown>): Record<string, SkillOverrideState> {
+  const raw = config?.skillOverrides;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+
+  const overrides: Record<string, SkillOverrideState> = {};
+  for (const [skillName, state] of Object.entries(raw)) {
+    if (isSkillOverrideState(state)) overrides[skillName] = state;
+  }
+  return overrides;
+}
+
+function getSkillDisplayName(skill: { name: string; qualifiedName?: string | null }): string {
+  return skill.qualifiedName?.trim() || skill.name;
 }
 
 export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEditDialogProps) {
@@ -32,12 +52,13 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const [formSystemPrompt, setFormSystemPrompt] = useState('');
   const [formMcpIds, setFormMcpIds] = useState<string[]>([]);
   const [formSkillIds, setFormSkillIds] = useState<string[]>([]);
+  const [formSkillOverrides, setFormSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
 
   // Multi-selector dropdown states
   const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
 
-  // Search query states for bindings
+  // Search query states for MCP binding and Skill Preload controls
   const [mcpSearchQuery, setMcpSearchQuery] = useState('');
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
 
@@ -80,6 +101,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         setFormSystemPrompt(agent.system_prompt || '');
         setFormMcpIds(agent.mcpServerIds || []);
         setFormSkillIds(agent.skillNames || []);
+        setFormSkillOverrides(readSkillOverridesFromConfig(agent.config));
       }
     } else {
       setFormName('');
@@ -89,6 +111,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       setFormSystemPrompt('');
       setFormMcpIds([]);
       setFormSkillIds([]);
+      setFormSkillOverrides({});
     }
     setMcpDropdownOpen(false);
     setSkillDropdownOpen(false);
@@ -120,11 +143,13 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       project_id: currentProjectId || 'default-project',
       name: formName,
       description: formDesc,
-      provider_id: formProviderId || null,
+      provider_id: formProviderId || undefined,
       system_prompt: formSystemPrompt,
       config: {
+        ...(existingAgent?.config ?? {}),
         permissionsPreset: 'project-safe',
         approvalPreset: 'write-operations',
+        skillOverrides: formSkillOverrides,
       },
       mcpServerIds: formMcpIds,
       skillNames: formSkillIds,
@@ -146,11 +171,30 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     );
   };
 
-  const toggleSkillBinding = (skillId: string) => {
+  const toggleSkillPreload = (skillId: string) => {
     setFormSkillIds(prev =>
       prev.includes(skillId) ? prev.filter(id => id !== skillId) : [...prev, skillId]
     );
   };
+
+  const setSkillOverride = (skillName: string, state: SkillOverrideState) => {
+    setFormSkillOverrides(prev => {
+      return {
+        ...prev,
+        [skillName]: state,
+      };
+    });
+  };
+
+  const skillPreloadCandidates = skills.filter(sk => {
+    const query = skillSearchQuery.toLowerCase();
+    return sk.name.toLowerCase().includes(query)
+      || getSkillDisplayName(sk).toLowerCase().includes(query)
+      || (sk.sourceLabel || '').toLowerCase().includes(query);
+  });
+
+  const getSkillSourceLabel = (skill: { scope: string; sourceLabel?: string | null }) =>
+    skill.sourceLabel || (skill.scope === 'project' ? t('agent.skillSourceProject') : t('agent.skillSourceGlobal'));
 
   if (!isOpen) return null;
 
@@ -248,7 +292,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               />
             </div>
 
-            {/* MCP & Skills binding badgelists */}
+        {/* MCP binding and Skill Preload badgelists */}
             <div className="grid grid-cols-2 gap-4">
               {/* MCP Servers */}
               <div className="form-group relative" ref={mcpContainerRef}>
@@ -346,21 +390,25 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               {/* Skills */}
               <div className="form-group relative" ref={skillContainerRef}>
                 <label className="form-label flex items-center justify-between">
-                  <span>{t('agent.bindSkillLabel', { count: formSkillIds.length })}</span>
+                  <span>{t('agent.skillPreloadLabel', { count: formSkillIds.length })}</span>
                   <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.multiSelectHint')}</span>
                 </label>
+                <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                  {t('agent.skillPreloadDesc')}
+                </p>
 
                 <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
                   {formSkillIds.map(id => {
                     const sk = skills.find(s => s.id === id);
+                    const displayName = sk ? getSkillDisplayName(sk) : '';
                     return sk ? (
                       <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-success-dim)]/40 text-[var(--color-success)] text-[11px] select-none border border-[var(--color-success)]/15 animate-fade-in scale-95 origin-left">
-                        <span>{sk.name}</span>
+                        <span>{displayName}</span>
                         <button
                           type="button"
-                          onClick={() => toggleSkillBinding(id)}
+                          onClick={() => toggleSkillPreload(id)}
                           className="text-[var(--color-success)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
-                          title={t('agent.unbind')}
+                          title={t('agent.removePreload')}
                         >
                           ×
                         </button>
@@ -368,7 +416,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     ) : null;
                   })}
                   {formSkillIds.length === 0 && (
-                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">{t('agent.noSkillsBound')}</span>
+                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">{t('agent.noSkillsPreloaded')}</span>
                   )}
                 </div>
 
@@ -382,7 +430,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                   className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>{t('agent.addOrUnbindSkill')}</span>
+                  <span>{t('agent.manageSkillPreload')}</span>
                 </button>
 
                 {skillDropdownOpen && (
@@ -399,15 +447,16 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                       />
                     </div>
                     <div className="overflow-y-auto max-h-[160px] space-y-0.5 pr-0.5">
-                      {skills
-                        .filter(sk => sk.scope === 'global')
-                        .filter(sk => sk.name.toLowerCase().includes(skillSearchQuery.toLowerCase()))
-                        .map(sk => {
+                      {skillPreloadCandidates.map(sk => {
+                          const displayName = getSkillDisplayName(sk);
+                          const sourceLabel = getSkillSourceLabel(sk);
                           const isBound = formSkillIds.includes(sk.id);
                           return (
                             <div
                               key={sk.id}
-                              onClick={() => toggleSkillBinding(sk.id)}
+                              role="button"
+                              aria-label={t('agent.skillPreloadCandidateLabel', { name: displayName })}
+                              onClick={() => toggleSkillPreload(sk.id)}
                               className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
                                 isBound
                                   ? 'bg-[var(--color-success-dim)]/20 text-[var(--color-success)] font-medium'
@@ -421,15 +470,77 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                                   readOnly
                                   className="accent-[var(--color-success)] cursor-pointer"
                                 />
-                                <span className="truncate">{sk.name}</span>
+                                <span className="truncate">{displayName}</span>
                               </div>
+                              <span className="ml-2 shrink-0 rounded bg-[var(--color-bg-sunken)] px-1 py-0.5 text-[10px] text-[var(--color-text-muted)]">
+                                {sourceLabel}
+                              </span>
                             </div>
                           );
                         })}
-                      {skills.filter(sk => sk.name.toLowerCase().includes(skillSearchQuery.toLowerCase())).length === 0 && (
+                      {skillPreloadCandidates.length === 0 && (
                         <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noSkillMatch')}</div>
                       )}
                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
+                <ShieldCheck className="w-4 h-4 text-[var(--color-accent)]" />
+                {t('agent.skillOverrideLabel')}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                {t('agent.skillOverrideDesc')}
+              </p>
+              <div className="mt-3 space-y-2">
+                {skills.map(sk => {
+                  const displayName = getSkillDisplayName(sk);
+                  const sourceLabel = getSkillSourceLabel(sk);
+                  const currentOverride = formSkillOverrides[displayName] ?? 'on';
+                  return (
+                    <div
+                      key={sk.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)]/50 bg-[var(--color-bg-app)]/40 px-2.5 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium text-[var(--color-text-primary)]">{displayName}</div>
+                        <div className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                          {sourceLabel}
+                        </div>
+                      </div>
+                      <div
+                        role="group"
+                        aria-label={t('agent.skillOverrideControlLabel', { name: displayName })}
+                        className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px]"
+                      >
+                        {SKILL_OVERRIDE_STATES.map(state => {
+                          const selected = currentOverride === state;
+                          return (
+                            <button
+                              key={state}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => setSkillOverride(displayName, state)}
+                              className={`px-2 py-1 transition-colors ${
+                                selected
+                                  ? 'bg-[var(--color-accent)] text-white'
+                                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+                              }`}
+                            >
+                              {t(`agent.skillOverrideState.${state}`)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {skills.length === 0 && (
+                  <div className="rounded-md border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-xs italic text-[var(--color-text-muted)]">
+                    {t('agent.noSkillOverrideCandidates')}
                   </div>
                 )}
               </div>

@@ -22,7 +22,7 @@ const {
   const path = require('path');
   const os = require('os');
   return {
-    listPhysicalSkillsMock: vi.fn(() => []),
+    listPhysicalSkillsMock: vi.fn((): any[] => []),
     getScopePathMock: vi.fn((_p: string, scope: string) =>
       scope === 'global'
         ? path.join(os.homedir(), '.cdf', 'skills')
@@ -251,6 +251,41 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     // + path prefix "/skills/" (8) ≈ 31 chars → ceil(31 * 0.25) = 8 tokens.
     // The pre-polish number would have been 30014+ / 4 ≈ 7500 tokens.
     expect(bigSkillRow!.tokens).toBeLessThan(20);
+  });
+
+  it('skills tokens use the shared Skill metadata description limit', async () => {
+    const skillName = 'long-description';
+    const skillDir = path.join(tempProjectPath, '.cdf', 'skills', skillName);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        `name: ${skillName}`,
+        `description: ${'x'.repeat(1100)}`,
+        '---',
+        '',
+        '# Long Description',
+      ].join('\n'),
+      'utf-8'
+    );
+    installFakeDb({
+      defaultSingle: { path: tempProjectPath, id: 'agent-1' },
+    });
+    listPhysicalSkillsMock.mockReturnValueOnce([
+      {
+        id: `project:${skillName}`,
+        name: skillName,
+        scope: 'project',
+      } as any,
+    ]);
+
+    const result = await aggregateCurrentSessionContext('session-1');
+    const skillRow = result.breakdown.skillsPerSkill.find((s) => s.name === skillName);
+
+    expect(skillRow?.tokens).toBe(
+      Math.ceil((1024 + skillName.length + '/skills/'.length) * 0.25)
+    );
   });
 
   it('skills fallback: malformed SKILL.md (no frontmatter) falls back to file size', async () => {

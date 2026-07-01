@@ -39,6 +39,34 @@ const VARIATION_SELECTORS = /[︀-️\u{E0100}-\u{E01EF}]/gu;
 const normForFilter = (s: string): string =>
   s.normalize('NFKC').replace(VARIATION_SELECTORS, '').toLowerCase();
 
+function normalizeProjectRelativePath(value: string): string {
+  return value
+    .trim()
+    .replace(/^@+/, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//g, '')
+    .replace(/^\/+/g, '');
+}
+
+function getNestedSkillQualifier(command: SlashCommand): string {
+  if (command.skillSourceKind !== 'project-nested') return '';
+  const qualifiedName = command.qualifiedName ?? command.name;
+  const separatorIndex = qualifiedName.lastIndexOf(':');
+  if (separatorIndex <= 0) return '';
+  return normalizeProjectRelativePath(qualifiedName.slice(0, separatorIndex));
+}
+
+function getNestedSkillPathContextScore(command: SlashCommand, pathContext: string[]): number {
+  const qualifier = getNestedSkillQualifier(command);
+  if (!qualifier) return 0;
+  return pathContext.some((rawPath) => {
+    const normalizedPath = normalizeProjectRelativePath(rawPath);
+    return normalizedPath === qualifier || normalizedPath.startsWith(`${qualifier}/`);
+  })
+    ? 1
+    : 0;
+}
+
 export interface SlashCommandPopupHandle {
   handleKeyDown: (e: { key: string; preventDefault: () => void }) => boolean;
 }
@@ -57,6 +85,8 @@ export interface SlashCommandPopupProps {
   onClose: () => void;
   /** Phase 6: optional registry commands (from useCommandRegistry). If undefined, falls back to SYSTEM_COMMANDS for back-compat. */
   commands?: SlashCommand[];
+  /** Project-relative paths already mentioned in the Composer Input. Used to rank nested Skills. */
+  pathContext?: string[];
   /** Phase 6: when true, render a gray mcp_health_warning row at the top of the popup (C-02). */
   hasMcpWarning?: boolean;
   /** Phase 6: custom message for the mcp_health_warning row. */
@@ -68,7 +98,7 @@ export interface SlashCommandPopupProps {
 export const SlashCommandPopup = forwardRef<
   SlashCommandPopupHandle,
   SlashCommandPopupProps
->(({ query, onSelect, onInsert, onClose, commands, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
+>(({ query, onSelect, onInsert, onClose, commands, pathContext, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
   // Phase 6: when `commands` prop is provided, use it. Otherwise fall back to
   // the Phase 5 SYSTEM_COMMANDS (mapped from `{value, label}` to SlashCommand shape).
   const displayCommands = useMemo<SlashCommand[]>(() => {
@@ -92,10 +122,19 @@ export const SlashCommandPopup = forwardRef<
     // (system commands whose primary entry is a persistent UI button, e.g.
     // `<ContextButton>` for /context). Slash input still dispatches via the
     // dispatcher; this only affects popup visibility.
-    return base.filter(
+    const visible = base.filter(
       (c) => c.frontmatter?.userInvocable !== false && !c.hideFromPopup
     );
-  }, [commands]);
+    if (!pathContext || pathContext.length === 0) return visible;
+    return visible
+      .map((command, index) => ({
+        command,
+        index,
+        score: getNestedSkillPathContextScore(command, pathContext),
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((entry) => entry.command);
+  }, [commands, pathContext]);
 
   // Phase 8 — D-06: pre-normalize every command name into a Map so the
   // per-keystroke filter is O(1) per item (Map.get) instead of re-running
@@ -246,6 +285,11 @@ export const SlashCommandPopup = forwardRef<
             >
               {c.badge}
             </Badge>
+            {c.source.startsWith('skill:') && c.sourceLabel && (
+              <span className="text-[10px] text-[var(--color-text-muted)] truncate max-w-[120px]">
+                {c.sourceLabel}
+              </span>
+            )}
             <span className="font-mono">/{c.name}</span>
             {c.source !== 'mcp' && c.description && (
               <span className="text-[11px] text-[var(--color-text-muted)] truncate max-w-[200px]">

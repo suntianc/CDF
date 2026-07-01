@@ -80,6 +80,18 @@ _Avoid_: send handler, submit button logic, composer UI
 A domain-specific mode of the Agent Workstation that determines the sidebar layout, pre-configured Agents, available Skills, and specialized panels. A Scene is chosen when creating a Project and cannot be changed afterward.
 _Avoid_: mode, template, theme, workspace type
 
+**Skill**:
+A progressive-disclosure capability package that teaches an Agent a specialized workflow, domain practice, or operating discipline. Visible Skills are discoverable by default; an Agent's Skill selection emphasizes or preloads a Skill rather than defining the full access boundary.
+_Avoid_: plugin, tool, command
+
+**Skill Override**:
+A visibility rule that changes how a Skill is exposed to an Agent: `on`, `name-only`, `user-invocable-only`, or `off`.
+_Avoid_: binding, permission, install state
+
+**Skill Preload**:
+An Agent-level emphasis that loads a selected Skill's full instructions at Agent startup. It does not grant or deny access to the Skill.
+_Avoid_: binding, whitelist, permission
+
 **Paper Library**:
 A Scene-specific panel that manages collected academic papers — OKF metadata files, locally stored PDFs, and vector indexes for Agent retrieval.
 _Avoid_: reference manager, paper database, Zotero
