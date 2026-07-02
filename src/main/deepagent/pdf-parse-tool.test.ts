@@ -75,4 +75,70 @@ describe('createPdfParseTools', () => {
       },
     });
   });
+
+  it('returns a project artifact summary instead of large parse JSON when a project path is available', async () => {
+    const runner: MarkerRunner = {
+      parse: async () => ({
+        markdown: '# Abstract\n\nParsed by Marker.',
+        outputDir: tempDir,
+      }),
+    };
+    const tools = createPdfParseTools({
+      projectPath: tempDir,
+      runner,
+      createJobId: () => 'job-artifact-tool',
+    });
+    const parsePdf = tools.find((tool) => tool.name === 'parse_pdf') as any;
+
+    const result = parseToolResult(await parsePdf.invoke({
+      filePath: pdfPath,
+      timeoutMs: 5000,
+    }));
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'completed',
+      artifactDir: path.join(tempDir, '.cdf', 'pdf-parses', `${result.artifactDir.split(path.sep).pop()}`),
+      conversationSummary: expect.stringContaining('.cdf/pdf-parses'),
+    });
+    expect(result.parse).toBeUndefined();
+    expect(result.conversationSummary).not.toContain('Parsed by Marker.');
+    expect(fs.existsSync(path.join(result.artifactDir, 'baseline.json'))).toBe(true);
+  });
+
+  it('materializes completed status results as project artifacts instead of returning large parse JSON', async () => {
+    const runner: MarkerRunner = {
+      parse: async () => ({
+        markdown: '# Finished\n\nParsed after polling.',
+        outputDir: tempDir,
+      }),
+    };
+    const tools = createPdfParseTools({
+      projectPath: tempDir,
+      runner,
+      createJobId: () => 'job-status-artifact',
+    });
+    const parsePdf = tools.find((tool) => tool.name === 'parse_pdf') as any;
+    const statusTool = tools.find((tool) => tool.name === 'pdf_parse_status') as any;
+
+    await parsePdf.invoke({
+      filePath: pdfPath,
+      timeoutMs: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const result = parseToolResult(await statusTool.invoke({ jobId: 'job-status-artifact' }));
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'completed',
+      artifactDir: expect.stringContaining(path.join('.cdf', 'pdf-parses')),
+      conversationSummary: expect.stringContaining('.cdf/pdf-parses'),
+    });
+    expect(result.job).toBeUndefined();
+    expect(result.parse).toBeUndefined();
+    expect(result.conversationSummary).not.toContain('Parsed after polling.');
+    expect(fs.existsSync(path.join(result.artifactDir, 'baseline.json'))).toBe(true);
+    expect(fs.existsSync(path.join(result.artifactDir, 'recovery-plan.json'))).toBe(true);
+  });
 });

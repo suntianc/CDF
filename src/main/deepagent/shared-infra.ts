@@ -174,7 +174,7 @@ export function createBuiltInTools(workingDir: string): any[] {
     createObscuraBrowserTool({ runner: createObscuraCliRunner() }),
     createKnowledgeSearchTool(workingDir),
     createKnowledgeCreateTool(workingDir),
-    ...createPdfParseTools(),
+    ...createPdfParseTools({ projectPath: workingDir }),
   ];
 }
 

@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { listSkills, type FilesystemPermission } from 'deepagents';
 import type { ParsedFrontmatter } from '../../shared/types';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
+import { getPdfParsingSkillMarkdown } from '../pdf-parsing-skill';
 import {
   invalidateSkillSourceCaches,
   resolveSkillCatalog,
@@ -90,8 +91,15 @@ function ensureBuiltInKnowledgeBaseSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInPdfParsingSkill(): string {
+  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'pdf-parsing');
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPdfParsingSkillMarkdown(), 'utf-8');
+  return skillDir;
+}
+
 export function getBuiltInSkillDirs(): string[] {
-  return [ensureBuiltInKnowledgeBaseSkill()];
+  return [ensureBuiltInKnowledgeBaseSkill(), ensureBuiltInPdfParsingSkill()];
 }
 
 function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {

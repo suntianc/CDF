@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // Mock DB and security before importing shared-infra
-const { dbPrepareMock, decryptApiKeyMock } = vi.hoisted(() => ({
+const { dbPrepareMock, decryptApiKeyMock, createPdfParseToolsMock } = vi.hoisted(() => ({
   dbPrepareMock: vi.fn(),
   decryptApiKeyMock: vi.fn((value: string) => `decrypted:${value}`),
+  createPdfParseToolsMock: vi.fn(() => [
+    { name: 'parse_pdf' },
+    { name: 'pdf_parse_status' },
+    { name: 'pdf_parse_cancel' },
+  ]),
 }));
 
 vi.mock('../database', () => ({
@@ -34,11 +39,7 @@ vi.mock('./obscura-tool', () => ({
 }));
 
 vi.mock('./pdf-parse-tool', () => ({
-  createPdfParseTools: vi.fn(() => [
-    { name: 'parse_pdf' },
-    { name: 'pdf_parse_status' },
-    { name: 'pdf_parse_cancel' },
-  ]),
+  createPdfParseTools: createPdfParseToolsMock,
 }));
 
 vi.mock('./search-tools', () => ({
@@ -196,5 +197,8 @@ describe('createBuiltInTools', () => {
       'pdf_parse_status',
       'pdf_parse_cancel',
     ]);
+    expect(createPdfParseToolsMock).toHaveBeenCalledWith({
+      projectPath: '/tmp/workspace',
+    });
   });
 });

@@ -124,6 +124,50 @@ _Avoid_: log line, parser stderr, free-text warning
 A later PDF recovery path where a configured Agent uses project-approved model providers and page-scoped parser evidence to repair or enrich selected PDF parse results.
 _Avoid_: hardcoded LLM API fallback, parser-internal model call, silent reparse
 
+**PDF Recovery Overlay**:
+A page-scoped repair or enrichment attached to an existing Structured Paper Parse, recording recovered text, figure or table semantics, diagnostics, and source evidence for selected pages or blocks. Production use keeps the best recovered result and provenance, not a user-facing baseline-vs-recovery diff.
+_Avoid_: second full parse, replacement document, fallback parse
+
+**Recovered Paper Parse View**:
+A read-time merged view of a baseline Structured Paper Parse plus its PDF Recovery Overlays, intended as the clean input for downstream chunking, indexing, review, or writing workflows. It does not create a second parse record and does not write a RAG index by itself.
+_Avoid_: recovered parse record, vector index, duplicate document
+
+**PDF Parse Artifact**:
+A project-local file artifact under CDF's `.cdf` area that stores the durable output of a PDF parsing run, such as parse metadata, recovered Markdown, diagnostics, overlays, and provenance. It is not a Paper Library import and does not imply vector indexing.
+_Avoid_: paper record, vector index entry, conversation transcript
+
+**PDF Recovery Comparison Trace**:
+A developer-only diagnostic artifact that records baseline-vs-recovery differences for parser evaluation, regression analysis, and recovery-strategy tuning. It is disabled in normal production use unless a development or diagnostics switch is explicitly enabled.
+_Avoid_: user-facing diff, production recovery state, audit requirement
+
+**PDF Recovery Provenance**:
+The minimal production metadata that explains where recovered content came from: the recovery capability, source page or block, diagnostic code, and whether a metered or network route was user-approved. It excludes full prompts, full model responses, baseline-vs-recovery diffs, and page image copies by default.
+_Avoid_: prompt log, response transcript, page image archive, comparison trace
+
+**PDF Recovery Plan**:
+An Agent-generated plan that selects which pages or blocks need recovery after a baseline PDF parse, based on parser diagnostics, source grounding gaps, and expected value. The user asks for automatic PDF parsing; page selection is an internal recovery-planning step.
+_Avoid_: manual page selection, user page-picking workflow, parser retry loop
+
+**PDF Recovery Capability**:
+Any Agent-accessible capability that can repair or enrich weak PDF parse evidence, such as a multimodal model provider, a vision-capable MCP tool, a local CLI, or a future native page-analysis tool. The Master Agent discovers viable capabilities and asks the user to choose when meaningful trade-offs exist instead of assuming one fixed model path.
+_Avoid_: hardcoded fallback model, fixed recovery provider, parser-owned LLM call
+
+**PDF Parsing Skill**:
+An Agent-facing workflow Skill packaged as `SKILL.md` plus supporting scripts/resources, guiding automatic PDF parsing from a user's single intent: run the Marker baseline, inspect diagnostics, plan recovery, ask for route preference when needed, apply recovery, and return the best recovered result. It keeps PDF-specific execution behind the Skill instead of expanding the global Agent Tool surface.
+_Avoid_: pile of global PDF tools, parser-only command, manual recovery checklist
+
+**Global Agent Tool Surface**:
+The small set of broadly reusable tools exposed to Agents across tasks, such as file, shell, fetch, browser, and generic coordination primitives. Domain-specific workflows should prefer Skills with scripts/resources instead of expanding this surface.
+_Avoid_: domain tool pile, workflow-specific tool menu, feature-specific global command set
+
+**PDF Recovery Preference**:
+A project-level remembered user direction for how CDF should choose among viable PDF Recovery Capabilities after the first recovery-route decision. It is recorded as Agent-facing guidance in the Project `AGENTS.md`, letting later automatic PDF parsing in the same Project reuse the user's preferred route unless the preference is unavailable, unsafe for the current document, or the recovery plan introduces a new privacy, network, or cost risk.
+_Avoid_: asking every time, hidden provider choice, one-off prompt answer
+
+**PDF Recovery Route**:
+A stable preference category for recovery capability selection, such as local-first, vision-capability, multimodal-agent, or ask-each-time. A route guides the Master Agent's choice without hard-binding recovery to a specific MCP server, model name, CLI path, or provider instance.
+_Avoid_: provider id, model id, tool instance id, executable path
+
 **Paper Source Location**:
 The traceable location attached to parsed paper content so an Agent can point back to the original PDF, at minimum page number plus section or heading.
 _Avoid_: citation string, markdown anchor, display position

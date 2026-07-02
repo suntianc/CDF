@@ -6,9 +6,14 @@ import {
   type ParsePDFDependencies,
   type PdfParseOptions,
 } from '../pdf-parse';
+import { materializePdfParseJobArtifact, parsePdfWithSkill } from '../pdf-parsing-skill';
 
 interface ParsePdfToolInput extends PdfParseOptions {
   filePath: string;
+}
+
+interface PdfParseToolDependencies extends ParsePDFDependencies {
+  projectPath?: string;
 }
 
 interface PdfParseJobToolInput {
@@ -60,9 +65,27 @@ const PDF_PARSE_JOB_SCHEMA = {
   additionalProperties: false,
 };
 
-export function createPdfParseTools(dependencies: ParsePDFDependencies = {}) {
+export function createPdfParseTools(dependencies: PdfParseToolDependencies = {}) {
   const parsePdf = tool(
     async (input: ParsePdfToolInput) => {
+      if (dependencies.projectPath) {
+        const result = await parsePdfWithSkill(dependencies.projectPath, input.filePath, {
+          runner: dependencies.runner,
+          createJobId: dependencies.createJobId,
+          now: dependencies.now ? () => new Date(dependencies.now?.() ?? Date.now()) : undefined,
+          parseOptions: {
+            parser: input.parser,
+            pageRange: input.pageRange,
+            fallback: input.fallback,
+            timeoutMs: input.timeoutMs,
+          },
+        });
+        return JSON.stringify({
+          success: result.status !== 'failed' && result.status !== 'canceled',
+          ...result,
+        });
+      }
+
       const result = await parsePDF(input.filePath, {
         parser: input.parser,
         pageRange: input.pageRange,
@@ -76,7 +99,7 @@ export function createPdfParseTools(dependencies: ParsePDFDependencies = {}) {
     },
     {
       name: 'parse_pdf',
-      description: 'Parse a readable absolute local PDF path into a Structured Paper Parse using local Marker. Long parses continue as cancellable PDF Parse Jobs; use pdf_parse_status and pdf_parse_cancel with the returned jobId.',
+      description: 'Parse a readable absolute local PDF path using local Marker. In a Project, writes a PDF Parse Artifact under .cdf/pdf-parses and returns a concise summary; long parses continue as cancellable PDF Parse Jobs.',
       schema: PARSE_PDF_SCHEMA,
     },
   );
@@ -84,6 +107,15 @@ export function createPdfParseTools(dependencies: ParsePDFDependencies = {}) {
   const status = tool(
     async (input: PdfParseJobToolInput) => {
       const job = getPdfParseJob(input.jobId);
+      if (job && dependencies.projectPath) {
+        const artifact = materializePdfParseJobArtifact(dependencies.projectPath, job);
+        if (artifact) {
+          return JSON.stringify({
+            success: artifact.status !== 'failed' && artifact.status !== 'canceled',
+            ...artifact,
+          });
+        }
+      }
       return JSON.stringify(job
         ? { success: true, job }
         : { success: false, error: `PDF Parse Job not found: ${input.jobId}` });

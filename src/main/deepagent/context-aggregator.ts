@@ -350,7 +350,7 @@ const PARSE_PDF_SCHEMA: unknown = {
 const PARSE_PDF_META = {
   name: 'parse_pdf',
   description:
-    'Parse a readable absolute local PDF path into a Structured Paper Parse using local Marker. Long parses continue as cancellable PDF Parse Jobs; use pdf_parse_status and pdf_parse_cancel with the returned jobId.',
+    'Parse a readable absolute local PDF path using local Marker. In a Project, writes a PDF Parse Artifact under .cdf/pdf-parses and returns a concise summary; long parses continue as cancellable PDF Parse Jobs.',
 };
 
 const PDF_PARSE_JOB_SCHEMA: unknown = {
