@@ -14,7 +14,6 @@ import { createDeleteFileTool } from './file-tools';
 import { createBashTool } from './bash-tool';
 import { createFetchTool } from './fetch-tool';
 import { createObscuraBrowserTool, createObscuraCliRunner } from './obscura-tool';
-import { createPdfParseTools } from './pdf-parse-tool';
 import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
 import { createArxivTool } from './arxiv-tool';
 import { loadMcpTools } from './mcp-connector';
@@ -174,7 +173,6 @@ export function createBuiltInTools(workingDir: string): any[] {
     createObscuraBrowserTool({ runner: createObscuraCliRunner() }),
     createKnowledgeSearchTool(workingDir),
     createKnowledgeCreateTool(workingDir),
-    ...createPdfParseTools({ projectPath: workingDir }),
   ];
 }
 

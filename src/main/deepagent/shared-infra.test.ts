@@ -1,14 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // Mock DB and security before importing shared-infra
-const { dbPrepareMock, decryptApiKeyMock, createPdfParseToolsMock } = vi.hoisted(() => ({
+const { dbPrepareMock, decryptApiKeyMock } = vi.hoisted(() => ({
   dbPrepareMock: vi.fn(),
   decryptApiKeyMock: vi.fn((value: string) => `decrypted:${value}`),
-  createPdfParseToolsMock: vi.fn(() => [
-    { name: 'parse_pdf' },
-    { name: 'pdf_parse_status' },
-    { name: 'pdf_parse_cancel' },
-  ]),
 }));
 
 vi.mock('../database', () => ({
@@ -36,10 +31,6 @@ vi.mock('./fetch-tool', () => ({
 vi.mock('./obscura-tool', () => ({
   createObscuraBrowserTool: vi.fn(() => ({ name: 'obscura_browse' })),
   createObscuraCliRunner: vi.fn(() => ({ browse: vi.fn() })),
-}));
-
-vi.mock('./pdf-parse-tool', () => ({
-  createPdfParseTools: createPdfParseToolsMock,
 }));
 
 vi.mock('./search-tools', () => ({
@@ -193,12 +184,6 @@ describe('createBuiltInTools', () => {
       'obscura_browse',
       'knowledge_search',
       'knowledge_create',
-      'parse_pdf',
-      'pdf_parse_status',
-      'pdf_parse_cancel',
     ]);
-    expect(createPdfParseToolsMock).toHaveBeenCalledWith({
-      projectPath: '/tmp/workspace',
-    });
   });
 });

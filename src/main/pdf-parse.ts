@@ -149,7 +149,7 @@ function errorMessage(error: unknown): string {
 
 function validatePdfPath(filePath: string): PdfParseDiagnostic | null {
   if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) {
-    return makeDiagnostic('error', 'INVALID_INPUT', 'parse_pdf requires an absolute local PDF path.');
+    return makeDiagnostic('error', 'INVALID_INPUT', 'PDF parsing requires an absolute local PDF path.');
   }
   let stat: fs.Stats;
   try {
@@ -479,12 +479,14 @@ export async function parsePDF(
   jobs.set(jobId, job);
 
   if (normalized.timeoutMs > 0) {
+    let timeout: NodeJS.Timeout | undefined;
     await Promise.race([
       job.promise,
       new Promise<void>((resolve) => {
-        setTimeout(resolve, normalized.timeoutMs);
+        timeout = setTimeout(resolve, normalized.timeoutMs);
       }),
     ]);
+    if (timeout) clearTimeout(timeout);
   }
 
   if (job.status === 'completed' && job.parse) {

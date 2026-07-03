@@ -156,6 +156,10 @@ _Avoid_: hardcoded fallback model, fixed recovery provider, parser-owned LLM cal
 An Agent-facing workflow Skill packaged as `SKILL.md` plus supporting scripts/resources, guiding automatic PDF parsing from a user's single intent: run the Marker baseline, inspect diagnostics, plan recovery, ask for route preference when needed, apply recovery, and return the best recovered result. It keeps PDF-specific execution behind the Skill instead of expanding the global Agent Tool surface.
 _Avoid_: pile of global PDF tools, parser-only command, manual recovery checklist
 
+**PDF Parse Skill Script**:
+A shell-executed script or supporting resource packaged inside the PDF Parsing Skill. These scripts are thin entrypoints into CDF's compiled PDF Skill CLI for baseline parsing, recovery planning, AGENTS.md preference updates, recovery application, and recovered-view finalization. They are not globally visible Agent Tools and do not expose cross-process status/cancel controls.
+_Avoid_: global parse_pdf tool, parser command, PDF tool suite, script-local parser rewrite
+
 **Global Agent Tool Surface**:
 The small set of broadly reusable tools exposed to Agents across tasks, such as file, shell, fetch, browser, and generic coordination primitives. Domain-specific workflows should prefer Skills with scripts/resources instead of expanding this surface.
 _Avoid_: domain tool pile, workflow-specific tool menu, feature-specific global command set

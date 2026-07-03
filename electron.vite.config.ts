@@ -17,7 +17,8 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts')
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'pdf-parsing-skill-cli': resolve(__dirname, 'src/main/pdf-parsing-skill-cli.ts')
         },
         external: ['canvas', '@napi-rs/canvas']
       }

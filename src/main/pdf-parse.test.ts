@@ -164,7 +164,7 @@ describe('parsePDF', () => {
         {
           severity: 'error',
           code: 'INVALID_INPUT',
-          message: 'parse_pdf requires an absolute local PDF path.',
+          message: 'PDF parsing requires an absolute local PDF path.',
         },
       ],
     });

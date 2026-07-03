@@ -260,6 +260,36 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(bigSkillRow!.tokens).toBeLessThan(100);
   });
 
+  it('skills tokens do not include packaged scripts or resources in the always-on discovery cost', async () => {
+    const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'resource-heavy-skill');
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: resource-heavy-skill',
+        'description: Resource-heavy description.',
+        '---',
+        '',
+        '# Resource Heavy Skill',
+      ].join('\n'),
+      'utf-8'
+    );
+    fs.writeFileSync(path.join(skillDir, 'scripts', 'main.js'), 'x'.repeat(30_000), 'utf-8');
+    fs.writeFileSync(path.join(skillDir, 'entrypoints.json'), JSON.stringify({ data: 'y'.repeat(30_000) }), 'utf-8');
+    installFakeDb({
+      defaultSingle: { path: tempProjectPath, id: 'agent-1' },
+    });
+
+    const result = await aggregateCurrentSessionContext('session-1');
+    const skillRow = result.breakdown.skillsPerSkill.find(
+      (s) => s.name === 'resource-heavy-skill'
+    );
+
+    expect(skillRow).toBeDefined();
+    expect(skillRow!.tokens).toBeLessThan(100);
+  });
+
   it('skills tokens use the shared Skill metadata description limit', async () => {
     const skillName = 'long-description';
     const skillDir = path.join(tempProjectPath, '.cdf', 'skills', skillName);
@@ -365,7 +395,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(result.breakdown.freeSpace).toBe(200_000 - expectedTotal - 30_000);
     // Sanity: confirm we actually computed the BUILTIN_TOOL_CHARS total
     expect(result.breakdown.systemTools).toBe(expectedSystemTools);
-    expect(result.breakdown.systemToolsPerTool.map((tool) => tool.name)).toEqual(
+    expect(result.breakdown.systemToolsPerTool.map((tool) => tool.name)).not.toEqual(
       expect.arrayContaining(['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel']),
     );
   });
@@ -482,7 +512,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
   it('systemPrompt + systemTools now report real values (08.2 polish promoted placeholders to real calculations)', async () => {
     // 08.2 polish: systemPrompt now reads agents.system_prompt + the static
     // buildProjectContext template, and systemTools now sums the mirrored built-in
-    // tool schemas, including PDF Parse tools.
+    // tool schemas.
     // Both should be > 0 for a session backed by a real agent row.
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     installFakeDb({

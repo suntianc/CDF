@@ -153,6 +153,74 @@ export type ParsePdfWithSkillResult = ParsePdfWithSkillCompletedResult | ParsePd
   error?: string;
 };
 
+export interface PdfParsingSkillResource {
+  relativePath: string;
+  content: string;
+}
+
+export interface PdfParsingSkillResourceOptions {
+  cliPath?: string;
+}
+
+type PdfParsingSkillEntrypointKey =
+  | 'baselineParse'
+  | 'ensureMarker'
+  | 'refreshRecoveryPlan'
+  | 'setPreference'
+  | 'clearPreference'
+  | 'applyRecovery'
+  | 'finalizeView';
+
+const PDF_PARSING_SKILL_ENTRYPOINTS: Record<PdfParsingSkillEntrypointKey, {
+  script: string;
+  internalModule: string;
+  exportName: string;
+  purpose: string;
+}> = {
+  baselineParse: {
+    script: 'scripts/baseline-parse.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'parsePdfWithSkill',
+    purpose: 'Run the Marker baseline parse and write a project-local PDF Parse Artifact.',
+  },
+  ensureMarker: {
+    script: 'scripts/ensure-marker.js',
+    internalModule: 'external marker CLI',
+    exportName: 'marker_single',
+    purpose: 'Prepare or verify the local Marker CLI dependency used by the PDF Parsing Skill.',
+  },
+  refreshRecoveryPlan: {
+    script: 'scripts/refresh-recovery-plan.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'generatePdfRecoveryPlan',
+    purpose: 'Regenerate the automatic recovery plan from baseline diagnostics.',
+  },
+  setPreference: {
+    script: 'scripts/set-preference.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'updatePdfRecoveryPreference',
+    purpose: 'Persist the project PDF recovery route preference in the managed AGENTS.md block.',
+  },
+  clearPreference: {
+    script: 'scripts/clear-preference.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'clearPdfRecoveryPreference',
+    purpose: 'Remove the managed project PDF recovery route preference block.',
+  },
+  applyRecovery: {
+    script: 'scripts/apply-recovery.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'executePdfRecoveryPlan',
+    purpose: 'Apply an approved recovery plan through the selected recovery capability.',
+  },
+  finalizeView: {
+    script: 'scripts/finalize-view.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'finalizeRecoveredPaperParseView',
+    purpose: 'Write the best recovered PDF parse view and final diagnostics artifacts.',
+  },
+};
+
 const PDF_RECOVERY_BLOCK_START = '<!-- CDF:pdf-recovery:start -->';
 const PDF_RECOVERY_BLOCK_END = '<!-- CDF:pdf-recovery:end -->';
 const PDF_RECOVERY_BLOCK_PATTERN = /<!-- CDF:pdf-recovery:start -->[\s\S]*?<!-- CDF:pdf-recovery:end -->/;
@@ -197,7 +265,235 @@ export function getPdfParsingSkillMarkdown(): string {
     '',
     'After the baseline parse, inspect diagnostics and generate an automatic recovery plan.',
     'Ask for route choice or plan-level confirmation only when meaningful capability, privacy, network, upload, or cost trade-offs exist.',
+    'Recovery scripts operate on the artifact directory produced by `baseline-parse.js`.',
+    'Use `set-preference.js` and `clear-preference.js` only for the managed Project `AGENTS.md` PDF recovery preference block.',
+    'Use `apply-recovery.js` only after an explicit route selection and any required plan-level confirmation; provide recovery results from the selected capability as a JSON array.',
+    '',
+    '## Entrypoints',
+    '',
+    'PDF-specific execution is packaged in this Skill as `entrypoints.json` and `scripts/*.js` resources.',
+    '',
+    '- `scripts/baseline-parse.js --project <projectPath> --file <absolutePdfPath> [--page-range <range>]`: runs Marker through the compiled CDF PDF Skill CLI, writes `.cdf/pdf-parses/<artifactId>/`, and returns a compact JSON summary with diagnostics and next actions.',
+    '- `scripts/ensure-marker.js --mode prepare|check`: verifies or prepares the local Marker command used by baseline parsing.',
+    '- `scripts/refresh-recovery-plan.js --artifact <artifactDir>`: regenerates `recovery-plan.json` from `baseline.json` diagnostics and block evidence.',
+    '- `scripts/set-preference.js --project <projectPath> --route <local-first|vision-capability|multimodal-agent|ask-each-time>`: writes the managed PDF recovery preference block in `AGENTS.md`.',
+    '- `scripts/clear-preference.js --project <projectPath>`: removes only the managed PDF recovery preference block from `AGENTS.md`.',
+    '- `scripts/apply-recovery.js --artifact <artifactDir> --route <route> --plan-confirmed --results-file <json> [--capability-label <label>]`: records the selected route and applies recovery results through the internal recovery seam.',
+    '- `scripts/finalize-view.js --artifact <artifactDir> [--comparison-trace]`: rewrites `recovered-view.md` from `baseline.json`, `overlays.json`, and `diagnostics.json`.',
+    '',
+    'If baseline parsing reports `MARKER_UNAVAILABLE`, run `scripts/ensure-marker.js` through the shell, then rerun `scripts/baseline-parse.js`.',
+    'The Skill script path is synchronous; it does not expose cross-process status or cancel scripts. Long-running Marker process management remains inside the compiled CDF CLI invocation.',
+    'Do not call global Agent tools named `parse_pdf`, `pdf_parse_status`, or `pdf_parse_cancel`; those tools are intentionally not part of the global tool surface.',
   ].join('\n');
+}
+
+function buildPdfParsingSkillEntrypointManifest(): string {
+  const scripts = Object.fromEntries(
+    Object.entries(PDF_PARSING_SKILL_ENTRYPOINTS).map(([key, value]) => [key, value.script]),
+  );
+  return `${JSON.stringify({
+    skill: 'pdf-parsing',
+    globalToolsRemoved: ['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel'],
+    scripts,
+  }, null, 2)}\n`;
+}
+
+function buildPdfParsingSkillScript(
+  name: string,
+  entrypoint: typeof PDF_PARSING_SKILL_ENTRYPOINTS[PdfParsingSkillEntrypointKey],
+  options: PdfParsingSkillResourceOptions = {},
+): string {
+  if (name === 'ensureMarker') {
+    return buildPdfParsingSkillEnsureMarkerScript(entrypoint);
+  }
+  return `#!/usr/bin/env node
+'use strict';
+
+// CDF built-in PDF Parsing Skill entrypoint resource.
+// Backed by ${entrypoint.internalModule}#${entrypoint.exportName}.
+// The script is a thin shell-facing entrypoint over the compiled CDF CLI; PDF
+// behavior stays in src/main/pdf-parsing-skill.ts and src/main/pdf-parse.ts.
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const entrypoint = {
+  skill: 'pdf-parsing',
+  operation: ${JSON.stringify(name)},
+  internalModule: ${JSON.stringify(entrypoint.internalModule)},
+  exportName: ${JSON.stringify(entrypoint.exportName)},
+  purpose: ${JSON.stringify(entrypoint.purpose)},
+};
+
+const cliPath = process.env.CDF_PDF_SKILL_CLI_PATH || ${JSON.stringify(options.cliPath ?? '')};
+
+if (!cliPath) {
+  process.stdout.write(JSON.stringify({
+    status: 'failed',
+    entrypoint,
+    error: 'CDF_PDF_SKILL_CLI_PATH is not configured.',
+  }, null, 2) + '\\n');
+  process.exit(1);
+}
+
+const result = spawnSync(process.execPath, [cliPath, entrypoint.operation, ...process.argv.slice(2)], {
+  encoding: 'utf-8',
+  env: {
+    ...process.env,
+    CDF_PDF_SKILL_DIR: path.resolve(__dirname, '..'),
+  },
+  windowsHide: true,
+});
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+if (result.error) {
+  process.stdout.write(JSON.stringify({
+    status: 'failed',
+    entrypoint,
+    error: result.error.message,
+  }, null, 2) + '\\n');
+  process.exitCode = 1;
+} else {
+  process.exitCode = result.status || 0;
+}
+`;
+}
+
+function buildPdfParsingSkillEnsureMarkerScript(entrypoint: typeof PDF_PARSING_SKILL_ENTRYPOINTS[PdfParsingSkillEntrypointKey]): string {
+  return `#!/usr/bin/env node
+'use strict';
+
+// CDF built-in PDF Parsing Skill dependency preparation entrypoint.
+// Backed by ${entrypoint.internalModule}#${entrypoint.exportName}.
+const { spawnSync } = require('child_process');
+
+const entrypoint = {
+  skill: 'pdf-parsing',
+  operation: 'ensureMarker',
+  internalModule: ${JSON.stringify(entrypoint.internalModule)},
+  exportName: ${JSON.stringify(entrypoint.exportName)},
+  purpose: ${JSON.stringify(entrypoint.purpose)},
+};
+
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const value = argv[i];
+    if (!value.startsWith('--')) continue;
+    const key = value.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith('--')) {
+      args[key] = true;
+      continue;
+    }
+    args[key] = next;
+    i += 1;
+  }
+  return args;
+}
+
+function splitConfiguredCommand(command) {
+  const matches = command.match(/(?:[^\\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return matches.map((part) => part.replace(/^[\\"']|[\\"']$/g, ''));
+}
+
+function configuredMarkerCommand() {
+  const configured = (process.env.CDF_MARKER_COMMAND || '').trim();
+  if (configured) {
+    const parts = splitConfiguredCommand(configured);
+    if (parts[0]) return { command: parts[0], args: parts.slice(1), source: 'CDF_MARKER_COMMAND' };
+  }
+  return { command: 'uvx', args: ['--from', 'marker-pdf', 'marker_single'], source: 'default-uvx-marker-pdf' };
+}
+
+function runHelp(command, args) {
+  return spawnSync(command, [...args, '--help'], {
+    encoding: 'utf-8',
+    windowsHide: true,
+    timeout: Number(process.env.CDF_MARKER_PREPARE_TIMEOUT_MS || 300000),
+  });
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const mode = args.mode === 'check' ? 'check' : 'prepare';
+  const configured = configuredMarkerCommand();
+  const result = runHelp(configured.command, configured.args);
+  if (result.error) {
+    const payload = {
+      status: 'unavailable',
+      entrypoint,
+      mode,
+      command: configured.command,
+      args: configured.args,
+      commandSource: configured.source,
+      diagnostics: [
+        {
+          severity: 'error',
+          code: result.error.code === 'ENOENT' ? 'MARKER_BOOTSTRAP_UNAVAILABLE' : 'MARKER_BOOTSTRAP_FAILED',
+          message: result.error.message,
+        },
+      ],
+      suggestedCommands: [
+        'Install uv, then rerun this script: https://docs.astral.sh/uv/getting-started/installation/',
+        'Or set CDF_MARKER_COMMAND to an existing Marker command, then rerun baseline-parse.js.',
+      ],
+    };
+    process.stdout.write(JSON.stringify(payload, null, 2) + '\\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (result.status !== 0) {
+    process.stdout.write(JSON.stringify({
+      status: 'unavailable',
+      entrypoint,
+      mode,
+      command: configured.command,
+      args: configured.args,
+      commandSource: configured.source,
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'MARKER_BOOTSTRAP_FAILED',
+          message: result.stderr || 'Marker prepare command exited with code ' + result.status,
+        },
+      ],
+    }, null, 2) + '\\n');
+    process.exitCode = result.status || 1;
+    return;
+  }
+  process.stdout.write(JSON.stringify({
+    status: 'ready',
+    entrypoint,
+    mode,
+    command: configured.command,
+    args: configured.args,
+    commandSource: configured.source,
+    message: configured.source === 'default-uvx-marker-pdf'
+      ? 'Marker is available through uvx marker-pdf cache.'
+      : 'Marker command is available.',
+  }, null, 2) + '\\n');
+}
+
+main();
+`;
+}
+
+export function getPdfParsingSkillResources(options: PdfParsingSkillResourceOptions = {}): PdfParsingSkillResource[] {
+  const resources: PdfParsingSkillResource[] = [
+    {
+      relativePath: 'entrypoints.json',
+      content: buildPdfParsingSkillEntrypointManifest(),
+    },
+  ];
+
+  for (const [name, entrypoint] of Object.entries(PDF_PARSING_SKILL_ENTRYPOINTS)) {
+    resources.push({
+      relativePath: entrypoint.script,
+      content: buildPdfParsingSkillScript(name, entrypoint, options),
+    });
+  }
+
+  return resources;
 }
 
 function getAgentsPath(projectPath: string): string {
@@ -615,19 +911,43 @@ export async function executePdfRecoveryPlan(
   };
 }
 
+function findBlockTextRange(
+  baseline: StructuredPaperParse,
+  blockId: string,
+): { start: number; end: number } | null {
+  let searchFrom = 0;
+  for (const block of baseline.blocks) {
+    const start = baseline.markdown.indexOf(block.text, searchFrom);
+    if (start === -1) continue;
+    const end = start + block.text.length;
+    if (block.id === blockId) return { start, end };
+    searchFrom = end;
+  }
+  return null;
+}
+
 function applyRecoveryOverlays(
   baseline: StructuredPaperParse,
   overlays: PdfRecoveryOverlay[],
 ): string {
-  let markdown = baseline.markdown;
+  const replacements: Array<{ start: number; end: number; markdown: string }> = [];
+  const appendOnly: PdfRecoveryOverlay[] = [];
   for (const overlay of overlays) {
     if (overlay.target.blockId) {
-      const block = baseline.blocks.find((candidate) => candidate.id === overlay.target.blockId);
-      if (block && markdown.includes(block.text)) {
-        markdown = markdown.replace(block.text, overlay.markdown);
+      const range = findBlockTextRange(baseline, overlay.target.blockId);
+      if (range) {
+        replacements.push({ ...range, markdown: overlay.markdown });
         continue;
       }
     }
+    appendOnly.push(overlay);
+  }
+
+  let markdown = baseline.markdown;
+  for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
+    markdown = `${markdown.slice(0, replacement.start)}${replacement.markdown}${markdown.slice(replacement.end)}`;
+  }
+  for (const overlay of appendOnly) {
     markdown = `${markdown.trimEnd()}\n\n${overlay.markdown}\n`;
   }
   return markdown;
@@ -889,12 +1209,16 @@ export async function parsePdfWithSkill(
   dependencies: ParsePdfWithSkillDependencies = {},
 ): Promise<ParsePdfWithSkillResult> {
   const createdAt = dependencies.now?.() ?? new Date();
+  let nowCalls = 0;
   const result = await parsePDF(filePath, {
     ...dependencies.parseOptions,
     timeoutMs: dependencies.parseOptions?.timeoutMs ?? 12000,
   }, {
     runner: dependencies.runner,
-    now: () => createdAt.getTime(),
+    now: () => {
+      nowCalls += 1;
+      return nowCalls === 1 ? createdAt.getTime() : Date.now();
+    },
     createJobId: dependencies.createJobId,
   });
 

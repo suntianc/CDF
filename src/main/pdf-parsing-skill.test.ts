@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getBuiltInSkillDirs } from './deepagent/skill-manager';
 import { resetPdfParseJobsForTests, type MarkerRunner } from './pdf-parse';
@@ -21,15 +22,51 @@ import {
 
 let projectPath: string;
 let pdfPath: string;
+let previousPdfSkillCliPath: string | undefined;
+
+function buildPdfSkillCliBundle(targetDir: string): string {
+  const cliPath = path.join(targetDir, 'pdf-parsing-skill-cli.cjs');
+  execFileSync(path.join(process.cwd(), 'node_modules', '.bin', 'esbuild'), [
+    'src/main/pdf-parsing-skill-cli.ts',
+    '--bundle',
+    '--platform=node',
+    '--format=cjs',
+    `--outfile=${cliPath}`,
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+  });
+  return cliPath;
+}
+
+function writeMarkerFixture(markdown: string): string {
+  const markerPath = path.join(projectPath, 'marker-fixture.js');
+  fs.writeFileSync(markerPath, [
+    "const fs = require('fs');",
+    "const path = require('path');",
+    "const args = process.argv.slice(2);",
+    "const outputDir = args[args.indexOf('--output_dir') + 1];",
+    "fs.mkdirSync(outputDir, { recursive: true });",
+    `fs.writeFileSync(path.join(outputDir, 'result.md'), ${JSON.stringify(markdown)}, 'utf-8');`,
+  ].join('\n'), 'utf-8');
+  return `${process.execPath} ${markerPath}`;
+}
 
 beforeEach(() => {
   projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-pdf-skill-'));
   pdfPath = path.join(projectPath, 'paper.pdf');
   fs.writeFileSync(pdfPath, '%PDF-1.7\n% test fixture\n', 'utf-8');
+  previousPdfSkillCliPath = process.env.CDF_PDF_SKILL_CLI_PATH;
+  process.env.CDF_PDF_SKILL_CLI_PATH = buildPdfSkillCliBundle(projectPath);
 });
 
 afterEach(() => {
   resetPdfParseJobsForTests();
+  if (previousPdfSkillCliPath === undefined) {
+    delete process.env.CDF_PDF_SKILL_CLI_PATH;
+  } else {
+    process.env.CDF_PDF_SKILL_CLI_PATH = previousPdfSkillCliPath;
+  }
   fs.rmSync(projectPath, { recursive: true, force: true });
 });
 
@@ -40,6 +77,33 @@ describe('PDF Parsing Skill baseline artifact', () => {
 
     expect(pdfSkillDir).toBeTruthy();
     expect(fs.readFileSync(path.join(pdfSkillDir as string, 'SKILL.md'), 'utf-8')).toContain('PDF Parsing Skill');
+    expect(JSON.parse(fs.readFileSync(path.join(pdfSkillDir as string, 'entrypoints.json'), 'utf-8'))).toMatchObject({
+      skill: 'pdf-parsing',
+      globalToolsRemoved: ['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel'],
+      scripts: {
+        baselineParse: 'scripts/baseline-parse.js',
+        ensureMarker: 'scripts/ensure-marker.js',
+        refreshRecoveryPlan: 'scripts/refresh-recovery-plan.js',
+        setPreference: 'scripts/set-preference.js',
+        clearPreference: 'scripts/clear-preference.js',
+        applyRecovery: 'scripts/apply-recovery.js',
+        finalizeView: 'scripts/finalize-view.js',
+      },
+    });
+    for (const scriptFile of [
+      'baseline-parse.js',
+      'ensure-marker.js',
+      'refresh-recovery-plan.js',
+      'set-preference.js',
+      'clear-preference.js',
+      'apply-recovery.js',
+      'finalize-view.js',
+    ]) {
+      const content = fs.readFileSync(path.join(pdfSkillDir as string, 'scripts', scriptFile), 'utf-8');
+      expect(content).toContain("skill: 'pdf-parsing'");
+      expect(content).toContain('internalModule');
+      expect(content).toContain('exportName');
+    }
 
     const runner: MarkerRunner = {
       parse: async () => ({
@@ -145,6 +209,189 @@ describe('PDF Parsing Skill baseline artifact', () => {
     });
     expect(result.conversationSummary).toContain(result.artifactDir);
     expect(result.conversationSummary).toContain('MARKER_TIMEOUT');
+  });
+
+  it('baseline entrypoint script writes a failed artifact when Marker is unavailable', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const missingMarkerCommand = path.join(projectPath, 'missing-marker-command');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: missingMarkerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:00:00.000Z',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'MARKER_UNAVAILABLE',
+        },
+      ],
+      nextActions: [
+        {
+          kind: 'prepare-marker',
+          script: expect.stringContaining('ensure-marker.js'),
+          command: expect.stringContaining('ensure-marker.js'),
+        },
+      ],
+    });
+    expect(result.artifactDir).toBe(path.join(projectPath, '.cdf', 'pdf-parses', `2026-07-02T170000Z-${result.source.sha256.slice(0, 8)}`));
+    expect(fs.existsSync(result.artifactDir)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'metadata.json'), 'utf-8'))).toMatchObject({
+      baseline: {
+        parser: 'marker',
+        status: 'failed',
+      },
+    });
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'diagnostics.json'), 'utf-8'))[0].code).toBe('MARKER_UNAVAILABLE');
+    expect(fs.existsSync(path.join(result.artifactDir, 'recovery-plan.json'))).toBe(true);
+  });
+
+  it('baseline entrypoint script uses the internal parser contract for completed artifacts', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const markerCommand = writeMarkerFixture([
+      '# Abstract',
+      '',
+      '<!-- page:2 -->',
+      '| Metric | Value |',
+    ].join('\n'));
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: markerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:30:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-baseline',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result.status).toBe('completed');
+    expect(result.artifactDir).toBe(path.join(projectPath, '.cdf', 'pdf-parses', `2026-07-02T173000Z-${result.source.sha256.slice(0, 8)}`));
+    const baseline = JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'baseline.json'), 'utf-8'));
+    expect(baseline.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'heading', text: 'Abstract' }),
+      expect.objectContaining({ type: 'table', text: '| Metric | Value |', pageStart: 2 }),
+    ]));
+    expect(baseline.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'MISSING_TABLE_STRUCTURE' }),
+    ]));
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'recovery-plan.json'), 'utf-8'))).toMatchObject({
+      targets: [
+        {
+          kind: 'document',
+          reasons: ['MISSING_TABLE_STRUCTURE'],
+        },
+      ],
+      candidateRoutes: ['vision-capability', 'multimodal-agent'],
+    });
+    expect(result.conversationSummary).not.toContain('"blocks"');
+  });
+
+  it('recovery entrypoint scripts update preference, apply recovery results, and finalize the recovered view', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const markerCommand = writeMarkerFixture('| Metric | Value |');
+    const baselineOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: markerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T18:00:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-recovery',
+      },
+    });
+    const baselineResult = JSON.parse(baselineOutput);
+    const artifactDir = baselineResult.artifactDir;
+
+    const setPreferenceOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'set-preference.js'),
+      '--project',
+      projectPath,
+      '--route',
+      'vision-capability',
+    ], { encoding: 'utf-8' });
+    expect(JSON.parse(setPreferenceOutput)).toMatchObject({
+      status: 'completed',
+      preference: { route: 'vision-capability' },
+    });
+    expect(fs.readFileSync(path.join(projectPath, 'AGENTS.md'), 'utf-8')).toContain('- route: vision-capability');
+
+    const refreshOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'refresh-recovery-plan.js'),
+      '--artifact',
+      artifactDir,
+    ], { encoding: 'utf-8' });
+    expect(JSON.parse(refreshOutput)).toMatchObject({
+      status: 'completed',
+      plan: {
+        candidateRoutes: ['vision-capability', 'multimodal-agent'],
+      },
+    });
+
+    const resultsFile = path.join(projectPath, 'recovery-results.json');
+    fs.writeFileSync(resultsFile, JSON.stringify([
+      { ok: true, markdown: '| Metric | Value |\n| --- | --- |\n| Accuracy | 0.99 |' },
+    ]), 'utf-8');
+    const applyOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'apply-recovery.js'),
+      '--artifact',
+      artifactDir,
+      '--route',
+      'vision-capability',
+      '--plan-confirmed',
+      '--results-file',
+      resultsFile,
+      '--capability-label',
+      'test vision capability',
+    ], { encoding: 'utf-8' });
+    expect(JSON.parse(applyOutput)).toMatchObject({
+      status: 'completed',
+      overlays: [
+        expect.objectContaining({
+          markdown: expect.stringContaining('Accuracy'),
+          provenance: expect.objectContaining({
+            recoveryCapability: 'test vision capability',
+            route: 'vision-capability',
+          }),
+        }),
+      ],
+    });
+
+    const finalizeOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'finalize-view.js'),
+      '--artifact',
+      artifactDir,
+    ], { encoding: 'utf-8' });
+    expect(JSON.parse(finalizeOutput)).toMatchObject({ status: 'completed' });
+    expect(fs.readFileSync(path.join(artifactDir, 'recovered-view.md'), 'utf-8')).toContain('| Accuracy | 0.99 |');
   });
 });
 
@@ -441,7 +688,7 @@ describe('Recovered Paper Parse View and recovery reruns', () => {
     const baseline = {
       parser: 'marker' as const,
       sourceFile: pdfPath,
-      markdown: '# Results\n\nOriginal table placeholder.\n',
+      markdown: '# Results\n\nOriginal table placeholder.\n\nOriginal table placeholder.\n',
       diagnostics: [],
       blocks: [
         {
@@ -458,6 +705,20 @@ describe('Recovered Paper Parse View and recovery reruns', () => {
             markerAnchor: 'page:2',
           },
         },
+        {
+          id: 'table-0002',
+          type: 'table' as const,
+          text: 'Original table placeholder.',
+          section: 'Results',
+          pageStart: 3,
+          pageEnd: 3,
+          location: {
+            pageStart: 3,
+            pageEnd: 3,
+            section: 'Results',
+            markerAnchor: 'page:3',
+          },
+        },
       ],
     };
     fs.writeFileSync(path.join(artifactDir, 'metadata.json'), JSON.stringify({
@@ -471,12 +732,12 @@ describe('Recovered Paper Parse View and recovery reruns', () => {
     const result = finalizeRecoveredPaperParseView(artifactDir, baseline, [
       {
         id: 'overlay-0001',
-        target: { kind: 'block', blockId: 'table-0001', page: 2, reasons: ['MISSING_TABLE_STRUCTURE'] },
+        target: { kind: 'block', blockId: 'table-0002', page: 3, reasons: ['MISSING_TABLE_STRUCTURE'] },
         markdown: '| Metric | Value |\n| --- | --- |\n| Accuracy | 0.99 |',
         provenance: {
           recoveryCapability: 'mock vision capability',
           route: 'vision-capability',
-          source: { kind: 'block', page: 2, blockId: 'table-0001' },
+          source: { kind: 'block', page: 3, blockId: 'table-0002' },
           diagnosticCode: 'MISSING_TABLE_STRUCTURE',
           meteredNetworkApproved: true,
         },
@@ -491,7 +752,8 @@ describe('Recovered Paper Parse View and recovery reruns', () => {
     ], { comparisonTraceEnabled: false });
 
     expect(result.recoveredMarkdown).toContain('| Accuracy | 0.99 |');
-    expect(result.recoveredMarkdown).not.toContain('Original table placeholder.');
+    expect(result.recoveredMarkdown.match(/Original table placeholder\./g)).toHaveLength(1);
+    expect(result.recoveredMarkdown.indexOf('Original table placeholder.')).toBeLessThan(result.recoveredMarkdown.indexOf('| Accuracy | 0.99 |'));
     expect(fs.readFileSync(path.join(artifactDir, 'recovered-view.md'), 'utf-8')).toBe(result.recoveredMarkdown);
     expect(JSON.parse(fs.readFileSync(path.join(artifactDir, 'overlays.json'), 'utf-8'))).toHaveLength(1);
     expect(JSON.parse(fs.readFileSync(path.join(artifactDir, 'diagnostics.json'), 'utf-8'))[0].code).toBe('RECOVERY_FAILED');

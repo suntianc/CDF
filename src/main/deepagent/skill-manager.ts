@@ -5,7 +5,7 @@ import YAML from 'yaml';
 import { listSkills, type FilesystemPermission } from 'deepagents';
 import type { ParsedFrontmatter } from '../../shared/types';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
-import { getPdfParsingSkillMarkdown } from '../pdf-parsing-skill';
+import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
   invalidateSkillSourceCaches,
   resolveSkillCatalog,
@@ -91,10 +91,25 @@ function ensureBuiltInKnowledgeBaseSkill(): string {
   return skillDir;
 }
 
+function resolvePdfParsingSkillCliPath(skillDir: string): string {
+  if (process.env.CDF_PDF_SKILL_CLI_PATH) return process.env.CDF_PDF_SKILL_CLI_PATH;
+  const compiledCliPath = path.join(__dirname, 'pdf-parsing-skill-cli.js');
+  const materializedCliPath = path.join(skillDir, 'runtime', 'pdf-parsing-skill-cli.js');
+  if (!fs.existsSync(compiledCliPath)) return compiledCliPath;
+  ensureDir(path.dirname(materializedCliPath));
+  fs.copyFileSync(compiledCliPath, materializedCliPath);
+  return materializedCliPath;
+}
+
 function ensureBuiltInPdfParsingSkill(): string {
   const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'pdf-parsing');
   ensureDir(skillDir);
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPdfParsingSkillMarkdown(), 'utf-8');
+  for (const resource of getPdfParsingSkillResources({ cliPath: resolvePdfParsingSkillCliPath(skillDir) })) {
+    const resourcePath = path.join(skillDir, resource.relativePath);
+    ensureDir(path.dirname(resourcePath));
+    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
+  }
   return skillDir;
 }
 
