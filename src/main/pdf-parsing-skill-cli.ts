@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import {
   clearPdfRecoveryPreference,
+  discoverPdfRecoveryCapabilities,
   executePdfRecoveryPlan,
   finalizeRecoveredPaperParseView,
   generatePdfRecoveryPlan,
@@ -10,6 +12,7 @@ import {
   updatePdfRecoveryPreference,
   type PdfRecoveryCapability,
   type PdfRecoveryCapabilityResult,
+  type PdfRecoveryDiscoveryInput,
   type PdfRecoveryPlan,
   type PdfRecoveryRoute,
   type PdfRecoveryRouteDecision,
@@ -80,6 +83,56 @@ function markerNextActions(): Array<{ kind: 'prepare-marker'; script: string; co
       description: 'Prepare the local Marker CLI dependency, then rerun baseline-parse.js.',
     },
   ];
+}
+
+function splitConfiguredCommand(command: string): string[] {
+  const matches = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return matches.map((part) => part.replace(/^["']|["']$/g, ''));
+}
+
+function probeConfiguredMarker(): PdfRecoveryDiscoveryInput['localMarker'] {
+  const configured = (process.env.CDF_MARKER_COMMAND || '').trim();
+  if (!configured) {
+    return {
+      available: false,
+      commandSource: 'not-configured',
+    };
+  }
+  const [command, ...args] = splitConfiguredCommand(configured);
+  if (!command) {
+    return {
+      available: false,
+      commandSource: 'CDF_MARKER_COMMAND',
+    };
+  }
+  const result = spawnSync(command, [...args, '--help'], {
+    encoding: 'utf-8',
+    timeout: Number(process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS || 5000),
+    windowsHide: true,
+  });
+  return {
+    available: !result.error && result.status === 0,
+    commandSource: 'CDF_MARKER_COMMAND',
+  };
+}
+
+function readDiscoveryRuntimeMetadata(args: ParsedArgs): PdfRecoveryDiscoveryInput {
+  const metadataFile = stringArg(args, 'runtime-metadata');
+  if (!metadataFile) return {};
+  const parsed = readJson<PdfRecoveryDiscoveryInput>(metadataFile);
+  return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+function discoverCapabilities(args: ParsedArgs): void {
+  const runtimeMetadata = readDiscoveryRuntimeMetadata(args);
+  const discovery = discoverPdfRecoveryCapabilities({
+    ...runtimeMetadata,
+    localMarker: runtimeMetadata.localMarker ?? probeConfiguredMarker(),
+  });
+  output({
+    status: discovery.capabilities.length > 0 ? 'completed' : 'no-viable-capability',
+    ...discovery,
+  });
 }
 
 async function baselineParse(args: ParsedArgs): Promise<void> {
@@ -190,6 +243,9 @@ async function main(): Promise<void> {
   switch (operation) {
     case 'baselineParse':
       await baselineParse(args);
+      return;
+    case 'discoverCapabilities':
+      discoverCapabilities(args);
       return;
     case 'refreshRecoveryPlan':
       refreshRecoveryPlan(args);

@@ -37,6 +37,7 @@ export interface PdfRecoveryPreference {
 
 export interface PdfRecoveryPreferencePlanSummary {
   candidateRoutes: PdfRecoveryRoute[];
+  viableRoutes?: PdfRecoveryRoute[];
   introducesNewRisk: boolean;
 }
 
@@ -73,11 +74,73 @@ export interface PdfRecoveryRouteOption {
   qualityExpectation: string;
 }
 
+export interface PdfRecoveryDiscoveryNextAction {
+  kind: 'prepare-marker' | 'connect-vision-mcp' | 'configure-multimodal-agent';
+  description: string;
+}
+
+export interface PdfRecoveryDiscoveredCapability {
+  route: Exclude<PdfRecoveryRoute, 'ask-each-time'>;
+  label: string;
+  capabilitySource: string;
+  problemFit: string;
+  privacyNetworkBehavior: string;
+  possibleCost: string;
+  applicableReasons: PdfRecoveryTriggerCode[];
+}
+
+export interface PdfRecoveryDiscoveryMcpToolMetadata {
+  name: string;
+  description?: string;
+  serverName?: string;
+  inputSchema?: unknown;
+  schema?: unknown;
+  supportsImageInput?: boolean;
+  supportsPageImages?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PdfRecoveryDiscoveryAgentModelMetadata {
+  configured?: boolean;
+  supportsImageInput?: boolean;
+  supportsPageImages?: boolean;
+  supportsMultimodal?: boolean;
+  providerType?: string;
+  modelName?: string;
+}
+
+export interface PdfRecoveryDiscoveryInput {
+  localMarker?: {
+    available: boolean;
+    commandSource?: string;
+  };
+  mcpTools?: PdfRecoveryDiscoveryMcpToolMetadata[];
+  agentModel?: PdfRecoveryDiscoveryAgentModelMetadata;
+}
+
+export interface PdfRecoveryCapabilityDiscovery {
+  capabilities: PdfRecoveryDiscoveredCapability[];
+  viableRoutes: PdfRecoveryRoute[];
+  diagnostics: PdfParseDiagnostic[];
+  nextActions: PdfRecoveryDiscoveryNextAction[];
+}
+
+export interface PdfRecoveryRouteDiscoveryOptions {
+  capabilityDiscovery?: PdfRecoveryCapabilityDiscovery;
+}
+
 export type PdfRecoveryPreferenceResolution =
   | { action: 'reuse'; preference: PdfRecoveryPreference }
   | { action: 'ask'; reason: 'missing-preference' | 'unavailable-preference' | 'ask-each-time' | 'new-cost-or-privacy-risk' };
 
 export type PdfRecoveryRouteDecision =
+  | {
+      status: 'no-viable-capability';
+      diagnostics: PdfParseDiagnostic[];
+      nextActions: PdfRecoveryDiscoveryNextAction[];
+      options: [];
+      requiresPlanConfirmation: false;
+    }
   | {
       status: 'needs-route-choice';
       reason: PdfRecoveryPreferenceResolution['reason'] | 'meaningful-trade-offs';
@@ -165,6 +228,7 @@ export interface PdfParsingSkillResourceOptions {
 type PdfParsingSkillEntrypointKey =
   | 'baselineParse'
   | 'ensureMarker'
+  | 'discoverCapabilities'
   | 'refreshRecoveryPlan'
   | 'setPreference'
   | 'clearPreference'
@@ -188,6 +252,12 @@ const PDF_PARSING_SKILL_ENTRYPOINTS: Record<PdfParsingSkillEntrypointKey, {
     internalModule: 'external marker CLI',
     exportName: 'marker_single',
     purpose: 'Prepare or verify the local Marker CLI dependency used by the PDF Parsing Skill.',
+  },
+  discoverCapabilities: {
+    script: 'scripts/discover-capabilities.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'discoverPdfRecoveryCapabilities',
+    purpose: 'Discover viable PDF Recovery Capability route categories for the current Agent environment.',
   },
   refreshRecoveryPlan: {
     script: 'scripts/refresh-recovery-plan.js',
@@ -238,6 +308,155 @@ const PDF_RECOVERY_TRIGGER_CODES: PdfRecoveryTriggerCode[] = [
   'MISSING_TABLE_STRUCTURE',
   'WEAK_SOURCE_LOCATION',
 ];
+const LOCAL_FIRST_RECOVERY_REASONS: PdfRecoveryTriggerCode[] = [
+  'MARKER_TIMEOUT',
+  'WEAK_SOURCE_LOCATION',
+];
+const VISUAL_RECOVERY_REASONS: PdfRecoveryTriggerCode[] = [
+  'OCR_ARTIFACTS',
+  'FIGURE_ONLY_CONTENT',
+  'MISSING_TABLE_STRUCTURE',
+];
+const MULTIMODAL_RECOVERY_REASONS: PdfRecoveryTriggerCode[] = [
+  'OCR_ARTIFACTS',
+  'FIGURE_ONLY_CONTENT',
+  'MISSING_TABLE_STRUCTURE',
+];
+
+function uniqueRoutes(routes: Iterable<PdfRecoveryRoute>): PdfRecoveryRoute[] {
+  const routeSet = new Set(routes);
+  return PDF_RECOVERY_ROUTES.filter((route) => route !== 'ask-each-time' && routeSet.has(route));
+}
+
+function hasTruthyMetadataFlag(
+  metadata: Record<string, unknown> | undefined,
+  keys: string[],
+): boolean {
+  if (!metadata) return false;
+  return keys.some((key) => metadata[key] === true);
+}
+
+function metadataModalitiesIncludeImage(metadata: Record<string, unknown> | undefined): boolean {
+  const modalities = metadata?.modalities;
+  if (!Array.isArray(modalities)) return false;
+  return modalities.some((modality) => {
+    if (typeof modality !== 'string') return false;
+    const normalized = modality.toLowerCase();
+    return normalized === 'image' || normalized === 'vision' || normalized === 'screenshot';
+  });
+}
+
+function toolMetadataText(tool: PdfRecoveryDiscoveryMcpToolMetadata): string {
+  return [
+    tool.name,
+    tool.description,
+    JSON.stringify(tool.inputSchema ?? tool.schema ?? {}),
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function mcpToolLooksVisionCapable(tool: PdfRecoveryDiscoveryMcpToolMetadata): boolean {
+  if (tool.supportsImageInput || tool.supportsPageImages) return true;
+  if (hasTruthyMetadataFlag(tool.metadata, ['supportsImageInput', 'supportsPageImages', 'supportsVision', 'acceptsImages'])) {
+    return true;
+  }
+  if (metadataModalitiesIncludeImage(tool.metadata)) return true;
+  return /\b(image|images|screenshot|vision|visual|ocr)\b/.test(toolMetadataText(tool));
+}
+
+function agentModelLooksMultimodal(model: PdfRecoveryDiscoveryAgentModelMetadata | undefined): boolean {
+  if (!model?.configured) return false;
+  return Boolean(model.supportsImageInput || model.supportsPageImages || model.supportsMultimodal);
+}
+
+function unavailableCapabilityDiagnostic(message: string): PdfParseDiagnostic {
+  return {
+    severity: 'warning',
+    code: 'PDF_RECOVERY_CAPABILITY_UNAVAILABLE',
+    message,
+  };
+}
+
+function nextActionsForRoutes(routes: readonly PdfRecoveryRoute[]): PdfRecoveryDiscoveryNextAction[] {
+  const actions: PdfRecoveryDiscoveryNextAction[] = [];
+  if (routes.includes('local-first')) {
+    actions.push({
+      kind: 'prepare-marker',
+      description: 'Run the PDF Parsing Skill Marker preparation script, then rerun capability discovery.',
+    });
+  }
+  if (routes.includes('vision-capability')) {
+    actions.push({
+      kind: 'connect-vision-mcp',
+      description: 'Connect an MCP tool that can inspect PDF page images or screenshots.',
+    });
+  }
+  if (routes.includes('multimodal-agent')) {
+    actions.push({
+      kind: 'configure-multimodal-agent',
+      description: 'Configure an Agent model capability that explicitly supports page images or multimodal inputs.',
+    });
+  }
+  return actions;
+}
+
+function discoveryNextActions(capabilities: PdfRecoveryDiscoveredCapability[]): PdfRecoveryDiscoveryNextAction[] {
+  if (capabilities.length > 0) return [];
+  return nextActionsForRoutes(['local-first', 'vision-capability', 'multimodal-agent']);
+}
+
+export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput = {}): PdfRecoveryCapabilityDiscovery {
+  const capabilities: PdfRecoveryDiscoveredCapability[] = [];
+
+  if (input.localMarker?.available) {
+    capabilities.push({
+      route: 'local-first',
+      label: 'Local Marker-compatible recovery',
+      capabilitySource: 'local Marker-compatible recovery command',
+      problemFit: 'Local retries and source-location repair for weak baseline evidence.',
+      privacyNetworkBehavior: 'Runs locally; no PDF page or text upload is required.',
+      possibleCost: 'No metered provider cost expected.',
+      applicableReasons: [...LOCAL_FIRST_RECOVERY_REASONS],
+    });
+  }
+
+  for (const tool of input.mcpTools ?? []) {
+    if (!mcpToolLooksVisionCapable(tool)) continue;
+    capabilities.push({
+      route: 'vision-capability',
+      label: tool.serverName ? `${tool.serverName}: ${tool.name}` : tool.name,
+      capabilitySource: 'MCP vision-capable tool',
+      problemFit: 'Page-image, OCR, figure, and table recovery through an Agent-accessible tool.',
+      privacyNetworkBehavior: 'Depends on the selected MCP server; page images or text may leave the local machine.',
+      possibleCost: 'Depends on the selected MCP server or backing provider.',
+      applicableReasons: [...VISUAL_RECOVERY_REASONS],
+    });
+  }
+
+  if (agentModelLooksMultimodal(input.agentModel)) {
+    capabilities.push({
+      route: 'multimodal-agent',
+      label: 'Configured multimodal Agent capability',
+      capabilitySource: 'configured multimodal Agent capability',
+      problemFit: 'Layout-aware recovery for images, formulas, tables, and mixed visual evidence.',
+      privacyNetworkBehavior: 'Uses the configured Agent model path; page images or text may be sent through that model route.',
+      possibleCost: 'May use metered provider capacity.',
+      applicableReasons: [...MULTIMODAL_RECOVERY_REASONS],
+    });
+  }
+
+  const diagnostics: PdfParseDiagnostic[] = capabilities.length === 0
+    ? [
+        unavailableCapabilityDiagnostic('No viable PDF Recovery Capability was discovered for the current Agent environment.'),
+      ]
+    : [];
+
+  return {
+    capabilities,
+    viableRoutes: uniqueRoutes(capabilities.map((capability) => capability.route)),
+    diagnostics,
+    nextActions: discoveryNextActions(capabilities),
+  };
+}
 
 export function getPdfParsingSkillMarkdown(): string {
   return [
@@ -264,6 +483,7 @@ export function getPdfParsingSkillMarkdown(): string {
     '## Recovery',
     '',
     'After the baseline parse, inspect diagnostics and generate an automatic recovery plan.',
+    'Run capability discovery before choosing a recovery route so unavailable route categories are not offered.',
     'Ask for route choice or plan-level confirmation only when meaningful capability, privacy, network, upload, or cost trade-offs exist.',
     'Recovery scripts operate on the artifact directory produced by `baseline-parse.js`.',
     'Use `set-preference.js` and `clear-preference.js` only for the managed Project `AGENTS.md` PDF recovery preference block.',
@@ -275,6 +495,7 @@ export function getPdfParsingSkillMarkdown(): string {
     '',
     '- `scripts/baseline-parse.js --project <projectPath> --file <absolutePdfPath> [--page-range <range>]`: runs Marker through the compiled CDF PDF Skill CLI, writes `.cdf/pdf-parses/<artifactId>/`, and returns a compact JSON summary with diagnostics and next actions.',
     '- `scripts/ensure-marker.js --mode prepare|check`: verifies or prepares the local Marker command used by baseline parsing.',
+    '- `scripts/discover-capabilities.js [--runtime-metadata <jsonFile>]`: returns viable PDF Recovery Capability route categories, source/privacy/cost/problem-fit notes, and next actions when no capability is available.',
     '- `scripts/refresh-recovery-plan.js --artifact <artifactDir>`: regenerates `recovery-plan.json` from `baseline.json` diagnostics and block evidence.',
     '- `scripts/set-preference.js --project <projectPath> --route <local-first|vision-capability|multimodal-agent|ask-each-time>`: writes the managed PDF recovery preference block in `AGENTS.md`.',
     '- `scripts/clear-preference.js --project <projectPath>`: removes only the managed PDF recovery preference block from `AGENTS.md`.',
@@ -568,7 +789,8 @@ export function resolvePdfRecoveryPreferenceForPlan(
   const preference = readPdfRecoveryPreference(projectPath);
   if (!preference) return { action: 'ask', reason: 'missing-preference' };
   if (preference.route === 'ask-each-time') return { action: 'ask', reason: 'ask-each-time' };
-  if (!plan.candidateRoutes.includes(preference.route)) {
+  const viableRoutes = plan.viableRoutes ?? plan.candidateRoutes;
+  if (!plan.candidateRoutes.includes(preference.route) || !viableRoutes.includes(preference.route)) {
     return { action: 'ask', reason: 'unavailable-preference' };
   }
   if (plan.introducesNewRisk) return { action: 'ask', reason: 'new-cost-or-privacy-risk' };
@@ -682,44 +904,45 @@ function routeOption(
   route: PdfRecoveryRoute,
   targetCount: number,
   routeRisks: readonly PdfRecoveryRisk[],
+  discoveredCapability?: PdfRecoveryDiscoveredCapability,
 ): PdfRecoveryRouteOption {
   const processingScope = `${targetCount} recovery target${targetCount === 1 ? '' : 's'}`;
   switch (route) {
     case 'local-first':
       return {
         route,
-        capabilitySource: 'local recovery capability',
-        problemFit: 'Best for weak source grounding, reruns, and low-risk local repair.',
-        privacyNetworkBehavior: 'Runs locally when a local capability is available.',
-        possibleCost: 'No metered provider cost expected.',
+        capabilitySource: discoveredCapability?.capabilitySource ?? 'local recovery capability',
+        problemFit: discoveredCapability?.problemFit ?? 'Best for weak source grounding, reruns, and low-risk local repair.',
+        privacyNetworkBehavior: discoveredCapability?.privacyNetworkBehavior ?? 'Runs locally when a local capability is available.',
+        possibleCost: discoveredCapability?.possibleCost ?? 'No metered provider cost expected.',
         processingScope,
         qualityExpectation: 'Conservative quality; useful for metadata and source-location repair.',
       };
     case 'vision-capability':
       return {
         route,
-        capabilitySource: 'vision-capable recovery capability',
-        problemFit: 'Best for scanned pages, figures, tables, and OCR artifacts.',
-        privacyNetworkBehavior: routeRisks.includes('network')
+        capabilitySource: discoveredCapability?.capabilitySource ?? 'vision-capable recovery capability',
+        problemFit: discoveredCapability?.problemFit ?? 'Best for scanned pages, figures, tables, and OCR artifacts.',
+        privacyNetworkBehavior: discoveredCapability?.privacyNetworkBehavior ?? (routeRisks.includes('network')
           ? 'May use network access and page or text upload.'
-          : 'Uses the selected vision-capable route without new network risk.',
-        possibleCost: routeRisks.includes('metered-provider')
+          : 'Uses the selected vision-capable route without new network risk.'),
+        possibleCost: discoveredCapability?.possibleCost ?? (routeRisks.includes('metered-provider')
           ? 'May use metered provider capacity.'
-          : 'No new metered provider cost indicated.',
+          : 'No new metered provider cost indicated.'),
         processingScope,
         qualityExpectation: 'Higher quality for visual layout and table recovery.',
       };
     case 'multimodal-agent':
       return {
         route,
-        capabilitySource: 'multimodal Agent capability category',
-        problemFit: 'Best for mixed text, layout, formulas, and figure-heavy evidence.',
-        privacyNetworkBehavior: routeRisks.includes('network')
+        capabilitySource: discoveredCapability?.capabilitySource ?? 'multimodal Agent capability category',
+        problemFit: discoveredCapability?.problemFit ?? 'Best for mixed text, layout, formulas, and figure-heavy evidence.',
+        privacyNetworkBehavior: discoveredCapability?.privacyNetworkBehavior ?? (routeRisks.includes('network')
           ? 'May use network access and page or text upload.'
-          : 'Uses the selected multimodal route without new network risk.',
-        possibleCost: routeRisks.includes('metered-provider')
+          : 'Uses the selected multimodal route without new network risk.'),
+        possibleCost: discoveredCapability?.possibleCost ?? (routeRisks.includes('metered-provider')
           ? 'May use metered provider capacity.'
-          : 'No new metered provider cost indicated.',
+          : 'No new metered provider cost indicated.'),
         processingScope,
         qualityExpectation: 'Strongest layout-aware recovery when an appropriate capability is configured.',
       };
@@ -736,8 +959,42 @@ function routeOption(
   }
 }
 
-export function summarizePdfRecoveryRoutes(plan: Pick<PdfRecoveryPlan, 'targets' | 'candidateRoutes' | 'routeRisks'>): PdfRecoveryRouteOption[] {
-  return plan.candidateRoutes.map((route) => routeOption(route, plan.targets.length, plan.routeRisks));
+function routeCapabilitiesByRoute(
+  discovery: PdfRecoveryCapabilityDiscovery | undefined,
+): Map<PdfRecoveryRoute, PdfRecoveryDiscoveredCapability> {
+  const capabilities = new Map<PdfRecoveryRoute, PdfRecoveryDiscoveredCapability>();
+  for (const capability of discovery?.capabilities ?? []) {
+    if (!capabilities.has(capability.route)) capabilities.set(capability.route, capability);
+  }
+  return capabilities;
+}
+
+function viableCandidateRoutes(
+  candidateRoutes: readonly PdfRecoveryRoute[],
+  discovery: PdfRecoveryCapabilityDiscovery | undefined,
+): PdfRecoveryRoute[] {
+  const candidates = uniqueRoutes(candidateRoutes);
+  if (!discovery) return candidates;
+  const viable = new Set(discovery.viableRoutes);
+  return candidates.filter((route) => viable.has(route));
+}
+
+function effectiveRouteRisks(
+  plan: Pick<PdfRecoveryPlan, 'candidateRoutes' | 'routeRisks'>,
+  routes: PdfRecoveryRoute[],
+  discovery: PdfRecoveryCapabilityDiscovery | undefined,
+): PdfRecoveryRisk[] {
+  return discovery ? risksForRoutes(routes) : [...plan.routeRisks];
+}
+
+export function summarizePdfRecoveryRoutes(
+  plan: Pick<PdfRecoveryPlan, 'targets' | 'candidateRoutes' | 'routeRisks'>,
+  options: PdfRecoveryRouteDiscoveryOptions = {},
+): PdfRecoveryRouteOption[] {
+  const routes = viableCandidateRoutes(plan.candidateRoutes, options.capabilityDiscovery);
+  const routeRisks = effectiveRouteRisks(plan, routes, options.capabilityDiscovery);
+  const capabilitiesByRoute = routeCapabilitiesByRoute(options.capabilityDiscovery);
+  return routes.map((route) => routeOption(route, plan.targets.length, routeRisks, capabilitiesByRoute.get(route)));
 }
 
 function getSelectedRoute(options: {
@@ -753,65 +1010,87 @@ export function decidePdfRecoveryRoute(
     selectedRoute?: PdfRecoveryRoute;
     planLevelConfirmed?: boolean;
     introducesNewRisk?: boolean;
+    capabilityDiscovery?: PdfRecoveryCapabilityDiscovery;
   } = {},
 ): PdfRecoveryRouteDecision {
-  const routeOptions = summarizePdfRecoveryRoutes(plan);
+  const candidateRoutes = viableCandidateRoutes(plan.candidateRoutes, options.capabilityDiscovery);
+  const routeRisks = effectiveRouteRisks(plan, candidateRoutes, options.capabilityDiscovery);
+  const requiresPlanConfirmation = plan.requiresPlanConfirmation && routeRisks.length > 0;
+  const routeOptions = summarizePdfRecoveryRoutes(plan, { capabilityDiscovery: options.capabilityDiscovery });
+  if (options.capabilityDiscovery && candidateRoutes.length === 0) {
+    return {
+      status: 'no-viable-capability',
+      diagnostics: options.capabilityDiscovery.diagnostics.length > 0
+        ? options.capabilityDiscovery.diagnostics
+        : [
+            unavailableCapabilityDiagnostic(
+              'No discovered PDF Recovery Capability can satisfy this recovery plan.',
+            ),
+          ],
+      nextActions: options.capabilityDiscovery.nextActions.length > 0
+        ? options.capabilityDiscovery.nextActions
+        : nextActionsForRoutes(plan.candidateRoutes),
+      options: [],
+      requiresPlanConfirmation: false,
+    };
+  }
   const selectedRoute = getSelectedRoute(options);
   if (selectedRoute) {
-    if (!plan.candidateRoutes.includes(selectedRoute)) {
+    if (!candidateRoutes.includes(selectedRoute)) {
       return {
         status: 'needs-route-choice',
         reason: 'unavailable-preference',
         options: routeOptions,
-        requiresPlanConfirmation: plan.requiresPlanConfirmation,
+        requiresPlanConfirmation,
       };
     }
-    if (plan.requiresPlanConfirmation && !options.planLevelConfirmed) {
+    if (requiresPlanConfirmation && !options.planLevelConfirmed) {
       return {
         status: 'needs-plan-confirmation',
         route: selectedRoute,
-        routeRisks: [...plan.routeRisks],
+        routeRisks,
         options: routeOptions,
       };
     }
     return {
       status: 'selected',
       route: selectedRoute,
-      planLevelConfirmed: !plan.requiresPlanConfirmation || options.planLevelConfirmed === true,
+      planLevelConfirmed: !requiresPlanConfirmation || options.planLevelConfirmed === true,
       source: 'user',
-      routeRisks: [...plan.routeRisks],
+      routeRisks,
     };
   }
 
   const preferenceResolution = resolvePdfRecoveryPreferenceForPlan(projectPath, {
     candidateRoutes: [...plan.candidateRoutes],
-    introducesNewRisk: options.introducesNewRisk ?? plan.routeRisks.length > 0,
+    viableRoutes: candidateRoutes,
+    introducesNewRisk: options.introducesNewRisk ?? routeRisks.length > 0,
   });
   if (preferenceResolution.action === 'reuse') {
-    if (plan.requiresPlanConfirmation) {
+    if (requiresPlanConfirmation) {
       return {
         status: 'needs-plan-confirmation',
         route: preferenceResolution.preference.route,
-        routeRisks: [...plan.routeRisks],
+        routeRisks,
         options: routeOptions,
       };
     }
     return {
       status: 'selected',
       route: preferenceResolution.preference.route,
-      planLevelConfirmed: !plan.requiresPlanConfirmation,
+      planLevelConfirmed: !requiresPlanConfirmation,
       source: 'preference',
-      routeRisks: [...plan.routeRisks],
+      routeRisks,
     };
   }
 
   return {
     status: 'needs-route-choice',
-    reason: preferenceResolution.reason === 'missing-preference' && plan.candidateRoutes.length > 1
+    reason: preferenceResolution.reason === 'missing-preference' && candidateRoutes.length > 1
       ? 'meaningful-trade-offs'
       : preferenceResolution.reason,
     options: routeOptions,
-    requiresPlanConfirmation: plan.requiresPlanConfirmation,
+    requiresPlanConfirmation,
   };
 }
 

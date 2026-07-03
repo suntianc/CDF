@@ -8,6 +8,7 @@ import { resetPdfParseJobsForTests, type MarkerRunner } from './pdf-parse';
 import {
   clearPdfRecoveryPreference,
   decidePdfRecoveryRoute,
+  discoverPdfRecoveryCapabilities,
   executePdfRecoveryPlan,
   finalizeRecoveredPaperParseView,
   generatePdfRecoveryPlan,
@@ -86,6 +87,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
       scripts: {
         baselineParse: 'scripts/baseline-parse.js',
         ensureMarker: 'scripts/ensure-marker.js',
+        discoverCapabilities: 'scripts/discover-capabilities.js',
         refreshRecoveryPlan: 'scripts/refresh-recovery-plan.js',
         setPreference: 'scripts/set-preference.js',
         clearPreference: 'scripts/clear-preference.js',
@@ -96,6 +98,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
     for (const scriptFile of [
       'baseline-parse.js',
       'ensure-marker.js',
+      'discover-capabilities.js',
       'refresh-recovery-plan.js',
       'set-preference.js',
       'clear-preference.js',
@@ -550,6 +553,182 @@ describe('Automatic PDF Recovery Plan', () => {
       'MISSING_TABLE_STRUCTURE',
       'WEAK_SOURCE_LOCATION',
     ]));
+  });
+});
+
+describe('PDF recovery capability discovery', () => {
+  it('discovers route-category capabilities and filters route choices to viable routes', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const manifest = JSON.parse(fs.readFileSync(path.join(pdfSkillDir, 'entrypoints.json'), 'utf-8'));
+
+    expect(manifest.scripts.discoverCapabilities).toBe('scripts/discover-capabilities.js');
+    expect(fs.readFileSync(path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'), 'utf-8')).toContain('discoverPdfRecoveryCapabilities');
+
+    const discovery = discoverPdfRecoveryCapabilities({
+      localMarker: { available: true, commandSource: 'CDF_MARKER_COMMAND' },
+      mcpTools: [
+        {
+          name: 'read_page_image',
+          description: 'Recover OCR and table structure from a PDF page screenshot.',
+          serverName: 'paper-vision',
+        },
+      ],
+      agentModel: {
+        configured: true,
+        supportsPageImages: true,
+        providerType: 'minimax',
+        modelName: 'm3',
+      },
+    });
+
+    expect(discovery.viableRoutes).toEqual(['local-first', 'vision-capability', 'multimodal-agent']);
+    expect(discovery.capabilities).toEqual([
+      expect.objectContaining({
+        route: 'local-first',
+        capabilitySource: 'local Marker-compatible recovery command',
+        applicableReasons: expect.arrayContaining(['MARKER_TIMEOUT', 'WEAK_SOURCE_LOCATION']),
+      }),
+      expect.objectContaining({
+        route: 'vision-capability',
+        capabilitySource: 'MCP vision-capable tool',
+        privacyNetworkBehavior: expect.stringContaining('MCP'),
+        applicableReasons: expect.arrayContaining(['OCR_ARTIFACTS', 'FIGURE_ONLY_CONTENT', 'MISSING_TABLE_STRUCTURE']),
+      }),
+      expect.objectContaining({
+        route: 'multimodal-agent',
+        capabilitySource: 'configured multimodal Agent capability',
+        possibleCost: expect.stringContaining('metered'),
+        applicableReasons: expect.arrayContaining(['OCR_ARTIFACTS', 'FIGURE_ONLY_CONTENT', 'MISSING_TABLE_STRUCTURE']),
+      }),
+    ]);
+    expect(JSON.stringify(discovery)).not.toContain('minimax');
+    expect(JSON.stringify(discovery)).not.toContain('m3');
+
+    const plan = {
+      artifactId: 'parse-1',
+      targets: [{ kind: 'page' as const, page: 3, reasons: ['OCR_ARTIFACTS' as const] }],
+      candidateRoutes: ['local-first', 'vision-capability', 'multimodal-agent'] as const,
+      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'] as const,
+      requiresPlanConfirmation: true as const,
+      requiresManualPageSelection: false as const,
+    };
+    const visionOnlyDiscovery = discoverPdfRecoveryCapabilities({
+      mcpTools: [
+        {
+          name: 'inspect_screenshot',
+          description: 'Analyze visual page images.',
+          serverName: 'paper-vision',
+        },
+      ],
+    });
+
+    const options = summarizePdfRecoveryRoutes(plan, { capabilityDiscovery: visionOnlyDiscovery });
+    expect(options).toHaveLength(1);
+    expect(options[0]).toMatchObject({
+      route: 'vision-capability',
+      capabilitySource: 'MCP vision-capable tool',
+    });
+
+    updatePdfRecoveryPreference(projectPath, {
+      route: 'local-first',
+      askAgainWhen: 'new-cost-or-privacy-risk',
+    });
+    expect(decidePdfRecoveryRoute(projectPath, plan, {
+      capabilityDiscovery: visionOnlyDiscovery,
+      introducesNewRisk: false,
+    })).toMatchObject({
+      status: 'needs-route-choice',
+      reason: 'unavailable-preference',
+      options: [expect.objectContaining({ route: 'vision-capability' })],
+    });
+  });
+
+  it('returns diagnostics and next actions when no discovered capability can satisfy the plan', () => {
+    const localOnlyDiscovery = discoverPdfRecoveryCapabilities({
+      localMarker: { available: true, commandSource: 'CDF_MARKER_COMMAND' },
+    });
+    const plan = {
+      artifactId: 'parse-1',
+      targets: [{ kind: 'page' as const, page: 3, reasons: ['OCR_ARTIFACTS' as const] }],
+      candidateRoutes: ['vision-capability', 'multimodal-agent'] as const,
+      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'] as const,
+      requiresPlanConfirmation: true as const,
+      requiresManualPageSelection: false as const,
+    };
+
+    expect(decidePdfRecoveryRoute(projectPath, plan, {
+      capabilityDiscovery: localOnlyDiscovery,
+    })).toMatchObject({
+      status: 'no-viable-capability',
+      diagnostics: [
+        {
+          severity: 'warning',
+          code: 'PDF_RECOVERY_CAPABILITY_UNAVAILABLE',
+        },
+      ],
+      nextActions: [
+        expect.objectContaining({ kind: 'connect-vision-mcp' }),
+        expect.objectContaining({ kind: 'configure-multimodal-agent' }),
+      ],
+      options: [],
+      requiresPlanConfirmation: false,
+    });
+
+    const emptyDiscovery = discoverPdfRecoveryCapabilities();
+    expect(emptyDiscovery).toMatchObject({
+      viableRoutes: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          code: 'PDF_RECOVERY_CAPABILITY_UNAVAILABLE',
+        },
+      ],
+      nextActions: [
+        expect.objectContaining({ kind: 'prepare-marker' }),
+        expect.objectContaining({ kind: 'connect-vision-mcp' }),
+        expect.objectContaining({ kind: 'configure-multimodal-agent' }),
+      ],
+    });
+  });
+
+  it('discovery entrypoint script returns route-category capabilities from runtime metadata', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const metadataFile = path.join(projectPath, 'runtime-metadata.json');
+    fs.writeFileSync(metadataFile, JSON.stringify({
+      mcpTools: [
+        {
+          name: 'inspect_page_image',
+          description: 'Inspect PDF page image crops.',
+          serverName: 'paper-vision',
+        },
+      ],
+      agentModel: {
+        configured: true,
+        supportsMultimodal: true,
+        providerType: 'custom-provider',
+        modelName: 'layout-vision-model',
+      },
+    }), 'utf-8');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+      '--runtime-metadata',
+      metadataFile,
+    ], { encoding: 'utf-8' });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      viableRoutes: ['vision-capability', 'multimodal-agent'],
+      capabilities: [
+        expect.objectContaining({ route: 'vision-capability', capabilitySource: 'MCP vision-capable tool' }),
+        expect.objectContaining({ route: 'multimodal-agent', capabilitySource: 'configured multimodal Agent capability' }),
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain('custom-provider');
+    expect(JSON.stringify(result)).not.toContain('layout-vision-model');
   });
 });
 
