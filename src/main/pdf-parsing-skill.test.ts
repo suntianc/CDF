@@ -39,15 +39,18 @@ function buildPdfSkillCliBundle(targetDir: string): string {
   return cliPath;
 }
 
-function writeMarkerFixture(markdown: string): string {
+function writeMarkerFixture(markdown: string, options: { delayMs?: number } = {}): string {
   const markerPath = path.join(projectPath, 'marker-fixture.js');
   fs.writeFileSync(markerPath, [
     "const fs = require('fs');",
     "const path = require('path');",
     "const args = process.argv.slice(2);",
     "const outputDir = args[args.indexOf('--output_dir') + 1];",
-    "fs.mkdirSync(outputDir, { recursive: true });",
-    `fs.writeFileSync(path.join(outputDir, 'result.md'), ${JSON.stringify(markdown)}, 'utf-8');`,
+    "const write = () => {",
+    "  fs.mkdirSync(outputDir, { recursive: true });",
+    `  fs.writeFileSync(path.join(outputDir, 'result.md'), ${JSON.stringify(markdown)}, 'utf-8');`,
+    "};",
+    options.delayMs ? `setTimeout(write, ${options.delayMs});` : 'write();',
   ].join('\n'), 'utf-8');
   return `${process.execPath} ${markerPath}`;
 }
@@ -307,6 +310,34 @@ describe('PDF Parsing Skill baseline artifact', () => {
       candidateRoutes: ['vision-capability', 'multimodal-agent'],
     });
     expect(result.conversationSummary).not.toContain('"blocks"');
+  });
+
+  it('baseline entrypoint script waits for completion instead of returning a cross-process running job', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const markerCommand = writeMarkerFixture('# Delayed marker result', { delayMs: 20 });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: markerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:45:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-wait',
+        CDF_PDF_SKILL_BASELINE_TIMEOUT_MS: '1',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result.status).toBe('completed');
+    expect(result).not.toHaveProperty('jobId');
+    expect(fs.readFileSync(path.join(result.artifactDir, 'recovered-view.md'), 'utf-8')).toContain('Delayed marker result');
   });
 
   it('recovery entrypoint scripts update preference, apply recovery results, and finalize the recovered view', () => {

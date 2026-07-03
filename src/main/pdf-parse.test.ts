@@ -119,6 +119,31 @@ describe('parsePDF', () => {
     });
   });
 
+  it('waits for completion when timeout is explicitly disabled', async () => {
+    const runner: MarkerRunner = {
+      parse: async () => new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            markdown: '# Delayed result',
+            outputDir: tempDir,
+          });
+        }, 10);
+      }),
+    };
+
+    const result = await parsePDF(pdfPath, { timeoutMs: 0 }, {
+      runner,
+      createJobId: () => 'job-wait-until-complete',
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.status === 'completed' ? result.parse.markdown : '').toContain('Delayed result');
+    expect(getPdfParseJob('job-wait-until-complete')).toMatchObject({
+      jobId: 'job-wait-until-complete',
+      status: 'completed',
+    });
+  });
+
   it('keeps fallback requests explicit without invoking an LLM fallback in the parser', async () => {
     const runner: MarkerRunner = {
       parse: async () => ({

@@ -478,7 +478,9 @@ export async function parsePDF(
 
   jobs.set(jobId, job);
 
-  if (normalized.timeoutMs > 0) {
+  if (normalized.timeoutMs === 0) {
+    await job.promise;
+  } else if (normalized.timeoutMs > 0) {
     let timeout: NodeJS.Timeout | undefined;
     await Promise.race([
       job.promise,

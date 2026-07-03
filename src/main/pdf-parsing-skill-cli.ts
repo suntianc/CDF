@@ -51,12 +51,6 @@ function booleanArg(args: ParsedArgs, name: string): boolean {
   return value === true || value === 'true' || value === '1' || value === 'yes';
 }
 
-function numberValue(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
 function readJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
 }
@@ -94,16 +88,12 @@ async function baselineParse(args: ParsedArgs): Promise<void> {
   const createdAt = process.env.CDF_PDF_PARSE_NOW
     ? new Date(process.env.CDF_PDF_PARSE_NOW)
     : undefined;
-  const timeoutMs = numberValue(
-    stringArg(args, 'timeout-ms') ?? process.env.CDF_PDF_SKILL_BASELINE_TIMEOUT_MS ?? process.env.CDF_MARKER_TIMEOUT_MS,
-    120000,
-  );
   const result = await parsePdfWithSkill(projectPath, filePath, {
     now: createdAt ? () => createdAt : undefined,
     createJobId: process.env.CDF_PDF_PARSE_JOB_ID ? () => process.env.CDF_PDF_PARSE_JOB_ID as string : undefined,
     parseOptions: {
       pageRange: stringArg(args, 'page-range'),
-      timeoutMs,
+      timeoutMs: 0,
     },
   });
   output({
