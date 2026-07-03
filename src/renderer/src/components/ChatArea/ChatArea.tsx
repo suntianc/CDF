@@ -18,6 +18,7 @@ import { useComposerSubmissionController } from './composerInput/useComposerSubm
 import { ConversationViewportSurface } from './ConversationViewportSurface';
 import { ConversationWelcomeSurface } from './ConversationWelcomeSurface';
 import { ConversationComposerDock } from './ConversationComposerDock';
+import { ContextButton } from '@/components/Composer/ContextButton';
 import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
 import { useModelSelectionController } from './modelSelection/useModelSelectionController';
 import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
@@ -218,6 +219,7 @@ export function ChatArea({
               <Plus className="w-4 h-4" />
             </button>
             <ApprovalModeSelector />
+            <ContextButton />
           </>
         }
         modelSelectorSlot={
@@ -311,6 +313,7 @@ export function ChatArea({
                   <Plus className="w-4 h-4" />
                 </button>
                 <ApprovalModeSelector dropUp />
+                <ContextButton />
               </>
             }
             modelSelectorSlot={
