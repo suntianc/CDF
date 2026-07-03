@@ -112,6 +112,7 @@ function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string
     disableModelInvocation: parsed.metadata.disableModelInvocation,
     userInvocable: parsed.metadata.userInvocable,
     allowedTools: parsed.metadata.allowedTools,
+    arguments: parsed.metadata.arguments,
     whenToUse: parsed.metadata.whenToUse,
   };
 }
@@ -268,6 +269,7 @@ function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillNam
       disableModelInvocation: fm.disableModelInvocation,
       userInvocable: fm.userInvocable,
       allowedTools: fm.allowedTools,
+      arguments: fm.arguments,
       whenToUse: fm.whenToUse,
     },
   };

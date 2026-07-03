@@ -1,13 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
+import { parseFrontmatterStringList } from '../../frontmatter-list';
 
 export interface SkillMetadata {
   name: string;
   description: string;
   disableModelInvocation?: boolean;
   userInvocable?: boolean;
+  argumentHint?: string;
   allowedTools: string[];
+  arguments: string[];
   whenToUse: string;
   license?: string;
   compatibility?: string;
@@ -157,9 +160,12 @@ export function parseSkillMetadata(skillDir: string): SkillMetadataParseResult {
         typeof parsed['user-invocable'] === 'boolean'
           ? parsed['user-invocable']
           : undefined,
-      allowedTools: Array.isArray(parsed['allowed-tools'])
-        ? parsed['allowed-tools'].filter((value): value is string => typeof value === 'string')
-        : [],
+      argumentHint:
+        typeof parsed['argument-hint'] === 'string'
+          ? parsed['argument-hint']
+          : undefined,
+      allowedTools: parseFrontmatterStringList(parsed['allowed-tools']),
+      arguments: parseFrontmatterStringList(parsed.arguments),
       whenToUse: typeof parsed.when_to_use === 'string' ? parsed.when_to_use : '',
       license: typeof parsed.license === 'string' ? parsed.license : undefined,
       compatibility:

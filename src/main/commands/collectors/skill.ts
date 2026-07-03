@@ -43,11 +43,17 @@ function skillToCommand(skill: ResolvedSkillCatalogEntry): SlashCommand {
     skillVisibility: skill.visibility,
     modelDiscovery: skill.modelDiscovery,
     userInvocable: skill.userInvocable,
+    argumentHint: skill.argumentHint,
     description: skill.description,
     source,
     target: `${getTargetScope(skill.sourceKind)}:${qualifiedName}`,
     sourceLabel: getSourceLabel(skill),
     badge: `[${source}]`,
+    frontmatter: {
+      allowedTools: skill.allowedTools ?? [],
+      whenToUse: skill.whenToUse ?? '',
+      arguments: skill.arguments ?? [],
+    },
   };
 }
 

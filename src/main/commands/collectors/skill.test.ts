@@ -91,6 +91,10 @@ describe('collectors/skill', () => {
           visibilitySource: 'default',
           modelDiscovery: 'full',
           userInvocable: true,
+          argumentHint: '<file>',
+          allowedTools: ['read_file', 'grep'],
+          whenToUse: 'Use for focused simplification',
+          arguments: ['file'],
         },
       ],
       warnings: [],
@@ -109,11 +113,17 @@ describe('collectors/skill', () => {
         skillVisibility: 'on',
         modelDiscovery: 'full',
         userInvocable: true,
+        argumentHint: '<file>',
         description: 'simplify code',
         source: 'skill:project',
         target: 'project:simplify',
         sourceLabel: 'Project Skill',
         badge: '[skill:project]',
+        frontmatter: {
+          allowedTools: ['read_file', 'grep'],
+          whenToUse: 'Use for focused simplification',
+          arguments: ['file'],
+        },
       },
     ]);
   });

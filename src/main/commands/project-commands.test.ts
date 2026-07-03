@@ -101,6 +101,26 @@ describe('project-commands', () => {
       expect(fm.allowedTools).toEqual(['Read', 'Grep', 'Glob']);
     });
 
+    it('parses allowed-tools and arguments string lists', () => {
+      const f = path.join(tempProject, 'string-lists.md');
+      fs.writeFileSync(
+        f,
+        [
+          '---',
+          'name: x',
+          'allowed-tools: Read Bash(git status *)',
+          'arguments: env flag',
+          '---',
+          'body',
+        ].join('\n')
+      );
+
+      const fm = parseFrontmatter(f);
+
+      expect(fm.allowedTools).toEqual(['Read', 'Bash(git status *)']);
+      expect(fm.arguments).toEqual(['env', 'flag']);
+    });
+
     it('parses when_to_use string (D-09 soft hint)', () => {
       const f = path.join(tempProject, 'when.md');
       fs.writeFileSync(

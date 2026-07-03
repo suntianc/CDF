@@ -27,9 +27,12 @@ describe('parseSkillMetadata', () => {
         'description: A skill with metadata',
         'disable-model-invocation: true',
         'user-invocable: false',
+        'argument-hint: <target>',
         'allowed-tools:',
         '  - read_file',
         '  - grep',
+        'arguments:',
+        '  - target',
         'when_to_use: Use for metadata tests',
         'license: MIT',
         'compatibility: Node >=22',
@@ -51,7 +54,9 @@ describe('parseSkillMetadata', () => {
       description: 'A skill with metadata',
       disableModelInvocation: true,
       userInvocable: false,
+      argumentHint: '<target>',
       allowedTools: ['read_file', 'grep'],
+      arguments: ['target'],
       whenToUse: 'Use for metadata tests',
       license: 'MIT',
       compatibility: 'Node >=22',
@@ -141,6 +146,35 @@ describe('parseSkillMetadata', () => {
     expect(result.errors).toEqual([]);
     expect(result.metadata?.description).toHaveLength(1024);
     expect(result.warnings.join('\n')).toContain('description');
+  });
+
+  it('parses string list metadata split by spaces or commas without splitting tool patterns', () => {
+    const skillDir = path.join(tempRoot, 'string-lists');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: string-lists',
+        'description: String list metadata',
+        'allowed-tools: Read, Bash(git add *), Bash(git status *)',
+        'arguments: issue branch',
+        '---',
+        '',
+        '# String Lists',
+      ].join('\n'),
+      'utf-8'
+    );
+
+    const result = parseSkillMetadata(skillDir);
+
+    expect(result.errors).toEqual([]);
+    expect(result.metadata?.allowedTools).toEqual([
+      'Read',
+      'Bash(git add *)',
+      'Bash(git status *)',
+    ]);
+    expect(result.metadata?.arguments).toEqual(['issue', 'branch']);
   });
 
   it('ignores unsafe module paths with a warning', () => {

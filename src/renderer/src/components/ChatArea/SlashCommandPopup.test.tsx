@@ -689,6 +689,25 @@ describe('Phase 6 source badges + warnings', () => {
     expect(screen.getByText('Project Skill: apps/web')).toBeTruthy();
   });
 
+  it('renders argument hints for slash command rows', () => {
+    render(<TestHarness commands={[{
+      name: 'deploy',
+      description: 'Deploy the app',
+      argumentHint: '<env>',
+      source: 'skill:project',
+      target: 'project:deploy',
+      sourceLabel: 'Project Skill',
+      badge: '[skill:project]',
+    }]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/dep' } });
+    });
+
+    expect(screen.getByText('/deploy')).toBeTruthy();
+    expect(screen.getByText('<env>')).toBeTruthy();
+  });
+
   it('renders Nested Project Skill source labels for nested Skill rows', () => {
     render(<TestHarness commands={[{
       name: 'apps/web:deploy',

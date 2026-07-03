@@ -297,7 +297,11 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
             plan.command.skillPath
           );
           if (body) {
-            const skillPrompt = createSkillInstructionPrompt(plan.command, plan.args, body);
+            const substitutedBody = substituteArgs(body, {
+              args: plan.args,
+              arguments: plan.command.frontmatter?.arguments,
+            });
+            const skillPrompt = createSkillInstructionPrompt(plan.command, plan.args, substitutedBody);
             const skillAttribution = createExplicitSkillAttribution(plan.command);
             const sendOptions = skillAttribution
               ? { skillAttributions: [skillAttribution] }

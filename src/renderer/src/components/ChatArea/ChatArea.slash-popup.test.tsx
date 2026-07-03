@@ -5,6 +5,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
+import { TooltipProvider } from '../ui/tooltip';
 import { ChatArea } from './ChatArea';
 
 const goalCommand: SlashCommand = {
@@ -127,7 +128,11 @@ describe('ChatArea slash command popup', () => {
   });
 
   it('renders one Command Entry popup on the Conversation Welcome Surface', () => {
-    render(<ChatArea />);
+    render(
+      <TooltipProvider>
+        <ChatArea />
+      </TooltipProvider>
+    );
 
     act(() => {
       fireEvent.change(screen.getAllByLabelText('Ask CDF')[0], {

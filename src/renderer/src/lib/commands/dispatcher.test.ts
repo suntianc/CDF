@@ -495,6 +495,38 @@ describe('dispatcher.dispatch', () => {
     );
   });
 
+  it('PluginRewrite for explicit Skill invocation substitutes args inside the Skill body before injection', async () => {
+    mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
+    mockGetSessionState.mockReturnValue({
+      activeSessionId: 'session-1',
+      sessions: [{ id: 'session-1', agent_id: 'agent-1' }],
+      sendMessage: mockSendMessage,
+    });
+    mockSendMessage.mockResolvedValue(undefined);
+    mockReadSkillBody.mockResolvedValue({
+      body: '# Deploy Skill\n\nDeploy $0 with args: $ARGUMENTS for $env.',
+      mtimeMs: 12345,
+    });
+
+    await dispatch({
+      kind: 'PluginRewrite',
+      command: {
+        ...skillCmd,
+        frontmatter: {
+          allowedTools: [],
+          whenToUse: '',
+          arguments: ['env'],
+        },
+      },
+      args: 'prod --force',
+      prompt: 'fallback prompt',
+    });
+
+    const sentContent = mockSendMessage.mock.calls[0][1] as string;
+    expect(sentContent).toContain('Deploy prod with args: prod --force for prod.');
+    expect(sentContent).not.toContain('$ARGUMENTS');
+  });
+
   it('does not leak a Skill instruction path when explicit Skill body is unavailable', async () => {
     mockGetProjectState.mockReturnValue({ currentProjectId: 'project-1' });
     mockGetSessionState.mockReturnValue({

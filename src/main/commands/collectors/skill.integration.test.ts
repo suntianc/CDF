@@ -22,6 +22,27 @@ function writeSkill(skillsDir: string, name: string, description: string): void 
   );
 }
 
+function writeSkillWithFrontmatter(
+  skillsDir: string,
+  name: string,
+  lines: string[]
+): void {
+  const skillDir = path.join(skillsDir, name);
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, 'SKILL.md'),
+    [
+      '---',
+      `name: ${name}`,
+      ...lines,
+      '---',
+      '',
+      `# ${name}`,
+    ].join('\n'),
+    'utf-8'
+  );
+}
+
 describe('collectSkillCommands integration', () => {
   const tempProjectPath = path.join(os.tmpdir(), `cdf-skill-command-test-${Math.random().toString(36).slice(2)}`);
 
@@ -54,6 +75,32 @@ describe('collectSkillCommands integration', () => {
       target: 'project:review',
       sourceLabel: 'Project Skill',
       badge: '[skill:project]',
+    });
+  });
+
+  it('maps Skill frontmatter hints and runtime fields into slash command metadata', async () => {
+    const projectSkillsDir = path.join(tempProjectPath, '.cdf', 'skills');
+    writeSkillWithFrontmatter(projectSkillsDir, 'deploy', [
+      'description: Deploy the target app',
+      'argument-hint: <target>',
+      'allowed-tools:',
+      '  - read_file',
+      '  - bash',
+      'arguments:',
+      '  - target',
+      'when_to_use: 当用户要求部署时调用',
+    ]);
+
+    const commands = await collectSkillCommands(tempProjectPath);
+    const deploy = commands.find((command) => command.name === 'deploy');
+
+    expect(deploy).toMatchObject({
+      argumentHint: '<target>',
+      frontmatter: {
+        allowedTools: ['read_file', 'bash'],
+        arguments: ['target'],
+        whenToUse: '当用户要求部署时调用',
+      },
     });
   });
 

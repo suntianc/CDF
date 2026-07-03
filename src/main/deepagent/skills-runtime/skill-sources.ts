@@ -40,6 +40,10 @@ export interface ResolvedSkillCatalogEntry {
   qualifiedName?: string;
   qualifier?: string;
   description: string;
+  argumentHint?: string;
+  allowedTools?: string[];
+  whenToUse?: string;
+  arguments?: string[];
   sourceKind: SkillSourceKind;
   sourcePath: string;
   skillPath: string;
@@ -55,6 +59,10 @@ export interface ShadowedSkillCatalogEntry {
   qualifiedName?: string;
   qualifier?: string;
   description: string;
+  argumentHint?: string;
+  allowedTools?: string[];
+  whenToUse?: string;
+  arguments?: string[];
   sourceKind: SkillSourceKind;
   sourcePath: string;
   skillPath: string;
@@ -286,6 +294,10 @@ function toShadowedSkill(skill: ResolvedSkillCatalogEntry): ShadowedSkillCatalog
     qualifiedName: skill.qualifiedName,
     qualifier: skill.qualifier,
     description: skill.description,
+    argumentHint: skill.argumentHint,
+    allowedTools: skill.allowedTools,
+    whenToUse: skill.whenToUse,
+    arguments: skill.arguments,
     sourceKind: skill.sourceKind,
     sourcePath: skill.sourcePath,
     skillPath: skill.skillPath,
@@ -436,6 +448,10 @@ export function resolveSkillCatalog(
       qualifiedName,
       qualifier: source.qualifier,
       description: parsed.metadata.description,
+      argumentHint: parsed.metadata.argumentHint,
+      allowedTools: parsed.metadata.allowedTools,
+      whenToUse: parsed.metadata.whenToUse,
+      arguments: parsed.metadata.arguments,
       sourceKind: source.kind,
       sourcePath: source.path,
       skillPath,

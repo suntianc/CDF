@@ -531,6 +531,70 @@ describe('createDeepAgentRuntime', () => {
     });
   });
 
+  it('blocks main-agent tool calls that are outside runtime allowedTools overrides', async () => {
+    await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: 'test' },
+      'agent-1',
+      { allowedTools: ['read_file'] }
+    );
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const allowlistMiddleware = params.middleware.find((item: { name?: string }) => item.name === 'AllowedToolsMiddleware');
+
+    const blocked = await allowlistMiddleware.wrapToolCall(
+      {
+        toolCall: { id: 'tool-call-1', name: 'bash', args: {} },
+        runtime: { signal: { aborted: false } },
+        state: {},
+      },
+      async () => {
+        throw new Error('handler should not be called');
+      }
+    );
+
+    expect(blocked.tool_call_id).toBe('tool-call-1');
+    expect(blocked.content).toContain('Tool blocked by allowed-tools');
+    expect(blocked.content).toContain('bash');
+
+    await expect(
+      allowlistMiddleware.wrapToolCall(
+        {
+          toolCall: { id: 'tool-call-2', name: 'read_file', args: {} },
+          runtime: { signal: { aborted: false } },
+          state: {},
+        },
+        async () => 'ok'
+      )
+    ).resolves.toBe('ok');
+  });
+
+  it('applies runtime allowedTools overrides to subagent tool calls as well', async () => {
+    await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: 'test' },
+      'agent-1',
+      { allowedTools: ['read_file'] },
+      ['agent-2']
+    );
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const allowlistMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'AllowedToolsMiddleware');
+    const blocked = await allowlistMiddleware.wrapToolCall(
+      {
+        toolCall: { id: 'sub-tool-call-1', name: 'grep', args: {} },
+        runtime: { signal: { aborted: false } },
+        state: {},
+      },
+      async () => 'should not run'
+    );
+
+    expect(blocked.tool_call_id).toBe('sub-tool-call-1');
+    expect(blocked.content).toContain('grep');
+  });
+
   it('should let subagents observe tool failures instead of crashing their graph', async () => {
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
 

@@ -291,6 +291,11 @@ export const SlashCommandPopup = forwardRef<
               </span>
             )}
             <span className="font-mono">/{c.name}</span>
+            {c.argumentHint && (
+              <span className="font-mono text-[11px] text-[var(--color-text-muted)]">
+                {c.argumentHint}
+              </span>
+            )}
             {c.source !== 'mcp' && c.description && (
               <span className="text-[11px] text-[var(--color-text-muted)] truncate max-w-[200px]">
                 {c.description.slice(0, 60)}

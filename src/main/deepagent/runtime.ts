@@ -294,6 +294,69 @@ function getRecoverableToolErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function normalizeToolAllowlistEntry(value: string): string {
+  const toolName = value.trim().split('(')[0]?.trim() ?? '';
+  const alias = toolName.toLowerCase();
+  switch (alias) {
+    case 'bash':
+      return 'bash';
+    case 'read':
+      return 'read_file';
+    case 'write':
+      return 'write_file';
+    case 'edit':
+      return 'edit_file';
+    case 'glob':
+      return 'glob';
+    case 'grep':
+      return 'grep';
+    case 'ls':
+    case 'list':
+      return 'ls';
+    case 'webfetch':
+    case 'fetch':
+      return 'fetch';
+    default:
+      return alias.replace(/[\s-]+/g, '_');
+  }
+}
+
+function createAllowedToolMatcher(allowedTools?: string[]): ((toolName: string) => boolean) | null {
+  const allowed = new Set(
+    (allowedTools ?? [])
+      .map(normalizeToolAllowlistEntry)
+      .filter(Boolean)
+  );
+  if (allowed.size === 0) return null;
+  if (allowed.has('*')) return () => true;
+  return (toolName: string) => allowed.has(normalizeToolAllowlistEntry(toolName));
+}
+
+function createAllowedToolsMiddleware(allowedTools?: string[]) {
+  const isAllowed = createAllowedToolMatcher(allowedTools);
+  if (!isAllowed) return null;
+  const allowedList = allowedTools?.join(', ') || '(none)';
+  return createMiddleware({
+    name: 'AllowedToolsMiddleware',
+    wrapToolCall: async (request, handler) => {
+      const runtimeTool = request as { tool?: { name?: string } };
+      const toolName = request.toolCall?.name || runtimeTool.tool?.name || 'unknown';
+      if (isAllowed(toolName)) return handler(request);
+
+      return new ToolMessage({
+        content: `Tool blocked by allowed-tools (${toolName}). This run allows only: ${allowedList}`,
+        tool_call_id: request.toolCall?.id || crypto.randomUUID(),
+        name: toolName,
+      });
+    },
+  });
+}
+
+function getAllowedToolsMiddlewares(allowedTools?: string[]) {
+  const middleware = createAllowedToolsMiddleware(allowedTools);
+  return middleware ? [middleware] : [];
+}
+
 function isTransientRuntimeError(error: Error): boolean {
   const message = error.message.toLowerCase();
   const name = error.name.toLowerCase();
@@ -456,8 +519,9 @@ function createSubagentStepMiddleware() {
   });
 }
 
-function createSubagentResilienceMiddleware() {
+function createSubagentResilienceMiddleware(allowedTools?: string[]) {
   return [
+    ...getAllowedToolsMiddlewares(allowedTools),
     createSubagentStepMiddleware(),
     createRecoverableToolErrorMiddleware(),
     toolRetryMiddleware({
@@ -647,7 +711,7 @@ export async function createDeepAgentRuntime(
         systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', subSkillsRuntime.prompt),
         tools: [...subMcpRuntime.tools, ...builtInTools],
         model: subagentModel,
-        middleware: createSubagentResilienceMiddleware(),
+        middleware: createSubagentResilienceMiddleware(overrides?.allowedTools),
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
       });
     }
@@ -662,7 +726,10 @@ export async function createDeepAgentRuntime(
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
-    middleware: [createRecoverableToolErrorMiddleware()],
+    middleware: [
+      ...getAllowedToolsMiddlewares(overrides?.allowedTools),
+      createRecoverableToolErrorMiddleware(),
+    ],
     interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
     checkpointer,
     memory: memory.length ? memory : undefined,

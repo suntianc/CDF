@@ -297,9 +297,9 @@ export const MAX_AT_MENTION_CANDIDATES = 5000;
 export interface ChatRuntimeOverrides {
   providerId?: string;
   model?: string;
-  /** D-09: frontmatter `allowed-tools` whitelist. Type-only seam — llm.ts:322
-   *  already pass-throughs `payload.overrides`. Runtime hard enforcement is
-   *  deferred to v1.2+ (ALLOWED-TOOLS RUNTIME GAP, see 08.2-01 SUMMARY). */
+  /** D-09: frontmatter `allowed-tools` whitelist. Non-empty lists are enforced
+   *  at runtime by the deepagent tool-call middleware. Empty/absent means all
+   *  otherwise available tools remain available. */
   allowedTools?: string[];
 }
 
