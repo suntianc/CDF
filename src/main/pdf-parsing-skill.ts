@@ -89,29 +89,15 @@ export interface PdfRecoveryDiscoveredCapability {
   applicableReasons: PdfRecoveryTriggerCode[];
 }
 
-export interface PdfRecoveryDiscoveryMcpToolMetadata {
-  name: string;
-  description?: string;
-  serverName?: string;
-  supportsImageInput?: boolean;
-}
-
-export interface PdfRecoveryDiscoveryAgentModelMetadata {
-  configured?: boolean;
-  supportsImageInput?: boolean;
-  supportsPageImages?: boolean;
-  supportsMultimodal?: boolean;
-  providerType?: string;
-  modelName?: string;
-}
+export type PdfRecoveryAgentJudgedRoute = Extract<PdfRecoveryRoute, 'vision-capability' | 'multimodal-agent'>;
 
 export interface PdfRecoveryDiscoveryInput {
   localMarker?: {
     available: boolean;
     commandSource?: string;
   };
-  mcpTools?: PdfRecoveryDiscoveryMcpToolMetadata[];
-  agentModel?: PdfRecoveryDiscoveryAgentModelMetadata;
+  agentViableRoutes?: PdfRecoveryAgentJudgedRoute[];
+  diagnostics?: PdfParseDiagnostic[];
 }
 
 export interface PdfRecoveryCapabilityDiscovery {
@@ -332,23 +318,6 @@ function orderedRoutes(
   );
 }
 
-function toolMetadataText(tool: PdfRecoveryDiscoveryMcpToolMetadata): string {
-  return [
-    tool.name,
-    tool.description,
-  ].filter(Boolean).join(' ').replace(/[_-]/g, ' ').toLowerCase();
-}
-
-function mcpToolLooksVisionCapable(tool: PdfRecoveryDiscoveryMcpToolMetadata): boolean {
-  if (tool.supportsImageInput) return true;
-  return /\b(image|images|screenshot|vision|visual|ocr)\b|图像|圖片|截图|截圖|视觉|視覺/.test(toolMetadataText(tool));
-}
-
-function agentModelLooksMultimodal(model: PdfRecoveryDiscoveryAgentModelMetadata | undefined): boolean {
-  if (!model?.configured) return false;
-  return Boolean(model.supportsImageInput || model.supportsPageImages || model.supportsMultimodal);
-}
-
 function unavailableCapabilityDiagnostic(message: string): PdfParseDiagnostic {
   return {
     severity: 'warning',
@@ -400,11 +369,11 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
     });
   }
 
-  for (const tool of input.mcpTools ?? []) {
-    if (!mcpToolLooksVisionCapable(tool)) continue;
+  const agentViableRoutes = orderedRoutes(input.agentViableRoutes ?? []);
+  if (agentViableRoutes.includes('vision-capability')) {
     capabilities.push({
       route: 'vision-capability',
-      label: tool.serverName ? `${tool.serverName}: ${tool.name}` : tool.name,
+      label: 'Agent-judged vision-capable recovery',
       capabilitySource: 'MCP vision-capable tool',
       problemFit: 'Page-image, OCR, figure, and table recovery through an Agent-accessible tool.',
       privacyNetworkBehavior: 'Depends on the selected MCP server; page images or text may leave the local machine.',
@@ -413,7 +382,7 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
     });
   }
 
-  if (agentModelLooksMultimodal(input.agentModel)) {
+  if (agentViableRoutes.includes('multimodal-agent')) {
     capabilities.push({
       route: 'multimodal-agent',
       label: 'Configured multimodal Agent capability',
@@ -425,11 +394,10 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
     });
   }
 
-  const diagnostics: PdfParseDiagnostic[] = capabilities.length === 0
-    ? [
-        unavailableCapabilityDiagnostic('No viable PDF Recovery Capability was discovered for the current Agent environment.'),
-      ]
-    : [];
+  const diagnostics: PdfParseDiagnostic[] = [...(input.diagnostics ?? [])];
+  if (capabilities.length === 0) {
+    diagnostics.push(unavailableCapabilityDiagnostic('No viable PDF Recovery Capability was discovered for the current Agent environment.'));
+  }
 
   return {
     capabilities,
@@ -465,6 +433,14 @@ export function getPdfParsingSkillMarkdown(): string {
     '',
     'After the baseline parse, inspect diagnostics and generate an automatic recovery plan.',
     'Run capability discovery before choosing a recovery route so unavailable route categories are not offered.',
+    'Before discovery, judge the non-local route categories from your current Agent environment and pass only confident categories with `--viable-routes`.',
+    '',
+    'Route viability semantics:',
+    '- `vision-capability`: report this only when you can see an MCP tool that accepts page images or visual input for PDF recovery. A visible tool must accept image input; a tool that only generates images does not count.',
+    '- `multimodal-agent`: report this only when the currently configured Agent model accepts image, page-image, or multimodal input. A configured Agent model must accept image input; a provider family having a multimodal model does not count unless the current model is configured that way.',
+    '- `local-first`: do not report this; the script probes local Marker availability itself.',
+    '',
+    'When unsure, omit the route. A missed route is recoverable through next actions, while a falsely claimed route can fail during execution after the user has chosen or confirmed it.',
     'Ask for route choice or plan-level confirmation only when meaningful capability, privacy, network, upload, or cost trade-offs exist.',
     'Recovery scripts operate on the artifact directory produced by `baseline-parse.js`.',
     'Use `set-preference.js` and `clear-preference.js` only for the managed Project `AGENTS.md` PDF recovery preference block.',
@@ -486,7 +462,7 @@ export function getPdfParsingSkillMarkdown(): string {
     '',
     '- `scripts/baseline-parse.js --project <projectPath> --file <absolutePdfPath> [--page-range <range>]`: runs Marker through the compiled CDF PDF Skill CLI, writes `.cdf/pdf-parses/<artifactId>/`, and returns a compact JSON summary with diagnostics and next actions.',
     '- `scripts/ensure-marker.js --mode prepare|check`: verifies or prepares the local Marker command used by baseline parsing.',
-    '- `scripts/discover-capabilities.js [--runtime-metadata <jsonFile>]`: returns viable PDF Recovery Capability route categories, source/privacy/cost/problem-fit notes, and next actions when no capability is available.',
+    '- `scripts/discover-capabilities.js [--viable-routes <vision-capability,multimodal-agent>]`: probes local Marker, merges Agent-judged non-local route categories, and returns viable PDF Recovery Capability route categories, source/privacy/cost/problem-fit notes, and next actions when no capability is available.',
     '- `scripts/refresh-recovery-plan.js --artifact <artifactDir>`: regenerates `recovery-plan.json` from `baseline.json` diagnostics and block evidence.',
     '- `scripts/set-preference.js --project <projectPath> --route <local-first|vision-capability|multimodal-agent|ask-each-time>`: writes the managed PDF recovery preference block in `AGENTS.md`.',
     '- `scripts/clear-preference.js --project <projectPath>`: removes only the managed PDF recovery preference block from `AGENTS.md`.',

@@ -17,6 +17,7 @@ import {
   updatePdfRecoveryPreference,
   type PdfRecoveryCapability,
   type PdfRecoveryCapabilityResult,
+  type PdfRecoveryAgentJudgedRoute,
   type PdfRecoveryDiscoveryInput,
   type PdfRecoveryPlan,
   type PdfRecoveryRoute,
@@ -108,18 +109,56 @@ function probeConfiguredMarker(): PdfRecoveryDiscoveryInput['localMarker'] {
   };
 }
 
-function readDiscoveryRuntimeMetadata(args: ParsedArgs): PdfRecoveryDiscoveryInput {
-  const metadataFile = stringArg(args, 'runtime-metadata');
-  if (!metadataFile) return {};
-  const parsed = readJson<PdfRecoveryDiscoveryInput>(metadataFile);
-  return parsed && typeof parsed === 'object' ? parsed : {};
+interface ParsedAgentViableRoutes {
+  routes: PdfRecoveryAgentJudgedRoute[];
+  diagnostics: PdfParseDiagnostic[];
+}
+
+function parseAgentViableRoutes(value: string | undefined): ParsedAgentViableRoutes {
+  if (!value?.trim()) {
+    return {
+      routes: [],
+      diagnostics: [
+        {
+          severity: 'info',
+          code: 'PDF_RECOVERY_AGENT_ROUTES_NOT_REPORTED',
+          message: 'The Agent did not report vision-capability or multimodal-agent viability; discovery only used local Marker probing.',
+        },
+      ],
+    };
+  }
+  const routes: PdfRecoveryAgentJudgedRoute[] = [];
+  const diagnostics: PdfParseDiagnostic[] = [];
+  for (const rawRoute of value.split(',')) {
+    const route = rawRoute.trim();
+    if (!route) continue;
+    if (route === 'vision-capability' || route === 'multimodal-agent') {
+      routes.push(route);
+      continue;
+    }
+    if (route === 'local-first') {
+      diagnostics.push({
+        severity: 'info',
+        code: 'PDF_RECOVERY_AGENT_ROUTES_INVALID',
+        message: 'Ignoring Agent-reported local-first viability; local-first is determined only by local Marker probing.',
+      });
+      continue;
+    }
+    diagnostics.push({
+      severity: 'warning',
+      code: 'PDF_RECOVERY_AGENT_ROUTES_INVALID',
+      message: `Ignoring unsupported Agent-reported PDF recovery route: ${route}.`,
+    });
+  }
+  return { routes, diagnostics };
 }
 
 function discoverCapabilities(args: ParsedArgs): void {
-  const runtimeMetadata = readDiscoveryRuntimeMetadata(args);
+  const agentViableRoutes = parseAgentViableRoutes(stringArg(args, 'viable-routes'));
   const discovery = discoverPdfRecoveryCapabilities({
-    ...runtimeMetadata,
-    localMarker: runtimeMetadata.localMarker ?? probeConfiguredMarker(),
+    localMarker: probeConfiguredMarker(),
+    agentViableRoutes: agentViableRoutes.routes,
+    diagnostics: agentViableRoutes.diagnostics,
   });
   output({
     status: discovery.capabilities.length > 0 ? 'completed' : 'no-viable-capability',

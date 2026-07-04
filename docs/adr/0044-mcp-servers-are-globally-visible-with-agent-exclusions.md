@@ -12,4 +12,4 @@ Decisions bundled with the visibility flip:
 
 Considered and rejected: keeping default-invisible with no change (contradicts ADR 0012's principle and issue #70's goal); removing per-Agent control entirely (loses the only tool-surface narrowing lever); and a discoverable-directory-plus-on-demand-connection model (token savings belong to a deferred-tool-loading mechanism, as in Claude Code's MCP tool search — an orthogonal concern that should not be entangled with the visibility model).
 
-Consequence for PDF recovery (ADR 0043): an Agent's visible tool list — global set minus its exclusions minus unconnected servers — is the ground truth for capability discovery, which is exactly why agent-reported capability evidence needs no runtime metadata export.
+Consequence for PDF recovery (ADR 0043): an Agent's visible tool list — global set minus its exclusions minus unconnected servers — is the ground truth the Master Agent uses when judging viable recovery routes, which is exactly why no runtime metadata export from the main process is needed.

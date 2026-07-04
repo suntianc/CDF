@@ -149,6 +149,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
     expect(skillMarkdown).toContain('MARKER_ALREADY_RUNNING');
     expect(skillMarkdown).toContain('TEXT_LAYER_FALLBACK_USED');
     expect(skillMarkdown).toContain('Do not create ad hoc parser scripts');
+    expect(skillMarkdown).toContain('--viable-routes');
+    expect(skillMarkdown).toContain('A visible tool must accept image input');
+    expect(skillMarkdown).toContain('A configured Agent model must accept image input');
+    expect(skillMarkdown).toContain('When unsure, omit the route');
+    expect(skillMarkdown).not.toContain('--runtime-metadata');
     expect(JSON.parse(fs.readFileSync(path.join(pdfSkillDir as string, 'entrypoints.json'), 'utf-8'))).toMatchObject({
       skill: 'pdf-parsing',
       globalToolsRemoved: ['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel'],
@@ -1028,19 +1033,7 @@ describe('PDF recovery capability discovery', () => {
 
     const discovery = discoverPdfRecoveryCapabilities({
       localMarker: { available: true, commandSource: 'CDF_MARKER_COMMAND' },
-      mcpTools: [
-        {
-          name: 'read_page_image',
-          description: 'Recover OCR and table structure from a PDF page screenshot.',
-          serverName: 'paper-vision',
-        },
-      ],
-      agentModel: {
-        configured: true,
-        supportsPageImages: true,
-        providerType: 'minimax',
-        modelName: 'm3',
-      },
+      agentViableRoutes: ['vision-capability', 'multimodal-agent'],
     });
 
     expect(discovery.viableRoutes).toEqual(['local-first', 'vision-capability', 'multimodal-agent']);
@@ -1063,8 +1056,8 @@ describe('PDF recovery capability discovery', () => {
         applicableReasons: expect.arrayContaining(['OCR_ARTIFACTS', 'FIGURE_ONLY_CONTENT', 'MISSING_TABLE_STRUCTURE']),
       }),
     ]);
-    expect(JSON.stringify(discovery)).not.toContain('minimax');
-    expect(JSON.stringify(discovery)).not.toContain('m3');
+    expect(JSON.stringify(discovery)).not.toContain('custom-provider');
+    expect(JSON.stringify(discovery)).not.toContain('layout-vision-model');
 
     const plan = {
       artifactId: 'parse-1',
@@ -1075,13 +1068,7 @@ describe('PDF recovery capability discovery', () => {
       requiresManualPageSelection: false as const,
     };
     const visionOnlyDiscovery = discoverPdfRecoveryCapabilities({
-      mcpTools: [
-        {
-          name: 'inspect_screenshot',
-          description: 'Analyze visual page images.',
-          serverName: 'paper-vision',
-        },
-      ],
+      agentViableRoutes: ['vision-capability'],
     });
 
     const options = summarizePdfRecoveryRoutes(plan, { capabilityDiscovery: visionOnlyDiscovery });
@@ -1153,32 +1140,23 @@ describe('PDF recovery capability discovery', () => {
     });
   });
 
-  it('discovery entrypoint script returns route-category capabilities from runtime metadata', () => {
+  it('discovery entrypoint script returns Agent-judged viable routes', () => {
     const builtInSkillDirs = getBuiltInSkillDirs();
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
-    const metadataFile = path.join(projectPath, 'runtime-metadata.json');
-    fs.writeFileSync(metadataFile, JSON.stringify({
-      localMarker: { available: false, commandSource: 'test-fixture' },
-      mcpTools: [
-        {
-          name: 'inspect_page_image',
-          description: 'Inspect PDF page image crops.',
-          serverName: 'paper-vision',
-        },
-      ],
-      agentModel: {
-        configured: true,
-        supportsMultimodal: true,
-        providerType: 'custom-provider',
-        modelName: 'layout-vision-model',
-      },
-    }), 'utf-8');
+    const markerProbe = path.join(projectPath, 'marker-unavailable.js');
+    fs.writeFileSync(markerProbe, 'process.exit(2);', 'utf-8');
 
     const output = execFileSync(process.execPath, [
       path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
-      '--runtime-metadata',
-      metadataFile,
-    ], { encoding: 'utf-8' });
+      '--viable-routes',
+      'vision-capability,multimodal-agent',
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: `${process.execPath} ${markerProbe}`,
+      },
+    });
     const result = JSON.parse(output);
 
     expect(result).toMatchObject({
@@ -1189,8 +1167,113 @@ describe('PDF recovery capability discovery', () => {
         expect.objectContaining({ route: 'multimodal-agent', capabilitySource: 'configured multimodal Agent capability' }),
       ],
     });
-    expect(JSON.stringify(result)).not.toContain('custom-provider');
-    expect(JSON.stringify(result)).not.toContain('layout-vision-model');
+  });
+
+  it('discovery entrypoint diagnoses missing Agent-judged routes without crashing', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const markerProbe = path.join(projectPath, 'marker-unavailable.js');
+    fs.writeFileSync(markerProbe, 'process.exit(2);', 'utf-8');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: `${process.execPath} ${markerProbe}`,
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'no-viable-capability',
+      viableRoutes: [],
+      diagnostics: [
+        {
+          severity: 'info',
+          code: 'PDF_RECOVERY_AGENT_ROUTES_NOT_REPORTED',
+        },
+        {
+          severity: 'warning',
+          code: 'PDF_RECOVERY_CAPABILITY_UNAVAILABLE',
+        },
+      ],
+      nextActions: [
+        expect.objectContaining({ kind: 'prepare-marker' }),
+        expect.objectContaining({ kind: 'connect-vision-mcp' }),
+        expect.objectContaining({ kind: 'configure-multimodal-agent' }),
+      ],
+    });
+  });
+
+  it('discovery entrypoint skips invalid Agent-judged routes with diagnostics', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const markerProbe = path.join(projectPath, 'marker-unavailable.js');
+    fs.writeFileSync(markerProbe, 'process.exit(2);', 'utf-8');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+      '--viable-routes',
+      'bogus,vision-capability',
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: `${process.execPath} ${markerProbe}`,
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      viableRoutes: ['vision-capability'],
+      diagnostics: [
+        {
+          severity: 'warning',
+          code: 'PDF_RECOVERY_AGENT_ROUTES_INVALID',
+        },
+      ],
+      capabilities: [
+        expect.objectContaining({ route: 'vision-capability' }),
+      ],
+    });
+  });
+
+  it('discovery entrypoint ignores Agent-reported local-first and keeps probing Marker', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const markerProbe = path.join(projectPath, 'marker-unavailable.js');
+    fs.writeFileSync(markerProbe, 'process.exit(2);', 'utf-8');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+      '--viable-routes',
+      'local-first,multimodal-agent',
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: `${process.execPath} ${markerProbe}`,
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      viableRoutes: ['multimodal-agent'],
+      diagnostics: [
+        {
+          severity: 'info',
+          code: 'PDF_RECOVERY_AGENT_ROUTES_INVALID',
+        },
+      ],
+      capabilities: [
+        expect.objectContaining({ route: 'multimodal-agent' }),
+      ],
+    });
+    expect(result.viableRoutes).not.toContain('local-first');
   });
 
   it('discovery entrypoint probes the default uvx Marker command and ignores invalid timeout env values', () => {
@@ -1401,13 +1484,7 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
 
   it('preserves plan confirmation gates and only narrows declared risks with discovery', () => {
     const discovery = discoverPdfRecoveryCapabilities({
-      mcpTools: [
-        {
-          name: 'inspect_page_image',
-          description: '分析 PDF 页面截图。',
-          serverName: 'paper-vision',
-        },
-      ],
+      agentViableRoutes: ['vision-capability'],
     });
     const riskyPlan = {
       artifactId: 'parse-risk',
