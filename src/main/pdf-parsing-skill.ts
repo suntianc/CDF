@@ -93,11 +93,7 @@ export interface PdfRecoveryDiscoveryMcpToolMetadata {
   name: string;
   description?: string;
   serverName?: string;
-  inputSchema?: unknown;
-  schema?: unknown;
   supportsImageInput?: boolean;
-  supportsPageImages?: boolean;
-  metadata?: Record<string, unknown>;
 }
 
 export interface PdfRecoveryDiscoveryAgentModelMetadata {
@@ -308,59 +304,44 @@ const PDF_RECOVERY_TRIGGER_CODES: PdfRecoveryTriggerCode[] = [
   'MISSING_TABLE_STRUCTURE',
   'WEAK_SOURCE_LOCATION',
 ];
-const LOCAL_FIRST_RECOVERY_REASONS: PdfRecoveryTriggerCode[] = [
-  'MARKER_TIMEOUT',
-  'WEAK_SOURCE_LOCATION',
-];
-const VISUAL_RECOVERY_REASONS: PdfRecoveryTriggerCode[] = [
-  'OCR_ARTIFACTS',
-  'FIGURE_ONLY_CONTENT',
-  'MISSING_TABLE_STRUCTURE',
-];
-const MULTIMODAL_RECOVERY_REASONS: PdfRecoveryTriggerCode[] = [
-  'OCR_ARTIFACTS',
-  'FIGURE_ONLY_CONTENT',
-  'MISSING_TABLE_STRUCTURE',
-];
 
-function uniqueRoutes(routes: Iterable<PdfRecoveryRoute>): PdfRecoveryRoute[] {
-  const routeSet = new Set(routes);
-  return PDF_RECOVERY_ROUTES.filter((route) => route !== 'ask-each-time' && routeSet.has(route));
+function candidateRoutesForReason(reason: PdfRecoveryTriggerCode): PdfRecoveryRoute[] {
+  switch (reason) {
+    case 'MARKER_TIMEOUT':
+      return ['local-first', 'vision-capability'];
+    case 'WEAK_SOURCE_LOCATION':
+      return ['local-first'];
+    case 'OCR_ARTIFACTS':
+    case 'FIGURE_ONLY_CONTENT':
+    case 'MISSING_TABLE_STRUCTURE':
+      return ['vision-capability', 'multimodal-agent'];
+  }
 }
 
-function hasTruthyMetadataFlag(
-  metadata: Record<string, unknown> | undefined,
-  keys: string[],
-): boolean {
-  if (!metadata) return false;
-  return keys.some((key) => metadata[key] === true);
+function reasonsForRoute(route: Exclude<PdfRecoveryRoute, 'ask-each-time'>): PdfRecoveryTriggerCode[] {
+  return PDF_RECOVERY_TRIGGER_CODES.filter((reason) => candidateRoutesForReason(reason).includes(route));
 }
 
-function metadataModalitiesIncludeImage(metadata: Record<string, unknown> | undefined): boolean {
-  const modalities = metadata?.modalities;
-  if (!Array.isArray(modalities)) return false;
-  return modalities.some((modality) => {
-    if (typeof modality !== 'string') return false;
-    const normalized = modality.toLowerCase();
-    return normalized === 'image' || normalized === 'vision' || normalized === 'screenshot';
-  });
+function orderedRoutes(
+  routes: Iterable<PdfRecoveryRoute>,
+  options: { includeAskEachTime?: boolean } = {},
+): PdfRecoveryRoute[] {
+  const routeSet = routes instanceof Set ? routes : new Set(routes);
+  return PDF_RECOVERY_ROUTES.filter((route) =>
+    (options.includeAskEachTime || route !== 'ask-each-time') && routeSet.has(route)
+  );
 }
 
 function toolMetadataText(tool: PdfRecoveryDiscoveryMcpToolMetadata): string {
   return [
     tool.name,
     tool.description,
-    JSON.stringify(tool.inputSchema ?? tool.schema ?? {}),
-  ].filter(Boolean).join(' ').toLowerCase();
+  ].filter(Boolean).join(' ').replace(/[_-]/g, ' ').toLowerCase();
 }
 
 function mcpToolLooksVisionCapable(tool: PdfRecoveryDiscoveryMcpToolMetadata): boolean {
-  if (tool.supportsImageInput || tool.supportsPageImages) return true;
-  if (hasTruthyMetadataFlag(tool.metadata, ['supportsImageInput', 'supportsPageImages', 'supportsVision', 'acceptsImages'])) {
-    return true;
-  }
-  if (metadataModalitiesIncludeImage(tool.metadata)) return true;
-  return /\b(image|images|screenshot|vision|visual|ocr)\b/.test(toolMetadataText(tool));
+  if (tool.supportsImageInput) return true;
+  return /\b(image|images|screenshot|vision|visual|ocr)\b|图像|圖片|截图|截圖|视觉|視覺/.test(toolMetadataText(tool));
 }
 
 function agentModelLooksMultimodal(model: PdfRecoveryDiscoveryAgentModelMetadata | undefined): boolean {
@@ -415,7 +396,7 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
       problemFit: 'Local retries and source-location repair for weak baseline evidence.',
       privacyNetworkBehavior: 'Runs locally; no PDF page or text upload is required.',
       possibleCost: 'No metered provider cost expected.',
-      applicableReasons: [...LOCAL_FIRST_RECOVERY_REASONS],
+      applicableReasons: reasonsForRoute('local-first'),
     });
   }
 
@@ -428,7 +409,7 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
       problemFit: 'Page-image, OCR, figure, and table recovery through an Agent-accessible tool.',
       privacyNetworkBehavior: 'Depends on the selected MCP server; page images or text may leave the local machine.',
       possibleCost: 'Depends on the selected MCP server or backing provider.',
-      applicableReasons: [...VISUAL_RECOVERY_REASONS],
+      applicableReasons: reasonsForRoute('vision-capability'),
     });
   }
 
@@ -440,7 +421,7 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
       problemFit: 'Layout-aware recovery for images, formulas, tables, and mixed visual evidence.',
       privacyNetworkBehavior: 'Uses the configured Agent model path; page images or text may be sent through that model route.',
       possibleCost: 'May use metered provider capacity.',
-      applicableReasons: [...MULTIMODAL_RECOVERY_REASONS],
+      applicableReasons: reasonsForRoute('multimodal-agent'),
     });
   }
 
@@ -452,7 +433,7 @@ export function discoverPdfRecoveryCapabilities(input: PdfRecoveryDiscoveryInput
 
   return {
     capabilities,
-    viableRoutes: uniqueRoutes(capabilities.map((capability) => capability.route)),
+    viableRoutes: orderedRoutes(capabilities.map((capability) => capability.route)),
     diagnostics,
     nextActions: discoveryNextActions(capabilities),
   };
@@ -613,8 +594,46 @@ function parseArgs(argv) {
 }
 
 function splitConfiguredCommand(command) {
-  const matches = command.match(/(?:[^\\s"']+|"[^"]*"|'[^']*')+/g) || [];
-  return matches.map((part) => part.replace(/^[\\"']|[\\"']$/g, ''));
+  const parts = [];
+  let current = '';
+  let quote = null;
+  let escaping = false;
+  const pushCurrent = () => {
+    if (!current) return;
+    parts.push(current);
+    current = '';
+  };
+  for (const char of command) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\\\' && quote !== "'") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\\s/.test(char)) {
+      pushCurrent();
+      continue;
+    }
+    current += char;
+  }
+  if (escaping) current += '\\\\';
+  pushCurrent();
+  return parts;
 }
 
 function configuredMarkerCommand() {
@@ -801,25 +820,8 @@ function isPdfRecoveryTriggerCode(code: PdfParseDiagnosticCode): code is PdfReco
   return (PDF_RECOVERY_TRIGGER_CODES as string[]).includes(code);
 }
 
-function candidateRoutesForReason(reason: PdfRecoveryTriggerCode): PdfRecoveryRoute[] {
-  switch (reason) {
-    case 'MARKER_TIMEOUT':
-      return ['local-first', 'vision-capability'];
-    case 'WEAK_SOURCE_LOCATION':
-      return ['local-first'];
-    case 'OCR_ARTIFACTS':
-    case 'FIGURE_ONLY_CONTENT':
-    case 'MISSING_TABLE_STRUCTURE':
-      return ['vision-capability', 'multimodal-agent'];
-  }
-}
-
 function addRoute(routes: Set<PdfRecoveryRoute>, route: PdfRecoveryRoute): void {
   routes.add(route);
-}
-
-function orderedRoutes(routes: Set<PdfRecoveryRoute>): PdfRecoveryRoute[] {
-  return PDF_RECOVERY_ROUTES.filter((route) => route !== 'ask-each-time' && routes.has(route));
 }
 
 function risksForRoutes(routes: PdfRecoveryRoute[]): PdfRecoveryRisk[] {
@@ -969,22 +971,43 @@ function routeCapabilitiesByRoute(
   return capabilities;
 }
 
+function buildRouteOptions(
+  routes: readonly PdfRecoveryRoute[],
+  routeRisks: readonly PdfRecoveryRisk[],
+  capabilitiesByRoute: Map<PdfRecoveryRoute, PdfRecoveryDiscoveredCapability>,
+  targetCount: number,
+): PdfRecoveryRouteOption[] {
+  return routes.map((route) => routeOption(route, targetCount, routeRisks, capabilitiesByRoute.get(route)));
+}
+
 function viableCandidateRoutes(
   candidateRoutes: readonly PdfRecoveryRoute[],
   discovery: PdfRecoveryCapabilityDiscovery | undefined,
 ): PdfRecoveryRoute[] {
-  const candidates = uniqueRoutes(candidateRoutes);
+  const candidates = orderedRoutes(candidateRoutes, { includeAskEachTime: !discovery });
   if (!discovery) return candidates;
   const viable = new Set(discovery.viableRoutes);
   return candidates.filter((route) => viable.has(route));
 }
 
 function effectiveRouteRisks(
-  plan: Pick<PdfRecoveryPlan, 'candidateRoutes' | 'routeRisks'>,
+  plan: Pick<PdfRecoveryPlan, 'routeRisks'>,
   routes: PdfRecoveryRoute[],
   discovery: PdfRecoveryCapabilityDiscovery | undefined,
 ): PdfRecoveryRisk[] {
-  return discovery ? risksForRoutes(routes) : [...plan.routeRisks];
+  if (!discovery) return [...plan.routeRisks];
+  const discoveredRisks = new Set(risksForRoutes(routes));
+  return plan.routeRisks.filter((risk) => discoveredRisks.has(risk));
+}
+
+function effectiveRequiresPlanConfirmation(
+  planRequiresConfirmation: boolean,
+  discovery: PdfRecoveryCapabilityDiscovery | undefined,
+  routeRisks: readonly PdfRecoveryRisk[],
+): boolean {
+  if (!planRequiresConfirmation) return false;
+  if (!discovery) return true;
+  return routeRisks.length > 0;
 }
 
 export function summarizePdfRecoveryRoutes(
@@ -994,7 +1017,7 @@ export function summarizePdfRecoveryRoutes(
   const routes = viableCandidateRoutes(plan.candidateRoutes, options.capabilityDiscovery);
   const routeRisks = effectiveRouteRisks(plan, routes, options.capabilityDiscovery);
   const capabilitiesByRoute = routeCapabilitiesByRoute(options.capabilityDiscovery);
-  return routes.map((route) => routeOption(route, plan.targets.length, routeRisks, capabilitiesByRoute.get(route)));
+  return buildRouteOptions(routes, routeRisks, capabilitiesByRoute, plan.targets.length);
 }
 
 function getSelectedRoute(options: {
@@ -1015,8 +1038,11 @@ export function decidePdfRecoveryRoute(
 ): PdfRecoveryRouteDecision {
   const candidateRoutes = viableCandidateRoutes(plan.candidateRoutes, options.capabilityDiscovery);
   const routeRisks = effectiveRouteRisks(plan, candidateRoutes, options.capabilityDiscovery);
-  const requiresPlanConfirmation = plan.requiresPlanConfirmation && routeRisks.length > 0;
-  const routeOptions = summarizePdfRecoveryRoutes(plan, { capabilityDiscovery: options.capabilityDiscovery });
+  const requiresPlanConfirmation = effectiveRequiresPlanConfirmation(
+    plan.requiresPlanConfirmation,
+    options.capabilityDiscovery,
+    routeRisks,
+  );
   if (options.capabilityDiscovery && candidateRoutes.length === 0) {
     return {
       status: 'no-viable-capability',
@@ -1034,6 +1060,8 @@ export function decidePdfRecoveryRoute(
       requiresPlanConfirmation: false,
     };
   }
+  const capabilitiesByRoute = routeCapabilitiesByRoute(options.capabilityDiscovery);
+  const routeOptions = buildRouteOptions(candidateRoutes, routeRisks, capabilitiesByRoute, plan.targets.length);
   const selectedRoute = getSelectedRoute(options);
   if (selectedRoute) {
     if (!candidateRoutes.includes(selectedRoute)) {

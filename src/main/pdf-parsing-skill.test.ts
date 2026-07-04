@@ -24,6 +24,9 @@ import {
 let projectPath: string;
 let pdfPath: string;
 let previousPdfSkillCliPath: string | undefined;
+let previousMarkerCommand: string | undefined;
+let previousMarkerDiscoveryTimeoutMs: string | undefined;
+let previousPath: string | undefined;
 
 function buildPdfSkillCliBundle(targetDir: string): string {
   const cliPath = path.join(targetDir, 'pdf-parsing-skill-cli.cjs');
@@ -61,7 +64,12 @@ beforeEach(() => {
   pdfPath = path.join(projectPath, 'paper.pdf');
   fs.writeFileSync(pdfPath, '%PDF-1.7\n% test fixture\n', 'utf-8');
   previousPdfSkillCliPath = process.env.CDF_PDF_SKILL_CLI_PATH;
+  previousMarkerCommand = process.env.CDF_MARKER_COMMAND;
+  previousMarkerDiscoveryTimeoutMs = process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS;
+  previousPath = process.env.PATH;
   process.env.CDF_PDF_SKILL_CLI_PATH = buildPdfSkillCliBundle(projectPath);
+  delete process.env.CDF_MARKER_COMMAND;
+  delete process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS;
 });
 
 afterEach(() => {
@@ -70,6 +78,21 @@ afterEach(() => {
     delete process.env.CDF_PDF_SKILL_CLI_PATH;
   } else {
     process.env.CDF_PDF_SKILL_CLI_PATH = previousPdfSkillCliPath;
+  }
+  if (previousMarkerCommand === undefined) {
+    delete process.env.CDF_MARKER_COMMAND;
+  } else {
+    process.env.CDF_MARKER_COMMAND = previousMarkerCommand;
+  }
+  if (previousMarkerDiscoveryTimeoutMs === undefined) {
+    delete process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS;
+  } else {
+    process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS = previousMarkerDiscoveryTimeoutMs;
+  }
+  if (previousPath === undefined) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = previousPath;
   }
   fs.rmSync(projectPath, { recursive: true, force: true });
 });
@@ -593,7 +616,7 @@ describe('PDF recovery capability discovery', () => {
         route: 'vision-capability',
         capabilitySource: 'MCP vision-capable tool',
         privacyNetworkBehavior: expect.stringContaining('MCP'),
-        applicableReasons: expect.arrayContaining(['OCR_ARTIFACTS', 'FIGURE_ONLY_CONTENT', 'MISSING_TABLE_STRUCTURE']),
+        applicableReasons: expect.arrayContaining(['MARKER_TIMEOUT', 'OCR_ARTIFACTS', 'FIGURE_ONLY_CONTENT', 'MISSING_TABLE_STRUCTURE']),
       }),
       expect.objectContaining({
         route: 'multimodal-agent',
@@ -697,6 +720,7 @@ describe('PDF recovery capability discovery', () => {
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
     const metadataFile = path.join(projectPath, 'runtime-metadata.json');
     fs.writeFileSync(metadataFile, JSON.stringify({
+      localMarker: { available: false, commandSource: 'test-fixture' },
       mcpTools: [
         {
           name: 'inspect_page_image',
@@ -729,6 +753,74 @@ describe('PDF recovery capability discovery', () => {
     });
     expect(JSON.stringify(result)).not.toContain('custom-provider');
     expect(JSON.stringify(result)).not.toContain('layout-vision-model');
+  });
+
+  it('discovery entrypoint probes the default uvx Marker command and ignores invalid timeout env values', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const uvxPath = path.join(projectPath, 'uvx');
+    const probeLog = path.join(projectPath, 'uvx-probe.json');
+    fs.writeFileSync(uvxPath, [
+      '#!/usr/bin/env node',
+      'const fs = require("fs");',
+      'fs.writeFileSync(process.env.CDF_MARKER_PROBE_LOG, JSON.stringify(process.argv.slice(2)), "utf-8");',
+      'process.exit(process.argv.includes("--help") ? 0 : 2);',
+    ].join('\n'), 'utf-8');
+    fs.chmodSync(uvxPath, 0o755);
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        PATH: `${projectPath}${path.delimiter}${process.env.PATH ?? ''}`,
+        CDF_MARKER_COMMAND: '',
+        CDF_MARKER_DISCOVERY_TIMEOUT_MS: 'not-a-number',
+        CDF_MARKER_PROBE_LOG: probeLog,
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(JSON.parse(fs.readFileSync(probeLog, 'utf-8'))).toEqual(['--from', 'marker-pdf', 'marker_single', '--help']);
+    expect(result).toMatchObject({
+      status: 'completed',
+      viableRoutes: ['local-first'],
+      capabilities: [
+        expect.objectContaining({
+          route: 'local-first',
+          capabilitySource: 'local Marker-compatible recovery command',
+        }),
+      ],
+    });
+  });
+
+  it('discovery entrypoint preserves quoted arguments in the configured Marker command', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const markerProbe = path.join(projectPath, 'marker-probe.js');
+    const profileName = 'layout profile with spaces';
+    fs.writeFileSync(markerProbe, [
+      'const expected = `--profile=${process.env.CDF_EXPECTED_MARKER_PROFILE}`;',
+      'process.exit(process.argv.includes(expected) && process.argv.includes("--help") ? 0 : 2);',
+    ].join('\n'), 'utf-8');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: `${process.execPath} ${markerProbe} --profile="${profileName}"`,
+        CDF_EXPECTED_MARKER_PROFILE: profileName,
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      viableRoutes: ['local-first'],
+    });
   });
 });
 
@@ -804,6 +896,31 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
       source: 'user',
     });
 
+    expect(summarizePdfRecoveryRoutes({
+      targets: [{ kind: 'document' as const, reasons: ['WEAK_SOURCE_LOCATION' as const] }],
+      candidateRoutes: ['ask-each-time'] as const,
+      routeRisks: [] as const,
+    })).toEqual([
+      expect.objectContaining({
+        route: 'ask-each-time',
+        capabilitySource: 'manual route choice',
+      }),
+    ]);
+
+    expect(decidePdfRecoveryRoute(projectPath, {
+      targets: [{ kind: 'document' as const, reasons: ['WEAK_SOURCE_LOCATION' as const] }],
+      candidateRoutes: ['ask-each-time'] as const,
+      routeRisks: [] as const,
+      requiresPlanConfirmation: false as const,
+    }, {
+      selectedRoute: 'ask-each-time',
+    })).toMatchObject({
+      status: 'selected',
+      route: 'ask-each-time',
+      planLevelConfirmed: true,
+      source: 'user',
+    });
+
     const artifactDir = path.join(projectPath, '.cdf', 'pdf-parses', 'parse-1');
     fs.mkdirSync(artifactDir, { recursive: true });
     recordPdfRecoveryRouteSelection(artifactDir, approved);
@@ -813,6 +930,59 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
         planLevelConfirmed: true,
         source: 'user',
       },
+    });
+  });
+
+  it('preserves plan confirmation gates and only narrows declared risks with discovery', () => {
+    const discovery = discoverPdfRecoveryCapabilities({
+      mcpTools: [
+        {
+          name: 'inspect_page_image',
+          description: '分析 PDF 页面截图。',
+          serverName: 'paper-vision',
+        },
+      ],
+    });
+    const riskyPlan = {
+      artifactId: 'parse-risk',
+      targets: [{ kind: 'page' as const, page: 2, reasons: ['MARKER_TIMEOUT' as const] }],
+      candidateRoutes: ['local-first', 'vision-capability'] as const,
+      routeRisks: ['network'] as const,
+      requiresPlanConfirmation: true as const,
+      requiresManualPageSelection: false as const,
+    };
+
+    expect(discovery).toMatchObject({
+      viableRoutes: ['vision-capability'],
+      capabilities: [
+        expect.objectContaining({
+          route: 'vision-capability',
+          applicableReasons: expect.arrayContaining(['MARKER_TIMEOUT']),
+        }),
+      ],
+    });
+    expect(decidePdfRecoveryRoute(projectPath, riskyPlan, {
+      capabilityDiscovery: discovery,
+      selectedRoute: 'vision-capability',
+      planLevelConfirmed: false,
+    })).toMatchObject({
+      status: 'needs-plan-confirmation',
+      route: 'vision-capability',
+      routeRisks: ['network'],
+    });
+
+    expect(decidePdfRecoveryRoute(projectPath, {
+      targets: [{ kind: 'document' as const, reasons: ['WEAK_SOURCE_LOCATION' as const] }],
+      candidateRoutes: ['local-first'] as const,
+      routeRisks: [] as const,
+      requiresPlanConfirmation: true as const,
+    }, {
+      selectedRoute: 'local-first',
+      planLevelConfirmed: false,
+    })).toMatchObject({
+      status: 'needs-plan-confirmation',
+      route: 'local-first',
+      routeRisks: [],
     });
   });
 });

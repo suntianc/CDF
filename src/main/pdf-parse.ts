@@ -555,12 +555,52 @@ interface MarkerCliRunnerOptions {
   args?: string[];
 }
 
-function splitConfiguredCommand(command: string): string[] {
-  const matches = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
-  return matches.map((part) => part.replace(/^["']|["']$/g, ''));
+export function splitConfiguredCommand(command: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let escaping = false;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    parts.push(current);
+    current = '';
+  };
+
+  for (const char of command) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\' && quote !== "'") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      pushCurrent();
+      continue;
+    }
+    current += char;
+  }
+  if (escaping) current += '\\';
+  pushCurrent();
+  return parts;
 }
 
-function configuredMarkerCommand(): { command: string; args: string[] } {
+export function configuredMarkerCommand(): { command: string; args: string[] } {
   const configured = process.env.CDF_MARKER_COMMAND?.trim();
   if (configured) {
     const [command, ...args] = splitConfiguredCommand(configured);

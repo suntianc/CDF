@@ -2,6 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import {
+  configuredMarkerCommand,
+  type PdfParseDiagnostic,
+  type StructuredPaperParse,
+} from './pdf-parse';
+import {
   clearPdfRecoveryPreference,
   discoverPdfRecoveryCapabilities,
   executePdfRecoveryPlan,
@@ -17,7 +22,6 @@ import {
   type PdfRecoveryRoute,
   type PdfRecoveryRouteDecision,
 } from './pdf-parsing-skill';
-import type { PdfParseDiagnostic, StructuredPaperParse } from './pdf-parse';
 
 type ParsedArgs = Record<string, string | true>;
 
@@ -85,34 +89,21 @@ function markerNextActions(): Array<{ kind: 'prepare-marker'; script: string; co
   ];
 }
 
-function splitConfiguredCommand(command: string): string[] {
-  const matches = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-  return matches.map((part) => part.replace(/^["']|["']$/g, ''));
+function markerDiscoveryTimeoutMs(): number {
+  const parsed = Number(process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
 }
 
 function probeConfiguredMarker(): PdfRecoveryDiscoveryInput['localMarker'] {
-  const configured = (process.env.CDF_MARKER_COMMAND || '').trim();
-  if (!configured) {
-    return {
-      available: false,
-      commandSource: 'not-configured',
-    };
-  }
-  const [command, ...args] = splitConfiguredCommand(configured);
-  if (!command) {
-    return {
-      available: false,
-      commandSource: 'CDF_MARKER_COMMAND',
-    };
-  }
-  const result = spawnSync(command, [...args, '--help'], {
+  const configured = configuredMarkerCommand();
+  const result = spawnSync(configured.command, [...configured.args, '--help'], {
     encoding: 'utf-8',
-    timeout: Number(process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS || 5000),
+    timeout: markerDiscoveryTimeoutMs(),
     windowsHide: true,
   });
   return {
     available: !result.error && result.status === 0,
-    commandSource: 'CDF_MARKER_COMMAND',
+    commandSource: process.env.CDF_MARKER_COMMAND?.trim() ? 'CDF_MARKER_COMMAND' : 'default-uvx',
   };
 }
 
