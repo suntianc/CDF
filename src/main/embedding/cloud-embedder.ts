@@ -1,5 +1,6 @@
 import type { EmbeddingMode, EmbeddingSource, TextEmbedder } from './vector-store';
 import type { LLMProvider } from '../../shared/types';
+import { supportsEmbeddingDimensionsParameter } from './provider-defaults';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -50,6 +51,9 @@ export function createCloudEmbeddingEmbedder(options: CloudEmbeddingOptions): Te
           body: JSON.stringify({
             model: options.model,
             input: texts,
+            ...(supportsEmbeddingDimensionsParameter(options.providerType, options.model)
+              ? { dimensions: options.dims }
+              : {}),
           }),
         });
       } catch (error) {

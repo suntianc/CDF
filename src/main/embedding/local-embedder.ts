@@ -1,6 +1,7 @@
 import path from 'path';
+import fs from 'fs';
 import type { EmbeddingMode, TextEmbedder } from './vector-store';
-import { downloadFileWithSha256, type ModelDownloadRequest } from './model-download';
+import { downloadFileWithSha256, type ModelDownloadProgress, type ModelDownloadRequest } from './model-download';
 
 export const LOCAL_E5_SOURCE = {
   id: 'local:Xenova/multilingual-e5-small:int8',
@@ -29,9 +30,37 @@ type PipelineFactory = (
   },
 ) => Promise<FeatureExtractor>;
 
-interface LocalModelFile {
+export interface LocalModelFile {
   path: string;
   sha256: string;
+}
+
+export const LOCAL_E5_MODEL_FILES: LocalModelFile[] = [
+  {
+    path: 'config.json',
+    sha256: 'cb99455288675345e1a4f411438d5d0adbba5fbd3a67ea4fb03c015433b996c1',
+  },
+  {
+    path: 'tokenizer.json',
+    sha256: '0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39',
+  },
+  {
+    path: 'tokenizer_config.json',
+    sha256: 'a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b',
+  },
+  {
+    path: 'special_tokens_map.json',
+    sha256: 'd05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7',
+  },
+  {
+    path: 'onnx/model_quantized.onnx',
+    sha256: 'f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193',
+  },
+];
+
+export interface LocalModelStatus {
+  ready: boolean;
+  missingFiles: string[];
 }
 
 interface LocalE5EmbedderOptions {
@@ -44,6 +73,21 @@ interface LocalE5EmbedderOptions {
   onProgress?: (event: unknown) => void;
   downloadFile?: (request: ModelDownloadRequest) => Promise<void>;
   pipelineFactory?: PipelineFactory;
+}
+
+export type LocalModelDownloadProgress = ModelDownloadProgress & {
+  file: string;
+  fileIndex: number;
+  fileCount: number;
+};
+
+export interface EnsureLocalE5ModelOptions {
+  localModelPath: string;
+  remoteHost?: string;
+  mirrorHost?: string;
+  modelFiles?: LocalModelFile[];
+  downloadFile?: (request: ModelDownloadRequest) => Promise<void>;
+  onProgress?: (event: LocalModelDownloadProgress) => void;
 }
 
 export function createLocalE5Embedder(options: LocalE5EmbedderOptions): TextEmbedder {
@@ -69,6 +113,42 @@ export function createLocalE5Embedder(options: LocalE5EmbedderOptions): TextEmbe
 
 function addE5Prefix(text: string, mode: EmbeddingMode): string {
   return `${mode}: ${text}`;
+}
+
+export function getLocalE5ModelStatus(localModelPath: string, modelFiles = LOCAL_E5_MODEL_FILES): LocalModelStatus {
+  const missingFiles = modelFiles
+    .filter((file) => !fs.existsSync(path.join(localModelPath, LOCAL_E5_SOURCE.model, file.path)))
+    .map((file) => file.path);
+  return {
+    ready: missingFiles.length === 0,
+    missingFiles,
+  };
+}
+
+export async function ensureLocalE5Model(options: EnsureLocalE5ModelOptions): Promise<LocalModelStatus> {
+  const modelFiles = options.modelFiles ?? LOCAL_E5_MODEL_FILES;
+  const status = getLocalE5ModelStatus(options.localModelPath, modelFiles);
+  if (status.ready) return status;
+  await downloadModelFiles({
+    cacheDir: options.localModelPath,
+    localModelPath: options.localModelPath,
+    remoteHost: options.remoteHost,
+    mirrorHost: options.mirrorHost,
+    modelFiles,
+    downloadFile: options.downloadFile,
+    onProgress: (event) => {
+      if (isModelDownloadProgress(event)) {
+        const fileIndex = modelFiles.findIndex((file) => event.url.endsWith(`/${file.path}`));
+        options.onProgress?.({
+          ...event,
+          file: fileIndex >= 0 ? modelFiles[fileIndex].path : '',
+          fileIndex: fileIndex >= 0 ? fileIndex + 1 : 0,
+          fileCount: modelFiles.length,
+        });
+      }
+    },
+  });
+  return getLocalE5ModelStatus(options.localModelPath, modelFiles);
 }
 
 async function loadLocalPipeline(
@@ -111,14 +191,15 @@ async function createTransformersPipeline(
 }
 
 async function downloadModelFiles(options: LocalE5EmbedderOptions & { localModelPath: string }): Promise<void> {
-  if (!options.modelFiles || options.modelFiles.length === 0) {
+  const modelFiles = options.modelFiles ?? LOCAL_E5_MODEL_FILES;
+  if (modelFiles.length === 0) {
     throw new Error('Local Embedding Source download requires a hash-verified download manifest.');
   }
   const downloadFile = options.downloadFile ?? downloadFileWithSha256;
   const primaryHost = trimTrailingSlash(options.remoteHost ?? 'https://huggingface.co/');
   const mirrorHost = trimTrailingSlash(options.mirrorHost ?? 'https://hf-mirror.com/');
 
-  for (const file of options.modelFiles) {
+  for (const file of modelFiles) {
     const normalizedPath = file.path.split('\\').join('/').replace(/^\/+/, '');
     await downloadFile({
       urls: [
@@ -134,6 +215,10 @@ async function downloadModelFiles(options: LocalE5EmbedderOptions & { localModel
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function isModelDownloadProgress(event: unknown): event is ModelDownloadProgress {
+  return !!event && typeof event === 'object' && 'url' in event && 'loaded' in event;
 }
 
 function normalizeFeatureExtractionOutput(output: FeatureExtractorOutput, batchSize: number): Float32Array[] {

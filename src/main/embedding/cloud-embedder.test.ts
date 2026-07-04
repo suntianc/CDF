@@ -35,6 +35,7 @@ describe('Cloud Embedding Embedder', () => {
     expect(JSON.parse(String(requests[0].init.body))).toEqual({
       model: 'text-embedding-3-small',
       input: ['alpha', 'beta'],
+      dimensions: 3,
     });
   });
 
@@ -88,6 +89,29 @@ describe('Cloud Embedding Embedder', () => {
     });
     expect(requests[0].init.headers).toMatchObject({
       Authorization: 'Bearer sk-provider',
+    });
+  });
+
+  it('does not send dimensions for providers without a known dimensions parameter', async () => {
+    const requests: RequestInit[] = [];
+    const embedder = createCloudEmbeddingEmbedder({
+      providerId: 'provider-1',
+      providerType: 'custom',
+      apiKey: 'sk-test',
+      apiUrl: 'https://example.com/v1',
+      model: 'custom-embedding',
+      dims: 3,
+      fetch: async (_url, init) => {
+        requests.push(init ?? {});
+        return new Response(JSON.stringify({ data: [{ embedding: [1, 0, 0] }] }), { status: 200 });
+      },
+    });
+
+    await embedder.embed(['alpha'], 'passage');
+
+    expect(JSON.parse(String(requests[0].body))).toEqual({
+      model: 'custom-embedding',
+      input: ['alpha'],
     });
   });
 });

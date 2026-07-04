@@ -324,6 +324,11 @@
       "embeddingSaved": "✓ Embedding 来源已保存",
       "embeddingLoadFailed": "加载 Embedding 来源失败：{{error}}",
       "embeddingSaveFailed": "保存 Embedding 来源失败：{{error}}",
+      "embeddingLocalReady": "本地 Embedding 模型已就绪",
+      "embeddingLocalMissing": "本地 Embedding 模型缺少 {{count}} 个文件",
+      "embeddingLocalDownload": "下载本地模型",
+      "embeddingLocalDownloading": "正在下载 {{current}}/{{total}} {{file}} · {{percent}}%",
+      "embeddingLocalDownloadFailed": "下载本地 Embedding 模型失败：{{error}}",
       "embeddingImpact": "当前选择将影响 {{collections}} 个 Vector Index、{{items}} 条向量条目；切换后需要显式重建。",
       "embeddingRebuildConfirm": "{{message}}\n\n继续保存表示你确认后续需要显式重建受影响的 Vector Index。"
     },

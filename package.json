@@ -109,6 +109,7 @@
       "node_modules/turndown/**/*",
       "node_modules/ignore/**/*",
       "node_modules/sqlite-vec/**/*",
+      "node_modules/sqlite-vec-*/**/*",
       "node_modules/@huggingface/transformers/**/*",
       "node_modules/onnxruntime-node/**/*"
     ],
@@ -123,6 +124,7 @@
       "node_modules/jsdom/**/*",
       "node_modules/@mozilla/readability/**/*",
       "node_modules/sqlite-vec/**/*",
+      "node_modules/sqlite-vec-*/**/*",
       "node_modules/onnxruntime-node/**/*"
     ],
     "mac": {

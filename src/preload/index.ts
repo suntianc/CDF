@@ -3,6 +3,7 @@ import type {
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntryUpdateInput,
+  LocalEmbeddingModelState,
 } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -210,6 +211,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getSettings: () => ipcRenderer.invoke('embedding:getSettings'),
     setSource: (selection: unknown, confirmRebuild?: boolean) =>
       ipcRenderer.invoke('embedding:setSource', selection, confirmRebuild),
+    ensureLocalModel: () => ipcRenderer.invoke('embedding:ensureLocalModel'),
+    onLocalModelProgress: (
+      callback: (event: Electron.IpcRendererEvent, data: LocalEmbeddingModelState) => void,
+    ) => {
+      ipcRenderer.on('embedding:local-model-progress', callback);
+      return () => ipcRenderer.removeListener('embedding:local-model-progress', callback);
+    },
   },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   // 08.2 P4: optional contextLimit so renderer can pin the active provider

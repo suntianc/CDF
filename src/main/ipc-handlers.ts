@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell } from 'electron';
+import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
@@ -27,7 +27,14 @@ import { resolveSkillSourcePlan, updateProjectSkillOverride } from './deepagent/
 import { parseSkillOverrideState } from '../shared/skill-overrides';
 import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
-import type { EmbeddingSettings, EmbeddingSourceOption, EmbeddingSourceSelection, LLMProvider, MCPServer } from '../shared/types';
+import type {
+  EmbeddingSettings,
+  EmbeddingSourceOption,
+  EmbeddingSourceSelection,
+  LLMProvider,
+  LocalEmbeddingModelState,
+  MCPServer,
+} from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
 import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
 import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
@@ -37,8 +44,14 @@ import { ensureProjectWatcher } from './commands/chokidar-watcher';
 import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
-import { LOCAL_E5_SOURCE } from './embedding/local-embedder';
+import {
+  LOCAL_E5_SOURCE,
+  ensureLocalE5Model,
+  getLocalE5ModelStatus,
+  type LocalModelDownloadProgress,
+} from './embedding/local-embedder';
 import { inspectVectorStore, type VectorStoreRebuildImpact } from './embedding/vector-store';
+import { getDefaultEmbeddingDimsForProvider, getDefaultEmbeddingModelForProvider } from './embedding/provider-defaults';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -67,6 +80,11 @@ const getProviderLabel = (type: string): string => {
 };
 
 const EMBEDDING_SOURCE_STORE_KEY = 'embeddingSource';
+const LOCAL_MODEL_PROGRESS_CHANNEL = 'embedding:local-model-progress';
+
+let localModelDownloadPromise: Promise<LocalEmbeddingModelState> | null = null;
+let localModelDownloading = false;
+let localModelProgress: LocalEmbeddingModelState['progress'];
 
 const defaultEmbeddingSelection = (): EmbeddingSourceSelection => ({
   kind: 'local',
@@ -74,21 +92,6 @@ const defaultEmbeddingSelection = (): EmbeddingSourceSelection => ({
   model: LOCAL_E5_SOURCE.model,
   dims: LOCAL_E5_SOURCE.dims,
 });
-
-const getDefaultEmbeddingModelForProvider = (providerType: LLMProvider['provider_type']): string => {
-  switch (providerType) {
-    case 'qwen':
-      return 'text-embedding-v4';
-    case 'zhipu':
-    case 'glm-overseas':
-      return 'embedding-3';
-    case 'minimax':
-    case 'minimax-overseas':
-      return 'embo-01';
-    default:
-      return 'text-embedding-3-small';
-  }
-};
 
 const supportsCloudEmbedding = (providerType: LLMProvider['provider_type']): boolean =>
   providerType !== 'anthropic' && providerType !== 'ollama';
@@ -131,6 +134,7 @@ const buildEmbeddingOptions = (): EmbeddingSourceOption[] => {
       .filter((provider) => supportsCloudEmbedding(provider.provider_type))
       .map((provider): EmbeddingSourceOption => {
         const model = getDefaultEmbeddingModelForProvider(provider.provider_type);
+        const dims = getDefaultEmbeddingDimsForProvider(provider.provider_type);
         return {
           kind: 'cloud',
           sourceId: sourceIdForCloud(provider.id, model),
@@ -138,13 +142,43 @@ const buildEmbeddingOptions = (): EmbeddingSourceOption[] => {
           providerName: provider.name,
           providerType: provider.provider_type,
           model,
-          dims: 1536,
+          dims,
           label: `${provider.name} · ${model}`,
           hasCredential: !!provider.api_key || provider.provider_type === 'custom',
         };
       }),
   ];
 };
+
+const getLocalEmbeddingModelPath = (): string => path.join(app.getPath('userData'), 'models');
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const buildLocalModelState = (overrides: Partial<LocalEmbeddingModelState> = {}): LocalEmbeddingModelState => {
+  const status = getLocalE5ModelStatus(getLocalEmbeddingModelPath());
+  return {
+    ready: status.ready,
+    missingFiles: status.missingFiles,
+    downloading: localModelDownloading,
+    progress: localModelProgress,
+    ...overrides,
+  };
+};
+
+const sendLocalModelState = (state: LocalEmbeddingModelState): void => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(LOCAL_MODEL_PROGRESS_CHANNEL, state);
+  }
+};
+
+const toLocalModelProgress = (event: LocalModelDownloadProgress): LocalEmbeddingModelState['progress'] => ({
+  file: event.file,
+  fileIndex: event.fileIndex,
+  fileCount: event.fileCount,
+  loaded: event.loaded,
+  total: event.total,
+});
 
 const getRebuildImpact = (sourceId: string): VectorStoreRebuildImpact => {
   const projects = db.prepare('SELECT path FROM projects').all() as Array<{ path?: string }>;
@@ -167,6 +201,7 @@ const getEmbeddingSettings = (): EmbeddingSettings => {
   return {
     selected,
     options,
+    localModel: buildLocalModelState(),
     affectedCollections: impact.collections,
     affectedItems: impact.items,
   };
@@ -260,12 +295,58 @@ export function registerIpcHandlers() {
   ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
 
   ipcMain.handle('embedding:getSettings', () => getEmbeddingSettings());
+  ipcMain.handle('embedding:ensureLocalModel', () => {
+    if (localModelDownloadPromise) return localModelDownloadPromise;
+
+    localModelDownloading = true;
+    localModelProgress = undefined;
+    sendLocalModelState(buildLocalModelState({ downloading: true }));
+
+    localModelDownloadPromise = ensureLocalE5Model({
+      localModelPath: getLocalEmbeddingModelPath(),
+      onProgress: (event) => {
+        localModelProgress = toLocalModelProgress(event);
+        sendLocalModelState(buildLocalModelState({ downloading: true, progress: localModelProgress }));
+      },
+    })
+      .then((status) => {
+        localModelDownloading = false;
+        localModelProgress = undefined;
+        const state = buildLocalModelState({
+          ready: status.ready,
+          missingFiles: status.missingFiles,
+          downloading: false,
+        });
+        sendLocalModelState(state);
+        return state;
+      })
+      .catch((error) => {
+        localModelDownloading = false;
+        const state = buildLocalModelState({
+          downloading: false,
+          error: getErrorMessage(error),
+        });
+        sendLocalModelState(state);
+        throw error;
+      })
+      .finally(() => {
+        localModelDownloadPromise = null;
+      });
+
+    return localModelDownloadPromise;
+  });
   ipcMain.handle('embedding:setSource', (_, selection: EmbeddingSourceSelection, confirmRebuild?: boolean) => {
     const options = buildEmbeddingOptions();
     const selected = normalizeEmbeddingSelection(selection, options);
     const impact = getRebuildImpact(selected.sourceId);
     if (impact.collections > 0 && !confirmRebuild) {
-      throw new Error(`Changing Embedding Source requires confirming rebuild for ${impact.collections} Vector Index collection(s) and ${impact.items} item(s).`);
+      return {
+        ok: false,
+        requiresRebuild: true,
+        message: `Changing Embedding Source requires confirming rebuild for ${impact.collections} Vector Index collection(s) and ${impact.items} item(s).`,
+        affectedCollections: impact.collections,
+        affectedItems: impact.items,
+      };
     }
     store.set(EMBEDDING_SOURCE_STORE_KEY, selected);
     if (impact.collections > 0) {
@@ -276,7 +357,7 @@ export function registerIpcHandlers() {
         createdAt: new Date().toISOString(),
       });
     }
-    return getEmbeddingSettings();
+    return { ok: true, settings: getEmbeddingSettings() };
   });
 
   // Database handlers: Projects

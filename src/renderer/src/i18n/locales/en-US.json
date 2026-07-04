@@ -324,6 +324,11 @@
       "embeddingSaved": "✓ Embedding Source saved",
       "embeddingLoadFailed": "Failed to load Embedding Source: {{error}}",
       "embeddingSaveFailed": "Failed to save Embedding Source: {{error}}",
+      "embeddingLocalReady": "Local embedding model is ready",
+      "embeddingLocalMissing": "Local embedding model is missing {{count}} file(s)",
+      "embeddingLocalDownload": "Download local model",
+      "embeddingLocalDownloading": "Downloading {{current}}/{{total}} {{file}} · {{percent}}%",
+      "embeddingLocalDownloadFailed": "Failed to download local embedding model: {{error}}",
       "embeddingImpact": "Current selection affects {{collections}} Vector Index(es) and {{items}} vector item(s); affected indexes must be explicitly rebuilt.",
       "embeddingRebuildConfirm": "{{message}}\n\nContinue only if you understand affected Vector Indexes must be explicitly rebuilt later."
     },

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLLMStore } from '../../stores/llmStore';
-import { EmbeddingSettings, EmbeddingSourceSelection, LLMProvider } from '../../../../shared/types';
+import { EmbeddingSettings, EmbeddingSourceSelection, LLMProvider, LocalEmbeddingModelState } from '../../../../shared/types';
 import {
   Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
@@ -131,6 +131,12 @@ export function ModelSettings() {
         showToast(t('settings.model.embeddingLoadFailed', { error: err.message || String(err) }), 'error');
       });
   }, [t]);
+
+  useEffect(() => {
+    return window.electronAPI.embedding.onLocalModelProgress((_event, state: LocalEmbeddingModelState) => {
+      setEmbeddingSettings((current) => current ? { ...current, localModel: state } : current);
+    });
+  }, []);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -356,28 +362,58 @@ export function ModelSettings() {
     if (!embeddingDraft) return;
     setSavingEmbedding(true);
     try {
-      const settings = await window.electronAPI.embedding.setSource(embeddingDraft, false);
-      setEmbeddingSettings(settings);
-      setEmbeddingDraft(settings.selected);
+      const result = await window.electronAPI.embedding.setSource(embeddingDraft, false);
+      if (!result.ok && result.requiresRebuild) {
+        if (!confirm(t('settings.model.embeddingRebuildConfirm', { message: result.message }))) return;
+        const confirmedResult = await window.electronAPI.embedding.setSource(embeddingDraft, true);
+        if (!confirmedResult.ok) {
+          showToast(t('settings.model.embeddingSaveFailed', { error: confirmedResult.message }), 'error');
+          return;
+        }
+        setEmbeddingSettings(confirmedResult.settings);
+        setEmbeddingDraft(confirmedResult.settings.selected);
+        showToast(t('settings.model.embeddingSaved'), 'success');
+        return;
+      }
+      setEmbeddingSettings(result.settings);
+      setEmbeddingDraft(result.settings.selected);
       showToast(t('settings.model.embeddingSaved'), 'success');
     } catch (err: any) {
       const message = err.message || String(err);
-      if (message.includes('requires confirming rebuild') && confirm(t('settings.model.embeddingRebuildConfirm', { message }))) {
-        const settings = await window.electronAPI.embedding.setSource(embeddingDraft, true);
-        setEmbeddingSettings(settings);
-        setEmbeddingDraft(settings.selected);
-        showToast(t('settings.model.embeddingSaved'), 'success');
-      } else {
-        showToast(t('settings.model.embeddingSaveFailed', { error: message }), 'error');
-      }
+      showToast(t('settings.model.embeddingSaveFailed', { error: message }), 'error');
     } finally {
       setSavingEmbedding(false);
+    }
+  };
+
+  const handleEnsureLocalModel = async () => {
+    setEmbeddingSettings((current) => current
+      ? {
+        ...current,
+        localModel: {
+          ...current.localModel,
+          downloading: true,
+          error: undefined,
+        },
+      }
+      : current);
+    try {
+      const state = await window.electronAPI.embedding.ensureLocalModel();
+      setEmbeddingSettings((current) => current ? { ...current, localModel: state } : current);
+      showToast(t('settings.model.embeddingLocalReady'), 'success');
+    } catch (err: any) {
+      showToast(t('settings.model.embeddingLocalDownloadFailed', { error: err.message || String(err) }), 'error');
     }
   };
 
   const embeddingOptionValue = embeddingDraft?.kind === 'cloud'
     ? embeddingDraft.providerId
     : 'local';
+  const localModelState = embeddingSettings?.localModel;
+  const localModelProgress = localModelState?.progress;
+  const localModelProgressPercent = localModelProgress?.total
+    ? Math.min(100, Math.round((localModelProgress.loaded / localModelProgress.total) * 100))
+    : undefined;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
@@ -474,6 +510,44 @@ export function ModelSettings() {
                 />
               </div>
             </div>
+            {embeddingDraft.kind === 'local' && localModelState && (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3 py-2 max-md:flex-col max-md:items-stretch">
+                <div className="min-w-0 text-xs">
+                  <div className="font-medium text-[var(--color-text-primary)]">
+                    {localModelState.ready
+                      ? t('settings.model.embeddingLocalReady')
+                      : t('settings.model.embeddingLocalMissing', { count: localModelState.missingFiles.length })}
+                  </div>
+                  {localModelState.downloading && localModelProgress && (
+                    <div className="mt-1 text-[var(--color-text-secondary)]">
+                      {t('settings.model.embeddingLocalDownloading', {
+                        file: localModelProgress.file,
+                        current: localModelProgress.fileIndex,
+                        total: localModelProgress.fileCount,
+                        percent: localModelProgressPercent ?? 0,
+                      })}
+                    </div>
+                  )}
+                  {localModelState.error && (
+                    <div className="mt-1 text-[var(--color-danger)]">{localModelState.error}</div>
+                  )}
+                </div>
+                {!localModelState.ready && (
+                  <button
+                    className="btn btn-secondary btn-sm shrink-0"
+                    onClick={handleEnsureLocalModel}
+                    disabled={localModelState.downloading}
+                  >
+                    {localModelState.downloading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    {t('settings.model.embeddingLocalDownload')}
+                  </button>
+                )}
+              </div>
+            )}
             {embeddingSettings.affectedCollections > 0 && (
               <div className="mt-3 text-xs text-[var(--color-warning)]">
                 {t('settings.model.embeddingImpact', {
