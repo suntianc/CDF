@@ -27,7 +27,7 @@ import { resolveSkillSourcePlan, updateProjectSkillOverride } from './deepagent/
 import { parseSkillOverrideState } from '../shared/skill-overrides';
 import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
-import { MCPServer } from '../shared/types';
+import type { EmbeddingSettings, EmbeddingSourceOption, EmbeddingSourceSelection, LLMProvider, MCPServer } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
 import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
 import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
@@ -37,6 +37,8 @@ import { ensureProjectWatcher } from './commands/chokidar-watcher';
 import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
+import { LOCAL_E5_SOURCE } from './embedding/local-embedder';
+import { inspectVectorStore, type VectorStoreRebuildImpact } from './embedding/vector-store';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -62,6 +64,112 @@ const getProviderLabel = (type: string): string => {
     case 'custom': return 'OpenAI Compatible';
     default: return 'OpenAI Compatible';
   }
+};
+
+const EMBEDDING_SOURCE_STORE_KEY = 'embeddingSource';
+
+const defaultEmbeddingSelection = (): EmbeddingSourceSelection => ({
+  kind: 'local',
+  sourceId: LOCAL_E5_SOURCE.id,
+  model: LOCAL_E5_SOURCE.model,
+  dims: LOCAL_E5_SOURCE.dims,
+});
+
+const getDefaultEmbeddingModelForProvider = (providerType: LLMProvider['provider_type']): string => {
+  switch (providerType) {
+    case 'qwen':
+      return 'text-embedding-v4';
+    case 'zhipu':
+    case 'glm-overseas':
+      return 'embedding-3';
+    case 'minimax':
+    case 'minimax-overseas':
+      return 'embo-01';
+    default:
+      return 'text-embedding-3-small';
+  }
+};
+
+const supportsCloudEmbedding = (providerType: LLMProvider['provider_type']): boolean =>
+  providerType !== 'anthropic' && providerType !== 'ollama';
+
+const sourceIdForCloud = (providerId: string, model: string): string => `cloud:${providerId}:${model}`;
+
+const normalizeEmbeddingSelection = (
+  selection: unknown,
+  options: EmbeddingSourceOption[],
+): EmbeddingSourceSelection => {
+  if (!selection || typeof selection !== 'object') return defaultEmbeddingSelection();
+  const raw = selection as Partial<EmbeddingSourceSelection> & { providerId?: string; dims?: number; model?: string };
+  if (raw.kind === 'local') return defaultEmbeddingSelection();
+  if (raw.kind !== 'cloud' || !raw.providerId || !raw.model) return defaultEmbeddingSelection();
+
+  const option = options.find((candidate) => candidate.kind === 'cloud' && candidate.providerId === raw.providerId);
+  if (!option || option.kind !== 'cloud') return defaultEmbeddingSelection();
+  const model = raw.model.trim() || option.model;
+  const dims = Number.isInteger(raw.dims) && raw.dims > 0 ? raw.dims : option.dims;
+  return {
+    kind: 'cloud',
+    sourceId: sourceIdForCloud(option.providerId, model),
+    providerId: option.providerId,
+    providerName: option.providerName,
+    providerType: option.providerType,
+    model,
+    dims,
+  };
+};
+
+const buildEmbeddingOptions = (): EmbeddingSourceOption[] => {
+  const providers = db.prepare('SELECT * FROM llm_providers ORDER BY created_at DESC').all() as LLMProvider[];
+  return [
+    {
+      ...defaultEmbeddingSelection(),
+      label: 'Local · multilingual-e5-small',
+      hasCredential: true,
+    },
+    ...providers
+      .filter((provider) => supportsCloudEmbedding(provider.provider_type))
+      .map((provider): EmbeddingSourceOption => {
+        const model = getDefaultEmbeddingModelForProvider(provider.provider_type);
+        return {
+          kind: 'cloud',
+          sourceId: sourceIdForCloud(provider.id, model),
+          providerId: provider.id,
+          providerName: provider.name,
+          providerType: provider.provider_type,
+          model,
+          dims: 1536,
+          label: `${provider.name} · ${model}`,
+          hasCredential: !!provider.api_key || provider.provider_type === 'custom',
+        };
+      }),
+  ];
+};
+
+const getRebuildImpact = (sourceId: string): VectorStoreRebuildImpact => {
+  const projects = db.prepare('SELECT path FROM projects').all() as Array<{ path?: string }>;
+  let impact: VectorStoreRebuildImpact = { collections: 0, items: 0 };
+  for (const project of projects) {
+    if (!project.path) continue;
+    const projectImpact = inspectVectorStore(project.path).rebuildImpactForSource(sourceId);
+    impact = {
+      collections: impact.collections + projectImpact.collections,
+      items: impact.items + projectImpact.items,
+    };
+  }
+  return impact;
+};
+
+const getEmbeddingSettings = (): EmbeddingSettings => {
+  const options = buildEmbeddingOptions();
+  const selected = normalizeEmbeddingSelection(store.get(EMBEDDING_SOURCE_STORE_KEY), options);
+  const impact = getRebuildImpact(selected.sourceId);
+  return {
+    selected,
+    options,
+    affectedCollections: impact.collections,
+    affectedItems: impact.items,
+  };
 };
 
 export function registerIpcHandlers() {
@@ -150,6 +258,26 @@ export function registerIpcHandlers() {
   // electron-store handlers
   ipcMain.handle('store:get', (_, key: string) => store.get(key));
   ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
+
+  ipcMain.handle('embedding:getSettings', () => getEmbeddingSettings());
+  ipcMain.handle('embedding:setSource', (_, selection: EmbeddingSourceSelection, confirmRebuild?: boolean) => {
+    const options = buildEmbeddingOptions();
+    const selected = normalizeEmbeddingSelection(selection, options);
+    const impact = getRebuildImpact(selected.sourceId);
+    if (impact.collections > 0 && !confirmRebuild) {
+      throw new Error(`Changing Embedding Source requires confirming rebuild for ${impact.collections} Vector Index collection(s) and ${impact.items} item(s).`);
+    }
+    store.set(EMBEDDING_SOURCE_STORE_KEY, selected);
+    if (impact.collections > 0) {
+      store.set('embeddingRebuildRequired', {
+        sourceId: selected.sourceId,
+        collections: impact.collections,
+        items: impact.items,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return getEmbeddingSettings();
+  });
 
   // Database handlers: Projects
   ipcMain.handle('db:getProjects', () => {

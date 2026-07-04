@@ -206,6 +206,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (projectId: string, relativePath: string) =>
       ipcRenderer.invoke('knowledge:delete', projectId, relativePath),
   },
+  embedding: {
+    getSettings: () => ipcRenderer.invoke('embedding:getSettings'),
+    setSource: (selection: unknown, confirmRebuild?: boolean) =>
+      ipcRenderer.invoke('embedding:setSource', selection, confirmRebuild),
+  },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   // 08.2 P4: optional contextLimit so renderer can pin the active provider
   // limit (P10 mitigation). Falls back to default 200_000 server-side.

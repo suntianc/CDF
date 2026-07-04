@@ -59,6 +59,35 @@ export interface LLMProvider {
   updated_at: number;
 }
 
+export type EmbeddingSourceSelection =
+  | {
+      kind: 'local';
+      sourceId: string;
+      model: string;
+      dims: number;
+    }
+  | {
+      kind: 'cloud';
+      sourceId: string;
+      providerId: string;
+      providerName: string;
+      providerType: LLMProvider['provider_type'];
+      model: string;
+      dims: number;
+    };
+
+export type EmbeddingSourceOption = EmbeddingSourceSelection & {
+  label: string;
+  hasCredential: boolean;
+};
+
+export interface EmbeddingSettings {
+  selected: EmbeddingSourceSelection;
+  options: EmbeddingSourceOption[];
+  affectedCollections: number;
+  affectedItems: number;
+}
+
 export interface Agent {
   id: string;
   project_id: string;
@@ -808,6 +837,10 @@ export interface ElectronAPI {
     read: (projectId: string, relativePath: string) => Promise<KnowledgeEntrySummary>;
     update: (projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) => Promise<KnowledgeEntrySummary>;
     delete: (projectId: string, relativePath: string) => Promise<{ deleted: true }>;
+  };
+  embedding: {
+    getSettings: () => Promise<EmbeddingSettings>;
+    setSource: (selection: EmbeddingSourceSelection, confirmRebuild?: boolean) => Promise<EmbeddingSettings>;
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {

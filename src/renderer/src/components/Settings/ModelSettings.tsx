@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLLMStore } from '../../stores/llmStore';
-import { LLMProvider } from '../../../../shared/types';
+import { EmbeddingSettings, EmbeddingSourceSelection, LLMProvider } from '../../../../shared/types';
 import {
   Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
@@ -113,10 +113,24 @@ export function ModelSettings() {
   // Connecting testing states
   const [testingId, setTestingId] = useState<string | null>(null);
   const [fetchingModelsId, setFetchingModelsId] = useState<string | null>(null);
+  const [embeddingSettings, setEmbeddingSettings] = useState<EmbeddingSettings | null>(null);
+  const [embeddingDraft, setEmbeddingDraft] = useState<EmbeddingSourceSelection | null>(null);
+  const [savingEmbedding, setSavingEmbedding] = useState(false);
 
   useEffect(() => {
     fetchProviders();
   }, [fetchProviders]);
+
+  useEffect(() => {
+    window.electronAPI.embedding.getSettings()
+      .then((settings) => {
+        setEmbeddingSettings(settings);
+        setEmbeddingDraft(settings.selected);
+      })
+      .catch((err: any) => {
+        showToast(t('settings.model.embeddingLoadFailed', { error: err.message || String(err) }), 'error');
+      });
+  }, [t]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -338,6 +352,33 @@ export function ModelSettings() {
     }
   };
 
+  const handleSaveEmbeddingSource = async () => {
+    if (!embeddingDraft) return;
+    setSavingEmbedding(true);
+    try {
+      const settings = await window.electronAPI.embedding.setSource(embeddingDraft, false);
+      setEmbeddingSettings(settings);
+      setEmbeddingDraft(settings.selected);
+      showToast(t('settings.model.embeddingSaved'), 'success');
+    } catch (err: any) {
+      const message = err.message || String(err);
+      if (message.includes('requires confirming rebuild') && confirm(t('settings.model.embeddingRebuildConfirm', { message }))) {
+        const settings = await window.electronAPI.embedding.setSource(embeddingDraft, true);
+        setEmbeddingSettings(settings);
+        setEmbeddingDraft(settings.selected);
+        showToast(t('settings.model.embeddingSaved'), 'success');
+      } else {
+        showToast(t('settings.model.embeddingSaveFailed', { error: message }), 'error');
+      }
+    } finally {
+      setSavingEmbedding(false);
+    }
+  };
+
+  const embeddingOptionValue = embeddingDraft?.kind === 'cloud'
+    ? embeddingDraft.providerId
+    : 'local';
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Topbar */}
@@ -360,6 +401,87 @@ export function ModelSettings() {
           <div className="mb-4 p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-lg flex items-start gap-2 text-xs text-[var(--color-danger)]">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {embeddingSettings && embeddingDraft && (
+          <div className="provider-card mb-4">
+            <div className="provider-card-head">
+              <div className="provider-meta">
+                <div className="provider-icon bg-[var(--color-accent-dim)] text-[var(--color-accent)]">
+                  <RefreshCw className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="provider-name">{t('settings.model.embeddingTitle')}</div>
+                  <div className="provider-type">{t('settings.model.embeddingDesc')}</div>
+                </div>
+              </div>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleSaveEmbeddingSource}
+                disabled={savingEmbedding}
+              >
+                {savingEmbedding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                {t('settings.model.embeddingSave')}
+              </button>
+            </div>
+            <div className="grid grid-cols-[minmax(220px,1fr)_minmax(180px,1fr)_120px] gap-3 mt-3 max-md:grid-cols-1">
+              <div className="form-group">
+                <label className="form-label">{t('settings.model.embeddingSource')}</label>
+                <CustomSelect
+                  value={embeddingOptionValue}
+                  onChange={(value) => {
+                    if (value === 'local') {
+                      const localOption = embeddingSettings.options.find((option) => option.kind === 'local');
+                      if (localOption) setEmbeddingDraft(localOption);
+                      return;
+                    }
+                    const cloudOption = embeddingSettings.options.find((option) => option.kind === 'cloud' && option.providerId === value);
+                    if (cloudOption) setEmbeddingDraft(cloudOption);
+                  }}
+                  options={embeddingSettings.options.map((option) => ({
+                    value: option.kind === 'cloud' ? option.providerId : 'local',
+                    label: option.label,
+                  }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('settings.model.embeddingModel')}</label>
+                <input
+                  className="form-input"
+                  value={embeddingDraft.model}
+                  onChange={(e) => {
+                    if (embeddingDraft.kind === 'cloud') {
+                      setEmbeddingDraft({ ...embeddingDraft, model: e.target.value });
+                    }
+                  }}
+                  disabled={embeddingDraft.kind === 'local'}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('settings.model.embeddingDims')}</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  min={1}
+                  value={embeddingDraft.dims}
+                  onChange={(e) => {
+                    if (embeddingDraft.kind === 'cloud') {
+                      setEmbeddingDraft({ ...embeddingDraft, dims: parseInt(e.target.value, 10) || 1536 });
+                    }
+                  }}
+                  disabled={embeddingDraft.kind === 'local'}
+                />
+              </div>
+            </div>
+            {embeddingSettings.affectedCollections > 0 && (
+              <div className="mt-3 text-xs text-[var(--color-warning)]">
+                {t('settings.model.embeddingImpact', {
+                  collections: embeddingSettings.affectedCollections,
+                  items: embeddingSettings.affectedItems,
+                })}
+              </div>
+            )}
           </div>
         )}
 
