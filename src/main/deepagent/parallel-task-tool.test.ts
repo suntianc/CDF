@@ -7,6 +7,7 @@ const {
   createLangChainModelMock,
   getProviderMock,
   getAgentMcpServersMock,
+  getConnectedMcpServersMock,
   getAgentSkillNamesMock,
   createBuiltInToolsMock,
   loadRegistryToolsMock,
@@ -14,6 +15,7 @@ const {
   createSpanIdMock,
   createChildSpanMock,
   resolveInterruptOnMock,
+  getRuntimeToolNamesMock,
   getScopePathMock,
   getBuiltInSkillDirsMock,
   resolveAgentSkillsConfigMock,
@@ -32,6 +34,7 @@ const {
     default_model: 'MiniMax-M2.7',
   })),
   getAgentMcpServersMock: vi.fn(() => []),
+  getConnectedMcpServersMock: vi.fn(() => []),
   getAgentSkillNamesMock: vi.fn(() => ['project:parallel-skill']),
   createBuiltInToolsMock: vi.fn(() => []),
   loadRegistryToolsMock: vi.fn(() => []),
@@ -39,6 +42,9 @@ const {
   createSpanIdMock: vi.fn(() => 'span-root'),
   createChildSpanMock: vi.fn((parentSpanId: string) => ({ spanId: `${parentSpanId}-child`, parentSpanId })),
   resolveInterruptOnMock: vi.fn(() => ({})),
+  getRuntimeToolNamesMock: vi.fn((tools: Array<{ name?: string }>) =>
+    tools.map((tool) => tool.name).filter(Boolean)
+  ),
   getScopePathMock: vi.fn((_projectPath: string, scope: string) =>
     scope === 'global' ? '/tmp/global-skills' : `${_projectPath}/.cdf/skills`
   ),
@@ -87,6 +93,7 @@ vi.mock('./llm-adapter', () => ({
 vi.mock('./shared-infra', () => ({
   getProvider: getProviderMock,
   getAgentMcpServers: getAgentMcpServersMock,
+  getConnectedMcpServers: getConnectedMcpServersMock,
   getAgentSkillNames: getAgentSkillNamesMock,
   createBuiltInTools: createBuiltInToolsMock,
   loadRegistryTools: loadRegistryToolsMock,
@@ -94,6 +101,7 @@ vi.mock('./shared-infra', () => ({
   createSpanId: createSpanIdMock,
   createChildSpan: createChildSpanMock,
   resolveInterruptOn: resolveInterruptOnMock,
+  getRuntimeToolNames: getRuntimeToolNamesMock,
 }));
 
 vi.mock('./skill-manager', () => ({
@@ -207,5 +215,30 @@ describe('createParallelTaskTool', () => {
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith('/tmp/project', expect.objectContaining({
       pathContext: ['apps/web/src/App.tsx'],
     }));
+  });
+
+  it('adds loaded MCP tools to the worker approval boundary', async () => {
+    loadMcpToolsMock.mockResolvedValueOnce({
+      client: null,
+      tools: [{ name: 'alpha__search' }],
+    });
+    resolveInterruptOnMock.mockImplementation((_mode: string, toolNames: string[] = []) => {
+      return Object.fromEntries(toolNames.map((name) => [name, { allowedDecisions: ['approve', 'reject'] }]));
+    });
+
+    const parallelTool = createParallelTaskTool('project-1', 'session-1', 'strict');
+
+    await parallelTool.invoke({
+      tasks: [
+        {
+          name: 'worker',
+          description: 'Do worker task',
+        },
+      ],
+    });
+
+    expect(resolveInterruptOnMock).toHaveBeenCalledWith('strict', ['alpha__search']);
+    const params = createDeepAgentMock.mock.calls[0][0];
+    expect(params.interruptOn.alpha__search).toEqual({ allowedDecisions: ['approve', 'reject'] });
   });
 });

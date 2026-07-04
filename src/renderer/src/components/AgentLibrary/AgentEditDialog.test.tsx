@@ -94,6 +94,57 @@ describe('AgentEditDialog', () => {
     expect(preloadCandidate.textContent).toContain('Project Skill');
   });
 
+  it('saves MCP Server Exclusions from the default-visible controls', () => {
+    const saveAgent = vi.fn(async () => {});
+    useAgentStore.setState({ saveAgent });
+    useMcpServerStore.setState({
+      mcpServers: [
+        {
+          id: 'github',
+          name: 'GitHub',
+          server_type: 'stdio',
+          config: {},
+          is_connected: true,
+          created_at: 0,
+          updated_at: 0,
+        },
+        {
+          id: 'arxiv',
+          name: 'arXiv',
+          server_type: 'stdio',
+          config: {},
+          is_connected: true,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    const { container } = render(
+      <AgentEditDialog
+        isOpen
+        agentId={null}
+        onClose={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: 'MCP Agent' },
+    });
+    fireEvent.click(screen.getByLabelText('GitHub visible to this Agent'));
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'MCP Agent',
+      mcpServerExclusionIds: ['github'],
+    }));
+    expect(container.textContent).toContain('MCP servers visible');
+    expect(container.textContent).toContain('Excluded');
+  });
+
   it('uses resolved qualified names and source labels for preload and override controls', () => {
     const saveAgent = vi.fn(async () => {});
     useAgentStore.setState({ saveAgent });

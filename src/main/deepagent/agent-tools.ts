@@ -3,7 +3,7 @@
  *
  * 暴露给主对话,让 Master Agent 能:
  * - 列出当前项目的 agent
- * - 创建新 agent(包含挂载 MCP server / skill)
+ * - 创建新 agent(包含 MCP server 排除项 / skill)
  * - 更新已有 agent
  * - 删除 agent
  *
@@ -82,10 +82,10 @@ function isInternalMasterAgent(row: AgentRow): boolean {
   );
 }
 
-function getMcpIdsForAgent(agentId: string): string[] {
+function getMcpExclusionIdsForAgent(agentId: string): string[] {
   return (
     db
-      .prepare('SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?')
+      .prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?')
       .all(agentId) as { mcp_server_id: string }[]
   ).map((r) => r.mcp_server_id);
 }
@@ -124,7 +124,7 @@ export function createAgentTools(
             const base = serializeAgent(row);
             return {
               ...base,
-              mcpServerIds: getMcpIdsForAgent(row.id),
+              mcpServerExclusionIds: getMcpExclusionIdsForAgent(row.id),
               skillNames: getSkillNamesForAgent(row.id),
             };
           }),
@@ -133,7 +133,7 @@ export function createAgentTools(
       {
         name: 'list_agents',
         description:
-          '列出当前项目下可被 Master Agent 调用的子 agent,不包含内部 Master Agent。返回每个 agent 的 id、name、description、provider_id、system_prompt、config、mcpServerIds、skillNames、is_default 等完整信息。',
+          '列出当前项目下可被 Master Agent 调用的子 agent,不包含内部 Master Agent。返回每个 agent 的 id、name、description、provider_id、system_prompt、config、mcpServerExclusionIds、skillNames、is_default 等完整信息。',
         schema: z.object({}),
       },
     ),
@@ -145,7 +145,7 @@ export function createAgentTools(
         description?: string;
         provider_id?: string | null;
         system_prompt?: string;
-        mcpServerIds?: string[];
+        mcpServerExclusionIds?: string[];
         skillNames?: string[];
         is_default?: boolean;
         config?: Record<string, unknown>;
@@ -228,15 +228,10 @@ export function createAgentTools(
             now,
           );
 
-          if (Array.isArray(input.mcpServerIds)) {
-            // Dedup before insert: the (agent_id, mcp_server_id)
-            // composite PK would otherwise throw on duplicate ids in
-            // the same call. Matches workflow-runtime.ts:131-135
-            // canonical pattern. Mirrored in ipc-handlers.ts:451-456
-            // for the UI path.
-            const uniqueMcpIds = Array.from(new Set(input.mcpServerIds));
+          if (Array.isArray(input.mcpServerExclusionIds)) {
+            const uniqueMcpIds = Array.from(new Set(input.mcpServerExclusionIds));
             const insertMcp = db.prepare(
-              'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)',
+              'INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)',
             );
             // mcp_servers is a global table (no project_id column per
             // database.ts:139-148), so we only validate the server exists.
@@ -297,7 +292,7 @@ export function createAgentTools(
         const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow;
         return JSON.stringify({
           ...serializeAgent(row),
-          mcpServerIds: getMcpIdsForAgent(id),
+          mcpServerExclusionIds: getMcpExclusionIdsForAgent(id),
           skillNames: getSkillNamesForAgent(id),
           // P2 #15: runtime 在 createDeepAgentRuntime 启动时(runtime.ts:547-599)已快照
           // subagents 列表,本 turn 内 task(name:) 委托不到刚 insert 的 agent。把这点
@@ -311,7 +306,7 @@ export function createAgentTools(
       {
         name: 'create_agent',
         description:
-          '在当前项目下创建一个新 agent。可选挂载 MCP server (mcpServerIds)、预加载 Skill (skillNames)、关联 provider。' +
+          '在当前项目下创建一个新 agent。可选排除特定 MCP server (mcpServerExclusionIds)、预加载 Skill (skillNames)、关联 provider。' +
           'name 必须是英文/数字/空格/连字符/下划线。is_default 只能同时有一个 agent 拥有,设置后其他 agent 自动取消默认。' +
           '返回创建成功的 agent 完整信息(含生成的 id、effective_slug)。' +
           '⚠️ **新 agent 在当前 chat turn 内不可用于 task() 委托** — runtime 在 createDeepAgentRuntime 启动时 ' +
@@ -326,10 +321,10 @@ export function createAgentTools(
             .optional()
             .describe('关联的 LLM provider ID(可选)'),
           system_prompt: z.string().optional().describe('agent 的系统提示词'),
-          mcpServerIds: z
+          mcpServerExclusionIds: z
             .array(z.string())
             .optional()
-            .describe('挂载的 MCP server ID 列表(可选)'),
+            .describe('要对该 Agent 隐藏的 MCP server ID 列表(可选)'),
           skillNames: z.array(z.string()).optional().describe('预加载的 Skill 引用列表(可选)'),
           is_default: z
             .boolean()
@@ -351,7 +346,7 @@ export function createAgentTools(
         description?: string;
         provider_id?: string | null;
         system_prompt?: string;
-        mcpServerIds?: string[];
+        mcpServerExclusionIds?: string[];
         skillNames?: string[];
         is_default?: boolean;
         config?: Record<string, unknown>;
@@ -476,13 +471,11 @@ export function createAgentTools(
             input.id,
           );
 
-          if (Array.isArray(input.mcpServerIds)) {
-            db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(input.id);
-            // Dedup before insert: see create_agent and
-            // ipc-handlers.ts:451-456. Same composite-PK rationale.
-            const uniqueMcpIds = Array.from(new Set(input.mcpServerIds));
+          if (Array.isArray(input.mcpServerExclusionIds)) {
+            db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(input.id);
+            const uniqueMcpIds = Array.from(new Set(input.mcpServerExclusionIds));
             const insertMcp = db.prepare(
-              'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)',
+              'INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)',
             );
             // mcp_servers is a global table (no project_id column per
             // database.ts:139-148), so we only validate the server exists.
@@ -518,7 +511,7 @@ export function createAgentTools(
         const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(input.id) as AgentRow;
         return JSON.stringify({
           ...serializeAgent(row),
-          mcpServerIds: getMcpIdsForAgent(input.id),
+          mcpServerExclusionIds: getMcpExclusionIdsForAgent(input.id),
           skillNames: getSkillNamesForAgent(input.id),
           note: slugChanged
             ? `update_agent 改 name 触发了 slug 重算,新 effective_slug 为 ` +
@@ -534,7 +527,7 @@ export function createAgentTools(
         name: 'update_agent',
         description:
           '更新已有 agent。仅更新提供的字段;未提供的字段保持不变。' +
-          'mcpServerIds / skillNames 整体替换(若提供,内部去重);skillNames 表示 Agent Skill Preload,不是访问授权。' +
+          'mcpServerExclusionIds / skillNames 整体替换(若提供,内部去重);skillNames 表示 Agent Skill Preload,不是访问授权。' +
           'provider_id 不允许传 null 或空字符串(workflow node-executor.ts 读 provider_id,' +
           'null 会抛错;chat runtime 也读);想换 provider 显式传合法 id,想保留 omit(不传)该字段。' +
           '**Slug 跟随 name**:改 name 会重算 effective_slug,自动用 `generateSlug(name)` ' +
@@ -550,7 +543,7 @@ export function createAgentTools(
           description: z.string().optional().describe('新描述'),
           provider_id: z.string().nullable().optional().describe('新 provider ID'),
           system_prompt: z.string().optional().describe('新系统提示词'),
-          mcpServerIds: z.array(z.string()).optional().describe('新的 MCP server ID 列表(内部去重)'),
+          mcpServerExclusionIds: z.array(z.string()).optional().describe('新的 MCP server 排除 ID 列表(内部去重)'),
           skillNames: z.array(z.string()).optional().describe('新的 Skill Preload 引用列表(内部去重)'),
           is_default: z.boolean().optional().describe('是否设为默认'),
           config: z.record(z.string(), z.unknown()).optional().describe('新 config 对象'),
@@ -656,14 +649,14 @@ export function createAgentTools(
           deleted: true,
           id,
           name: existing.name,
-          note: 'agent_mcp_servers / agent_skills / agent_runs / agent_tool_calls 已通过 FK CASCADE 清理;' +
+          note: 'agent_mcp_exclusions / agent_skills / agent_runs / agent_tool_calls 已通过 FK CASCADE 清理;' +
                 'sessions.agent_id 由 SET NULL FK 自动 orphan;messages 经 session_id 间接保留',
         });
       },
       {
         name: 'delete_agent',
         description:
-          '删除 agent。**该操作会通过 FK CASCADE 一并清掉该 agent 的** agent_mcp_servers / agent_skills /' +
+          '删除 agent。**该操作会通过 FK CASCADE 一并清掉该 agent 的** agent_mcp_exclusions / agent_skills /' +
           ' agent_runs / agent_tool_calls 记录(因为 agent_runs.agent_id 是 NOT NULL,无法 detach)。' +
           'sessions.agent_id 由 SET NULL FK 自动 orphan,会话与消息历史仍可查(经 session_id)。' +
           '等同于 UI 中"删除"按钮的 db:deleteAgent IPC 行为 (ipc-handlers.ts:486-488)。' +

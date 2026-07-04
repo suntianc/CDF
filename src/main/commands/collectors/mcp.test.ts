@@ -22,18 +22,21 @@ describe('collectors/mcp', () => {
     vi.clearAllMocks();
   });
 
-  function mockAgentServers(servers: unknown[]) {
+  function mockAgentServers(servers: unknown[], allConnectedServers: unknown[] = servers) {
     dbPrepareMock.mockReturnValueOnce({ all: vi.fn(() => servers) });
+    if (servers.length > 0) {
+      dbPrepareMock.mockReturnValueOnce({ all: vi.fn(() => allConnectedServers) });
+    }
   }
 
-  it('returns empty commands and hasAgentMcp=false when agent has no MCP servers', async () => {
+  it('returns empty commands and hasAgentMcp=false when agent has no visible MCP servers', async () => {
     mockAgentServers([]);
     const result = await collectMcpCommands('agent-1');
     expect(result).toEqual({ commands: [], hasAgentMcp: false });
     expect(loadMcpToolsMock).not.toHaveBeenCalled();
   });
 
-  it('returns hasAgentMcp=true and one command per server (server-dim) when servers bound but tools empty (P6.5)', async () => {
+  it('returns hasAgentMcp=true and one command per visible server when tools are empty (P6.5)', async () => {
     mockAgentServers([{ id: 's1', name: 'arxiv', description: 'arXiv papers' }]);
     loadMcpToolsMock.mockResolvedValueOnce({ client: null, tools: [] });
     const result = await collectMcpCommands('agent-1');

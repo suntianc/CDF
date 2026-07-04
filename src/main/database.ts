@@ -154,7 +154,9 @@ db.exec(`
     updated_at INTEGER NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS agent_mcp_servers (
+  DROP TABLE IF EXISTS agent_mcp_servers;
+
+  CREATE TABLE IF NOT EXISTS agent_mcp_exclusions (
     agent_id TEXT NOT NULL,
     mcp_server_id TEXT NOT NULL,
     PRIMARY KEY (agent_id, mcp_server_id),

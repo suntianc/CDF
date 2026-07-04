@@ -186,21 +186,17 @@ function buildConfigSnapshot(graphData: WorkflowDefinition, _projectId: string):
     ? (db.prepare(`SELECT id, name, description, provider_id, system_prompt, config FROM agents WHERE id IN (${agentIds.map(() => '?').join(',')})`).all(...agentIds) as any[])
     : [];
 
-  // 3. 一次性查 agent_mcp_servers 多对多
-  const mcpIdsByAgent: Record<string, string[]> = {};
-  const allMcpIds = new Set<string>();
+  // 3. 一次性查 Agent MCP server 排除项
+  const mcpExclusionIdsByAgent: Record<string, string[]> = {};
   if (agentIds.length > 0) {
-    const rows = db.prepare(`SELECT agent_id, mcp_server_id FROM agent_mcp_servers WHERE agent_id IN (${agentIds.map(() => '?').join(',')})`).all(...agentIds) as Array<{ agent_id: string; mcp_server_id: string }>;
+    const rows = db.prepare(`SELECT agent_id, mcp_server_id FROM agent_mcp_exclusions WHERE agent_id IN (${agentIds.map(() => '?').join(',')})`).all(...agentIds) as Array<{ agent_id: string; mcp_server_id: string }>;
     for (const r of rows) {
-      (mcpIdsByAgent[r.agent_id] = mcpIdsByAgent[r.agent_id] || []).push(r.mcp_server_id);
-      allMcpIds.add(r.mcp_server_id);
+      (mcpExclusionIdsByAgent[r.agent_id] = mcpExclusionIdsByAgent[r.agent_id] || []).push(r.mcp_server_id);
     }
   }
 
-  // 4. 一次性查 mcp_servers
-  const mcpServerList = allMcpIds.size > 0
-    ? (db.prepare(`SELECT id, name, config FROM mcp_servers WHERE id IN (${Array.from(allMcpIds).map(() => '?').join(',')})`).all(...Array.from(allMcpIds)) as any[])
-    : [];
+  // 4. 一次性查全局已连接 mcp_servers
+  const mcpServerList = db.prepare('SELECT id, name, config FROM mcp_servers WHERE is_connected = 1 ORDER BY updated_at DESC, id ASC').all() as any[];
 
   // 5. 一次性查 agent_skills 多对多
   const skillNamesByAgent: Record<string, string[]> = {};
@@ -248,7 +244,7 @@ function buildConfigSnapshot(graphData: WorkflowDefinition, _projectId: string):
     name: a.name,
     system_prompt: a.system_prompt,
     description: a.description,
-    mcp_server_ids: mcpIdsByAgent[a.id as string] || [],
+    mcp_server_exclusion_ids: mcpExclusionIdsByAgent[a.id as string] || [],
     skill_names: skillNamesByAgent[a.id as string] || [],
   }));
 

@@ -92,6 +92,10 @@ _Avoid_: binding, permission, install state
 An Agent-level emphasis that loads a selected Skill's full instructions at Agent startup. It does not grant or deny access to the Skill.
 _Avoid_: binding, whitelist, permission
 
+**MCP Server Exclusion**:
+An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. Distinct from Skill Override — MCP tools have no progressive disclosure, so there are no partial-visibility states.
+_Avoid_: MCP binding, MCP whitelist, MCP mount, agent MCP selection
+
 **Paper Library**:
 A Scene-specific panel that manages collected academic papers — OKF metadata files, locally stored PDFs, and vector indexes for Agent retrieval.
 _Avoid_: reference manager, paper database, Zotero

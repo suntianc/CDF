@@ -6,7 +6,7 @@ interface AgentState {
   isLoading: boolean;
   error: string | null;
   fetchAgents: (projectId: string) => Promise<void>;
-  saveAgent: (agent: Partial<Agent> & { project_id: string; mcpServerIds?: string[]; skillNames?: string[] }) => Promise<void>;
+  saveAgent: (agent: Partial<Agent> & { project_id: string; mcpServerExclusionIds?: string[]; skillNames?: string[] }) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
 }
 

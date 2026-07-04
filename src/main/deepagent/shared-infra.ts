@@ -90,24 +90,54 @@ export function getProvider(providerId: string | null | undefined): ProviderRow 
 }
 
 /**
- * 查询 Agent 绑定的 MCP 服务器列表
+ * 查询 Agent 可见的 MCP 服务器列表：全局已连接服务器减去该 Agent 的排除项。
  */
 export function getAgentMcpServers(agentId: string): MCPServer[] {
   const rows = db
     .prepare(`
       SELECT m.*
       FROM mcp_servers m
-      INNER JOIN agent_mcp_servers ams ON ams.mcp_server_id = m.id
-      WHERE ams.agent_id = ?
-      ORDER BY m.updated_at DESC
+      WHERE m.is_connected = 1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM agent_mcp_exclusions ame
+          WHERE ame.agent_id = ?
+            AND ame.mcp_server_id = m.id
+        )
+      ORDER BY m.updated_at DESC, m.id ASC
     `)
     .all(agentId) as Array<Omit<MCPServer, 'config' | 'is_connected'> & { config: string | null; is_connected: number }>;
 
+  return deserializeMcpServerRows(rows);
+}
+
+export function getConnectedMcpServers(): MCPServer[] {
+  const rows = db
+    .prepare(`
+      SELECT *
+      FROM mcp_servers
+      WHERE is_connected = 1
+      ORDER BY updated_at DESC, id ASC
+    `)
+    .all() as Array<Omit<MCPServer, 'config' | 'is_connected'> & { config: string | null; is_connected: number }>;
+
+  return deserializeMcpServerRows(rows);
+}
+
+function deserializeMcpServerRows(
+  rows: Array<Omit<MCPServer, 'config' | 'is_connected'> & { config: string | null; is_connected: number }>,
+): MCPServer[] {
   return rows.map((row) => ({
     ...row,
     config: row.config ? JSON.parse(row.config) : {},
     is_connected: !!row.is_connected,
   }));
+}
+
+export function getRuntimeToolNames(tools: Array<{ name?: unknown }>): string[] {
+  return tools
+    .map((tool) => (typeof tool.name === 'string' ? tool.name.trim() : ''))
+    .filter((name) => name.length > 0);
 }
 
 /**
@@ -139,7 +169,9 @@ export function normalizeProviderId(value: string | null | undefined): string | 
 /**
  * 默认审批拦截配置 — 单一来源（消除 runtime.ts:56 / node-executor.ts:29 的重复定义）
  */
-export const DEFAULT_INTERRUPT_ON: Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }> = {
+export type InterruptOnConfig = Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }>;
+
+export const DEFAULT_INTERRUPT_ON: InterruptOnConfig = {
   write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   delete_file: { allowedDecisions: ['approve', 'reject'] },
@@ -151,13 +183,20 @@ export const DEFAULT_INTERRUPT_ON: Record<string, { allowedDecisions: ('approve'
 /**
  * 根据审批模式决定 interruptOn 值：
  * - bypass: {} (不拦截)
- * - strict / agent_decides: DEFAULT_INTERRUPT_ON (全量拦截)
+ * - strict / agent_decides: DEFAULT_INTERRUPT_ON + 运行时 MCP 工具名
  */
 export function resolveInterruptOn(
   mode: ApprovalMode,
-): Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }> | Record<string, never> {
+  mcpToolNames: string[] = [],
+): InterruptOnConfig | Record<string, never> {
   if (mode === 'bypass') return {};
-  return DEFAULT_INTERRUPT_ON;
+  const interruptOn: InterruptOnConfig = { ...DEFAULT_INTERRUPT_ON };
+  for (const toolName of new Set(mcpToolNames)) {
+    const name = toolName.trim();
+    if (!name || interruptOn[name]) continue;
+    interruptOn[name] = { allowedDecisions: ['approve', 'reject'] };
+  }
+  return interruptOn;
 }
 
 // ===== 工具构建函数 =====

@@ -13,6 +13,7 @@ import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import {
   getProvider,
   getAgentMcpServers,
+  getConnectedMcpServers,
   getAgentSkillNames,
   createBuiltInTools,
   loadRegistryTools,
@@ -20,6 +21,7 @@ import {
   createSpanId,
   createChildSpan,
   resolveInterruptOn,
+  getRuntimeToolNames,
   type AgentRow,
 } from './shared-infra';
 import type { ApprovalMode, ExecutionStep } from '../../shared/types';
@@ -146,9 +148,10 @@ async function invokeWorker(
     providerType: provider.provider_type as any,
   });
 
+  const allMcpServers = getConnectedMcpServers();
   const mcpServers = getAgentMcpServers(agentId);
   const skillNames = getAgentSkillNames(agentId);
-  const mcpRuntime = await loadMcpTools(agentId, mcpServers);
+  const mcpRuntime = await loadMcpTools(agentId, mcpServers, allMcpServers);
   const skillOverrideOptions = resolveAgentSkillConfigOptions(agentRow.config, (key) => store.get(key));
   for (const warning of skillOverrideOptions.warnings) {
     console.warn('[parallel-task] Ignored invalid Skill override:', warning);
@@ -173,7 +176,7 @@ async function invokeWorker(
   const builtInTools: any[] = createBuiltInTools(projectPath);
   builtInTools.push(...loadRegistryTools());
 
-  const interruptOn = resolveInterruptOn(approvalMode);
+  const interruptOn = resolveInterruptOn(approvalMode, getRuntimeToolNames(mcpRuntime.tools));
   const agent = createDeepAgent({
     model,
     backend,

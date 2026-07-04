@@ -272,6 +272,25 @@ describe('createAgentNodeExecutor', () => {
     }));
   });
 
+  it('adds loaded MCP tools to the workflow Agent approval boundary', async () => {
+    loadMcpToolsMock.mockResolvedValueOnce({
+      client: null,
+      tools: [{ name: 'alpha__search' }],
+    });
+
+    const executor = createAgentNodeExecutor({
+      id: 'node-1',
+      type: 'agent',
+      position: { x: 0, y: 0 },
+      data: { agentId: 'agent-1', label: 'Node 1' },
+    }, [], 'strict');
+
+    await executor({ inputs: {}, nodeOutputs: {} });
+
+    const params = createDeepAgentMock.mock.calls[0][0];
+    expect(params.interruptOn.alpha__search).toEqual({ allowedDecisions: ['approve', 'reject'] });
+  });
+
   it('passes workflow node path mentions into CDF Skills Runtime for nested Skill ranking', async () => {
     const executor = createAgentNodeExecutor({
       id: 'node-1',

@@ -15,6 +15,7 @@ import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import {
   getProvider,
   getAgentMcpServers,
+  getConnectedMcpServers,
   getAgentSkillNames,
   normalizeProviderId,
   resolveInterruptOn,
@@ -22,6 +23,7 @@ import {
   createBuiltInTools,
   loadRegistryTools,
   loadMcpTools,
+  getRuntimeToolNames,
 } from './shared-infra';
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
@@ -610,8 +612,10 @@ export async function createDeepAgentRuntime(
     console.warn('[runtime] Ignored invalid Skill runtime input:', warning);
   }
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
+  const allMcpServers = getConnectedMcpServers();
   const mcpServers = getAgentMcpServers(agentRow.id);
-  const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers);
+  const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers, allMcpServers);
+  const mcpApprovalToolNames = new Set(getRuntimeToolNames(mcpRuntime.tools));
   const memory = ['AGENTS.md', 'Claude.md']
     .filter((fileName) => fs.existsSync(path.join(project.path, fileName)))
     .map((fileName) => path.join(project.path, fileName))
@@ -637,7 +641,6 @@ export async function createDeepAgentRuntime(
 
   // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
   const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
-  const interruptOn = resolveInterruptOn(currentApprovalMode);
   try {
     builtInTools.push(createParallelTaskTool(projectId, sessionId, currentApprovalMode));
   } catch (err) {
@@ -677,7 +680,10 @@ export async function createDeepAgentRuntime(
       const agentSlug = agentRow.slug || generateSlug(agentRow.name);
 
       const subMcpServers = getAgentMcpServers(agentRow.id);
-      const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
+      const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers, allMcpServers);
+      for (const toolName of getRuntimeToolNames(subMcpRuntime.tools)) {
+        mcpApprovalToolNames.add(toolName);
+      }
       const subSkillNames = getAgentSkillNames(agentRow.id);
       const subSkillOverrideOptions = buildSkillOverrideOptions(agentRow);
       const { permissions: _subPermissions } =
@@ -718,6 +724,7 @@ export async function createDeepAgentRuntime(
   }
 
   const masterAgentTools = createAgentTools(projectId, { activeAgentId: agentRow.id });
+  const interruptOn = resolveInterruptOn(currentApprovalMode, [...mcpApprovalToolNames]);
 
   const deepAgent = createDeepAgent({
     model,

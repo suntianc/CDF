@@ -19,6 +19,7 @@ import db from '../database';
 import store from '../store';
 import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
+import { getAgentMcpServers, getConnectedMcpServers } from './shared-infra';
 import type { MCPServer } from '../../shared/types';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
@@ -575,10 +576,8 @@ export async function aggregateCurrentSessionContext(
       .get(sessionId) as { id: string } | undefined;
 
     if (agent?.id) {
-      connectedServers = db
-        .prepare('SELECT * FROM mcp_servers WHERE is_connected = 1')
-        .all() as MCPServer[];
-      const result = await loadMcpTools(agent.id, connectedServers);
+      connectedServers = getAgentMcpServers(agent.id);
+      const result = await loadMcpTools(agent.id, connectedServers, getConnectedMcpServers());
       let mcpChars = 0;
       for (const tool of result.tools) {
         const t = tool as { name?: string; schema?: unknown; inputSchema?: unknown };
@@ -673,7 +672,7 @@ export async function aggregateCurrentSessionContext(
 
   // 7. systemTools (08.2 polish — promoted to real calculation).
   //     runtime.ts mounts a fixed array of built-in tools into
-  //     every agent regardless of MCP bindings or Skill Preload selections:
+  //     every agent regardless of MCP Server Exclusions or Skill Preload selections:
   //       [fetch, delete_file (plan-mode stripped), bash (plan-mode stripped),
   //        knowledge_search, knowledge_create,
   //        tavily / anysearch / arxiv (tool_configs.is_enabled=1 only)]

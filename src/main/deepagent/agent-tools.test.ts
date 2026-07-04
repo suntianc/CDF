@@ -28,7 +28,7 @@ interface AgentRow {
 
 const dbState = {
   agents: new Map<string, AgentRow>(),
-  agentMcp: new Map<string, string[]>(),
+  agentMcpExclusions: new Map<string, string[]>(),
   agentSkills: new Map<string, string[]>(),
   providers: new Map<string, { id: string; is_active?: number; updated_at?: number }>(),
   mcpServers: new Map<string, { id: string; project_id: string }>(),
@@ -39,7 +39,7 @@ const dbState = {
 
 function resetState() {
   dbState.agents.clear();
-  dbState.agentMcp.clear();
+  dbState.agentMcpExclusions.clear();
   dbState.agentSkills.clear();
   dbState.providers.clear();
   dbState.mcpServers.clear();
@@ -117,10 +117,10 @@ function makePrepared(state: typeof dbState) {
         }
         return { changes: dbState.agents.size };
       }
-      // DELETE FROM agent_mcp_servers WHERE agent_id = ?
-      if (s === 'DELETE FROM agent_mcp_servers WHERE agent_id = ?') {
+      // DELETE FROM agent_mcp_exclusions WHERE agent_id = ?
+      if (s === 'DELETE FROM agent_mcp_exclusions WHERE agent_id = ?') {
         const [id] = params;
-        dbState.agentMcp.delete(id as string);
+        dbState.agentMcpExclusions.delete(id as string);
         return { changes: 1 };
       }
       // DELETE FROM agent_skills WHERE agent_id = ?
@@ -134,7 +134,7 @@ function makePrepared(state: typeof dbState) {
       if (s === 'DELETE FROM agents WHERE id = ?') {
         const [id] = params;
         dbState.agents.delete(id as string);
-        dbState.agentMcp.delete(id as string);
+        dbState.agentMcpExclusions.delete(id as string);
         dbState.agentSkills.delete(id as string);
         // agent_runs.agent_id is NOT NULL in production schema, so CASCADE
         // here means delete the rows (not nullify).
@@ -145,11 +145,11 @@ function makePrepared(state: typeof dbState) {
         }
         return { changes: 1 };
       }
-      // INSERT INTO agent_mcp_servers
-      if (s === 'INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)') {
+      // INSERT INTO agent_mcp_exclusions
+      if (s === 'INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)') {
         const [aid, mid] = params;
-        if (!dbState.agentMcp.has(aid as string)) dbState.agentMcp.set(aid as string, []);
-        dbState.agentMcp.get(aid as string)!.push(mid as string);
+        if (!dbState.agentMcpExclusions.has(aid as string)) dbState.agentMcpExclusions.set(aid as string, []);
+        dbState.agentMcpExclusions.get(aid as string)!.push(mid as string);
         return { changes: 1 };
       }
       // INSERT INTO agent_skills
@@ -274,10 +274,10 @@ function makePrepared(state: typeof dbState) {
           .filter((a) => a.project_id === pid)
           .sort((a, b) => b.is_default - a.is_default || b.updated_at - a.updated_at);
       }
-      // SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?
-      if (s === 'SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?') {
+      // SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?
+      if (s === 'SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?') {
         const [aid] = params;
-        return (dbState.agentMcp.get(aid as string) ?? []).map((id) => ({ mcp_server_id: id }));
+        return (dbState.agentMcpExclusions.get(aid as string) ?? []).map((id) => ({ mcp_server_id: id }));
       }
       // SELECT skill_name FROM agent_skills WHERE agent_id = ?
       if (s === 'SELECT skill_name FROM agent_skills WHERE agent_id = ?') {
@@ -383,17 +383,17 @@ describe('createAgentTools', () => {
       expect(result).toEqual([]);
     });
 
-    it('returns all agents in current project, with mcpServerIds + skillNames', async () => {
+    it('returns all agents in current project, with MCP Server Exclusion ids + skillNames', async () => {
       const a = seedAgent({ name: 'Alpha', is_default: 1 });
       const b = seedAgent({ name: 'Beta' });
-      dbState.agentMcp.set(a.id, ['m1', 'm2']);
+      dbState.agentMcpExclusions.set(a.id, ['m1', 'm2']);
       dbState.agentSkills.set(b.id, ['global:foo']);
 
       const result = await invoke('list_agents', {});
       expect(result).toHaveLength(2);
       // default first
       expect(result[0].name).toBe('Alpha');
-      expect(result[0].mcpServerIds).toEqual(['m1', 'm2']);
+      expect(result[0].mcpServerExclusionIds).toEqual(['m1', 'm2']);
       expect(result[1].name).toBe('Beta');
       expect(result[1].skillNames).toEqual(['global:foo']);
     });
@@ -634,16 +634,16 @@ describe('createAgentTools', () => {
       expect(result.provider_id).toBe('p-1');
     });
 
-    it('attaches MCP servers and preserves Skill Preload references', async () => {
+    it('stores MCP Server Exclusions and preserves Skill Preload references', async () => {
       seedProvider('p-default');
       dbState.mcpServers.set('m1', { id: 'm1', project_id: PROJECT_ID });
       const result = await invoke('create_agent', {
         name: 'attached',
-        mcpServerIds: ['m1', 'nonexistent'],
+        mcpServerExclusionIds: ['m1', 'nonexistent'],
         skillNames: ['global:foo', 'project:bar', 'project-additional:docs:review'],
       });
-      // only m1 exists → only m1 attached
-      expect(result.mcpServerIds).toEqual(['m1']);
+      // only m1 exists, so only m1 is excluded
+      expect(result.mcpServerExclusionIds).toEqual(['m1']);
       expect(result.skillNames).toEqual(['global:foo', 'project:bar', 'project-additional:docs:review']);
     });
 
@@ -719,19 +719,19 @@ describe('createAgentTools', () => {
       expect(result.error).toMatch(/English letters/);
     });
 
-    it('replaces mcpServerIds wholesale when provided', async () => {
+    it('replaces MCP Server Exclusions wholesale when provided', async () => {
       const a = seedAgent({});
-      dbState.agentMcp.set(a.id, ['m1', 'm2']);
+      dbState.agentMcpExclusions.set(a.id, ['m1', 'm2']);
       dbState.mcpServers.set('m3', { id: 'm3', project_id: PROJECT_ID });
-      const result = await invoke('update_agent', { id: a.id, mcpServerIds: ['m3'] });
-      expect(result.mcpServerIds).toEqual(['m3']);
+      const result = await invoke('update_agent', { id: a.id, mcpServerExclusionIds: ['m3'] });
+      expect(result.mcpServerExclusionIds).toEqual(['m3']);
     });
 
-    it('preserves mcpServerIds when not provided', async () => {
+    it('preserves MCP Server Exclusions when not provided', async () => {
       const a = seedAgent({});
-      dbState.agentMcp.set(a.id, ['m1']);
+      dbState.agentMcpExclusions.set(a.id, ['m1']);
       const result = await invoke('update_agent', { id: a.id, name: 'x' });
-      expect(result.mcpServerIds).toEqual(['m1']);
+      expect(result.mcpServerExclusionIds).toEqual(['m1']);
     });
 
     it('rejects provider_id: null (P2 #3 residual)', async () => {
@@ -918,13 +918,13 @@ describe('createAgentTools', () => {
 
     it('deletes agent and cascades mcp/skill rows', async () => {
       const a = seedAgent({});
-      dbState.agentMcp.set(a.id, ['m1']);
+      dbState.agentMcpExclusions.set(a.id, ['m1']);
       dbState.agentSkills.set(a.id, ['global:foo']);
       const result = await invoke('delete_agent', { id: a.id });
       expect(result.deleted).toBe(true);
       expect(result.id).toBe(a.id);
       expect(dbState.agents.has(a.id)).toBe(false);
-      expect(dbState.agentMcp.has(a.id)).toBe(false);
+      expect(dbState.agentMcpExclusions.has(a.id)).toBe(false);
       expect(dbState.agentSkills.has(a.id)).toBe(false);
     });
 
@@ -948,7 +948,7 @@ describe('createAgentTools', () => {
       // a per-table DELETE chain (e.g., the old agent_runs SET NULL attempt
       // that crashed because agent_runs.agent_id is NOT NULL).
       const a = seedAgent({});
-      dbState.agentMcp.set(a.id, ['m1']);
+      dbState.agentMcpExclusions.set(a.id, ['m1']);
       dbState.agentSkills.set(a.id, ['global:foo']);
 
       const result = await invoke('delete_agent', { id: a.id });

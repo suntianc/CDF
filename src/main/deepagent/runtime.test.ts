@@ -238,7 +238,7 @@ describe('createDeepAgentRuntime', () => {
     expect(params.tools.map((tool: { name: string }) => tool.name)).toContain('delete_file');
     expect(params.interruptOn.delete_file).toEqual({ allowedDecisions: ['approve', 'reject'] });
     expect(params.interruptOn.remove_file).toBeUndefined();
-    expect(loadMcpToolsMock).toHaveBeenCalledWith('agent-1', []);
+    expect(loadMcpToolsMock).toHaveBeenCalledWith('agent-1', [], []);
   });
 
   it('should omit interruptOn when global approval mode is bypass', async () => {
@@ -248,6 +248,18 @@ describe('createDeepAgentRuntime', () => {
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.interruptOn).toBeUndefined();
+  });
+
+  it('adds loaded MCP tools to the approval boundary in non-bypass mode', async () => {
+    loadMcpToolsMock.mockResolvedValueOnce({
+      client: null,
+      tools: [{ name: 'alpha__search' }],
+    });
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    expect(params.interruptOn.alpha__search).toEqual({ allowedDecisions: ['approve', 'reject'] });
   });
 
   it('should bootstrap old messages when no checkpoint exists', async () => {

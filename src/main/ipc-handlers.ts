@@ -651,19 +651,19 @@ export function registerIpcHandlers() {
   ipcMain.handle('db:getAgents', (_, projectId: string) => {
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
     return agents.map(a => {
-      const mcpServers = db.prepare('SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?').all(a.id) as any[];
+      const mcpExclusions = db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(a.id) as any[];
       const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
       return {
         ...a,
         config: a.config ? JSON.parse(a.config) : null,
-        mcpServerIds: mcpServers.map(s => s.mcp_server_id),
+        mcpServerExclusionIds: mcpExclusions.map(s => s.mcp_server_id),
         skillNames: skills.map(s => s.skill_name),
       };
     });
   });
 
   ipcMain.handle('db:saveAgent', (_, agent: any) => {
-    const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerIds, skillNames } = agent;
+    const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerExclusionIds, skillNames } = agent;
     const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
     if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
       throw new Error('Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.');
@@ -704,14 +704,10 @@ export function registerIpcHandlers() {
         `).run(id, project_id, name, ensureUniqueSlug(project_id, generateSlug(name) || 'agent', now), description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, now);
       }
 
-      db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
-      if (Array.isArray(mcpServerIds)) {
-        // Dedup before insert: see agent-tools.ts:create_agent +
-        // agent-tools.ts:update_agent. The (agent_id, mcp_server_id)
-        // composite PK would otherwise throw on duplicate ids in the
-        // same call.
-        const uniqueMcpIds = Array.from(new Set(mcpServerIds));
-        const insertMcp = db.prepare('INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)');
+      db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(id);
+      if (Array.isArray(mcpServerExclusionIds)) {
+        const uniqueMcpIds = Array.from(new Set(mcpServerExclusionIds));
+        const insertMcp = db.prepare('INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)');
         for (const mcpId of uniqueMcpIds) {
           insertMcp.run(id, mcpId);
         }
@@ -739,7 +735,7 @@ export function registerIpcHandlers() {
       system_prompt, 
       config,
       is_default: is_default ? 1 : 0,
-      mcpServerIds: mcpServerIds || [],
+      mcpServerExclusionIds: mcpServerExclusionIds || [],
       skillNames: skillNames || []
     };
   });

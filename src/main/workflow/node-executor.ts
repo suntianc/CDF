@@ -17,6 +17,7 @@ import {
   getAgentRow,
   getProvider,
   getAgentMcpServers,
+  getConnectedMcpServers,
   getAgentSkillNames,
   createBuiltInTools,
   loadRegistryTools,
@@ -24,6 +25,7 @@ import {
   createSpanId,
   createChildSpan,
   resolveInterruptOn,
+  getRuntimeToolNames,
 } from '../deepagent/shared-infra';
 import { resolveProjectFile } from '../utils/path-safety';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
@@ -291,6 +293,7 @@ export function createAgentNodeExecutor(
     throw new AgentNotFoundError(agentId);
   }
   const provider = getProvider(agentRow.provider_id);
+  const allMcpServers = getConnectedMcpServers();
   const mcpServers = getAgentMcpServers(agentId);
   const skillNames = getAgentSkillNames(agentId);
 
@@ -322,7 +325,7 @@ export function createAgentNodeExecutor(
       }
 
       // 加载 MCP 工具
-      const mcpRuntime = await loadMcpTools(agentId, mcpServers);
+      const mcpRuntime = await loadMcpTools(agentId, mcpServers, allMcpServers);
 
       // 3. 构造 user message：只传递 inputs + 相关上游 nodeOutputs
       const { inputs, upstreamOutputs } = extractState(state);
@@ -371,7 +374,7 @@ export function createAgentNodeExecutor(
       builtInTools.push(...loadRegistryTools());
 
       // 2. 创建 DeepAgent（整合 backend, permissions, builtInTools）
-      const interruptOn = resolveInterruptOn(approvalMode ?? 'strict');
+      const interruptOn = resolveInterruptOn(approvalMode ?? 'strict', getRuntimeToolNames(mcpRuntime.tools));
       const agent = createDeepAgent({
         model,
         backend,

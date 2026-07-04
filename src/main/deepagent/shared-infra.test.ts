@@ -118,6 +118,12 @@ describe('resolveInterruptOn', () => {
     const agentDecides = resolveInterruptOn('agent_decides');
     expect(agentDecides).toEqual(strict);
   });
+
+  it('adds runtime MCP tool names to non-bypass approval modes', () => {
+    const result = resolveInterruptOn('strict', ['alpha__search']);
+    expect(result.alpha__search).toEqual({ allowedDecisions: ['approve', 'reject'] });
+    expect(DEFAULT_INTERRUPT_ON.alpha__search).toBeUndefined();
+  });
 });
 
 // ===== DEFAULT_INTERRUPT_ON =====

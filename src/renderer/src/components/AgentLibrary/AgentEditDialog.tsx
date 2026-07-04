@@ -50,35 +50,26 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const [formDesc, setFormDesc] = useState('');
   const [formProviderId, setFormProviderId] = useState('');
   const [formSystemPrompt, setFormSystemPrompt] = useState('');
-  const [formMcpIds, setFormMcpIds] = useState<string[]>([]);
+  const [formMcpExclusionIds, setFormMcpExclusionIds] = useState<string[]>([]);
   const [formSkillIds, setFormSkillIds] = useState<string[]>([]);
   const [formSkillOverrides, setFormSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
 
   // Multi-selector dropdown states
-  const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
 
-  // Search query states for MCP binding and Skill Preload controls
+  // Search query states for MCP visibility and Skill Preload controls
   const [mcpSearchQuery, setMcpSearchQuery] = useState('');
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
 
   // Reset search queries when dropdowns close
   useEffect(() => {
-    if (!mcpDropdownOpen) setMcpSearchQuery('');
-  }, [mcpDropdownOpen]);
-
-  useEffect(() => {
     if (!skillDropdownOpen) setSkillSearchQuery('');
   }, [skillDropdownOpen]);
 
-  const mcpContainerRef = useRef<HTMLDivElement>(null);
   const skillContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (mcpContainerRef.current && !mcpContainerRef.current.contains(event.target as Node)) {
-        setMcpDropdownOpen(false);
-      }
       if (skillContainerRef.current && !skillContainerRef.current.contains(event.target as Node)) {
         setSkillDropdownOpen(false);
       }
@@ -99,7 +90,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
         setFormProviderId(agent.provider_id || activeProvider?.id || '');
         setFormSystemPrompt(agent.system_prompt || '');
-        setFormMcpIds(agent.mcpServerIds || []);
+        setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
         setFormSkillIds(agent.skillNames || []);
         setFormSkillOverrides(readSkillOverridesFromConfig(agent.config));
       }
@@ -109,11 +100,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
       setFormProviderId(activeProvider?.id || '');
       setFormSystemPrompt('');
-      setFormMcpIds([]);
+      setFormMcpExclusionIds([]);
       setFormSkillIds([]);
       setFormSkillOverrides({});
     }
-    setMcpDropdownOpen(false);
     setSkillDropdownOpen(false);
   }, [isOpen, agentId, agents, providers]);
 
@@ -151,7 +141,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         approvalPreset: 'write-operations',
         skillOverrides: formSkillOverrides,
       },
-      mcpServerIds: formMcpIds,
+      mcpServerExclusionIds: formMcpExclusionIds,
       skillNames: formSkillIds,
       is_default: existingAgent?.is_default ?? (defaultExists ? 0 : 1),
     };
@@ -165,8 +155,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     }
   };
 
-  const toggleMcpBinding = (mcpId: string) => {
-    setFormMcpIds(prev =>
+  const toggleMcpExclusion = (mcpId: string) => {
+    setFormMcpExclusionIds(prev =>
       prev.includes(mcpId) ? prev.filter(id => id !== mcpId) : [...prev, mcpId]
     );
   };
@@ -192,6 +182,11 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       || getSkillDisplayName(sk).toLowerCase().includes(query)
       || (sk.sourceLabel || '').toLowerCase().includes(query);
   });
+
+  const mcpVisibilityCandidates = mcpServers.filter(server =>
+    server.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())
+  );
+  const visibleMcpCount = mcpServers.filter(server => !formMcpExclusionIds.includes(server.id)).length;
 
   const getSkillSourceLabel = (skill: { scope: string; sourceLabel?: string | null }) =>
     skill.sourceLabel || (skill.scope === 'project' ? t('agent.skillSourceProject') : t('agent.skillSourceGlobal'));
@@ -292,99 +287,72 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               />
             </div>
 
-        {/* MCP binding and Skill Preload badgelists */}
+        {/* MCP visibility and Skill Preload controls */}
             <div className="grid grid-cols-2 gap-4">
               {/* MCP Servers */}
-              <div className="form-group relative" ref={mcpContainerRef}>
+              <div className="form-group relative">
                 <label className="form-label flex items-center justify-between">
-                  <span>{t('agent.bindMcpLabel', { count: formMcpIds.length })}</span>
-                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.multiSelectHint')}</span>
+                  <span>{t('agent.mcpVisibilityLabel', { count: visibleMcpCount, total: mcpServers.length })}</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.defaultVisibleHint')}</span>
                 </label>
 
-                <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
-                  {formMcpIds.map(id => {
-                    const s = mcpServers.find(m => m.id === id);
-                    return s ? (
-                      <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-accent-dim)] text-[var(--color-accent)] text-[11px] select-none border border-[var(--color-accent)]/10 animate-fade-in scale-95 origin-left">
-                        <span>{s.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => toggleMcpBinding(id)}
-                          className="text-[var(--color-accent)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
-                          title={t('agent.unbind')}
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-2">
+                  <div className="flex items-center gap-1.5 px-2 py-1 border-b border-[var(--color-border)]/50 mb-1">
+                    <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
+                    <input
+                      type="text"
+                      placeholder={t('agent.searchMcpPlaceholder')}
+                      value={mcpSearchQuery}
+                      onChange={(e) => setMcpSearchQuery(e.target.value)}
+                      className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
+                    />
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t('agent.mcpVisibilityGroupLabel')}
+                    className="max-h-[178px] overflow-y-auto space-y-0.5 pr-0.5"
+                  >
+                    {mcpVisibilityCandidates.map(server => {
+                      const isExcluded = formMcpExclusionIds.includes(server.id);
+                      const isVisible = !isExcluded;
+                      return (
+                        <label
+                          key={server.id}
+                          className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
+                            isVisible
+                              ? 'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
+                              : 'bg-[var(--color-danger-dim)]/40 text-[var(--color-text-secondary)]'
+                          }`}
                         >
-                          ×
-                        </button>
-                      </span>
-                    ) : null;
-                  })}
-                  {formMcpIds.length === 0 && (
-                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">{t('agent.noToolsBound')}</span>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMcpDropdownOpen(!mcpDropdownOpen);
-                    setSkillDropdownOpen(false);
-                  }}
-                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{t('agent.addOrUnbindMcp')}</span>
-                </button>
-
-                {mcpDropdownOpen && (
-                  <div className="absolute left-0 bottom-[36px] w-full max-h-[220px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-xl rounded-lg z-50 p-2 animate-fade-in select-none flex flex-col gap-1">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[var(--color-border)]/50 mb-1">
-                      <Search className="w-3.5 w-3.5 text-[var(--color-text-muted)] shrink-0" />
-                      <input
-                        type="text"
-                        placeholder={t('agent.searchToolPlaceholder')}
-                        value={mcpSearchQuery}
-                        onChange={(e) => setMcpSearchQuery(e.target.value)}
-                        className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                    <div className="overflow-y-auto max-h-[160px] space-y-0.5 pr-0.5">
-                      {mcpServers
-                        .filter(s => s.name.toLowerCase().includes(mcpSearchQuery.toLowerCase()))
-                        .map(s => {
-                          const isBound = formMcpIds.includes(s.id);
-                          return (
-                            <div
-                              key={s.id}
-                              onClick={() => toggleMcpBinding(s.id)}
-                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
-                                isBound
-                                  ? 'bg-[var(--color-accent-dim)]/50 text-[var(--color-accent)] font-medium'
-                                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <input
-                                  type="checkbox"
-                                  checked={isBound}
-                                  readOnly
-                                  className="accent-[var(--color-accent)] cursor-pointer"
-                                />
-                                <span className="truncate">{s.name}</span>
-                              </div>
-                              <span className="text-[10px] scale-90 px-1 py-0.2 rounded bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)] font-mono">
-                                {s.server_type}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      {mcpServers.filter(s => s.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())).length === 0 && (
-                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noToolMatch')}</div>
-                      )}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isVisible}
+                              onChange={() => toggleMcpExclusion(server.id)}
+                              aria-label={t('agent.mcpVisibilityToggleLabel', { name: server.name })}
+                              className="accent-[var(--color-accent)] cursor-pointer"
+                            />
+                            <span className="truncate">{server.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] scale-90 px-1 py-0.2 rounded bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)] font-mono">
+                              {server.server_type}
+                            </span>
+                            <span className={`text-[10px] font-medium ${isVisible ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>
+                              {isVisible ? t('agent.mcpVisible') : t('agent.mcpExcluded')}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                    {mcpServers.length === 0 && (
+                      <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noMcpServers')}</div>
+                    )}
+                    {mcpServers.length > 0 && mcpVisibilityCandidates.length === 0 && (
+                      <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noMcpMatch')}</div>
+                    )}
                     </div>
                   </div>
-                )}
               </div>
 
               {/* Skills */}
@@ -425,7 +393,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                   onClick={(e) => {
                     e.stopPropagation();
                     setSkillDropdownOpen(!skillDropdownOpen);
-                    setMcpDropdownOpen(false);
                   }}
                   className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
                 >

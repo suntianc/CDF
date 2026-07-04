@@ -124,7 +124,7 @@ export interface Agent {
   system_prompt?: string;
   config?: Record<string, unknown>;
   is_default: number;
-  mcpServerIds?: string[];
+  mcpServerExclusionIds?: string[];
   skillNames?: string[];
   created_at: number;
   updated_at: number;

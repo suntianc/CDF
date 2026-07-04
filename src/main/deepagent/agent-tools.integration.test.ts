@@ -5,10 +5,10 @@
 //   1. legacy `slug IS NULL` rows whose effective slug would collide
 //      with a same-named new agent (PR #5 maintainer feedback
 //      2026-06-09) — the mock's SELECT shim does not run real `IS NULL`.
-//   2. duplicate mcpServerIds / skillNames within a single
+//   2. duplicate mcpServerExclusionIds / skillNames within a single
 //      create/update — real SQLite throws `UNIQUE constraint failed`
 //      on the composite PK; the mock silently appends duplicates.
-//   3. `delete_agent` triggers real FK CASCADE on agent_mcp_servers,
+//   3. `delete_agent` triggers real FK CASCADE on agent_mcp_exclusions,
 //      agent_skills, agent_runs, agent_tool_calls — the mock
 //      manually deletes from JS maps.
 //
@@ -60,7 +60,7 @@ const TABLES_IN_DELETE_ORDER = [
   'workflow_executions',
   'workflows',
   'agent_skills',
-  'agent_mcp_servers',
+  'agent_mcp_exclusions',
   'mcp_servers',
   'messages',
   'sessions',
@@ -166,26 +166,21 @@ describe('create_agent: NULL-slug legacy row does not get shadowed', () => {
 });
 
 describe('create_agent / update_agent: duplicate join rows surface as tool errors', () => {
-  it('create_agent with duplicate mcpServerIds throws UNIQUE on (agent_id, mcp_server_id)', async () => {
+  it('create_agent with duplicate mcpServerExclusionIds dedupes before insert', async () => {
     // Seed a real mcp_servers row so the validation SELECT passes.
     db.prepare(
       `INSERT INTO mcp_servers (id, name, server_type, config, is_connected, created_at, updated_at)
        VALUES (?, ?, ?, NULL, 0, 0, 0)`,
     ).run('m1', 'm1', 'stdio');
 
-    // With duplicates and no fix, the second INSERT would throw
-    // `UNIQUE constraint failed: agent_mcp_servers.agent_id,
-    //  agent_mcp_servers.mcp_server_id` inside db.transaction().
-    // After the dedup fix (Array.from(new Set(...))), the second
-    // m1 is removed before the loop, so the create should succeed.
     const result = await invokeTool('create_agent', {
       name: 'dup-mcp-test',
       provider_id: 'prov-1',
-      mcpServerIds: ['m1', 'm1'],
+      mcpServerExclusionIds: ['m1', 'm1'],
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.mcpServerIds).toEqual(['m1']); // deduped to one
+    expect(result.mcpServerExclusionIds).toEqual(['m1']);
     // The agents row was committed (transaction did NOT roll back).
     const agents = db.prepare('SELECT COUNT(*) AS c FROM agents').get() as any;
     expect(agents.c).toBe(1);
@@ -237,7 +232,7 @@ describe('create_agent / update_agent: duplicate join rows surface as tool error
 });
 
 describe('delete_agent: FK CASCADE cleans up dependents on real SQLite', () => {
-  it('cascades through agent_mcp_servers / agent_skills / agent_runs / agent_tool_calls', async () => {
+  it('cascades through agent_mcp_exclusions / agent_skills / agent_runs / agent_tool_calls', async () => {
     // Seed a session first (agent_runs has FK to sessions).
     const sessionId = 'sess-1';
     db.prepare(
@@ -259,7 +254,7 @@ describe('delete_agent: FK CASCADE cleans up dependents on real SQLite', () => {
        VALUES ('m1', 'm1', 'stdio', NULL, 0, 0, 0)`,
     ).run();
     db.prepare(
-      `INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, 'm1')`,
+      `INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, 'm1')`,
     ).run(agentId);
     db.prepare(
       `INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, 'global:foo')`,
@@ -281,7 +276,7 @@ describe('delete_agent: FK CASCADE cleans up dependents on real SQLite', () => {
 
     // Pre-check: every dependent row is present.
     expect((db.prepare('SELECT COUNT(*) AS c FROM agents').get() as any).c).toBe(1);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_mcp_servers').get() as any).c).toBe(1);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_mcp_exclusions').get() as any).c).toBe(1);
     expect((db.prepare('SELECT COUNT(*) AS c FROM agent_skills').get() as any).c).toBe(1);
     expect((db.prepare('SELECT COUNT(*) AS c FROM agent_runs').get() as any).c).toBe(1);
     expect((db.prepare('SELECT COUNT(*) AS c FROM agent_tool_calls').get() as any).c).toBe(1);
@@ -293,7 +288,7 @@ describe('delete_agent: FK CASCADE cleans up dependents on real SQLite', () => {
 
     // Post-check: agent row gone AND all dependents CASCADE-cleaned.
     expect((db.prepare('SELECT COUNT(*) AS c FROM agents').get() as any).c).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_mcp_servers').get() as any).c).toBe(0);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_mcp_exclusions').get() as any).c).toBe(0);
     expect((db.prepare('SELECT COUNT(*) AS c FROM agent_skills').get() as any).c).toBe(0);
     expect((db.prepare('SELECT COUNT(*) AS c FROM agent_runs').get() as any).c).toBe(0);
     expect((db.prepare('SELECT COUNT(*) AS c FROM agent_tool_calls').get() as any).c).toBe(0);

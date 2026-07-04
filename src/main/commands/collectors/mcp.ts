@@ -4,9 +4,7 @@ import type { MCPServer, SlashCommand } from '../../../shared/types';
 
 interface McpCollectorResult {
   commands: SlashCommand[];
-  /** True iff the agent has at least one bound MCP server (regardless of
-   *  whether the tools list is non-empty). Drives the mcp_health_warning
-   *  discrimination (P6.5: agent-never-bound vs tools-empty). */
+  /** True iff the agent has at least one visible connected MCP server. */
   hasAgentMcp: boolean;
 }
 
@@ -28,8 +26,14 @@ export async function collectMcpCommands(agentId: string): Promise<McpCollectorR
   const agentServers = db
     .prepare(
       `SELECT mcp_servers.* FROM mcp_servers
-       JOIN agent_mcp_servers ON mcp_servers.id = agent_mcp_servers.mcp_server_id
-       WHERE agent_mcp_servers.agent_id = ? AND mcp_servers.is_connected = 1`
+       WHERE mcp_servers.is_connected = 1
+         AND NOT EXISTS (
+           SELECT 1
+           FROM agent_mcp_exclusions
+           WHERE agent_mcp_exclusions.agent_id = ?
+             AND agent_mcp_exclusions.mcp_server_id = mcp_servers.id
+         )
+       ORDER BY mcp_servers.updated_at DESC, mcp_servers.id ASC`
     )
     .all(agentId) as MCPServer[];
 
@@ -37,10 +41,18 @@ export async function collectMcpCommands(agentId: string): Promise<McpCollectorR
     return { commands: [], hasAgentMcp: false };
   }
 
+  const allConnectedServers = db
+    .prepare(
+      `SELECT * FROM mcp_servers
+       WHERE is_connected = 1
+       ORDER BY updated_at DESC, id ASC`
+    )
+    .all() as MCPServer[];
+
   // Pre-warm the tool cache so the LLM has tools loaded for this agent
   // by the time the user dispatches. Result is unused here — the dispatcher
   // reads from the same cache on its own.
-  await loadMcpTools(agentId, agentServers);
+  await loadMcpTools(agentId, agentServers, allConnectedServers);
 
   // One command per server. `name` and `target` are both the server name
   // so `dispatcher.resolve()` can match `/<server>` and `dispatcher.dispatch()`
