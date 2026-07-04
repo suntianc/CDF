@@ -61,6 +61,16 @@ function writeDelayedTextLayerFallbackFixture(markdown: string, delayMs: number)
   return `${process.execPath} ${fallbackPath}`;
 }
 
+async function waitForPdfParseJobStatus(jobId: string, status: string, timeoutMs = 500): Promise<ReturnType<typeof getPdfParseJob>> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = getPdfParseJob(jobId);
+    if (snapshot?.status === status) return snapshot;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return getPdfParseJob(jobId);
+}
+
 describe('parsePDF', () => {
   it('returns a Structured Paper Parse from Marker markdown when parsing finishes within timeout', async () => {
     const runner: MarkerRunner = {
@@ -117,6 +127,66 @@ describe('parsePDF', () => {
       path.join(tempDir, 'marker-output', 'images/figure-1.png'),
     );
     expect(result.diagnostics).toEqual([]);
+  });
+
+  it('reports weak source location instead of fabricating page anchors when Marker markdown has no anchors', async () => {
+    const runner: MarkerRunner = {
+      parse: async () => ({
+        markdown: [
+          '# Abstract',
+          'This paragraph has no Marker page anchor.',
+          '',
+          '## Method',
+          'This paragraph also has no Marker page anchor.',
+        ].join('\n'),
+        outputDir: path.join(tempDir, 'marker-output'),
+        elapsedMs: 25,
+      }),
+    };
+
+    const result = await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner });
+
+    expect(result.status).toBe('completed');
+    expect(result.diagnostics).toEqual([
+      {
+        severity: 'warning',
+        code: 'WEAK_SOURCE_LOCATION',
+        message: 'Some parsed blocks do not include a Marker page anchor.',
+      },
+    ]);
+    expect(result.parse?.blocks.every((block) => block.location.markerAnchor === undefined)).toBe(true);
+    expect(result.parse?.blocks.map((block) => block.pageStart)).toEqual([1, 1, 1, 1]);
+  });
+
+  it('uses Marker span page anchors as source locations', async () => {
+    const runner: MarkerRunner = {
+      parse: async () => ({
+        markdown: [
+          '<span id="page-2-0"></span># Results',
+          'A grounded paragraph.',
+          '',
+          '<span id="page-3-1"></span>## References',
+          '[1] A. Example. Example Paper.',
+        ].join('\n'),
+        outputDir: path.join(tempDir, 'marker-output'),
+        elapsedMs: 25,
+      }),
+    };
+
+    const result = await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner });
+
+    expect(result.status).toBe('completed');
+    expect(result.diagnostics).toEqual([]);
+    expect(result.parse?.blocks.map((block) => ({
+      text: block.text,
+      pageStart: block.pageStart,
+      markerAnchor: block.location.markerAnchor,
+    }))).toEqual([
+      { text: 'Results', pageStart: 2, markerAnchor: 'page:2' },
+      { text: 'A grounded paragraph.', pageStart: 2, markerAnchor: 'page:2' },
+      { text: 'References', pageStart: 3, markerAnchor: 'page:3' },
+      { text: '[1] A. Example. Example Paper.', pageStart: 3, markerAnchor: 'page:3' },
+    ]);
   });
 
   it('returns a running PDF Parse Job when Marker outlives the tool timeout and supports cancellation', async () => {
@@ -213,8 +283,7 @@ describe('parsePDF', () => {
       runner,
       createJobId: () => 'job-text-layer-fallback',
     });
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const snapshot = getPdfParseJob('job-text-layer-fallback');
+    const snapshot = await waitForPdfParseJobStatus('job-text-layer-fallback', 'completed');
 
     expect(result).toMatchObject({
       status: 'running',
@@ -263,7 +332,7 @@ describe('parsePDF', () => {
   it('keeps fallback requests explicit without invoking an LLM fallback in the parser', async () => {
     const runner: MarkerRunner = {
       parse: async () => ({
-        markdown: '# Result\n\nParsed by Marker.',
+        markdown: '<!-- page: 1 -->\n# Result\n\nParsed by Marker.',
         outputDir: tempDir,
       }),
     };

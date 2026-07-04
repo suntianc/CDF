@@ -166,7 +166,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
 
     const runner: MarkerRunner = {
       parse: async () => ({
-        markdown: '# Abstract\n\nParsed by Marker.\n\n| Metric | Value |',
+        markdown: '<!-- page: 1 -->\n# Abstract\n\nParsed by Marker.\n\n| Metric | Value |',
         outputDir: projectPath,
         elapsedMs: 25,
       }),
@@ -262,6 +262,42 @@ describe('PDF Parsing Skill baseline artifact', () => {
     expect(fs.readFileSync(path.join(result.artifactDir, '_page_1_Figure_0.jpeg'))).toEqual(imageBytes);
   });
 
+  it('plans local-first recovery for blocks with weak source locations from the baseline parse', async () => {
+    const runner: MarkerRunner = {
+      parse: async () => ({
+        markdown: [
+          '# Abstract',
+          'This paragraph has no Marker page anchor.',
+          '',
+          '## Method',
+          'This paragraph also has no Marker page anchor.',
+        ].join('\n'),
+        outputDir: projectPath,
+        elapsedMs: 25,
+      }),
+    };
+
+    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+      runner,
+      now: () => new Date('2026-07-02T15:50:00.000Z'),
+      createJobId: () => 'job-weak-source-location',
+    });
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'diagnostics.json'), 'utf-8'))).toEqual([
+      expect.objectContaining({ severity: 'warning', code: 'WEAK_SOURCE_LOCATION' }),
+    ]);
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'recovery-plan.json'), 'utf-8'))).toMatchObject({
+      targets: [
+        { kind: 'block', blockId: 'heading-0001', page: 1, reasons: ['WEAK_SOURCE_LOCATION'] },
+        { kind: 'block', blockId: 'paragraph-0002', page: 1, reasons: ['WEAK_SOURCE_LOCATION'] },
+        { kind: 'block', blockId: 'heading-0003', page: 1, reasons: ['WEAK_SOURCE_LOCATION'] },
+        { kind: 'block', blockId: 'paragraph-0004', page: 1, reasons: ['WEAK_SOURCE_LOCATION'] },
+      ],
+      candidateRoutes: ['local-first'],
+    });
+  });
+
   it('writes a diagnostics artifact and recovery plan when Marker fails before a baseline exists', async () => {
     const runner: MarkerRunner = {
       parse: async () => {
@@ -354,6 +390,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
     const builtInSkillDirs = getBuiltInSkillDirs();
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
     const markerCommand = writeMarkerFixture([
+      '<!-- page:1 -->',
       '# Abstract',
       '',
       '<!-- page:2 -->',
@@ -541,7 +578,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
   it('recovery entrypoint scripts update preference, apply recovery results, and finalize the recovered view', () => {
     const builtInSkillDirs = getBuiltInSkillDirs();
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
-    const markerCommand = writeMarkerFixture('| Metric | Value |');
+    const markerCommand = writeMarkerFixture('<!-- page: 1 -->\n| Metric | Value |');
     const baselineOutput = execFileSync(process.execPath, [
       path.join(pdfSkillDir, 'scripts', 'baseline-parse.js'),
       '--project',

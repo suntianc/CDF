@@ -200,10 +200,19 @@ function getLinePage(line: string, currentPage: number): { page: number; markerA
   const pageComment = line.match(/<!--\s*page[:=]\s*(\d+)\s*-->/i);
   if (pageComment) return { page: Number(pageComment[1]), markerAnchor: `page:${Number(pageComment[1])}` };
 
-  const markerAnchor = line.match(/\{#page-(\d+)\}/i) ?? line.match(/<a\s+id=["']page-(\d+)["'][^>]*>/i);
+  const markerAnchor = line.match(/\{#page-(\d+)\}/i)
+    ?? line.match(/<(?:a|span)\s+id=["']page-(\d+)(?:-\d+)?["'][^>]*>/i);
   if (markerAnchor) return { page: Number(markerAnchor[1]), markerAnchor: `page:${Number(markerAnchor[1])}` };
 
   return { page: currentPage };
+}
+
+function stripMarkerPageAnchors(line: string): string {
+  return line
+    .replace(/<!--\s*page[:=]\s*\d+\s*-->/gi, '')
+    .replace(/<(?:a|span)\s+id=["']page-\d+(?:-\d+)?["'][^>]*>\s*(?:<\/(?:a|span)>)?/gi, '')
+    .replace(/\{#page-\d+}/gi, '')
+    .trim();
 }
 
 function normalizeText(lines: string[]): string {
@@ -263,7 +272,7 @@ function parseMarkdownBlocks(markdown: string, outputDir: string): {
   const lines = markdown.split(/\r?\n/);
   let currentSection = '';
   let currentPage = 1;
-  let currentAnchor: string | undefined = 'page:1';
+  let currentAnchor: string | undefined;
   let paragraph: string[] = [];
   let paragraphPage = currentPage;
   let paragraphAnchor = currentAnchor;
@@ -290,7 +299,7 @@ function parseMarkdownBlocks(markdown: string, outputDir: string): {
       continue;
     }
 
-    const line = rawLine.trim();
+    const line = stripMarkerPageAnchors(rawLine);
     if (!line) {
       flushParagraph();
       continue;
@@ -337,7 +346,7 @@ function parseMarkdownBlocks(markdown: string, outputDir: string): {
 
   flushParagraph();
 
-  if (blocks.some((block) => block.type !== 'heading' && !block.location.markerAnchor)) {
+  if (blocks.some((block) => !block.location.markerAnchor)) {
     diagnostics.push(makeDiagnostic('warning', 'WEAK_SOURCE_LOCATION', 'Some parsed blocks do not include a Marker page anchor.'));
   }
 
