@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import zlib from 'zlib';
 
 export type StructuredPaperParser = 'marker' | 'pymupdf-text-layer';
 export type StructuredPaperBlockType = 'heading' | 'paragraph' | 'formula' | 'table' | 'figure' | 'reference';
@@ -40,6 +41,8 @@ export interface PaperSourceLocation {
   pageStart: number;
   pageEnd: number;
   section: string;
+  textStart?: number;
+  textEnd?: number;
   markerAnchor?: string;
   bbox?: [number, number, number, number];
   imagePath?: string;
@@ -215,6 +218,47 @@ function stripMarkerPageAnchors(line: string): string {
     .trim();
 }
 
+interface MarkdownLineInfo {
+  rawLine: string;
+  start: number;
+  end: number;
+}
+
+function splitMarkdownLines(markdown: string): MarkdownLineInfo[] {
+  const lines: MarkdownLineInfo[] = [];
+  let start = 0;
+  while (start < markdown.length) {
+    let end = start;
+    while (end < markdown.length && markdown[end] !== '\n' && markdown[end] !== '\r') end += 1;
+    lines.push({ rawLine: markdown.slice(start, end), start, end });
+    if (markdown[end] === '\r' && markdown[end + 1] === '\n') {
+      start = end + 2;
+    } else if (markdown[end] === '\n' || markdown[end] === '\r') {
+      start = end + 1;
+    } else {
+      start = end;
+    }
+  }
+  if (markdown.length === 0 || /[\r\n]$/.test(markdown)) {
+    lines.push({ rawLine: '', start: markdown.length, end: markdown.length });
+  }
+  return lines;
+}
+
+function strippedLineWithRange(rawLine: string): { text: string; start: number; end: number } {
+  const anchorPattern = /<!--\s*page[:=]\s*\d+\s*-->|<(?:a|span)\s+id=["']page-\d+(?:-\d+)?["'][^>]*>\s*(?:<\/(?:a|span)>)?|\{#page-\d+}/gi;
+  const masked = rawLine.replace(anchorPattern, (match) => ' '.repeat(match.length));
+  let start = 0;
+  let end = masked.length;
+  while (start < end && /\s/.test(masked[start])) start += 1;
+  while (end > start && /\s/.test(masked[end - 1])) end -= 1;
+  return {
+    text: stripMarkerPageAnchors(rawLine),
+    start,
+    end,
+  };
+}
+
 function normalizeText(lines: string[]): string {
   return lines.join('\n').trim();
 }
@@ -231,6 +275,8 @@ function makeBlock(
   markerAnchor: string | undefined,
   outputDir: string,
   index: number,
+  textStart?: number,
+  textEnd?: number,
 ): StructuredPaperBlock {
   const imageMatch = text.match(/!\[[^\]]*]\(([^)]+)\)/);
   const imagePath = imageMatch
@@ -248,6 +294,8 @@ function makeBlock(
       pageStart: page,
       pageEnd: page,
       section,
+      ...(textStart === undefined ? {} : { textStart }),
+      ...(textEnd === undefined ? {} : { textEnd }),
       markerAnchor,
       ...(imagePath ? { imagePath } : {}),
     },
@@ -269,27 +317,44 @@ function parseMarkdownBlocks(markdown: string, outputDir: string): {
 } {
   const blocks: StructuredPaperBlock[] = [];
   const diagnostics: PdfParseDiagnostic[] = [];
-  const lines = markdown.split(/\r?\n/);
+  const lines = splitMarkdownLines(markdown);
   let currentSection = '';
   let currentPage = 1;
   let currentAnchor: string | undefined;
   let paragraph: string[] = [];
   let paragraphPage = currentPage;
   let paragraphAnchor = currentAnchor;
+  let paragraphStart: number | undefined;
+  let paragraphEnd: number | undefined;
 
   const flushParagraph = () => {
     const text = normalizeText(paragraph);
     if (!text) {
       paragraph = [];
+      paragraphStart = undefined;
+      paragraphEnd = undefined;
       return;
     }
     const type = classifyParagraph(text, currentSection);
-    blocks.push(makeBlock(type, text, currentSection, paragraphPage, paragraphAnchor, outputDir, blocks.length));
+    blocks.push(makeBlock(
+      type,
+      text,
+      currentSection,
+      paragraphPage,
+      paragraphAnchor,
+      outputDir,
+      blocks.length,
+      paragraphStart,
+      paragraphEnd,
+    ));
     paragraph = [];
+    paragraphStart = undefined;
+    paragraphEnd = undefined;
   };
 
   for (let i = 0; i < lines.length; i += 1) {
-    const rawLine = lines[i];
+    const lineInfo = lines[i];
+    const rawLine = lineInfo.rawLine;
     const pageInfo = getLinePage(rawLine, currentPage);
     if (pageInfo.page !== currentPage || pageInfo.markerAnchor) {
       currentPage = pageInfo.page;
@@ -299,7 +364,8 @@ function parseMarkdownBlocks(markdown: string, outputDir: string): {
       continue;
     }
 
-    const line = stripMarkerPageAnchors(rawLine);
+    const stripped = strippedLineWithRange(rawLine);
+    const line = stripped.text;
     if (!line) {
       flushParagraph();
       continue;
@@ -309,38 +375,57 @@ function parseMarkdownBlocks(markdown: string, outputDir: string): {
     if (heading) {
       flushParagraph();
       currentSection = heading[2].trim();
-      blocks.push(makeBlock('heading', currentSection, currentSection, currentPage, currentAnchor, outputDir, blocks.length));
+      const titleStart = line.indexOf(heading[2]);
+      blocks.push(makeBlock(
+        'heading',
+        currentSection,
+        currentSection,
+        currentPage,
+        currentAnchor,
+        outputDir,
+        blocks.length,
+        titleStart === -1 ? undefined : lineInfo.start + stripped.start + titleStart,
+        titleStart === -1 ? undefined : lineInfo.start + stripped.start + titleStart + currentSection.length,
+      ));
       continue;
     }
 
     if (line.startsWith('|')) {
       flushParagraph();
       const tableLines = [line];
-      while (i + 1 < lines.length && lines[i + 1].trim().startsWith('|')) {
+      let tableEnd = lineInfo.start + stripped.end;
+      while (i + 1 < lines.length && strippedLineWithRange(lines[i + 1].rawLine).text.startsWith('|')) {
         i += 1;
-        tableLines.push(lines[i].trim());
+        const tableLine = strippedLineWithRange(lines[i].rawLine);
+        tableLines.push(tableLine.text);
+        tableEnd = lines[i].start + tableLine.end;
       }
-      blocks.push(makeBlock('table', tableLines.join('\n'), currentSection, currentPage, currentAnchor, outputDir, blocks.length));
+      blocks.push(makeBlock('table', tableLines.join('\n'), currentSection, currentPage, currentAnchor, outputDir, blocks.length, lineInfo.start + stripped.start, tableEnd));
       continue;
     }
 
     if (line.startsWith('$$')) {
       flushParagraph();
       const formulaLines = [line];
+      let formulaEnd = lineInfo.start + stripped.end;
       while (!formulaLines[formulaLines.length - 1].endsWith('$$') || formulaLines[formulaLines.length - 1] === '$$') {
         if (i + 1 >= lines.length) break;
         i += 1;
-        formulaLines.push(lines[i].trim());
+        const formulaLine = strippedLineWithRange(lines[i].rawLine);
+        formulaLines.push(formulaLine.text);
+        formulaEnd = lines[i].start + formulaLine.end;
         if (formulaLines[formulaLines.length - 1].endsWith('$$')) break;
       }
-      blocks.push(makeBlock('formula', formulaLines.join('\n'), currentSection, currentPage, currentAnchor, outputDir, blocks.length));
+      blocks.push(makeBlock('formula', formulaLines.join('\n'), currentSection, currentPage, currentAnchor, outputDir, blocks.length, lineInfo.start + stripped.start, formulaEnd));
       continue;
     }
 
     if (paragraph.length === 0) {
       paragraphPage = currentPage;
       paragraphAnchor = currentAnchor;
+      paragraphStart = lineInfo.start + stripped.start;
     }
+    paragraphEnd = lineInfo.start + stripped.end;
     paragraph.push(line);
   }
 
@@ -624,12 +709,48 @@ interface PdfTextLayerPreflight {
   reason?: 'tex-producer' | 'text-operators';
 }
 
+function hasPdfTextOperators(sample: string): boolean {
+  return /\bBT\b[\s\S]{0,5000}\b(?:Tj|TJ|'|")\b[\s\S]{0,5000}\bET\b/.test(sample);
+}
+
+function trimPdfStreamDelimiters(value: Buffer): Buffer {
+  let start = 0;
+  let end = value.length;
+  if (value[start] === 0x0d && value[start + 1] === 0x0a) {
+    start += 2;
+  } else if (value[start] === 0x0a) {
+    start += 1;
+  }
+  if (end >= start + 2 && value[end - 2] === 0x0d && value[end - 1] === 0x0a) {
+    end -= 2;
+  } else if (end >= start + 1 && value[end - 1] === 0x0a) {
+    end -= 1;
+  }
+  return value.subarray(start, end);
+}
+
+function sampleHasCompressedPdfTextOperators(sample: string): boolean {
+  const streamPattern = /\bstream\r?\n?([\s\S]*?)\r?\n?endstream\b/g;
+  for (const match of sample.matchAll(streamPattern)) {
+    const dictionarySample = sample.slice(Math.max(0, match.index - 1000), match.index);
+    if (!/\/FlateDecode\b/i.test(dictionarySample)) continue;
+    try {
+      const streamBytes = trimPdfStreamDelimiters(Buffer.from(match[1], 'latin1'));
+      const inflated = zlib.inflateSync(streamBytes).toString('latin1');
+      if (hasPdfTextOperators(inflated)) return true;
+    } catch {
+      // Corrupt or non-Flate streams are ignored; OCR remains enabled.
+    }
+  }
+  return false;
+}
+
 function inspectPdfTextLayer(filePath: string): PdfTextLayerPreflight {
   const sample = fs.readFileSync(filePath).subarray(0, 1024 * 1024).toString('latin1');
   if (/\/(?:Producer|Creator)\s*\((?:[^\\)]|\\.)*(?:pdfTeX|LaTeX|LuaTeX|XeTeX)/i.test(sample)) {
     return { hasTextLayer: true, reason: 'tex-producer' };
   }
-  if (/\bBT\b[\s\S]{0,5000}\b(?:Tj|TJ|'|")\b[\s\S]{0,5000}\bET\b/.test(sample)) {
+  if (hasPdfTextOperators(sample) || sampleHasCompressedPdfTextOperators(sample)) {
     return { hasTextLayer: true, reason: 'text-operators' };
   }
   return { hasTextLayer: false };

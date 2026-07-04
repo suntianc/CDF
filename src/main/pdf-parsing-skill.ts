@@ -177,8 +177,8 @@ export interface PdfRecoveryOverlay {
 }
 
 export type PdfRecoveryCapabilityResult =
-  | { ok: true; markdown: string }
-  | { ok: false; message: string };
+  | { ok: true; markdown: string; target?: Pick<PdfRecoveryTarget, 'kind' | 'page' | 'blockId'> }
+  | { ok: false; message: string; target?: Pick<PdfRecoveryTarget, 'kind' | 'page' | 'blockId'> };
 
 export interface PdfRecoveryCapability {
   route: PdfRecoveryRoute;
@@ -469,6 +469,7 @@ export function getPdfParsingSkillMarkdown(): string {
     'Recovery scripts operate on the artifact directory produced by `baseline-parse.js`.',
     'Use `set-preference.js` and `clear-preference.js` only for the managed Project `AGENTS.md` PDF recovery preference block.',
     'Use `apply-recovery.js` only after an explicit route selection and any required plan-level confirmation; provide recovery results from the selected capability as a JSON array.',
+    'Each recovery result may include `target: { kind, page, blockId }`; `apply-recovery.js` matches by target first and falls back to array order only for older result files.',
     '',
     '## Failure Handling',
     '',
@@ -1233,6 +1234,19 @@ function findBlockTextRange(
 ): { start: number; end: number } | null {
   let searchFrom = 0;
   for (const block of baseline.blocks) {
+    if (
+      block.id === blockId
+      && Number.isInteger(block.location.textStart)
+      && Number.isInteger(block.location.textEnd)
+      && (block.location.textStart as number) >= 0
+      && (block.location.textEnd as number) > (block.location.textStart as number)
+      && (block.location.textEnd as number) <= baseline.markdown.length
+    ) {
+      return {
+        start: block.location.textStart as number,
+        end: block.location.textEnd as number,
+      };
+    }
     const start = baseline.markdown.indexOf(block.text, searchFrom);
     if (start === -1) continue;
     const end = start + block.text.length;

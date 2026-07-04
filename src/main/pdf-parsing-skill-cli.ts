@@ -21,6 +21,7 @@ import {
   type PdfRecoveryPlan,
   type PdfRecoveryRoute,
   type PdfRecoveryRouteDecision,
+  type PdfRecoveryTarget,
 } from './pdf-parsing-skill';
 
 type ParsedArgs = Record<string, string | true>;
@@ -184,6 +185,14 @@ function recoveryResultsFor(args: ParsedArgs): PdfRecoveryCapabilityResult[] {
   return parsed;
 }
 
+function recoveryTargetKey(target: Pick<PdfRecoveryTarget, 'kind' | 'page' | 'blockId'>): string {
+  return [
+    target.kind,
+    target.page ?? '',
+    target.blockId ?? '',
+  ].join(':');
+}
+
 async function applyRecovery(args: ParsedArgs): Promise<void> {
   const artifactDir = requiredStringArg(args, 'artifact');
   const route = requiredStringArg(args, 'route');
@@ -191,7 +200,17 @@ async function applyRecovery(args: ParsedArgs): Promise<void> {
 
   const plan = readJson<PdfRecoveryPlan>(path.join(artifactDir, 'recovery-plan.json'));
   const results = recoveryResultsFor(args);
-  let resultIndex = 0;
+  const targetResults = new Map<string, PdfRecoveryCapabilityResult[]>();
+  const positionalResults: PdfRecoveryCapabilityResult[] = [];
+  for (const result of results) {
+    if (result.target?.kind) {
+      const key = recoveryTargetKey(result.target);
+      targetResults.set(key, [...targetResults.get(key) ?? [], result]);
+    } else {
+      positionalResults.push(result);
+    }
+  }
+  let positionalResultIndex = 0;
   const decision: Extract<PdfRecoveryRouteDecision, { status: 'selected' }> = {
     status: 'selected',
     route,
@@ -202,16 +221,33 @@ async function applyRecovery(args: ParsedArgs): Promise<void> {
   const capability: PdfRecoveryCapability = {
     route,
     label: stringArg(args, 'capability-label') ?? 'script-provided recovery results',
-    recover: async () => {
-      const result = results[resultIndex];
-      resultIndex += 1;
-      if (!result) return { ok: false, message: 'No recovery result was provided for this target.' };
-      return result;
+    recover: async (target) => {
+      const key = recoveryTargetKey(target);
+      const matchedResults = targetResults.get(key);
+      if (matchedResults?.length) {
+        const result = matchedResults.shift() as PdfRecoveryCapabilityResult;
+        if (matchedResults.length === 0) targetResults.delete(key);
+        return result;
+      }
+      const positionalResult = positionalResults[positionalResultIndex];
+      positionalResultIndex += 1;
+      if (!positionalResult) return { ok: false, message: 'No recovery result was provided for this target.' };
+      return positionalResult;
     },
   };
 
   recordPdfRecoveryRouteSelection(artifactDir, decision);
   const result = await executePdfRecoveryPlan(artifactDir, plan, decision, capability);
+  const unusedResultCount = Array.from(targetResults.values()).reduce((count, values) => count + values.length, 0)
+    + Math.max(0, positionalResults.length - positionalResultIndex);
+  if (unusedResultCount > 0) {
+    result.diagnostics.push({
+      severity: 'warning',
+      code: 'RECOVERY_FAILED',
+      message: `Ignored ${unusedResultCount} recovery result(s) that did not match any recovery target.`,
+    });
+    writeJson(path.join(artifactDir, 'diagnostics.json'), result.diagnostics);
+  }
   output({ status: 'completed', artifactDir, overlays: result.overlays, diagnostics: result.diagnostics });
 }
 

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import zlib from 'zlib';
 import { execFileSync } from 'child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getBuiltInSkillDirs } from './deepagent/skill-manager';
@@ -73,6 +74,20 @@ function writeTextLayerFallbackFixture(markdown: string): string {
     `}));`,
   ].join('\n'), 'utf-8');
   return `${process.execPath} ${fallbackPath}`;
+}
+
+function writeCompressedStreamPdf(content: string): void {
+  const compressed = zlib.deflateSync(Buffer.from(content, 'utf-8'));
+  fs.writeFileSync(pdfPath, Buffer.concat([
+    Buffer.from([
+      '%PDF-1.7',
+      '1 0 obj',
+      `<< /Length ${compressed.length} /Filter /FlateDecode >>`,
+      'stream',
+    ].join('\n') + '\n', 'latin1'),
+    compressed,
+    Buffer.from('\nendstream\nendobj\n', 'latin1'),
+  ]));
 }
 
 beforeEach(() => {
@@ -298,6 +313,37 @@ describe('PDF Parsing Skill baseline artifact', () => {
     });
   });
 
+  it('records block character offsets in the baseline artifact', async () => {
+    const markdown = [
+      '# Results',
+      '',
+      'First extracted line.',
+      '<span id="page-2-0"></span>Second extracted line.',
+      '',
+      'Tail paragraph.',
+    ].join('\n');
+    const runner: MarkerRunner = {
+      parse: async () => ({
+        markdown,
+        outputDir: projectPath,
+        elapsedMs: 25,
+      }),
+    };
+
+    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+      runner,
+      now: () => new Date('2026-07-02T15:55:00.000Z'),
+      createJobId: () => 'job-block-offsets',
+    });
+    const baseline = JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'baseline.json'), 'utf-8'));
+    const paragraph = baseline.blocks.find((block: { id: string }) => block.id === 'paragraph-0002');
+
+    expect(paragraph.location).toMatchObject({
+      textStart: markdown.indexOf('First extracted line.'),
+      textEnd: markdown.indexOf('\n\nTail paragraph.'),
+    });
+  });
+
   it('writes a diagnostics artifact and recovery plan when Marker fails before a baseline exists', async () => {
     const runner: MarkerRunner = {
       parse: async () => {
@@ -492,6 +538,77 @@ describe('PDF Parsing Skill baseline artifact', () => {
     });
   });
 
+  it('baseline entrypoint script disables OCR for compressed text-layer PDF streams', () => {
+    writeCompressedStreamPdf([
+      'BT',
+      '(Compressed text layer) Tj',
+      'ET',
+    ].join('\n'));
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const argsLogPath = path.join(projectPath, 'marker-args.json');
+    const markerCommand = writeMarkerFixture('# Compressed text-layer result', { argsLogPath });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: markerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:42:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-disable-ocr-compressed',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(fs.readFileSync(argsLogPath, 'utf-8'))).toContain('--disable_ocr');
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'diagnostics.json'), 'utf-8'))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'info', code: 'TEXT_LAYER_OCR_DISABLED' }),
+    ]));
+  });
+
+  it('baseline entrypoint script keeps OCR enabled for compressed streams without text operators', () => {
+    writeCompressedStreamPdf([
+      'q',
+      '10 0 0 10 0 0 cm',
+      '/Im1 Do',
+      'Q',
+    ].join('\n'));
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const argsLogPath = path.join(projectPath, 'marker-args.json');
+    const markerCommand = writeMarkerFixture('# Scanned-page result', { argsLogPath });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: markerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:43:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-keep-ocr-compressed',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(fs.readFileSync(argsLogPath, 'utf-8'))).not.toContain('--disable_ocr');
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'diagnostics.json'), 'utf-8'))).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'TEXT_LAYER_OCR_DISABLED' }),
+    ]));
+  });
+
   it('baseline entrypoint script uses the text-layer fallback when Marker is unavailable', () => {
     fs.writeFileSync(pdfPath, [
       '%PDF-1.7',
@@ -658,6 +775,118 @@ describe('PDF Parsing Skill baseline artifact', () => {
     ], { encoding: 'utf-8' });
     expect(JSON.parse(finalizeOutput)).toMatchObject({ status: 'completed' });
     expect(fs.readFileSync(path.join(artifactDir, 'recovered-view.md'), 'utf-8')).toContain('| Accuracy | 0.99 |');
+  });
+
+  it('recovery entrypoint script matches recovery results by target before positional fallback', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const artifactDir = path.join(projectPath, '.cdf', 'pdf-parses', 'targeted-recovery');
+    fs.mkdirSync(artifactDir, { recursive: true });
+    fs.writeFileSync(path.join(artifactDir, 'diagnostics.json'), '[]\n', 'utf-8');
+    fs.writeFileSync(path.join(artifactDir, 'provenance.json'), '{}\n', 'utf-8');
+    fs.writeFileSync(path.join(artifactDir, 'recovery-plan.json'), JSON.stringify({
+      artifactId: 'targeted-recovery',
+      targets: [
+        { kind: 'block', blockId: 'paragraph-0001', page: 1, reasons: ['WEAK_SOURCE_LOCATION'] },
+        { kind: 'block', blockId: 'paragraph-0002', page: 2, reasons: ['WEAK_SOURCE_LOCATION'] },
+      ],
+      candidateRoutes: ['vision-capability'],
+      routeRisks: [],
+      requiresPlanConfirmation: false,
+      requiresManualPageSelection: false,
+    }), 'utf-8');
+    const resultsFile = path.join(projectPath, 'targeted-recovery-results.json');
+    fs.writeFileSync(resultsFile, JSON.stringify([
+      {
+        target: { kind: 'block', blockId: 'paragraph-0002', page: 2 },
+        ok: true,
+        markdown: 'Recovered paragraph two.',
+      },
+      {
+        target: { kind: 'block', blockId: 'paragraph-0001', page: 1 },
+        ok: true,
+        markdown: 'Recovered paragraph one.',
+      },
+    ]), 'utf-8');
+
+    const applyOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'apply-recovery.js'),
+      '--artifact',
+      artifactDir,
+      '--route',
+      'vision-capability',
+      '--plan-confirmed',
+      '--results-file',
+      resultsFile,
+    ], { encoding: 'utf-8' });
+
+    expect(JSON.parse(applyOutput)).toMatchObject({
+      status: 'completed',
+      overlays: [
+        expect.objectContaining({
+          target: expect.objectContaining({ blockId: 'paragraph-0001' }),
+          markdown: 'Recovered paragraph one.',
+        }),
+        expect.objectContaining({
+          target: expect.objectContaining({ blockId: 'paragraph-0002' }),
+          markdown: 'Recovered paragraph two.',
+        }),
+      ],
+    });
+  });
+
+  it('recovery entrypoint script diagnoses extra recovery results that match no plan target', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const artifactDir = path.join(projectPath, '.cdf', 'pdf-parses', 'extra-recovery-result');
+    fs.mkdirSync(artifactDir, { recursive: true });
+    fs.writeFileSync(path.join(artifactDir, 'diagnostics.json'), '[]\n', 'utf-8');
+    fs.writeFileSync(path.join(artifactDir, 'provenance.json'), '{}\n', 'utf-8');
+    fs.writeFileSync(path.join(artifactDir, 'recovery-plan.json'), JSON.stringify({
+      artifactId: 'extra-recovery-result',
+      targets: [
+        { kind: 'block', blockId: 'paragraph-0001', page: 1, reasons: ['WEAK_SOURCE_LOCATION'] },
+      ],
+      candidateRoutes: ['vision-capability'],
+      routeRisks: [],
+      requiresPlanConfirmation: false,
+      requiresManualPageSelection: false,
+    }), 'utf-8');
+    const resultsFile = path.join(projectPath, 'extra-recovery-results.json');
+    fs.writeFileSync(resultsFile, JSON.stringify([
+      {
+        target: { kind: 'block', blockId: 'paragraph-0001', page: 1 },
+        ok: true,
+        markdown: 'Recovered paragraph one.',
+      },
+      {
+        target: { kind: 'block', blockId: 'paragraph-9999', page: 9 },
+        ok: true,
+        markdown: 'Orphan result.',
+      },
+    ]), 'utf-8');
+
+    const applyOutput = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'apply-recovery.js'),
+      '--artifact',
+      artifactDir,
+      '--route',
+      'vision-capability',
+      '--plan-confirmed',
+      '--results-file',
+      resultsFile,
+    ], { encoding: 'utf-8' });
+    const result = JSON.parse(applyOutput);
+
+    expect(result.overlays).toHaveLength(1);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'warning',
+        code: 'RECOVERY_FAILED',
+        message: expect.stringContaining('Ignored 1 recovery result'),
+      }),
+    ]));
+    expect(JSON.parse(fs.readFileSync(path.join(artifactDir, 'diagnostics.json'), 'utf-8'))).toEqual(result.diagnostics);
   });
 });
 
@@ -1436,5 +1665,65 @@ describe('Recovered Paper Parse View and recovery reruns', () => {
       baselineLength: baseline.markdown.length,
       overlayCount: 0,
     });
+  });
+
+  it('uses recorded block character offsets when marker anchors make block text non-contiguous', () => {
+    const artifactDir = path.join(projectPath, '.cdf', 'pdf-parses', 'parse-offsets');
+    fs.mkdirSync(artifactDir, { recursive: true });
+    const markdown = [
+      '# Results',
+      '',
+      'First extracted line.',
+      '<span id="page-2-0"></span>Second extracted line.',
+      '',
+      'Tail paragraph.',
+      '',
+    ].join('\n');
+    const replacementStart = markdown.indexOf('First extracted line.');
+    const replacementEnd = markdown.indexOf('\n\nTail paragraph.');
+    const baseline = {
+      parser: 'marker' as const,
+      sourceFile: pdfPath,
+      markdown,
+      diagnostics: [],
+      blocks: [
+        {
+          id: 'paragraph-0001',
+          type: 'paragraph' as const,
+          text: 'First extracted line.\nSecond extracted line.',
+          section: 'Results',
+          pageStart: 2,
+          pageEnd: 2,
+          location: {
+            pageStart: 2,
+            pageEnd: 2,
+            section: 'Results',
+            markerAnchor: 'page:2',
+            textStart: replacementStart,
+            textEnd: replacementEnd,
+          },
+        },
+      ],
+    };
+
+    const result = finalizeRecoveredPaperParseView(artifactDir, baseline, [
+      {
+        id: 'overlay-0001',
+        target: { kind: 'block', blockId: 'paragraph-0001', page: 2, reasons: ['WEAK_SOURCE_LOCATION'] },
+        markdown: 'Recovered paragraph from offsets.',
+        provenance: {
+          recoveryCapability: 'mock local capability',
+          route: 'local-first',
+          source: { kind: 'block', page: 2, blockId: 'paragraph-0001' },
+          diagnosticCode: 'WEAK_SOURCE_LOCATION',
+          meteredNetworkApproved: false,
+        },
+      },
+    ], [], { comparisonTraceEnabled: false });
+
+    expect(result.recoveredMarkdown).toContain('Recovered paragraph from offsets.');
+    expect(result.recoveredMarkdown).toContain('Tail paragraph.');
+    expect(result.recoveredMarkdown).not.toContain('First extracted line.');
+    expect(result.recoveredMarkdown).not.toContain('Second extracted line.');
   });
 });
