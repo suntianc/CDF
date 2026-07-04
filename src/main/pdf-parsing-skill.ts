@@ -597,20 +597,22 @@ function splitConfiguredCommand(command) {
   const parts = [];
   let current = '';
   let quote = null;
-  let escaping = false;
   const pushCurrent = () => {
     if (!current) return;
     parts.push(current);
     current = '';
   };
-  for (const char of command) {
-    if (escaping) {
-      current += char;
-      escaping = false;
-      continue;
-    }
+  const isEscapable = (char) => char === '"' || char === "'" || char === '\\\\' || char === ' ';
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
     if (char === '\\\\' && quote !== "'") {
-      escaping = true;
+      const next = command[index + 1];
+      if (isEscapable(next)) {
+        current += next;
+        index += 1;
+      } else {
+        current += char;
+      }
       continue;
     }
     if (quote) {
@@ -631,7 +633,6 @@ function splitConfiguredCommand(command) {
     }
     current += char;
   }
-  if (escaping) current += '\\\\';
   pushCurrent();
   return parts;
 }

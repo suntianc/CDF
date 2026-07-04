@@ -822,6 +822,34 @@ describe('PDF recovery capability discovery', () => {
       viableRoutes: ['local-first'],
     });
   });
+
+  it('discovery entrypoint preserves unquoted Windows-style backslashes in the configured Marker command', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const markerProbe = path.join(projectPath, 'marker-probe.js');
+    const windowsMarkerPath = 'C:\\tools\\marker.exe';
+    fs.writeFileSync(markerProbe, [
+      'const expected = process.env.CDF_EXPECTED_MARKER_PATH;',
+      'process.exit(process.argv.includes(expected) && process.argv.includes("--help") ? 0 : 2);',
+    ].join('\n'), 'utf-8');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: `${process.execPath} ${markerProbe} ${windowsMarkerPath}`,
+        CDF_EXPECTED_MARKER_PATH: windowsMarkerPath,
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      viableRoutes: ['local-first'],
+    });
+  });
 });
 
 describe('PDF recovery route choice and plan-level confirmation', () => {

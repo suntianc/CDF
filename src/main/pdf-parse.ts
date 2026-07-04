@@ -559,7 +559,6 @@ export function splitConfiguredCommand(command: string): string[] {
   const parts: string[] = [];
   let current = '';
   let quote: '"' | "'" | null = null;
-  let escaping = false;
 
   const pushCurrent = () => {
     if (!current) return;
@@ -567,14 +566,19 @@ export function splitConfiguredCommand(command: string): string[] {
     current = '';
   };
 
-  for (const char of command) {
-    if (escaping) {
-      current += char;
-      escaping = false;
-      continue;
-    }
+  const isEscapable = (char: string | undefined) =>
+    char === '"' || char === "'" || char === '\\' || char === ' ';
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
     if (char === '\\' && quote !== "'") {
-      escaping = true;
+      const next = command[index + 1];
+      if (isEscapable(next)) {
+        current += next;
+        index += 1;
+      } else {
+        current += char;
+      }
       continue;
     }
     if (quote) {
@@ -595,7 +599,6 @@ export function splitConfiguredCommand(command: string): string[] {
     }
     current += char;
   }
-  if (escaping) current += '\\';
   pushCurrent();
   return parts;
 }
