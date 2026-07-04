@@ -223,7 +223,7 @@ function makeBlock(
   outputDir: string,
   index: number,
 ): StructuredPaperBlock {
-  const imageMatch = type === 'figure' ? text.match(/!\[[^\]]*]\(([^)]+)\)/) : null;
+  const imageMatch = text.match(/!\[[^\]]*]\(([^)]+)\)/);
   const imagePath = imageMatch
     ? path.resolve(outputDir, imageMatch[1])
     : undefined;
@@ -246,7 +246,7 @@ function makeBlock(
 }
 
 function classifyParagraph(text: string, section: string): StructuredPaperBlockType {
-  if (/^!\[[^\]]*]\([^)]+\)/.test(text)) return 'figure';
+  if (/!\[[^\]]*]\([^)]+\)/.test(text)) return 'figure';
   if (/^\s*(\[\d+]|references?\b|\d+\.\s+[A-Z]).*/i.test(text) && /references?/i.test(section)) {
     return 'reference';
   }

@@ -231,6 +231,37 @@ describe('PDF Parsing Skill baseline artifact', () => {
     expect(result.conversationSummary).not.toContain('"blocks"');
   });
 
+  it('keeps Marker image references readable inside the baseline artifact', async () => {
+    const imageBytes = Buffer.from('fake marker image bytes');
+    const runner: MarkerRunner = {
+      parse: async (input) => {
+        fs.mkdirSync(input.outputDir, { recursive: true });
+        fs.writeFileSync(path.join(input.outputDir, '_page_1_Figure_0.jpeg'), imageBytes);
+        return {
+          markdown: [
+            '# Abstract',
+            '',
+            '<span id="page-1-0"></span>![](_page_1_Figure_0.jpeg)',
+            '',
+            'Parsed by Marker.',
+          ].join('\n'),
+          outputDir: input.outputDir,
+          elapsedMs: 25,
+        };
+      },
+    };
+
+    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+      runner,
+      now: () => new Date('2026-07-02T15:45:00.000Z'),
+      createJobId: () => 'job-artifact-images',
+    });
+
+    expect(result.status).toBe('completed');
+    expect(fs.readFileSync(path.join(result.artifactDir, 'recovered-view.md'), 'utf-8')).toContain('![](_page_1_Figure_0.jpeg)');
+    expect(fs.readFileSync(path.join(result.artifactDir, '_page_1_Figure_0.jpeg'))).toEqual(imageBytes);
+  });
+
   it('writes a diagnostics artifact and recovery plan when Marker fails before a baseline exists', async () => {
     const runner: MarkerRunner = {
       parse: async () => {
@@ -1310,6 +1341,35 @@ describe('Recovered Paper Parse View and recovery reruns', () => {
     expect(result.conversationSummary).toContain('best recovered PDF parse');
     expect(result.conversationSummary).toContain('RECOVERY_FAILED');
     expect(result.conversationSummary).not.toContain('baseline-vs-recovery');
+
+    const imageArtifactDir = path.join(projectPath, '.cdf', 'pdf-parses', 'parse-images');
+    fs.mkdirSync(imageArtifactDir, { recursive: true });
+    const imageSourcePath = path.join(projectPath, '_page_2_Figure_0.jpeg');
+    const imageBytes = Buffer.from('finalized marker image bytes');
+    fs.writeFileSync(imageSourcePath, imageBytes);
+    const imageBaseline = {
+      ...baseline,
+      markdown: '# Figure\n\n![](_page_2_Figure_0.jpeg)\n',
+      blocks: [
+        {
+          id: 'figure-0001',
+          type: 'figure' as const,
+          text: '![](_page_2_Figure_0.jpeg)',
+          section: 'Figure',
+          pageStart: 2,
+          pageEnd: 2,
+          location: {
+            pageStart: 2,
+            pageEnd: 2,
+            section: 'Figure',
+            markerAnchor: 'page:2',
+            imagePath: imageSourcePath,
+          },
+        },
+      ],
+    };
+    finalizeRecoveredPaperParseView(imageArtifactDir, imageBaseline, [], [], { comparisonTraceEnabled: false });
+    expect(fs.readFileSync(path.join(imageArtifactDir, '_page_2_Figure_0.jpeg'))).toEqual(imageBytes);
 
     expect(shouldRerunMarkerBaseline(artifactDir, {
       sourcePath: pdfPath,

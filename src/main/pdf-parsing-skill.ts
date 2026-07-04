@@ -1293,6 +1293,7 @@ export function finalizeRecoveredPaperParseView(
   conversationSummary: string;
 } {
   const recoveredMarkdown = applyRecoveryOverlays(baseline, overlays);
+  copyBaselineImageAssets(artifactDir, baseline);
   fs.writeFileSync(path.join(artifactDir, 'recovered-view.md'), recoveredMarkdown, 'utf-8');
   writeJson(path.join(artifactDir, 'overlays.json'), overlays);
   writeJson(path.join(artifactDir, 'diagnostics.json'), diagnostics);
@@ -1374,6 +1375,38 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
 }
 
+function markdownImageReferences(markdown: string): string[] {
+  return Array.from(markdown.matchAll(/!\[[^\]]*]\(([^)]+)\)/g), (match) => match[1]);
+}
+
+function normalizeArtifactImagePath(reference: string): string | null {
+  const trimmed = reference.trim().split(/[?#]/, 1)[0];
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed) || path.isAbsolute(trimmed)) return null;
+  const normalized = path.normalize(trimmed);
+  if (normalized === '..' || normalized.startsWith(`..${path.sep}`)) return null;
+  return normalized;
+}
+
+function copyBaselineImageAssets(artifactDir: string, parse: StructuredPaperParse): void {
+  const imageSources = new Map<string, string>();
+  for (const block of parse.blocks) {
+    const imagePath = block.location.imagePath;
+    if (imagePath) {
+      imageSources.set(path.basename(imagePath), imagePath);
+    }
+  }
+
+  for (const reference of markdownImageReferences(parse.markdown)) {
+    const artifactRelativePath = normalizeArtifactImagePath(reference);
+    if (!artifactRelativePath) continue;
+    const sourcePath = imageSources.get(path.basename(artifactRelativePath));
+    if (!sourcePath || !fs.existsSync(sourcePath)) continue;
+    const destinationPath = path.join(artifactDir, artifactRelativePath);
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.copyFileSync(sourcePath, destinationPath);
+  }
+}
+
 function summarizeDiagnostics(diagnostics: PdfParseDiagnostic[]): string {
   if (diagnostics.length === 0) return 'No diagnostics.';
   return diagnostics.map((diagnostic) => diagnostic.code).join(', ');
@@ -1430,6 +1463,7 @@ function writeBaselineArtifact(
     baseline: baselineProvenance,
   });
   writeJson(path.join(artifactDir, 'baseline.json'), parse);
+  copyBaselineImageAssets(artifactDir, parse);
   fs.writeFileSync(path.join(artifactDir, 'recovered-view.md'), parse.markdown, 'utf-8');
   writeJson(path.join(artifactDir, 'diagnostics.json'), diagnostics);
   writeJson(path.join(artifactDir, 'overlays.json'), []);
