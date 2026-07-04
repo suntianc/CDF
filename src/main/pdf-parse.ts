@@ -4,7 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-export type StructuredPaperParser = 'marker';
+export type StructuredPaperParser = 'marker' | 'pymupdf-text-layer';
 export type StructuredPaperBlockType = 'heading' | 'paragraph' | 'formula' | 'table' | 'figure' | 'reference';
 export type PdfParseDiagnosticSeverity = 'info' | 'warning' | 'error';
 export type PdfParseStatus = 'running' | 'completed' | 'failed' | 'canceled';
@@ -15,6 +15,9 @@ export type PdfParseDiagnosticCode =
   | 'MARKER_COLD_START'
   | 'MARKER_TIMEOUT'
   | 'MARKER_EXIT_ERROR'
+  | 'MARKER_ALREADY_RUNNING'
+  | 'TEXT_LAYER_OCR_DISABLED'
+  | 'TEXT_LAYER_FALLBACK_USED'
   | 'SLOW_PARSE'
   | 'OCR_ARTIFACTS'
   | 'MISSING_TABLE_STRUCTURE'
@@ -76,8 +79,10 @@ export interface MarkerRunnerInput {
 }
 
 export interface MarkerRunnerResult {
+  parser?: StructuredPaperParser;
   markdown: string;
   outputDir: string;
+  diagnostics?: PdfParseDiagnostic[];
   stderr?: string;
   elapsedMs?: number;
 }
@@ -98,7 +103,7 @@ export interface PdfParseJobSnapshot {
   jobId: string;
   status: PdfParseStatus;
   sourceFile: string;
-  parser: 'marker';
+  parser: StructuredPaperParser;
   createdAt: number;
   updatedAt: number;
   diagnostics: PdfParseDiagnostic[];
@@ -366,11 +371,12 @@ function toStructuredPaperParse(
   const mapped = parseMarkdownBlocks(result.markdown, result.outputDir);
   const diagnostics = [
     ...existingDiagnostics,
+    ...(result.diagnostics ?? []),
     ...mapped.diagnostics,
     ...detectQualityDiagnostics(result.markdown, result.elapsedMs, slowParseThresholdMs),
   ];
   return {
-    parser: 'marker',
+    parser: result.parser ?? 'marker',
     sourceFile,
     markdown: result.markdown,
     blocks: mapped.blocks,
@@ -400,7 +406,10 @@ function markJob(
 ): void {
   job.status = status;
   job.updatedAt = now();
-  if (patch.parse !== undefined) job.parse = patch.parse;
+  if (patch.parse !== undefined) {
+    job.parse = patch.parse;
+    job.parser = patch.parse.parser;
+  }
   if (patch.diagnostics !== undefined) job.diagnostics = patch.diagnostics;
   if (patch.error !== undefined) job.error = patch.error;
 }
@@ -463,12 +472,31 @@ export async function parsePDF(
       );
       markJob(job, 'completed', now, { parse, diagnostics: parse.diagnostics });
     })
-    .catch((error) => {
+    .catch(async (error) => {
       const message = errorMessage(error);
       const code: PdfParseDiagnosticCode = controller.signal.aborted ? 'PARSE_CANCELED' : mapMarkerErrorCode(error);
       const severity: PdfParseDiagnosticSeverity = controller.signal.aborted ? 'info' : 'error';
       if (job.status === 'canceled' && code === 'PARSE_CANCELED') {
         return;
+      }
+      if (!controller.signal.aborted && shouldAttemptTextLayerFallback(code)) {
+        const markerFailureDiagnostic = makeDiagnostic('warning', code, message);
+        const fallbackResult = await tryTextLayerFallback({
+          filePath,
+          outputDir,
+          signal: controller.signal,
+          markerFailureCode: code,
+        });
+        if (fallbackResult) {
+          const parse = toStructuredPaperParse(
+            filePath,
+            fallbackResult,
+            [...job.diagnostics, markerFailureDiagnostic],
+            dependencies.slowParseThresholdMs ?? DEFAULT_SLOW_PARSE_THRESHOLD_MS,
+          );
+          markJob(job, 'completed', now, { parse, diagnostics: parse.diagnostics });
+          return;
+        }
       }
       const diagnostic = makeDiagnostic(severity, code, message);
       markJob(job, controller.signal.aborted ? 'canceled' : 'failed', now, {
@@ -517,10 +545,94 @@ export async function parsePDF(
 
 function mapMarkerErrorCode(error: unknown): PdfParseDiagnosticCode {
   const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  if (record.code === 'MARKER_ALREADY_RUNNING') return 'MARKER_ALREADY_RUNNING';
   if (record.code === 'ENOENT') return 'MARKER_UNAVAILABLE';
   if (record.exitCode === -2) return 'MARKER_TIMEOUT';
   if (record.exitCode !== undefined) return 'MARKER_EXIT_ERROR';
   return 'MARKER_EXIT_ERROR';
+}
+
+function processLooksAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function markerLockPath(filePath: string): string {
+  const lockRoot = path.join(getDefaultManagedTempRoot(), 'marker-locks');
+  fs.mkdirSync(lockRoot, { recursive: true });
+  const hash = crypto.createHash('sha256').update(path.resolve(filePath)).digest('hex');
+  return path.join(lockRoot, `${hash}.lock`);
+}
+
+function readLockPid(lockPath: string): number | null {
+  try {
+    const payload = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as { pid?: unknown };
+    return typeof payload.pid === 'number' ? payload.pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function acquireMarkerRunLock(filePath: string): () => void {
+  const lockPath = markerLockPath(filePath);
+  const lockPayload = `${JSON.stringify({
+    pid: process.pid,
+    filePath: path.resolve(filePath),
+    startedAt: new Date().toISOString(),
+  }, null, 2)}\n`;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      fs.writeFileSync(lockPath, lockPayload, { encoding: 'utf-8', flag: 'wx' });
+      return () => {
+        fs.rmSync(lockPath, { force: true });
+      };
+    } catch (error) {
+      const record = error && typeof error === 'object' ? error as NodeJS.ErrnoException : {};
+      if (record.code !== 'EEXIST') throw error;
+      const existingPid = readLockPid(lockPath);
+      if (existingPid !== null && !processLooksAlive(existingPid)) {
+        fs.rmSync(lockPath, { force: true });
+        continue;
+      }
+      const alreadyRunning = new Error(`Marker is already running for PDF: ${filePath}`) as Error & { code?: string };
+      alreadyRunning.code = 'MARKER_ALREADY_RUNNING';
+      throw alreadyRunning;
+    }
+  }
+
+  const alreadyRunning = new Error(`Marker is already running for PDF: ${filePath}`) as Error & { code?: string };
+  alreadyRunning.code = 'MARKER_ALREADY_RUNNING';
+  throw alreadyRunning;
+}
+
+interface PdfTextLayerPreflight {
+  hasTextLayer: boolean;
+  reason?: 'tex-producer' | 'text-operators';
+}
+
+function inspectPdfTextLayer(filePath: string): PdfTextLayerPreflight {
+  const sample = fs.readFileSync(filePath).subarray(0, 1024 * 1024).toString('latin1');
+  if (/\/(?:Producer|Creator)\s*\((?:[^\\)]|\\.)*(?:pdfTeX|LaTeX|LuaTeX|XeTeX)/i.test(sample)) {
+    return { hasTextLayer: true, reason: 'tex-producer' };
+  }
+  if (/\bBT\b[\s\S]{0,5000}\b(?:Tj|TJ|'|")\b[\s\S]{0,5000}\bET\b/.test(sample)) {
+    return { hasTextLayer: true, reason: 'text-operators' };
+  }
+  return { hasTextLayer: false };
+}
+
+function shouldAutoDisableOcr(args: string[], filePath: string): PdfTextLayerPreflight {
+  if (args.includes('--disable_ocr')) return { hasTextLayer: false };
+  return inspectPdfTextLayer(filePath);
+}
+
+function shouldAttemptTextLayerFallback(code: PdfParseDiagnosticCode): boolean {
+  return code === 'MARKER_UNAVAILABLE' || code === 'MARKER_TIMEOUT' || code === 'MARKER_EXIT_ERROR';
 }
 
 export function getPdfParseJob(jobId: string): PdfParseJobSnapshot | null {
@@ -676,6 +788,134 @@ function runMarkerCommand(
   });
 }
 
+interface TextLayerFallbackInput {
+  filePath: string;
+  outputDir: string;
+  signal: AbortSignal;
+  markerFailureCode: PdfParseDiagnosticCode;
+}
+
+interface TextLayerFallbackCommandResult {
+  markdown: string;
+  engine: string;
+  stderr?: string;
+  elapsedMs?: number;
+}
+
+function parseTextLayerFallbackStdout(stdout: string, defaultEngine: string): Pick<TextLayerFallbackCommandResult, 'markdown' | 'engine'> | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  try {
+    const payload = JSON.parse(trimmed) as { ok?: unknown; markdown?: unknown; engine?: unknown };
+    if (payload.ok === false) return null;
+    if (typeof payload.markdown === 'string' && payload.markdown.trim().length > 0) {
+      return {
+        markdown: payload.markdown,
+        engine: typeof payload.engine === 'string' && payload.engine.trim() ? payload.engine : defaultEngine,
+      };
+    }
+  } catch {
+    return {
+      markdown: stdout.trimEnd(),
+      engine: defaultEngine,
+    };
+  }
+  return null;
+}
+
+async function runTextLayerFallbackCommand(
+  command: string,
+  args: string[],
+  filePath: string,
+  signal: AbortSignal,
+  defaultEngine: string,
+): Promise<TextLayerFallbackCommandResult | null> {
+  const startedAt = Date.now();
+  let result: Awaited<ReturnType<typeof runMarkerCommand>>;
+  try {
+    result = await runMarkerCommand(command, [...args, filePath], signal);
+  } catch {
+    return null;
+  }
+  if (result.exitCode !== 0) return null;
+  const parsed = parseTextLayerFallbackStdout(result.stdout, defaultEngine);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    stderr: result.stderr,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
+async function runConfiguredTextLayerFallback(
+  filePath: string,
+  signal: AbortSignal,
+): Promise<TextLayerFallbackCommandResult | null> {
+  const configured = process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND?.trim();
+  if (!configured) return null;
+  const [command, ...args] = splitConfiguredCommand(configured);
+  if (!command) return null;
+  return runTextLayerFallbackCommand(command, args, filePath, signal, 'text-layer-command');
+}
+
+const PYMUPDF_TEXT_LAYER_SCRIPT = [
+  'import json, sys',
+  'try:',
+  '    import fitz',
+  'except Exception as exc:',
+  '    print(json.dumps({"ok": False, "error": "PyMuPDF unavailable: " + str(exc)}))',
+  '    sys.exit(3)',
+  'doc = fitz.open(sys.argv[1])',
+  'pages = []',
+  'for index, page in enumerate(doc):',
+  '    text = page.get_text("text").strip()',
+  '    if text:',
+  '        pages.append("<!-- page:%d -->\\n\\n%s" % (index + 1, text))',
+  'markdown = "\\n\\n".join(pages).strip()',
+  'if not markdown:',
+  '    print(json.dumps({"ok": False, "error": "PDF text layer produced no text."}))',
+  '    sys.exit(4)',
+  'print(json.dumps({"ok": True, "engine": "pymupdf", "markdown": markdown}))',
+].join('\n');
+
+async function runDefaultPymupdfTextLayerFallback(
+  filePath: string,
+  signal: AbortSignal,
+): Promise<TextLayerFallbackCommandResult | null> {
+  for (const command of ['python3', 'python']) {
+    const result = await runTextLayerFallbackCommand(
+      command,
+      ['-c', PYMUPDF_TEXT_LAYER_SCRIPT],
+      filePath,
+      signal,
+      'pymupdf',
+    );
+    if (result) return result;
+  }
+  return null;
+}
+
+async function tryTextLayerFallback(input: TextLayerFallbackInput): Promise<MarkerRunnerResult | null> {
+  if (!inspectPdfTextLayer(input.filePath).hasTextLayer) return null;
+  const result = await runConfiguredTextLayerFallback(input.filePath, input.signal)
+    ?? await runDefaultPymupdfTextLayerFallback(input.filePath, input.signal);
+  if (!result) return null;
+  return {
+    parser: 'pymupdf-text-layer',
+    markdown: result.markdown,
+    outputDir: input.outputDir,
+    stderr: result.stderr,
+    elapsedMs: result.elapsedMs,
+    diagnostics: [
+      makeDiagnostic(
+        'info',
+        'TEXT_LAYER_FALLBACK_USED',
+        `Marker failed with ${input.markerFailureCode}; extracted the existing PDF text layer with ${result.engine}.`,
+      ),
+    ],
+  };
+}
+
 export function createMarkerCliRunner(options: MarkerCliRunnerOptions = {}): MarkerRunner {
   return {
     async parse(input) {
@@ -691,9 +931,25 @@ export function createMarkerCliRunner(options: MarkerCliRunnerOptions = {}): Mar
         input.outputDir,
       ];
       if (input.pageRange) args.push('--page_range', input.pageRange);
+      const diagnostics: PdfParseDiagnostic[] = [];
+      const textLayerPreflight = shouldAutoDisableOcr(args, input.filePath);
+      if (textLayerPreflight.hasTextLayer) {
+        args.push('--disable_ocr');
+        diagnostics.push(makeDiagnostic(
+          'info',
+          'TEXT_LAYER_OCR_DISABLED',
+          `PDF preflight detected a text layer (${textLayerPreflight.reason}); Marker OCR was disabled for this baseline run.`,
+        ));
+      }
 
       const startedAt = Date.now();
-      const result = await runMarkerCommand(command, args, input.signal);
+      const releaseLock = acquireMarkerRunLock(input.filePath);
+      let result: Awaited<ReturnType<typeof runMarkerCommand>>;
+      try {
+        result = await runMarkerCommand(command, args, input.signal);
+      } finally {
+        releaseLock();
+      }
       const elapsedMs = Date.now() - startedAt;
       if (input.signal.aborted) {
         throw new Error('PDF Parse Job was canceled.');
@@ -711,6 +967,7 @@ export function createMarkerCliRunner(options: MarkerCliRunnerOptions = {}): Mar
       return {
         markdown: fs.readFileSync(markdownPath, 'utf-8'),
         outputDir: path.dirname(markdownPath),
+        diagnostics,
         stderr: result.stderr,
         elapsedMs,
       };

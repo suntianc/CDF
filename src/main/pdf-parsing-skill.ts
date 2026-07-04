@@ -470,6 +470,15 @@ export function getPdfParsingSkillMarkdown(): string {
     'Use `set-preference.js` and `clear-preference.js` only for the managed Project `AGENTS.md` PDF recovery preference block.',
     'Use `apply-recovery.js` only after an explicit route selection and any required plan-level confirmation; provide recovery results from the selected capability as a JSON array.',
     '',
+    '## Failure Handling',
+    '',
+    'If an entrypoint fails with missing runtime chunks such as `Cannot find module \'./chunks/...\'`, treat the built-in Skill runtime as stale and regenerate the Skill resources from CDF instead of editing the generated script by hand.',
+    'For PDFs that already have a text layer, baseline parsing automatically adds `--disable_ocr` to Marker and records `TEXT_LAYER_OCR_DISABLED` in diagnostics and provenance.',
+    'If baseline parsing reports `MARKER_ALREADY_RUNNING`, do not start a second Marker command for the same PDF; wait for the existing parse to finish before rerunning `scripts/baseline-parse.js`.',
+    'If baseline parsing reports `MARKER_UNAVAILABLE`, run `scripts/ensure-marker.js` through the shell, then rerun `scripts/baseline-parse.js`.',
+    'If Marker is unavailable or fails and the PDF has a text layer, the compiled CLI may use the local PyMuPDF text-layer fallback and record `TEXT_LAYER_FALLBACK_USED` with parser `pymupdf-text-layer`.',
+    'Do not create ad hoc parser scripts; keep PDF parsing, fallback, diagnostics, and artifact writes inside these Skill entrypoints.',
+    '',
     '## Entrypoints',
     '',
     'PDF-specific execution is packaged in this Skill as `entrypoints.json` and `scripts/*.js` resources.',
@@ -483,7 +492,6 @@ export function getPdfParsingSkillMarkdown(): string {
     '- `scripts/apply-recovery.js --artifact <artifactDir> --route <route> --plan-confirmed --results-file <json> [--capability-label <label>]`: records the selected route and applies recovery results through the internal recovery seam.',
     '- `scripts/finalize-view.js --artifact <artifactDir> [--comparison-trace]`: rewrites `recovered-view.md` from `baseline.json`, `overlays.json`, and `diagnostics.json`.',
     '',
-    'If baseline parsing reports `MARKER_UNAVAILABLE`, run `scripts/ensure-marker.js` through the shell, then rerun `scripts/baseline-parse.js`.',
     'The Skill script path is synchronous; it does not expose cross-process status or cancel scripts. Long-running Marker process management remains inside the compiled CDF CLI invocation.',
     'Do not call global Agent tools named `parse_pdf`, `pdf_parse_status`, or `pdf_parse_cancel`; those tools are intentionally not part of the global tool surface.',
   ].join('\n');
@@ -1383,6 +1391,18 @@ function artifactIdFor(createdAt: Date, source: PdfParseSourceMetadata): string 
   return `${formatArtifactTimestamp(createdAt)}-${source.sha256.slice(0, 8)}`;
 }
 
+function baselineOcrProvenance(diagnostics: PdfParseDiagnostic[]): { ocr?: { disabled: true; reason: 'text-layer-preflight' } } {
+  return diagnostics.some((diagnostic) => diagnostic.code === 'TEXT_LAYER_OCR_DISABLED')
+    ? { ocr: { disabled: true, reason: 'text-layer-preflight' } }
+    : {};
+}
+
+function baselineFallbackProvenance(diagnostics: PdfParseDiagnostic[]): { fallback?: { engine: 'pymupdf-text-layer'; reason: 'marker-failure-text-layer' } } {
+  return diagnostics.some((diagnostic) => diagnostic.code === 'TEXT_LAYER_FALLBACK_USED')
+    ? { fallback: { engine: 'pymupdf-text-layer', reason: 'marker-failure-text-layer' } }
+    : {};
+}
+
 function writeBaselineArtifact(
   projectPath: string,
   source: PdfParseSourceMetadata,
@@ -1398,6 +1418,8 @@ function writeBaselineArtifact(
   const baselineProvenance = {
     parser: parse.parser,
     jobId,
+    ...baselineOcrProvenance(diagnostics),
+    ...baselineFallbackProvenance(diagnostics),
   };
 
   writeJson(path.join(artifactDir, 'metadata.json'), {
@@ -1444,6 +1466,7 @@ function writeDiagnosticArtifact(
       parser: 'marker',
       jobId,
       status,
+      ...baselineOcrProvenance(diagnostics),
       ...(error ? { error } : {}),
     },
   });
@@ -1456,6 +1479,7 @@ function writeDiagnosticArtifact(
       parser: 'marker',
       jobId,
       status,
+      ...baselineOcrProvenance(diagnostics),
     },
     recovery: [],
   });

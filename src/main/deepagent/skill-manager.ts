@@ -91,14 +91,25 @@ function ensureBuiltInKnowledgeBaseSkill(): string {
   return skillDir;
 }
 
-function resolvePdfParsingSkillCliPath(skillDir: string): string {
-  if (process.env.CDF_PDF_SKILL_CLI_PATH) return process.env.CDF_PDF_SKILL_CLI_PATH;
-  const compiledCliPath = path.join(__dirname, 'pdf-parsing-skill-cli.js');
+export function materializePdfParsingSkillRuntime(compiledCliPath: string, skillDir: string): string {
   const materializedCliPath = path.join(skillDir, 'runtime', 'pdf-parsing-skill-cli.js');
   if (!fs.existsSync(compiledCliPath)) return compiledCliPath;
   ensureDir(path.dirname(materializedCliPath));
   fs.copyFileSync(compiledCliPath, materializedCliPath);
+
+  const compiledChunksDir = path.join(path.dirname(compiledCliPath), 'chunks');
+  if (fs.existsSync(compiledChunksDir)) {
+    const materializedChunksDir = path.join(path.dirname(materializedCliPath), 'chunks');
+    fs.rmSync(materializedChunksDir, { recursive: true, force: true });
+    fs.cpSync(compiledChunksDir, materializedChunksDir, { recursive: true });
+  }
+
   return materializedCliPath;
+}
+
+function resolvePdfParsingSkillCliPath(skillDir: string): string {
+  if (process.env.CDF_PDF_SKILL_CLI_PATH) return process.env.CDF_PDF_SKILL_CLI_PATH;
+  return materializePdfParsingSkillRuntime(path.join(__dirname, 'pdf-parsing-skill-cli.js'), skillDir);
 }
 
 function ensureBuiltInPdfParsingSkill(): string {

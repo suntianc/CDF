@@ -2,21 +2,64 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cancelPdfParseJob, getPdfParseJob, parsePDF, resetPdfParseJobsForTests, type MarkerRunner } from './pdf-parse';
+import { cancelPdfParseJob, createMarkerCliRunner, getPdfParseJob, parsePDF, resetPdfParseJobsForTests, type MarkerRunner } from './pdf-parse';
 
 let tempDir: string;
 let pdfPath: string;
+let previousMarkerCommand: string | undefined;
+let previousTextLayerFallbackCommand: string | undefined;
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-pdf-parse-'));
   pdfPath = path.join(tempDir, 'paper.pdf');
   fs.writeFileSync(pdfPath, '%PDF-1.7\n% test fixture\n', 'utf-8');
+  previousMarkerCommand = process.env.CDF_MARKER_COMMAND;
+  previousTextLayerFallbackCommand = process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND;
 });
 
 afterEach(() => {
   resetPdfParseJobsForTests();
+  if (previousMarkerCommand === undefined) {
+    delete process.env.CDF_MARKER_COMMAND;
+  } else {
+    process.env.CDF_MARKER_COMMAND = previousMarkerCommand;
+  }
+  if (previousTextLayerFallbackCommand === undefined) {
+    delete process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND;
+  } else {
+    process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND = previousTextLayerFallbackCommand;
+  }
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
+
+function writeDelayedMarkerFixture(markdown: string, delayMs: number): string {
+  const markerPath = path.join(tempDir, 'marker-fixture.js');
+  fs.writeFileSync(markerPath, [
+    "const fs = require('fs');",
+    "const path = require('path');",
+    "const args = process.argv.slice(2);",
+    "const outputDir = args[args.indexOf('--output_dir') + 1];",
+    `setTimeout(() => {`,
+    "  fs.mkdirSync(outputDir, { recursive: true });",
+    `  fs.writeFileSync(path.join(outputDir, 'result.md'), ${JSON.stringify(markdown)}, 'utf-8');`,
+    `}, ${delayMs});`,
+  ].join('\n'), 'utf-8');
+  return `${process.execPath} ${markerPath}`;
+}
+
+function writeDelayedTextLayerFallbackFixture(markdown: string, delayMs: number): string {
+  const fallbackPath = path.join(tempDir, 'text-layer-fallback-fixture.js');
+  fs.writeFileSync(fallbackPath, [
+    `setTimeout(() => {`,
+    '  process.stdout.write(JSON.stringify({',
+    '    ok: true,',
+    "    engine: 'pymupdf',",
+    `    markdown: ${JSON.stringify(markdown)},`,
+    '  }));',
+    `}, ${delayMs});`,
+  ].join('\n'), 'utf-8');
+  return `${process.execPath} ${fallbackPath}`;
+}
 
 describe('parsePDF', () => {
   it('returns a Structured Paper Parse from Marker markdown when parsing finishes within timeout', async () => {
@@ -142,6 +185,79 @@ describe('parsePDF', () => {
       jobId: 'job-wait-until-complete',
       status: 'completed',
     });
+  });
+
+  it('keeps the job snapshot parser aligned when a running parse finishes through text-layer fallback', async () => {
+    fs.writeFileSync(pdfPath, [
+      '%PDF-1.7',
+      '1 0 obj << /Creator (LaTeX) >> endobj',
+      'stream',
+      'BT',
+      '(A readable text layer) Tj',
+      'ET',
+      'endstream',
+    ].join('\n'), 'utf-8');
+    process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND = writeDelayedTextLayerFallbackFixture(
+      '# Fallback result\n\nRecovered from the text layer.',
+      40,
+    );
+    const runner: MarkerRunner = {
+      parse: async () => {
+        const error = new Error('Marker command not found.') as Error & { code?: string };
+        error.code = 'ENOENT';
+        throw error;
+      },
+    };
+
+    const result = await parsePDF(pdfPath, { timeoutMs: 1 }, {
+      runner,
+      createJobId: () => 'job-text-layer-fallback',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const snapshot = getPdfParseJob('job-text-layer-fallback');
+
+    expect(result).toMatchObject({
+      status: 'running',
+      jobId: 'job-text-layer-fallback',
+    });
+    expect(snapshot).toMatchObject({
+      jobId: 'job-text-layer-fallback',
+      status: 'completed',
+      parser: 'pymupdf-text-layer',
+      parse: {
+        parser: 'pymupdf-text-layer',
+        markdown: expect.stringContaining('Recovered from the text layer.'),
+      },
+    });
+  });
+
+  it('rejects a duplicate Marker CLI parse for the same PDF while one is already running', async () => {
+    process.env.CDF_MARKER_COMMAND = writeDelayedMarkerFixture('# First result', 120);
+    const runner = createMarkerCliRunner();
+
+    const first = parsePDF(pdfPath, { timeoutMs: 0 }, {
+      runner,
+      createJobId: () => 'job-first-marker',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const second = await parsePDF(pdfPath, { timeoutMs: 0 }, {
+      runner,
+      createJobId: () => 'job-duplicate-marker',
+    });
+    const firstResult = await first;
+
+    expect(firstResult.status).toBe('completed');
+    expect(second).toMatchObject({
+      status: 'failed',
+      jobId: 'job-duplicate-marker',
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'MARKER_ALREADY_RUNNING',
+        },
+      ],
+    });
+    expect(second.status === 'failed' ? second.error : '').toContain('already running');
   });
 
   it('keeps fallback requests explicit without invoking an LLM fallback in the parser', async () => {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -7,6 +8,7 @@ import {
   importPhysicalSkillDirectory,
   listPhysicalSkills,
   listResolvedSkillViews,
+  materializePdfParsingSkillRuntime,
   resolveAgentSkillConfigOptions,
   resolveAgentSkillsConfig,
   savePhysicalSkill,
@@ -34,6 +36,32 @@ describe('skill-manager', () => {
   it('should resolve .cdf skill scope paths', () => {
     expect(getScopePath(tempProjectPath, 'global')).toBe(path.join(os.homedir(), '.cdf', 'skills'));
     expect(getScopePath(tempProjectPath, 'project')).toBe(path.join(tempProjectPath, '.cdf', 'skills'));
+  });
+
+  it('materializes the compiled PDF Parsing Skill CLI with its runtime chunks', () => {
+    const compiledDir = path.join(tempProjectPath, 'out', 'main');
+    const chunksDir = path.join(compiledDir, 'chunks');
+    fs.mkdirSync(chunksDir, { recursive: true });
+    const compiledCliPath = path.join(compiledDir, 'pdf-parsing-skill-cli.js');
+    fs.writeFileSync(
+      compiledCliPath,
+      "const chunk = require('./chunks/pdf-parsing-skill-test.js');\nprocess.stdout.write(chunk.value);\n",
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(chunksDir, 'pdf-parsing-skill-test.js'),
+      "exports.value = 'chunk-loaded';\n",
+      'utf-8',
+    );
+
+    const materializedCliPath = materializePdfParsingSkillRuntime(
+      compiledCliPath,
+      path.join(tempProjectPath, 'built-in-skill'),
+    );
+
+    expect(materializedCliPath).toBe(path.join(tempProjectPath, 'built-in-skill', 'runtime', 'pdf-parsing-skill-cli.js'));
+    expect(fs.existsSync(path.join(tempProjectPath, 'built-in-skill', 'runtime', 'chunks', 'pdf-parsing-skill-test.js'))).toBe(true);
+    expect(execFileSync(process.execPath, [materializedCliPath], { encoding: 'utf-8' })).toBe('chunk-loaded');
   });
 
   it('should save and list physical skill bundles', () => {

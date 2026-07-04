@@ -26,6 +26,7 @@ let pdfPath: string;
 let previousPdfSkillCliPath: string | undefined;
 let previousMarkerCommand: string | undefined;
 let previousMarkerDiscoveryTimeoutMs: string | undefined;
+let previousTextLayerFallbackCommand: string | undefined;
 let previousPath: string | undefined;
 
 function buildPdfSkillCliBundle(targetDir: string): string {
@@ -43,12 +44,15 @@ function buildPdfSkillCliBundle(targetDir: string): string {
   return cliPath;
 }
 
-function writeMarkerFixture(markdown: string, options: { delayMs?: number } = {}): string {
+function writeMarkerFixture(markdown: string, options: { delayMs?: number; argsLogPath?: string } = {}): string {
   const markerPath = path.join(projectPath, 'marker-fixture.js');
   fs.writeFileSync(markerPath, [
     "const fs = require('fs');",
     "const path = require('path');",
     "const args = process.argv.slice(2);",
+    options.argsLogPath
+      ? `fs.writeFileSync(${JSON.stringify(options.argsLogPath)}, JSON.stringify(args), 'utf-8');`
+      : '',
     "const outputDir = args[args.indexOf('--output_dir') + 1];",
     "const write = () => {",
     "  fs.mkdirSync(outputDir, { recursive: true });",
@@ -59,6 +63,18 @@ function writeMarkerFixture(markdown: string, options: { delayMs?: number } = {}
   return `${process.execPath} ${markerPath}`;
 }
 
+function writeTextLayerFallbackFixture(markdown: string): string {
+  const fallbackPath = path.join(projectPath, 'text-layer-fallback-fixture.js');
+  fs.writeFileSync(fallbackPath, [
+    `process.stdout.write(JSON.stringify({`,
+    `  ok: true,`,
+    `  engine: 'pymupdf',`,
+    `  markdown: ${JSON.stringify(markdown)},`,
+    `}));`,
+  ].join('\n'), 'utf-8');
+  return `${process.execPath} ${fallbackPath}`;
+}
+
 beforeEach(() => {
   projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-pdf-skill-'));
   pdfPath = path.join(projectPath, 'paper.pdf');
@@ -66,10 +82,12 @@ beforeEach(() => {
   previousPdfSkillCliPath = process.env.CDF_PDF_SKILL_CLI_PATH;
   previousMarkerCommand = process.env.CDF_MARKER_COMMAND;
   previousMarkerDiscoveryTimeoutMs = process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS;
+  previousTextLayerFallbackCommand = process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND;
   previousPath = process.env.PATH;
   process.env.CDF_PDF_SKILL_CLI_PATH = buildPdfSkillCliBundle(projectPath);
   delete process.env.CDF_MARKER_COMMAND;
   delete process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS;
+  delete process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND;
 });
 
 afterEach(() => {
@@ -89,6 +107,11 @@ afterEach(() => {
   } else {
     process.env.CDF_MARKER_DISCOVERY_TIMEOUT_MS = previousMarkerDiscoveryTimeoutMs;
   }
+  if (previousTextLayerFallbackCommand === undefined) {
+    delete process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND;
+  } else {
+    process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND = previousTextLayerFallbackCommand;
+  }
   if (previousPath === undefined) {
     delete process.env.PATH;
   } else {
@@ -101,9 +124,16 @@ describe('PDF Parsing Skill baseline artifact', () => {
   it('is discoverable and writes a project-local artifact instead of returning large parse JSON', async () => {
     const builtInSkillDirs = getBuiltInSkillDirs();
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const skillMarkdown = fs.readFileSync(path.join(pdfSkillDir as string, 'SKILL.md'), 'utf-8');
 
     expect(pdfSkillDir).toBeTruthy();
-    expect(fs.readFileSync(path.join(pdfSkillDir as string, 'SKILL.md'), 'utf-8')).toContain('PDF Parsing Skill');
+    expect(skillMarkdown).toContain('PDF Parsing Skill');
+    expect(skillMarkdown).toContain('## Failure Handling');
+    expect(skillMarkdown).toContain('missing runtime chunks');
+    expect(skillMarkdown).toContain('--disable_ocr');
+    expect(skillMarkdown).toContain('MARKER_ALREADY_RUNNING');
+    expect(skillMarkdown).toContain('TEXT_LAYER_FALLBACK_USED');
+    expect(skillMarkdown).toContain('Do not create ad hoc parser scripts');
     expect(JSON.parse(fs.readFileSync(path.join(pdfSkillDir as string, 'entrypoints.json'), 'utf-8'))).toMatchObject({
       skill: 'pdf-parsing',
       globalToolsRemoved: ['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel'],
@@ -336,6 +366,117 @@ describe('PDF Parsing Skill baseline artifact', () => {
       candidateRoutes: ['vision-capability', 'multimodal-agent'],
     });
     expect(result.conversationSummary).not.toContain('"blocks"');
+  });
+
+  it('baseline entrypoint script disables OCR for text-layer PDFs and records the decision', () => {
+    fs.writeFileSync(pdfPath, [
+      '%PDF-1.7',
+      '1 0 obj << /Producer (pdfTeX-1.40.25) >> endobj',
+      'stream',
+      'BT',
+      '(Autoregressive forecasting paper) Tj',
+      'ET',
+      'endstream',
+    ].join('\n'), 'utf-8');
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const argsLogPath = path.join(projectPath, 'marker-args.json');
+    const markerCommand = writeMarkerFixture('# Text-layer result', { argsLogPath });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: markerCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:40:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-disable-ocr',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(fs.readFileSync(argsLogPath, 'utf-8'))).toContain('--disable_ocr');
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'diagnostics.json'), 'utf-8'))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'info', code: 'TEXT_LAYER_OCR_DISABLED' }),
+    ]));
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'metadata.json'), 'utf-8'))).toMatchObject({
+      baseline: {
+        parser: 'marker',
+        ocr: {
+          disabled: true,
+          reason: 'text-layer-preflight',
+        },
+      },
+    });
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'provenance.json'), 'utf-8'))).toMatchObject({
+      baseline: {
+        ocr: {
+          disabled: true,
+          reason: 'text-layer-preflight',
+        },
+      },
+    });
+  });
+
+  it('baseline entrypoint script uses the text-layer fallback when Marker is unavailable', () => {
+    fs.writeFileSync(pdfPath, [
+      '%PDF-1.7',
+      '1 0 obj << /Creator (LaTeX) >> endobj',
+      'stream',
+      'BT',
+      '(A readable text layer) Tj',
+      'ET',
+      'endstream',
+    ].join('\n'), 'utf-8');
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
+    const missingMarkerCommand = path.join(projectPath, 'missing-marker-command');
+    const fallbackCommand = writeTextLayerFallbackFixture('# Fallback text\n\nRecovered without OCR.');
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir as string, 'scripts', 'baseline-parse.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_MARKER_COMMAND: missingMarkerCommand,
+        CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND: fallbackCommand,
+        CDF_PDF_PARSE_NOW: '2026-07-02T17:50:00.000Z',
+        CDF_PDF_PARSE_JOB_ID: 'job-script-text-fallback',
+      },
+    });
+    const result = JSON.parse(output);
+
+    expect(result.status).toBe('completed');
+    const baseline = JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'baseline.json'), 'utf-8'));
+    expect(baseline).toMatchObject({
+      parser: 'pymupdf-text-layer',
+      markdown: expect.stringContaining('Recovered without OCR.'),
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ severity: 'warning', code: 'MARKER_UNAVAILABLE' }),
+        expect.objectContaining({ severity: 'info', code: 'TEXT_LAYER_FALLBACK_USED' }),
+      ]),
+    });
+    expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'metadata.json'), 'utf-8'))).toMatchObject({
+      baseline: {
+        parser: 'pymupdf-text-layer',
+        fallback: {
+          engine: 'pymupdf-text-layer',
+          reason: 'marker-failure-text-layer',
+        },
+      },
+    });
+    expect(result.conversationSummary).toContain('TEXT_LAYER_FALLBACK_USED');
   });
 
   it('baseline entrypoint script waits for completion instead of returning a cross-process running job', () => {
