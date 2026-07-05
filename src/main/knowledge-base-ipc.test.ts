@@ -1,20 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { ipcHandleMock, dbPrepareMock, listMock, searchMock, createMock, readMock, updateMock, deleteMock } = vi.hoisted(() => ({
-  ipcHandleMock: vi.fn(),
-  dbPrepareMock: vi.fn(),
-  listMock: vi.fn(),
-  searchMock: vi.fn(),
-  createMock: vi.fn(),
-  readMock: vi.fn(),
-  updateMock: vi.fn(),
-  deleteMock: vi.fn(),
-}));
+const { ipcHandleMock, browserWindowMock, loadUrlMock, dbPrepareMock, listMock, searchMock, createMock, readMock, updateMock, deleteMock } = vi.hoisted(() => {
+  const loadUrlMock = vi.fn();
+  return {
+    ipcHandleMock: vi.fn(),
+    browserWindowMock: vi.fn(function BrowserWindowMock() {
+      return { loadURL: loadUrlMock };
+    }),
+    loadUrlMock,
+    dbPrepareMock: vi.fn(),
+    listMock: vi.fn(),
+    searchMock: vi.fn(),
+    createMock: vi.fn(),
+    readMock: vi.fn(),
+    updateMock: vi.fn(),
+    deleteMock: vi.fn(),
+  };
+});
 
 vi.mock('electron', () => ({
   ipcMain: {
     handle: ipcHandleMock,
   },
+  BrowserWindow: browserWindowMock,
 }));
 
 vi.mock('./database', () => ({
@@ -24,6 +32,7 @@ vi.mock('./database', () => ({
 }));
 
 vi.mock('./knowledge-base', () => ({
+  getKnowledgeBaseRoot: (projectPath: string) => `${projectPath}/.cdf/knowledge`,
   listKnowledgeEntries: listMock,
   searchKnowledgeEntries: searchMock,
   createKnowledgeEntry: createMock,
@@ -81,5 +90,34 @@ describe('Knowledge Base IPC', () => {
     expect(readMock).toHaveBeenCalledWith('/tmp/project', 'notes/rag.md');
     expect(updateMock).toHaveBeenCalledWith('/tmp/project', 'notes/rag.md', { title: 'Updated' });
     expect(deleteMock).toHaveBeenCalledWith('/tmp/project', 'notes/rag.md');
+  });
+
+  it('opens Paper PDF resources inside the project Knowledge Base only', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-paper-ipc-'));
+    const pdfPath = path.join(projectPath, '.cdf', 'knowledge', 'papers', 'local.pdf');
+    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+    fs.writeFileSync(pdfPath, 'pdf');
+    dbPrepareMock.mockReturnValue({
+      get: vi.fn(() => ({ path: projectPath })),
+    });
+
+    registerKnowledgeBaseHandlers();
+
+    const openHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'paper-library:openPdf')?.[1];
+
+    await expect(openHandler({}, 'project-1', 'papers/local.pdf')).resolves.toEqual({ success: true });
+    expect(browserWindowMock).toHaveBeenCalledWith(expect.objectContaining({
+      webPreferences: expect.objectContaining({
+        contextIsolation: true,
+        nodeIntegration: false,
+        plugins: true,
+      }),
+    }));
+    expect(loadUrlMock).toHaveBeenCalledWith(expect.stringMatching(/^file:\/\//));
+
+    await expect(openHandler({}, 'project-1', '../outside.pdf')).rejects.toThrow(/inside the Knowledge Base/);
   });
 });

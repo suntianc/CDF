@@ -869,6 +869,9 @@ export interface ElectronAPI {
     update: (projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) => Promise<KnowledgeEntrySummary>;
     delete: (projectId: string, relativePath: string) => Promise<{ deleted: true }>;
   };
+  papers: {
+    openPdf: (projectId: string, resource: string) => Promise<{ success: boolean }>;
+  };
   embedding: {
     getSettings: () => Promise<EmbeddingSettings>;
     setSource: (selection: EmbeddingSourceSelection, confirmRebuild?: boolean) => Promise<EmbeddingSetSourceResult>;

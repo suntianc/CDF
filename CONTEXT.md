@@ -224,6 +224,10 @@ _Avoid_: database, wiki, corpus
 A Markdown document with YAML frontmatter that represents one OKF concept document in a Knowledge Base.
 _Avoid_: note, record, file
 
+**Paper Entry**:
+A Knowledge Entry whose OKF concept type is Paper, representing one collected academic paper with its title, authors, abstract, origin source, tags, and an optional pointer to a locally stored PDF. The Paper Library shows exactly the Paper Entries of a Project's Knowledge Base.
+_Avoid_: note about a paper, PDF file, reference string
+
 **Writing Project**:
 A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.
 _Avoid_: document editor, word processor

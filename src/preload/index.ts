@@ -208,6 +208,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (projectId: string, relativePath: string) =>
       ipcRenderer.invoke('knowledge:delete', projectId, relativePath),
   },
+  papers: {
+    openPdf: (projectId: string, resource: string) =>
+      ipcRenderer.invoke('paper-library:openPdf', projectId, resource),
+  },
   embedding: {
     getSettings: () => ipcRenderer.invoke('embedding:getSettings'),
     setSource: (selection: unknown, confirmRebuild?: boolean) =>

@@ -1,9 +1,11 @@
-import { type ReactNode, useState } from 'react';
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Beaker, BookOpen, FileText, MessageSquare } from 'lucide-react';
-import type { ProjectScene } from '@shared/types';
+import { Beaker, BookOpen, FileText, MessageSquare, RefreshCw, Search } from 'lucide-react';
+import type { KnowledgeEntrySummary, ProjectScene } from '@shared/types';
+import { useProjectStore } from '../../stores/projectStore';
 
 type ResearchPanel = 'conversation' | 'papers' | 'writing' | 'experiments';
+type PaperViewMode = 'flat' | 'grouped';
 
 interface SceneWorkspaceProps {
   scene: ProjectScene;
@@ -66,12 +68,345 @@ function ResearchSceneWorkspace({ conversation }: { conversation: ReactNode }) {
           <div role="tabpanel" className="absolute inset-0">
             {conversation}
           </div>
+        ) : activePanel === 'papers' ? (
+          <PaperLibraryPanel />
         ) : (
           <ResearchEmptyPanel panel={activePanel} />
         )}
       </div>
     </div>
   );
+}
+
+interface PaperLibraryItem {
+  entry: KnowledgeEntrySummary;
+  title: string;
+  authors: string[];
+  abstract: string;
+  source: string;
+  resource: string;
+  tags: string[];
+}
+
+function PaperLibraryPanel() {
+  const { t } = useTranslation();
+  const currentProjectId = useProjectStore((state) => state.currentProjectId);
+  const [entries, setEntries] = useState<KnowledgeEntrySummary[]>([]);
+  const [keyword, setKeyword] = useState('');
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<PaperViewMode>('flat');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadEntries = useCallback(() => {
+    if (!currentProjectId) {
+      setEntries([]);
+      return Promise.resolve();
+    }
+
+    setLoading(true);
+    setError(null);
+    return window.electronAPI.knowledge
+      .list(currentProjectId, { sortBy: 'timestamp', sortOrder: 'desc' })
+      .then((items) => {
+        setEntries(items);
+      })
+      .catch((err: unknown) => {
+        setEntries([]);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    void loadEntries();
+  }, [loadEntries]);
+
+  const papers = useMemo(() => entries.map(toPaperLibraryItem).filter((item): item is PaperLibraryItem => item !== null), [entries]);
+  const allTags = useMemo(() => Array.from(new Set(papers.flatMap((paper) => paper.tags))).sort((a, b) => a.localeCompare(b)), [papers]);
+  const filteredPapers = useMemo(
+    () => papers.filter((paper) => matchesPaperKeyword(paper, keyword) && (!selectedTag || paper.tags.includes(selectedTag))),
+    [keyword, papers, selectedTag],
+  );
+  const groupedPapers = useMemo(() => groupPapersByTag(filteredPapers, t('sceneWorkspace.untaggedGroup')), [filteredPapers, t]);
+
+  return (
+    <div role="tabpanel" className="h-full overflow-auto bg-[var(--color-bg-app)] px-5 py-4">
+      <div className="mx-auto flex max-w-5xl flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-[var(--color-text-primary)]">{t('sceneWorkspace.paperLibrary')}</div>
+            <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              {t('sceneWorkspace.paperCount', { count: filteredPapers.length })}
+            </div>
+          </div>
+          <div className="flex min-w-[260px] flex-1 flex-wrap justify-end gap-2">
+            <label className="relative min-w-[240px] flex-1 sm:max-w-[340px]">
+              <span className="sr-only">{t('sceneWorkspace.paperSearchLabel')}</span>
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
+              <input
+                type="search"
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder={t('sceneWorkspace.paperSearchPlaceholder')}
+                className="h-8 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] pl-8 pr-2 text-xs text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-border-strong)]"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void loadEntries()}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t('sceneWorkspace.refreshPapers')}
+            </button>
+          </div>
+        </div>
+
+        <div className="inline-flex w-fit rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-0.5">
+          {(['flat', 'grouped'] as PaperViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              className={`rounded-[5px] px-2.5 py-1 text-[11px] transition-colors ${
+                viewMode === mode
+                  ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+              }`}
+            >
+              {t(mode === 'flat' ? 'sceneWorkspace.flatView' : 'sceneWorkspace.groupByTagView')}
+            </button>
+          ))}
+        </div>
+
+        {allTags.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5" aria-label={t('sceneWorkspace.paperTagFilters')}>
+            {allTags.map((tag) => {
+              const selected = selectedTag === tag;
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  aria-pressed={selected}
+                  aria-label={t('sceneWorkspace.paperTagFilterLabel', { tag })}
+                  onClick={() => setSelectedTag(selected ? null : tag)}
+                  className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${
+                    selected
+                      ? 'border-[var(--color-border-strong)] bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
+                      : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+                  }`}
+                >
+                  {tag}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-md border border-[var(--color-danger)]/30 bg-[var(--color-bg-surface)] px-3 py-2 text-xs text-[var(--color-danger)]">
+            {t('sceneWorkspace.paperLoadError', { message: error })}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+            {t('sceneWorkspace.paperLoading')}
+          </div>
+        ) : null}
+
+        {!loading && filteredPapers.length === 0 ? <PaperLibraryEmptyState /> : null}
+
+        {viewMode === 'flat' ? (
+          <div className="flex flex-col gap-2">
+            {filteredPapers.map((paper) => <PaperCard key={paper.entry.relativePath} paper={paper} projectId={currentProjectId} />)}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {groupedPapers.map((group) => (
+              <section key={group.tag} className="flex flex-col gap-2">
+                <h2 className="text-xs font-semibold text-[var(--color-text-primary)]">{group.tag}</h2>
+                {group.papers.map((paper) => (
+                  <PaperCard key={`${group.tag}:${paper.entry.relativePath}`} paper={paper} projectId={currentProjectId} />
+                ))}
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PaperCard({ paper, projectId }: { paper: PaperLibraryItem; projectId: string | null }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = paper.abstract.length > 0;
+  const toggleExpanded = () => {
+    if (canExpand) {
+      setExpanded((value) => !value);
+    }
+  };
+  const openPdf = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (projectId && paper.resource) {
+      void window.electronAPI.papers.openPdf(projectId, paper.resource);
+    }
+  };
+
+  return (
+    <article
+      role={canExpand ? 'button' : undefined}
+      tabIndex={canExpand ? 0 : undefined}
+      aria-label={canExpand ? paper.title : undefined}
+      aria-expanded={canExpand ? expanded : undefined}
+      onClick={toggleExpanded}
+      onKeyDown={(event) => {
+        if (!canExpand) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleExpanded();
+        }
+      }}
+      className={`rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-4 py-3 ${
+        canExpand ? 'cursor-pointer outline-none transition-colors hover:border-[var(--color-border-strong)] focus:border-[var(--color-border-strong)]' : ''
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col items-start">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{paper.title}</h3>
+            {paper.authors.length > 0 ? (
+              <div className="mt-1 text-xs text-[var(--color-text-secondary)]">{paper.authors.join(', ')}</div>
+            ) : null}
+          </div>
+          {paper.resource ? (
+            <button
+              type="button"
+              onClick={openPdf}
+              className="mt-2 rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            >
+              {t('sceneWorkspace.openPdf')}
+            </button>
+          ) : null}
+        </div>
+        {paper.source ? (
+          <div className="max-w-[240px] truncate text-xs text-[var(--color-text-muted)]" title={paper.source}>
+            {paper.source}
+          </div>
+        ) : null}
+      </div>
+
+      {paper.abstract ? (
+        <p className={`mt-2 text-xs leading-relaxed text-[var(--color-text-secondary)] ${expanded ? '' : 'line-clamp-3'}`}>
+          {paper.abstract}
+        </p>
+      ) : null}
+
+      {(paper.entry.invalidFrontmatter || paper.entry.warnings.length > 0) ? (
+        <div className="mt-3 rounded-md border border-[var(--color-warning)]/30 bg-[var(--color-bg-surface)] px-2 py-1.5 text-[11px] leading-relaxed text-[var(--color-warning)]">
+          {paper.entry.invalidFrontmatter ? <div>{t('sceneWorkspace.invalidFrontmatter')}</div> : null}
+          {paper.entry.warnings.map((warning) => (
+            <div key={warning}>{warning}</div>
+          ))}
+        </div>
+      ) : null}
+
+      {paper.tags.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {paper.tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)]"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function PaperLibraryEmptyState() {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-5 py-4 text-center">
+      <div className="text-sm font-medium text-[var(--color-text-primary)]">
+        {t('sceneWorkspace.papersEmptyTitle')}
+      </div>
+      <div className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
+        {t('sceneWorkspace.papersEmptyDescription')}
+      </div>
+    </div>
+  );
+}
+
+function toPaperLibraryItem(entry: KnowledgeEntrySummary): PaperLibraryItem | null {
+  if (entry.frontmatter.type !== 'Paper') {
+    return null;
+  }
+
+  return {
+    entry,
+    title: readString(entry.frontmatter.title) || entry.title || entry.relativePath,
+    authors: readStringArray(entry.frontmatter.authors),
+    abstract: readString(entry.frontmatter.description),
+    source: readString(entry.frontmatter.source),
+    resource: readString(entry.frontmatter.resource),
+    tags: entry.tags,
+  };
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+}
+
+function matchesPaperKeyword(paper: PaperLibraryItem, keyword: string): boolean {
+  const needle = keyword.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+
+  return [
+    paper.title,
+    paper.abstract,
+    paper.source,
+    ...paper.authors,
+    ...paper.tags,
+  ].some((value) => value.toLowerCase().includes(needle));
+}
+
+function groupPapersByTag(papers: PaperLibraryItem[], untaggedLabel: string): Array<{ tag: string; papers: PaperLibraryItem[] }> {
+  const groups = new Map<string, PaperLibraryItem[]>();
+  const untagged: PaperLibraryItem[] = [];
+
+  papers.forEach((paper) => {
+    if (paper.tags.length === 0) {
+      untagged.push(paper);
+      return;
+    }
+    paper.tags.forEach((tag) => {
+      groups.set(tag, [...(groups.get(tag) ?? []), paper]);
+    });
+  });
+
+  const grouped = Array.from(groups.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([tag, groupPapers]) => ({ tag, papers: groupPapers }));
+
+  if (untagged.length > 0) {
+    grouped.push({ tag: untaggedLabel, papers: untagged });
+  }
+
+  return grouped;
 }
 
 function ResearchEmptyPanel({ panel }: { panel: Exclude<ResearchPanel, 'conversation'> }) {
