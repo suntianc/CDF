@@ -4,6 +4,7 @@ import type {
   KnowledgeEntrySearchOptions,
   KnowledgeEntryUpdateInput,
   LocalEmbeddingModelState,
+  ProjectScene,
 } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -13,8 +14,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   db: {
     getProjects: () => ipcRenderer.invoke('db:getProjects'),
-    createProject: (name: string, projectPath: string) =>
-      ipcRenderer.invoke('db:createProject', name, projectPath),
+    createProject: (name: string, projectPath: string, scene?: ProjectScene) =>
+      ipcRenderer.invoke('db:createProject', name, projectPath, scene),
     deleteProject: (id: string) => ipcRenderer.invoke('db:deleteProject', id),
     renameProject: (id: string, name: string) => ipcRenderer.invoke('db:renameProject', id, name),
     getSessions: (projectId: string) => ipcRenderer.invoke('db:getSessions', projectId),

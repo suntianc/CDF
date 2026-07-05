@@ -2,17 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Folder, Plus, ChevronDown, ChevronRight, FolderPlus, FolderGit2,
-  MessageSquare, GitFork, Trash2, MoreHorizontal
+  MessageSquare, GitFork, Trash2, MoreHorizontal, FlaskConical
 } from 'lucide-react';
+import type { Project } from '@shared/types';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSessionStore } from '@/stores/sessionStore';
-
-interface Project {
-  id: string;
-  name: string;
-  path: string;
-  isGit?: boolean;
-}
+import { CreateProjectDialog } from './CreateProjectDialog';
+import { normalizeProjectScene } from '@/scenes/sceneRouting';
 
 interface ProjectFolderProps {
   project: Project;
@@ -21,6 +17,17 @@ interface ProjectFolderProps {
 
 function ProjectFolder({ project, isActive }: ProjectFolderProps) {
   const { t } = useTranslation();
+  const projectScene = normalizeProjectScene(project.scene);
+  const isSceneProject = projectScene !== 'general';
+  const ProjectIcon = projectScene === 'research' ? FlaskConical : project.isGit ? FolderGit2 : Folder;
+  const projectSceneTitle = isSceneProject ? t(`projectTree.scene.${projectScene}`, projectScene) : undefined;
+  const projectIconClassName = `w-4 h-4 shrink-0 transition-colors ${
+    projectScene === 'research'
+      ? 'text-[color-mix(in_srgb,var(--color-info)_72%,white)] group-hover:text-[color-mix(in_srgb,var(--color-info)_86%,white)]'
+      : isActive
+        ? 'text-[var(--color-text-primary)]'
+        : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]'
+  }`;
   const [expanded, setExpanded] = useState(true);
   const [sessions, setSessions] = useState<any[]>([]);
   const { currentProjectId, setCurrentProject, setProjects } = useProjectStore();
@@ -128,11 +135,9 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
             )}
           </button>
           
-          {project.isGit ? (
-            <FolderGit2 className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]'}`} />
-          ) : (
-            <Folder className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]'}`} />
-          )}
+          <span title={projectSceneTitle} className="shrink-0">
+            <ProjectIcon className={projectIconClassName} aria-hidden="true" />
+          </span>
           {isEditing ? (
             <input
               type="text"
@@ -286,6 +291,7 @@ export function ProjectTree() {
   const [listExpanded, setListExpanded] = useState(true);
   const [sessionsExpanded, setSessionsExpanded] = useState(true);
   const [defaultSessions, setDefaultSessions] = useState<any[]>([]);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const loadDefaultSessions = useCallback(async () => {
     try {
@@ -321,19 +327,9 @@ export function ProjectTree() {
     loadDefaultSessions();
   }, [loadDefaultSessions, activeSessions, activeSessionId]);
 
-  const handleCreateProject = async () => {
-    try {
-      const path = await window.electronAPI.db.selectDirectory();
-      if (path) {
-        const name = path.split('/').pop() || t('projectTree.newProject');
-        const project = await window.electronAPI.db.createProject(name, path);
-        setProjects([...projects, project]);
-        // Auto select newly created project
-        setCurrentProject(project.id);
-      }
-    } catch (err) {
-      console.error('Failed to create project:', err);
-    }
+  const handleProjectCreated = (project: Project) => {
+    setProjects([...projects, project]);
+    setCurrentProject(project.id);
   };
 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
@@ -380,7 +376,7 @@ export function ProjectTree() {
           </div>
           <div className="flex items-center gap-1">
             <button 
-              onClick={handleCreateProject}
+              onClick={() => setCreateProjectOpen(true)}
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
               title={t('projectTree.newProjectBtn')}
             >
@@ -404,7 +400,7 @@ export function ProjectTree() {
               <div className="p-4 text-center">
                 <p className="text-[var(--color-text-muted)] text-[11px] italic">{t('projectTree.noCustomProjects')}</p>
                 <button
-                  onClick={handleCreateProject}
+                  onClick={() => setCreateProjectOpen(true)}
                   className="mt-2 px-2 py-1 text-xs border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
                 >
                   <Plus className="w-3 h-3 inline mr-1" />
@@ -488,6 +484,11 @@ export function ProjectTree() {
           </div>
         </div>
       </div>
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onProjectCreated={handleProjectCreated}
+      />
     </div>
   );
 }

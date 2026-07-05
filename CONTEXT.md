@@ -77,8 +77,12 @@ The orchestration that turns a prepared Composer Input intent into a Conversatio
 _Avoid_: send handler, submit button logic, composer UI
 
 **Scene**:
-A domain-specific mode of the Agent Workstation that determines the sidebar layout, pre-configured Agents, available Skills, and specialized panels. A Scene is chosen when creating a Project and cannot be changed afterward.
-_Avoid_: mode, template, theme, workspace type
+A domain-specific mode of a Project that determines its Scene Workspace, pre-configured Agents, available Skills, and specialized panels. A Scene is chosen when creating a Project and cannot be changed afterward. The project navigation sidebar stays uniform across Scenes; only the workspace to its right changes.
+_Avoid_: mode, template, theme, workspace type, sidebar layout
+
+**Scene Workspace**:
+The main working surface shown for the selected Project, determined by its Scene. The general Scene's workspace is the existing Conversation workspace; other Scenes add specialized panels around or alongside the Conversation.
+_Avoid_: main view, page, layout mode
 
 **Skill**:
 A progressive-disclosure capability package that teaches an Agent a specialized workflow, domain practice, or operating discipline. Visible Skills are discoverable by default; an Agent's Skill selection emphasizes or preloads a Skill rather than defining the full access boundary.

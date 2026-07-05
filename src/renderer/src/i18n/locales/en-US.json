@@ -407,6 +407,19 @@
       "phaseModelDiscovery": "Model discovery"
     }
   },
+  "sceneWorkspace": {
+    "researchTabs": "Research workspace",
+    "conversation": "Conversation",
+    "paperLibrary": "Paper Library",
+    "writing": "Writing",
+    "experiments": "Experiments",
+    "papersEmptyTitle": "Paper Library is empty",
+    "papersEmptyDescription": "Paper collection and parsing panels will be added in a later issue.",
+    "writingEmptyTitle": "Writing workspace is empty",
+    "writingEmptyDescription": "Outline, drafts, and citation workflows will be added in a later issue.",
+    "experimentsEmptyTitle": "Experiment records are empty",
+    "experimentsEmptyDescription": "Reproduction runs, datasets, and result tracking will be added in a later issue."
+  },
   "goal": {
     "label": {
       "working": "Working",
@@ -493,7 +506,25 @@
     "noCustomProjects": "No custom projects",
     "tempSessions": "Temporary sessions",
     "newTempSession": "New temporary session",
-    "noHistorySessions": "No history sessions"
+    "noHistorySessions": "No history sessions",
+    "createProjectTitle": "Create project",
+    "createProjectDescription": "Choose a local folder and the Scene Workspace for this project.",
+    "projectPathLabel": "Folder",
+    "projectPathPlaceholder": "Choose a local folder",
+    "chooseFolder": "Choose folder",
+    "projectNameLabel": "Project name",
+    "sceneLabel": "Scene",
+    "sceneGeneralLabel": "General",
+    "sceneGeneralDesc": "Use the existing Conversation workspace.",
+    "sceneResearchLabel": "Research",
+    "sceneResearchDesc": "Add research panels around the Conversation.",
+    "cancelCreateProject": "Cancel",
+    "confirmCreateProject": "Create",
+    "creatingProject": "Creating...",
+    "scene": {
+      "general": "General",
+      "research": "Research"
+    }
   },
   "app": {
     "expandSidebar": "Expand sidebar"

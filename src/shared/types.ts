@@ -13,10 +13,13 @@ export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
 });
 export type DelegatedTaskResult = z.infer<typeof DELEGATED_TASK_RESULT_SCHEMA>;
 
+export type ProjectScene = 'general' | 'research';
+
 export interface Project {
   id: string;
   name: string;
   path: string;
+  scene: ProjectScene;
   created_at: number;
   updated_at: number;
   isGit?: boolean;
@@ -742,8 +745,9 @@ export interface ElectronAPI {
   };
   db: {
     getProjects: () => Promise<Project[]>;
-    createProject: (name: string, projectPath: string) => Promise<Project>;
+    createProject: (name: string, projectPath: string, scene?: ProjectScene) => Promise<Project>;
     deleteProject: (id: string) => Promise<void>;
+    renameProject: (id: string, name: string) => Promise<{ id: string; name: string; updated_at: number }>;
     getSessions: (projectId: string) => Promise<Session[]>;
     createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
     deleteSession: (sessionId: string) => Promise<void>;

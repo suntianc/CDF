@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { Project } from '@shared/types';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
@@ -24,6 +25,7 @@ import { useModelSelectionController } from './modelSelection/useModelSelectionC
 import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
 import { useConversationPlanDisclosure } from './useConversationPlanDisclosure';
 import { useConversationWorkspaceBootstrap } from './useConversationWorkspaceBootstrap';
+import { CreateProjectDialog } from '@/components/ProjectTree/CreateProjectDialog';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -79,6 +81,7 @@ export function ChatArea({
   const { activeSessionAgent, masterProvider } = workspaceModel.agent;
   const currentProjectDisplayName = currentProjectName ?? t('chat.unknownProject');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const { handleScroll } = useChatScroll({
     scrollContainerRef,
@@ -180,19 +183,10 @@ export function ChatArea({
     }
   };
 
-  const handleCreateProject = async () => {
-    try {
-      const path = await window.electronAPI.db.selectDirectory();
-      if (path) {
-        const name = path.split('/').pop() || t('chat.newProjectFallback');
-        const project = await window.electronAPI.db.createProject(name, path);
-        setProjects([...projects, project]);
-        setCurrentProject(project.id);
-        await fetchSessions(project.id);
-      }
-    } catch (err) {
-      console.error('Failed to create project:', err);
-    }
+  const handleProjectCreated = async (project: Project) => {
+    setProjects([...projects, project]);
+    setCurrentProject(project.id);
+    await fetchSessions(project.id);
   };
 
   return (
@@ -211,7 +205,7 @@ export function ChatArea({
         onSubmit={() => handleComposerSubmit()}
         canSubmit={(inputVal.trim().length > 0 || composerInput.attachments.length > 0) && !isStreaming}
         onClearError={clearError}
-        onCreateProject={handleCreateProject}
+        onCreateProject={() => setCreateProjectOpen(true)}
         onOpenSettings={onOpenSettings}
         leftToolbarSlot={
           <>
@@ -331,6 +325,12 @@ export function ChatArea({
           />
         )}
       </div>
+
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onProjectCreated={handleProjectCreated}
+      />
     </div>
   );
 }

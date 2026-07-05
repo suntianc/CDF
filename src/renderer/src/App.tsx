@@ -22,6 +22,8 @@ import { useFileStore } from './stores/fileStore';
 import { Toaster } from 'sonner';
 import type { TaskPanelProps } from './components/TaskPanel/TaskPanel';
 import { FilePanel } from './components/FilePanel/FilePanel';
+import { SceneWorkspace } from './components/SceneWorkspace/SceneWorkspace';
+import { normalizeProjectScene } from './scenes/sceneRouting';
 
 const loadTaskPanel = () => import('./components/TaskPanel/TaskPanel').then((mod) => ({ default: mod.TaskPanel }));
 
@@ -102,7 +104,7 @@ export default function App() {
   const { t } = useTranslation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
+  const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen, projects, currentProjectId } = useProjectStore();
   const { theme, setTheme } = useTheme();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
   const [taskPanelMounted, setTaskPanelMounted] = useState(false);
@@ -111,6 +113,8 @@ export default function App() {
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const { setCurrentWorkflow } = useWorkflowStore();
   const isEditingWorkflow = activeView === 'workflows' && !!editingWorkflow;
+  const currentProject = projects.find((project) => project.id === currentProjectId);
+  const currentScene = normalizeProjectScene(currentProject?.scene);
 
   useEffect(() => {
     // Initialize theme from persistent store
@@ -165,13 +169,18 @@ export default function App() {
           {activeView === 'agents' && <AgentLibrary />}
           {activeView === 'plugins' && <PluginsPanel />}
           {activeView === 'chat' && (
-            <ChatArea
-              onOpenSettings={() => setActiveView('settings')}
-              sidebarCollapsed={sidebarCollapsed}
-              onToggleSidebar={() => setSidebarCollapsed(false)}
-              taskPanelOpen={taskPanelOpen}
-              onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
-              onOpenTaskPanel={() => setTaskPanelOpen(true)}
+            <SceneWorkspace
+              scene={currentScene}
+              conversation={(
+                <ChatArea
+                  onOpenSettings={() => setActiveView('settings')}
+                  sidebarCollapsed={sidebarCollapsed}
+                  onToggleSidebar={() => setSidebarCollapsed(false)}
+                  taskPanelOpen={taskPanelOpen}
+                  onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
+                  onOpenTaskPanel={() => setTaskPanelOpen(true)}
+                />
+              )}
             />
           )}
           {activeView === 'workflows' && !editingWorkflow && (

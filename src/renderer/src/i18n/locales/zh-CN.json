@@ -407,6 +407,19 @@
       "phaseModelDiscovery": "模型发现"
     }
   },
+  "sceneWorkspace": {
+    "researchTabs": "科研工作台",
+    "conversation": "对话",
+    "paperLibrary": "论文库",
+    "writing": "写作",
+    "experiments": "实验记录",
+    "papersEmptyTitle": "论文库为空",
+    "papersEmptyDescription": "论文收集与解析面板将在后续 issue 中实现。",
+    "writingEmptyTitle": "写作工作区为空",
+    "writingEmptyDescription": "大纲、草稿和引用工作流将在后续 issue 中实现。",
+    "experimentsEmptyTitle": "实验记录为空",
+    "experimentsEmptyDescription": "复现实验、数据集和结果追踪将在后续 issue 中实现。"
+  },
   "goal": {
     "label": {
       "working": "工作中",
@@ -493,7 +506,25 @@
     "noCustomProjects": "暂无自定义项目",
     "tempSessions": "临时会话",
     "newTempSession": "新建临时会话",
-    "noHistorySessions": "无历史自由会话"
+    "noHistorySessions": "无历史自由会话",
+    "createProjectTitle": "创建项目",
+    "createProjectDescription": "选择本地目录，并为该项目选择场景工作台。",
+    "projectPathLabel": "目录",
+    "projectPathPlaceholder": "选择一个本地目录",
+    "chooseFolder": "选择目录",
+    "projectNameLabel": "项目名称",
+    "sceneLabel": "场景",
+    "sceneGeneralLabel": "通用",
+    "sceneGeneralDesc": "使用现有对话工作区。",
+    "sceneResearchLabel": "科研",
+    "sceneResearchDesc": "在对话周围加入科研工作台面板。",
+    "cancelCreateProject": "取消",
+    "confirmCreateProject": "创建",
+    "creatingProject": "创建中...",
+    "scene": {
+      "general": "通用",
+      "research": "科研"
+    }
   },
   "app": {
     "expandSidebar": "展开侧边栏"

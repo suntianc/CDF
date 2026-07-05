@@ -32,6 +32,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
+    scene TEXT NOT NULL DEFAULT 'general',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
@@ -82,6 +83,14 @@ const safeMigrate = (description: string, sql: string) => {
     }
   }
 };
+
+// Safe migration for projects scene
+safeMigrate('projects table (scene)', `ALTER TABLE projects ADD COLUMN scene TEXT NOT NULL DEFAULT 'general';`);
+try {
+  db.prepare(`UPDATE projects SET scene = 'general' WHERE scene IS NULL OR scene = ''`).run();
+} catch (error) {
+  console.error('Failed to backfill projects.scene:', error);
+}
 
 // Safe migration for sessions parent_session_id & summary
 safeMigrate('sessions table (parent_session_id)', `ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`);
@@ -259,9 +268,9 @@ try {
     }
     
     db.prepare(`
-      INSERT INTO projects (id, name, path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(defaultProjectId, defaultProjectName, defaultProjectPath, now, now);
+      INSERT INTO projects (id, name, path, scene, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(defaultProjectId, defaultProjectName, defaultProjectPath, 'general', now, now);
     console.log('Successfully initialized default project:', defaultProjectId);
   }
 } catch (error) {

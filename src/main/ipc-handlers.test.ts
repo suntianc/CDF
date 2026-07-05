@@ -17,6 +17,7 @@ const {
   listResolvedSkillViewsMock,
   savePhysicalSkillMock,
   importPhysicalSkillDirectoryMock,
+  initializeScenePresetMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -35,6 +36,7 @@ const {
   listResolvedSkillViewsMock: vi.fn(() => []),
   savePhysicalSkillMock: vi.fn(),
   importPhysicalSkillDirectoryMock: vi.fn(),
+  initializeScenePresetMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -103,6 +105,10 @@ vi.mock('./deepagent/mcp-connector', () => ({
   createMcpClient: vi.fn(),
 }));
 
+vi.mock('./scene-presets', () => ({
+  initializeScenePreset: initializeScenePresetMock,
+}));
+
 import { registerIpcHandlers } from './ipc-handlers';
 
 describe('IPC handlers', () => {
@@ -115,6 +121,7 @@ describe('IPC handlers', () => {
     listResolvedSkillViewsMock.mockReturnValue([]);
     savePhysicalSkillMock.mockReset();
     importPhysicalSkillDirectoryMock.mockReset();
+    initializeScenePresetMock.mockReset();
   });
 
   it('should acknowledge llm:chat immediately and stream asynchronously', () => {
@@ -196,6 +203,59 @@ describe('IPC handlers', () => {
       'project:review',
       'project-additional:docs:review',
     ]);
+  });
+
+  it('persists the selected Scene when creating a project', () => {
+    const insertRunMock = vi.fn();
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(),
+      all: vi.fn(() => []),
+      run: vi.fn((...args: unknown[]) => {
+        if (sql.includes('INSERT INTO projects')) {
+          insertRunMock(...args);
+        }
+      }),
+    }));
+
+    registerIpcHandlers();
+    const createProjectHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createProject')?.[1];
+    expect(createProjectHandler).toBeTypeOf('function');
+
+    const project = createProjectHandler({}, 'AI Papers', '/tmp/ai-papers', 'research');
+
+    expect(insertRunMock).toHaveBeenCalledWith(
+      expect.any(String),
+      'AI Papers',
+      '/tmp/ai-papers',
+      'research',
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(project).toEqual(expect.objectContaining({
+      name: 'AI Papers',
+      path: '/tmp/ai-papers',
+      scene: 'research',
+    }));
+  });
+
+  it('calls the Scene preset initialization seam when creating a project', () => {
+    dbPrepareMock.mockImplementation(() => ({
+      get: vi.fn(),
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    }));
+
+    registerIpcHandlers();
+    const createProjectHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createProject')?.[1];
+    expect(createProjectHandler).toBeTypeOf('function');
+
+    const project = createProjectHandler({}, 'AI Papers', '/tmp/ai-papers', 'research');
+
+    expect(initializeScenePresetMock).toHaveBeenCalledWith({
+      projectId: project.id,
+      projectPath: '/tmp/ai-papers',
+      scene: 'research',
+    });
   });
 
   it('passes Skill create validation errors through db:saveSkill', () => {

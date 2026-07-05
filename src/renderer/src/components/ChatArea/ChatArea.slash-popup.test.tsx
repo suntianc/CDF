@@ -101,7 +101,7 @@ describe('ChatArea slash command popup', () => {
     });
     useProjectStore.setState({
       currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one' }],
+      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' }],
       taskPanelOpen: false,
       activeView: 'chat',
     });

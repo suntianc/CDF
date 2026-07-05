@@ -43,7 +43,7 @@ vi.mock('@/components/ChatArea/ChatArea', () => ({
     onToggleTaskPanel?: () => void;
     onOpenTaskPanel?: () => void;
   }) => (
-    <div>
+    <div data-testid="conversation-workspace">
       <span data-testid="task-panel-state">{taskPanelOpen ? 'open' : 'closed'}</span>
       <button type="button" onClick={onToggleTaskPanel}>toggle task panel</button>
       <button type="button" onClick={onOpenTaskPanel}>go approve now</button>
@@ -66,6 +66,9 @@ vi.mock('@/components/TaskPanel/TaskPanel', async () => {
     },
   };
 });
+vi.mock('@/components/FilePanel/FilePanel', () => ({
+  FilePanel: () => null,
+}));
 
 beforeAll(() => {
   if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
@@ -108,7 +111,12 @@ beforeEach(() => {
   taskPanelRenderSpy.mockClear();
   taskPanelMountSpy.mockClear();
   shouldThrowTaskPanel.current = false;
-  useProjectStore.setState({ activeView: 'chat', taskPanelOpen: false });
+  useProjectStore.setState({
+    activeView: 'chat',
+    taskPanelOpen: false,
+    currentProjectId: null,
+    projects: [],
+  });
 });
 
 describe('App', () => {
@@ -175,5 +183,68 @@ describe('App', () => {
     await screen.findByTestId('task-panel');
     expect(screen.getByTestId('task-panel').textContent).toBe('open');
     consoleSpy.mockRestore();
+  });
+
+  it('routes research projects to a research Scene Workspace while keeping Conversation available', () => {
+    useProjectStore.setState({
+      activeView: 'chat',
+      currentProjectId: 'project-research',
+      projects: [{
+        id: 'project-research',
+        name: 'AI Papers',
+        path: '/tmp/ai-papers',
+        scene: 'research',
+        created_at: 1,
+        updated_at: 1,
+      }],
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('tab', { name: /Conversation|对话/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Paper Library|论文库/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Writing|写作/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Experiments|实验记录/ })).toBeTruthy();
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+  });
+
+  it('falls back to the general Conversation workspace for unknown Scene values', () => {
+    useProjectStore.setState({
+      activeView: 'chat',
+      currentProjectId: 'project-unknown',
+      projects: [{
+        id: 'project-unknown',
+        name: 'Imported Project',
+        path: '/tmp/imported',
+        scene: 'archival' as never,
+        created_at: 1,
+        updated_at: 1,
+      }],
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
+  });
+
+  it('keeps general projects on the existing Conversation workspace without Scene navigation', () => {
+    useProjectStore.setState({
+      activeView: 'chat',
+      currentProjectId: 'project-general',
+      projects: [{
+        id: 'project-general',
+        name: 'General Project',
+        path: '/tmp/general',
+        scene: 'general',
+        created_at: 1,
+        updated_at: 1,
+      }],
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
   });
 });

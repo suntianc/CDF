@@ -1,10 +1,5 @@
 import { create } from 'zustand';
-
-interface Project {
-  id: string;
-  name: string;
-  path: string;
-}
+import type { Project } from '@shared/types';
 
 interface ProjectState {
   projects: Project[];

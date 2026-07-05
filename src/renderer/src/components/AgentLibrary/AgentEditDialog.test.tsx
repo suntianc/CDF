@@ -13,7 +13,7 @@ describe('AgentEditDialog', () => {
     await i18n.changeLanguage('en-US');
     useProjectStore.setState({
       currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'CDF Project', path: '/tmp/cdf' }],
+      projects: [{ id: 'project-1', name: 'CDF Project', path: '/tmp/cdf', scene: 'general' }],
       activeView: 'agents',
       taskPanelOpen: false,
     });

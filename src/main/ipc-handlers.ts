@@ -34,6 +34,7 @@ import type {
   LLMProvider,
   LocalEmbeddingModelState,
   MCPServer,
+  ProjectScene,
 } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
 import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
@@ -52,6 +53,7 @@ import {
 } from './embedding/local-embedder';
 import { inspectVectorStore, type VectorStoreRebuildImpact } from './embedding/vector-store';
 import { getDefaultEmbeddingDimsForProvider, getDefaultEmbeddingModelForProvider } from './embedding/provider-defaults';
+import { initializeScenePreset } from './scene-presets';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -78,6 +80,10 @@ const getProviderLabel = (type: string): string => {
     default: return 'OpenAI Compatible';
   }
 };
+
+const normalizeProjectScene = (scene: unknown): ProjectScene => (
+  scene === 'research' ? 'research' : 'general'
+);
 
 const EMBEDDING_SOURCE_STORE_KEY = 'embeddingSource';
 const LOCAL_MODEL_PROGRESS_CHANNEL = 'embedding:local-model-progress';
@@ -221,9 +227,9 @@ export function registerIpcHandlers() {
       fs.mkdirSync(defaultProjectPath, { recursive: true });
     }
     db.prepare(`
-      INSERT INTO projects (id, name, path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('default-project', '默认项目', defaultProjectPath, now, now);
+      INSERT INTO projects (id, name, path, scene, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('default-project', '默认项目', defaultProjectPath, 'general', now, now);
   };
 
   const ensureDefaultAgentForSession = (projectId: string): string | null => {
@@ -369,14 +375,16 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:createProject', (_, name: string, projectPath: string) => {
+  ipcMain.handle('db:createProject', (_, name: string, projectPath: string, scene?: ProjectScene) => {
+    const projectScene = normalizeProjectScene(scene);
     const id = crypto.randomUUID();
     const now = Date.now();
     db.prepare(
-      'INSERT INTO projects (id, name, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, name, projectPath, now, now);
+      'INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, name, projectPath, projectScene, now, now);
+    initializeScenePreset({ projectId: id, projectPath, scene: projectScene });
     const isGit = projectPath ? fs.existsSync(path.join(projectPath, '.git')) : false;
-    return { id, name, path: projectPath, created_at: now, updated_at: now, isGit };
+    return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
   });
 
   ipcMain.handle('db:deleteProject', (_, id: string) => {

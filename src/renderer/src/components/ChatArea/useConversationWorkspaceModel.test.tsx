@@ -102,7 +102,7 @@ describe('useConversationWorkspaceModel', () => {
 
     useProjectStore.setState({
       currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one' }],
+      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' }],
     });
     useSessionStore.setState({
       sessions: [activeSession],
@@ -139,7 +139,7 @@ describe('useConversationWorkspaceModel', () => {
 
     useProjectStore.setState({
       currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one' }],
+      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' }],
     });
     useAgentStore.setState({ agents: [defaultAgent, otherAgent] });
     useLLMStore.setState({ providers: [defaultProvider, otherProvider] });

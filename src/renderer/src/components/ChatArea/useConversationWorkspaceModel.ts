@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Agent, LLMProvider, Message, Session, TodoItem } from '@shared/types';
+import type { Agent, LLMProvider, Message, Project, Session, TodoItem } from '@shared/types';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
@@ -18,7 +18,7 @@ import {
 interface ConversationWorkspaceModel {
   workspace: {
     currentProjectId: string | null;
-    projects: Array<{ id: string; name: string; path: string }>;
+    projects: Project[];
     currentProjectName: string | null;
     currentProjectRoot: string | null;
     activeSessionId: string | null;
