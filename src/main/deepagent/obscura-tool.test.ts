@@ -35,6 +35,61 @@ describe('createObscuraBrowserTool', () => {
     });
   });
 
+  it('returns discovered page links as structured JSON', async () => {
+    const content = 'https://example.com/about\nhttps://example.com/contact';
+    const obscuraBrowse = createObscuraBrowserTool({
+      runner: {
+        browse: async () => ({
+          content,
+          stderr: '',
+          exitCode: 0,
+        }),
+      },
+    });
+
+    const result = parseToolResult(await (obscuraBrowse as any).invoke({
+      url: 'https://example.com',
+      format: 'links',
+    }));
+
+    expect(result).toMatchObject({
+      success: true,
+      url: 'https://example.com',
+      format: 'links',
+      content,
+      metadata: {
+        contentLength: content.length,
+      },
+    });
+  });
+
+  it('accepts Obscura atomic inspection dump formats', async () => {
+    const acceptedFormats = ['cookies', 'assets', 'original'];
+    const obscuraBrowse = createObscuraBrowserTool({
+      runner: {
+        browse: async (input) => ({
+          content: `dump:${input.format}`,
+          stderr: '',
+          exitCode: 0,
+        }),
+      },
+    });
+
+    for (const format of acceptedFormats) {
+      const result = parseToolResult(await (obscuraBrowse as any).invoke({
+        url: 'https://example.com',
+        format,
+      }));
+
+      expect(result).toMatchObject({
+        success: true,
+        url: 'https://example.com',
+        format,
+        content: `dump:${format}`,
+      });
+    }
+  });
+
   it('returns a structured error for non-web URLs', async () => {
     const obscuraBrowse = createObscuraBrowserTool({
       runner: {

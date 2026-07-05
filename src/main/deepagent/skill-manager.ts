@@ -4,6 +4,7 @@ import path from 'path';
 import YAML from 'yaml';
 import { listSkills, type FilesystemPermission } from 'deepagents';
 import type { ParsedFrontmatter } from '../../shared/types';
+import { getCrawlerSkillMarkdown } from '../crawler-skill';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
 import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
@@ -91,6 +92,13 @@ function ensureBuiltInKnowledgeBaseSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInCrawlerSkill(): string {
+  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'crawler');
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getCrawlerSkillMarkdown(), 'utf-8');
+  return skillDir;
+}
+
 export function materializePdfParsingSkillRuntime(compiledCliPath: string, skillDir: string): string {
   const materializedCliPath = path.join(skillDir, 'runtime', 'pdf-parsing-skill-cli.js');
   if (!fs.existsSync(compiledCliPath)) return compiledCliPath;
@@ -125,7 +133,7 @@ function ensureBuiltInPdfParsingSkill(): string {
 }
 
 export function getBuiltInSkillDirs(): string[] {
-  return [ensureBuiltInKnowledgeBaseSkill(), ensureBuiltInPdfParsingSkill()];
+  return [ensureBuiltInKnowledgeBaseSkill(), ensureBuiltInCrawlerSkill(), ensureBuiltInPdfParsingSkill()];
 }
 
 function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {

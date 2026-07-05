@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { tool } from '@langchain/core/tools';
 
-type ObscuraOutputFormat = 'markdown' | 'text' | 'html';
+type ObscuraOutputFormat = 'markdown' | 'text' | 'html' | 'links' | 'cookies' | 'assets' | 'original';
 
 export interface ObscuraBrowseInput {
   url: string;
@@ -61,8 +61,8 @@ const OBSCURA_BROWSE_SCHEMA = {
     },
     format: {
       type: 'string',
-      enum: ['markdown', 'text', 'html'],
-      description: 'Output format. Defaults to markdown.',
+      enum: ['markdown', 'text', 'html', 'links', 'cookies', 'assets', 'original'],
+      description: 'Output format. markdown/text/html return rendered page content; links returns the URLs discovered on the rendered page, one per line; cookies returns the browser cookie jar as a JSON array; assets returns the sub-resource URLs the rendered page references, one JSON object per line; original returns the raw unrendered HTTP response body. Defaults to markdown.',
       default: 'markdown',
     },
     waitUntil: {
@@ -230,7 +230,7 @@ export function createObscuraBrowserTool({ runner }: CreateObscuraBrowserToolOpt
     },
     {
       name: 'obscura_browse',
-      description: 'Render a browser-backed web page with Obscura and return extracted page content. Use this for pages that need JavaScript rendering or a browser environment.',
+      description: 'Render a browser-backed web page with Obscura and return extracted page content. Use this for pages that need JavaScript rendering or a browser environment. Besides page content, format also supports structured single-page reads: discovered links, the cookie jar, referenced asset URLs, and the raw unrendered response body.',
       schema: OBSCURA_BROWSE_SCHEMA,
     },
   );

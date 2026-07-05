@@ -279,6 +279,14 @@ describe('skill-manager', () => {
     expect(knowledgeBaseSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
   });
 
+  it('loads the built-in Crawler Skill without writing to the user global skills directory', () => {
+    const config = resolveAgentSkillsConfig(tempProjectPath);
+    const crawlerSource = config.skillsSources.find((source) => source.includes('crawler'));
+
+    expect(crawlerSource).toBeTruthy();
+    expect(crawlerSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
+  });
+
   it('grants read-only permissions for model-discoverable Skill sources outside the project', () => {
     const globalSkillsDir = getScopePath(tempProjectPath, 'global');
     savePhysicalSkill(tempProjectPath, 'global', {

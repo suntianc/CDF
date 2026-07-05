@@ -237,11 +237,11 @@ A Scene-specific panel that tracks code reproduction attempts, datasets, run con
 _Avoid_: lab notebook, run log
 
 **Crawler Skill**:
-A Skill that encodes crawling strategy and instructions for the Obscura tool — what to extract, how to handle pagination and anti-scraping, and how to structure the output. The Skill itself contains no execution logic.
-_Avoid_: scraper, spider, bot
+A built-in Skill that encodes crawling strategy — target description, extraction rules, link discovery, pagination, and anti-scraping handling — by orchestrating the Obscura Browser Tool's structured read operations. The Skill carries strategy and instructions only, no execution logic and no wrapper scripts; page fetching and extraction run through the tool, not shell.
+_Avoid_: scraper, spider, bot, shell-driven CLI
 
 **Obscura Browser Tool**:
-An Agent Tool that uses the bundled Obscura headless browser to render pages that need a browser environment before extracting page content.
+An Agent Tool that uses the bundled Obscura headless browser for single-page read operations: rendering page content (markdown/text/html) and extracting the page's links, cookies, and asset URLs as structured results. Batch crawling, page scripting (`--eval`), and stateful sessions are out of scope.
 _Avoid_: browser fetch, scraper tool, crawler
 
 **Fetch Tool**:
