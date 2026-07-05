@@ -81,6 +81,57 @@ describe('SceneWorkspace Paper Library', () => {
     expect(screen.queryByText('Vector Notes')).toBeNull();
   });
 
+  it('shows bibliographic fields and Journal Metrics Snapshot fields', async () => {
+    knowledgeListMock.mockResolvedValue([
+      paperEntry({
+        relativePath: 'papers/metrics.md',
+        title: 'Metrics Paper',
+        tags: ['metrics'],
+        frontmatter: {
+          type: 'Paper',
+          title: 'Metrics Paper',
+          description: 'A paper with complete bibliographic metadata.',
+          authors: ['Grace Hopper'],
+          source: 'DOI:10.1234/metrics',
+          journal: 'Nature Machine Intelligence',
+          volume: '5',
+          issue: '2',
+          pages: '100-112',
+          year: 2024,
+          doi: '10.1234/metrics',
+          journalMetrics: {
+            impactFactor: 18.8,
+            casTier: '1区',
+            jcrQuartile: 'Q1',
+            indexing: ['SCI', 'EI'],
+            year: 2025,
+            source: 'easyScholar',
+          },
+        },
+      }),
+    ]);
+
+    render(
+      <SceneWorkspace
+        scene="research"
+        conversation={<div data-testid="conversation-workspace">Conversation</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: /论文库|Paper Library/ }));
+
+    expect(await screen.findByText('Metrics Paper')).toBeTruthy();
+    expect(screen.getAllByText(/Nature Machine Intelligence/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/2024/)).toBeTruthy();
+    expect(screen.getByText(/5.*2/)).toBeTruthy();
+    expect(screen.getByText(/100-112/)).toBeTruthy();
+    expect(screen.getAllByText(/10\.1234\/metrics/).length).toBeGreaterThan(0);
+    expect(screen.getByText('IF 18.8 (2025, easyScholar)')).toBeTruthy();
+    expect(screen.getByText('CAS 1区 (2025)')).toBeTruthy();
+    expect(screen.getByText('JCR Q1 (2025)')).toBeTruthy();
+    expect(screen.getByText('SCI, EI (2025)')).toBeTruthy();
+  });
+
   it('filters Paper Entries by keyword without matching the note body', async () => {
     knowledgeListMock.mockResolvedValue([
       paperEntry(),
@@ -95,6 +146,7 @@ describe('SceneWorkspace Paper Library', () => {
           description: 'Parametric and non-parametric memory for language generation.',
           authors: ['Patrick Lewis'],
           source: 'arXiv:2005.11401',
+          journal: 'Journal of Retrieval',
         },
       }),
     ]);
@@ -123,6 +175,13 @@ describe('SceneWorkspace Paper Library', () => {
 
     expect(screen.getByText('Attention Is All You Need')).toBeTruthy();
     expect(screen.queryByText('Retrieval-Augmented Generation')).toBeNull();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: /搜索论文|Search papers/ }), {
+      target: { value: 'Journal of Retrieval' },
+    });
+
+    expect(screen.queryByText('Attention Is All You Need')).toBeNull();
+    expect(screen.getByText('Retrieval-Augmented Generation')).toBeTruthy();
   });
 
   it('keeps the flat Paper Entry order returned by timestamp-desc loading', async () => {
@@ -195,6 +254,68 @@ describe('SceneWorkspace Paper Library', () => {
 
     expect(screen.getByText('Attention Is All You Need')).toBeTruthy();
     expect(screen.queryByText('Retrieval-Augmented Generation')).toBeNull();
+  });
+
+  it('filters Paper Entries by journal and CAS tier together', async () => {
+    knowledgeListMock.mockResolvedValue([
+      paperEntry({
+        relativePath: 'papers/a.md',
+        title: 'Journal A Tier One',
+        tags: ['ml'],
+        frontmatter: {
+          type: 'Paper',
+          title: 'Journal A Tier One',
+          journal: 'Journal A',
+          journalMetrics: { casTier: '1区', year: 2025, source: 'easyScholar' },
+        },
+      }),
+      paperEntry({
+        relativePath: 'papers/b.md',
+        title: 'Journal A Tier Two',
+        tags: ['ml'],
+        frontmatter: {
+          type: 'Paper',
+          title: 'Journal A Tier Two',
+          journal: 'Journal A',
+          journalMetrics: { casTier: '2区', year: 2025, source: 'easyScholar' },
+        },
+      }),
+      paperEntry({
+        relativePath: 'papers/c.md',
+        title: 'Journal B Tier One',
+        tags: ['systems'],
+        frontmatter: {
+          type: 'Paper',
+          title: 'Journal B Tier One',
+          journal: 'Journal B',
+          journalMetrics: { casTier: '1区', year: 2025, source: 'easyScholar' },
+        },
+      }),
+    ]);
+
+    render(
+      <SceneWorkspace
+        scene="research"
+        conversation={<div data-testid="conversation-workspace">Conversation</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: /论文库|Paper Library/ }));
+    expect(await screen.findByText('Journal A Tier One')).toBeTruthy();
+    expect(screen.getByText('Journal A Tier Two')).toBeTruthy();
+    expect(screen.getByText('Journal B Tier One')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /筛选期刊 Journal A|Filter journal Journal A/ }));
+
+    expect(screen.getByText('Journal A Tier One')).toBeTruthy();
+    expect(screen.getByText('Journal A Tier Two')).toBeTruthy();
+    expect(screen.queryByText('Journal B Tier One')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /筛选中科院分区 1区|Filter CAS tier 1区/ }));
+
+    expect(screen.getByText('Journal A Tier One')).toBeTruthy();
+    expect(screen.queryByText('Journal A Tier Two')).toBeNull();
+    expect(screen.queryByText('Journal B Tier One')).toBeNull();
   });
 
   it('groups filtered Paper Entries by tag and repeats multi-tag papers', async () => {

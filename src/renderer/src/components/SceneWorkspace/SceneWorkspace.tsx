@@ -1,5 +1,6 @@
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Beaker, BookOpen, FileText, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import type { KnowledgeEntrySummary, ProjectScene } from '@shared/types';
 import { useProjectStore } from '../../stores/projectStore';
@@ -84,8 +85,24 @@ interface PaperLibraryItem {
   authors: string[];
   abstract: string;
   source: string;
+  journal: string;
+  volume: string;
+  issue: string;
+  pages: string;
+  year: string;
+  doi: string;
+  journalMetrics: JournalMetricsSnapshotView;
   resource: string;
   tags: string[];
+}
+
+interface JournalMetricsSnapshotView {
+  impactFactor: string;
+  casTier: string;
+  jcrQuartile: string;
+  indexing: string[];
+  year: string;
+  source: string;
 }
 
 function PaperLibraryPanel() {
@@ -94,6 +111,8 @@ function PaperLibraryPanel() {
   const [entries, setEntries] = useState<KnowledgeEntrySummary[]>([]);
   const [keyword, setKeyword] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedJournal, setSelectedJournal] = useState<string | null>(null);
+  const [selectedCasTier, setSelectedCasTier] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<PaperViewMode>('flat');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,9 +145,16 @@ function PaperLibraryPanel() {
 
   const papers = useMemo(() => entries.map(toPaperLibraryItem).filter((item): item is PaperLibraryItem => item !== null), [entries]);
   const allTags = useMemo(() => Array.from(new Set(papers.flatMap((paper) => paper.tags))).sort((a, b) => a.localeCompare(b)), [papers]);
+  const allJournals = useMemo(() => Array.from(new Set(papers.map((paper) => paper.journal).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [papers]);
+  const allCasTiers = useMemo(() => Array.from(new Set(papers.map((paper) => paper.journalMetrics.casTier).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [papers]);
   const filteredPapers = useMemo(
-    () => papers.filter((paper) => matchesPaperKeyword(paper, keyword) && (!selectedTag || paper.tags.includes(selectedTag))),
-    [keyword, papers, selectedTag],
+    () => papers.filter((paper) => (
+      matchesPaperKeyword(paper, keyword)
+      && (!selectedTag || paper.tags.includes(selectedTag))
+      && (!selectedJournal || paper.journal === selectedJournal)
+      && (!selectedCasTier || paper.journalMetrics.casTier === selectedCasTier)
+    )),
+    [keyword, papers, selectedCasTier, selectedJournal, selectedTag],
   );
   const groupedPapers = useMemo(() => groupPapersByTag(filteredPapers, t('sceneWorkspace.untaggedGroup')), [filteredPapers, t]);
 
@@ -182,29 +208,29 @@ function PaperLibraryPanel() {
           ))}
         </div>
 
-        {allTags.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5" aria-label={t('sceneWorkspace.paperTagFilters')}>
-            {allTags.map((tag) => {
-              const selected = selectedTag === tag;
-              return (
-                <button
-                  key={tag}
-                  type="button"
-                  aria-pressed={selected}
-                  aria-label={t('sceneWorkspace.paperTagFilterLabel', { tag })}
-                  onClick={() => setSelectedTag(selected ? null : tag)}
-                  className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${
-                    selected
-                      ? 'border-[var(--color-border-strong)] bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
-                      : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
-                  }`}
-                >
-                  {tag}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
+        <div className="flex flex-col gap-1.5">
+          <PaperFilterChips
+            items={allTags}
+            selected={selectedTag}
+            ariaLabel={t('sceneWorkspace.paperTagFilters')}
+            getButtonLabel={(tag) => t('sceneWorkspace.paperTagFilterLabel', { tag })}
+            onToggle={(tag) => setSelectedTag(selectedTag === tag ? null : tag)}
+          />
+          <PaperFilterChips
+            items={allJournals}
+            selected={selectedJournal}
+            ariaLabel={t('sceneWorkspace.paperJournalFilters')}
+            getButtonLabel={(journal) => t('sceneWorkspace.paperJournalFilterLabel', { journal })}
+            onToggle={(journal) => setSelectedJournal(selectedJournal === journal ? null : journal)}
+          />
+          <PaperFilterChips
+            items={allCasTiers}
+            selected={selectedCasTier}
+            ariaLabel={t('sceneWorkspace.paperCasTierFilters')}
+            getButtonLabel={(tier) => t('sceneWorkspace.paperCasTierFilterLabel', { tier })}
+            onToggle={(tier) => setSelectedCasTier(selectedCasTier === tier ? null : tier)}
+          />
+        </div>
 
         {error ? (
           <div className="rounded-md border border-[var(--color-danger)]/30 bg-[var(--color-bg-surface)] px-3 py-2 text-xs text-[var(--color-danger)]">
@@ -245,6 +271,8 @@ function PaperCard({ paper, projectId }: { paper: PaperLibraryItem; projectId: s
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const canExpand = paper.abstract.length > 0;
+  const bibliographicParts = getBibliographicParts(paper, t);
+  const metrics = getMetricBadges(paper, t);
   const toggleExpanded = () => {
     if (canExpand) {
       setExpanded((value) => !value);
@@ -281,6 +309,25 @@ function PaperCard({ paper, projectId }: { paper: PaperLibraryItem; projectId: s
             <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{paper.title}</h3>
             {paper.authors.length > 0 ? (
               <div className="mt-1 text-xs text-[var(--color-text-secondary)]">{paper.authors.join(', ')}</div>
+            ) : null}
+            {bibliographicParts.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-[var(--color-text-muted)]">
+                {bibliographicParts.map((part) => (
+                  <span key={part}>{part}</span>
+                ))}
+              </div>
+            ) : null}
+            {metrics.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {metrics.map((metric) => (
+                  <span
+                    key={metric}
+                    className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)]"
+                  >
+                    {metric}
+                  </span>
+                ))}
+              </div>
             ) : null}
           </div>
           {paper.resource ? (
@@ -331,6 +378,46 @@ function PaperCard({ paper, projectId }: { paper: PaperLibraryItem; projectId: s
   );
 }
 
+function PaperFilterChips({
+  items,
+  selected,
+  ariaLabel,
+  getButtonLabel,
+  onToggle,
+}: {
+  items: string[];
+  selected: string | null;
+  ariaLabel: string;
+  getButtonLabel: (item: string) => string;
+  onToggle: (item: string) => void;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5" aria-label={ariaLabel}>
+      {items.map((item) => {
+        const isSelected = selected === item;
+        return (
+          <button
+            key={item}
+            type="button"
+            aria-pressed={isSelected}
+            aria-label={getButtonLabel(item)}
+            onClick={() => onToggle(item)}
+            className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${
+              isSelected
+                ? 'border-[var(--color-border-strong)] bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
+                : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+            }`}
+          >
+            {item}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PaperLibraryEmptyState() {
   const { t } = useTranslation();
   return (
@@ -356,6 +443,13 @@ function toPaperLibraryItem(entry: KnowledgeEntrySummary): PaperLibraryItem | nu
     authors: readStringArray(entry.frontmatter.authors),
     abstract: readString(entry.frontmatter.description),
     source: readString(entry.frontmatter.source),
+    journal: readString(entry.frontmatter.journal),
+    volume: readStringOrNumber(entry.frontmatter.volume),
+    issue: readStringOrNumber(entry.frontmatter.issue),
+    pages: readStringOrNumber(entry.frontmatter.pages),
+    year: readStringOrNumber(entry.frontmatter.year),
+    doi: readString(entry.frontmatter.doi),
+    journalMetrics: readJournalMetrics(entry.frontmatter.journalMetrics),
     resource: readString(entry.frontmatter.resource),
     tags: entry.tags,
   };
@@ -365,8 +459,76 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function readStringOrNumber(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  return '';
+}
+
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+}
+
+function readJournalMetrics(value: unknown): JournalMetricsSnapshotView {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return emptyJournalMetrics();
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    impactFactor: readStringOrNumber(record.impactFactor),
+    casTier: readString(record.casTier),
+    jcrQuartile: readString(record.jcrQuartile),
+    indexing: readStringArray(record.indexing),
+    year: readStringOrNumber(record.year),
+    source: readString(record.source),
+  };
+}
+
+function emptyJournalMetrics(): JournalMetricsSnapshotView {
+  return {
+    impactFactor: '',
+    casTier: '',
+    jcrQuartile: '',
+    indexing: [],
+    year: '',
+    source: '',
+  };
+}
+
+function getBibliographicParts(paper: PaperLibraryItem, t: TFunction): string[] {
+  const volumeIssue = paper.volume && paper.issue
+    ? t('sceneWorkspace.paperVolumeIssue', { volume: paper.volume, issue: paper.issue })
+    : paper.volume
+      ? t('sceneWorkspace.paperVolume', { volume: paper.volume })
+      : paper.issue
+        ? t('sceneWorkspace.paperIssue', { issue: paper.issue })
+        : '';
+  return [
+    paper.journal,
+    paper.year,
+    volumeIssue,
+    paper.pages ? t('sceneWorkspace.paperPages', { pages: paper.pages }) : '',
+    paper.doi ? t('sceneWorkspace.paperDoi', { doi: paper.doi }) : '',
+  ].filter(Boolean);
+}
+
+function metricSuffix(metrics: JournalMetricsSnapshotView): string {
+  if (metrics.year && metrics.source) return ` (${metrics.year}, ${metrics.source})`;
+  if (metrics.year) return ` (${metrics.year})`;
+  if (metrics.source) return ` (${metrics.source})`;
+  return '';
+}
+
+function getMetricBadges(paper: PaperLibraryItem, t: TFunction): string[] {
+  const metrics = paper.journalMetrics;
+  const suffix = metricSuffix(metrics);
+  const yearOnlySuffix = metrics.year ? ` (${metrics.year})` : suffix;
+  return [
+    metrics.impactFactor ? t('sceneWorkspace.paperImpactFactor', { value: metrics.impactFactor, suffix }) : '',
+    metrics.casTier ? t('sceneWorkspace.paperCasTier', { value: metrics.casTier, suffix: yearOnlySuffix }) : '',
+    metrics.jcrQuartile ? t('sceneWorkspace.paperJcrQuartile', { value: metrics.jcrQuartile, suffix: yearOnlySuffix }) : '',
+    metrics.indexing.length > 0 ? t('sceneWorkspace.paperIndexing', { value: metrics.indexing.join(', '), suffix: yearOnlySuffix }) : '',
+  ].filter(Boolean);
 }
 
 function matchesPaperKeyword(paper: PaperLibraryItem, keyword: string): boolean {
@@ -379,6 +541,8 @@ function matchesPaperKeyword(paper: PaperLibraryItem, keyword: string): boolean 
     paper.title,
     paper.abstract,
     paper.source,
+    paper.journal,
+    paper.doi,
     ...paper.authors,
     ...paper.tags,
   ].some((value) => value.toLowerCase().includes(needle));

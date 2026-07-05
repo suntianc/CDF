@@ -6,9 +6,9 @@ import db from './database';
 import {
   createKnowledgeEntry,
   deleteKnowledgeEntry,
-  getKnowledgeBaseRoot,
   listKnowledgeEntries,
   readKnowledgeEntry,
+  resolvePaperPdfResourcePath,
   searchKnowledgeEntries,
   updateKnowledgeEntry,
 } from './knowledge-base';
@@ -26,35 +26,6 @@ function getProjectPath(projectId: string): string {
     throw new Error(`Project not found: ${projectId}`);
   }
   return project.path;
-}
-
-function resolvePaperPdfPath(projectPath: string, resource: string): string {
-  const root = getKnowledgeBaseRoot(projectPath);
-  const normalized = resource.split('\\').join('/').trim();
-  if (!normalized || path.isAbsolute(normalized)) {
-    throw new Error('Paper PDF resource must be a relative path inside the Knowledge Base.');
-  }
-  if (!normalized.toLowerCase().endsWith('.pdf')) {
-    throw new Error('Paper PDF resource must point to a PDF file.');
-  }
-  if (normalized.split('/').some((part) => part === '..' || part === '' || part.startsWith('.'))) {
-    throw new Error('Paper PDF resource must stay inside the Knowledge Base.');
-  }
-
-  const target = path.resolve(root, normalized);
-  const relativeToRoot = path.relative(root, target);
-  if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
-    throw new Error('Paper PDF resource must stay inside the Knowledge Base.');
-  }
-  if (!fs.existsSync(target)) {
-    throw new Error(`Paper PDF resource not found: ${normalized}`);
-  }
-  const stat = fs.lstatSync(target);
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error('Paper PDF resource must be a regular file inside the Knowledge Base.');
-  }
-
-  return target;
 }
 
 export function registerKnowledgeBaseHandlers(): void {
@@ -83,7 +54,7 @@ export function registerKnowledgeBaseHandlers(): void {
   });
 
   ipcMain.handle('paper-library:openPdf', async (_event, projectId: string, resource: string) => {
-    const pdfPath = resolvePaperPdfPath(getProjectPath(projectId), resource);
+    const pdfPath = resolvePaperPdfResourcePath(getProjectPath(projectId), resource);
     const window = new BrowserWindow({
       width: 960,
       height: 720,

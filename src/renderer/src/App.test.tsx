@@ -28,6 +28,9 @@ vi.mock('@/components/Settings/ModelSettings', () => ({
 vi.mock('@/components/Settings/ToolSettings', () => ({
   ToolSettings: () => null,
 }));
+vi.mock('@/components/Settings/ResearchSettings', () => ({
+  ResearchSettings: () => null,
+}));
 vi.mock('@/components/WorkflowEditor/WorkflowList', () => ({
   WorkflowList: () => null,
 }));

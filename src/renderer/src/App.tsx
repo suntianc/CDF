@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { ModelSettings } from './components/Settings/ModelSettings';
 import { ToolSettings } from './components/Settings/ToolSettings';
+import { ResearchSettings } from './components/Settings/ResearchSettings';
 import { SystemSettings } from './components/Settings/SystemSettings';
 import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
@@ -165,6 +166,7 @@ export default function App() {
         >
           {activeView === 'settings' && <ModelSettings />}
           {activeView === 'tools' && <ToolSettings />}
+          {activeView === 'research' && <ResearchSettings />}
           {activeView === 'system' && <SystemSettings />}
           {activeView === 'agents' && <AgentLibrary />}
           {activeView === 'plugins' && <PluginsPanel />}

@@ -34,6 +34,8 @@ import type {
   LLMProvider,
   LocalEmbeddingModelState,
   MCPServer,
+  PaperSearchConfigKey,
+  PaperSearchConfigSettings,
   ProjectScene,
 } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
@@ -45,6 +47,11 @@ import { ensureProjectWatcher } from './commands/chokidar-watcher';
 import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
+import {
+  getPaperSearchConfigSettings,
+  setPaperSearchConfigValue,
+  unsetPaperSearchConfigValue,
+} from './paper-search-config';
 import {
   LOCAL_E5_SOURCE,
   ensureLocalE5Model,
@@ -160,6 +167,51 @@ const getLocalEmbeddingModelPath = (): string => path.join(app.getPath('userData
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+function normalizeExternalHttpUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('External URL must be a string');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('External URL is invalid');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('External URL must use http or https');
+  }
+
+  return parsed.toString();
+}
+
+const PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID = 'paper-search-easyscholar';
+
+function readStoredEasyScholarKey(): string | null {
+  const row = db.prepare('SELECT api_key FROM tool_configs WHERE id = ?')
+    .get(PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID) as { api_key?: string | null } | undefined;
+  if (!row?.api_key) return null;
+  return decryptApiKey(row.api_key);
+}
+
+function clearStoredEasyScholarKey(): void {
+  db.prepare('DELETE FROM tool_configs WHERE id = ?').run(PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID);
+}
+
+function migrateLegacyEasyScholarKey(): void {
+  const storedKey = readStoredEasyScholarKey();
+  if (storedKey) {
+    setPaperSearchConfigValue('EASYSCHOLAR_KEY', storedKey);
+    clearStoredEasyScholarKey();
+  }
+}
+
+function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
+  migrateLegacyEasyScholarKey();
+  return getPaperSearchConfigSettings();
+}
 
 const buildLocalModelState = (overrides: Partial<LocalEmbeddingModelState> = {}): LocalEmbeddingModelState => {
   const status = getLocalE5ModelStatus(getLocalEmbeddingModelPath());
@@ -295,6 +347,11 @@ export function registerIpcHandlers() {
     const decryptedKey = provider.api_key ? decryptApiKey(provider.api_key) : undefined;
     return { provider, decryptedKey };
   };
+
+  ipcMain.handle('shell:openExternalUrl', async (_, url: unknown) => {
+    await shell.openExternal(normalizeExternalHttpUrl(url));
+    return { ok: true };
+  });
 
   // electron-store handlers
   ipcMain.handle('store:get', (_, key: string) => store.get(key));
@@ -926,6 +983,21 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('db:deleteToolConfig', (_, id: string) => {
     db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+  });
+
+  ipcMain.handle('paper-search:getSettings', () => getSyncedPaperSearchSettings());
+
+  ipcMain.handle('paper-search:saveConfigValue', (_, key: PaperSearchConfigKey, value: string) => {
+    if (typeof key !== 'string' || typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error('Paper Search CLI config value cannot be empty');
+    }
+    migrateLegacyEasyScholarKey();
+    return setPaperSearchConfigValue(key, value);
+  });
+
+  ipcMain.handle('paper-search:clearConfigValue', (_, key: PaperSearchConfigKey) => {
+    migrateLegacyEasyScholarKey();
+    return unsetPaperSearchConfigValue(key);
   });
 
   ipcMain.handle('db:checkMcpHealth', async (_, id: string) => {

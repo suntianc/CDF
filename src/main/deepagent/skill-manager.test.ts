@@ -8,6 +8,7 @@ import {
   importPhysicalSkillDirectory,
   listPhysicalSkills,
   listResolvedSkillViews,
+  materializePaperSearchRuntime,
   materializePdfParsingSkillRuntime,
   resolveAgentSkillConfigOptions,
   resolveAgentSkillsConfig,
@@ -62,6 +63,34 @@ describe('skill-manager', () => {
     expect(materializedCliPath).toBe(path.join(tempProjectPath, 'built-in-skill', 'runtime', 'pdf-parsing-skill-cli.js'));
     expect(fs.existsSync(path.join(tempProjectPath, 'built-in-skill', 'runtime', 'chunks', 'pdf-parsing-skill-test.js'))).toBe(true);
     expect(execFileSync(process.execPath, [materializedCliPath], { encoding: 'utf-8' })).toBe('chunk-loaded');
+  });
+
+  it('materializes the bundled Paper Search CLI with package metadata', () => {
+    const compiledDir = path.join(tempProjectPath, 'out', 'main');
+    fs.mkdirSync(compiledDir, { recursive: true });
+    const compiledCliPath = path.join(compiledDir, 'paper-search-cli.cjs');
+    const compiledPackagePath = path.join(compiledDir, 'paper-search-cli.package.json');
+    fs.writeFileSync(
+      compiledCliPath,
+      [
+        "const fs = require('fs');",
+        "const path = require('path');",
+        "const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));",
+        "process.stdout.write(pkg.version);",
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.writeFileSync(compiledPackagePath, '{"version":"0.3.4"}\n', 'utf-8');
+
+    const materializedCliPath = materializePaperSearchRuntime(
+      compiledCliPath,
+      compiledPackagePath,
+      path.join(tempProjectPath, 'built-in-paper-skill'),
+    );
+
+    expect(materializedCliPath).toBe(path.join(tempProjectPath, 'built-in-paper-skill', 'runtime', 'paper-search.cjs'));
+    expect(fs.readFileSync(path.join(tempProjectPath, 'built-in-paper-skill', 'package.json'), 'utf-8')).toContain('"version":"0.3.4"');
+    expect(execFileSync(process.execPath, [materializedCliPath], { encoding: 'utf-8' })).toBe('0.3.4');
   });
 
   it('should save and list physical skill bundles', () => {
@@ -285,6 +314,42 @@ describe('skill-manager', () => {
 
     expect(crawlerSource).toBeTruthy();
     expect(crawlerSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
+  });
+
+  it('loads the built-in Paper Collection Skill and materializes its bundled CLI', () => {
+    const compiledDir = path.join(tempProjectPath, 'compiled-paper-search');
+    fs.mkdirSync(compiledDir, { recursive: true });
+    const compiledCliPath = path.join(compiledDir, 'paper-search-cli.cjs');
+    const compiledPackagePath = path.join(compiledDir, 'paper-search-cli.package.json');
+    fs.writeFileSync(compiledCliPath, "process.stdout.write('paper-search-runtime');\n", 'utf-8');
+    fs.writeFileSync(compiledPackagePath, '{"version":"0.3.4"}\n', 'utf-8');
+    const previousCliPath = process.env.CDF_PAPER_SEARCH_CLI_PATH;
+    const previousPackagePath = process.env.CDF_PAPER_SEARCH_PACKAGE_PATH;
+
+    try {
+      process.env.CDF_PAPER_SEARCH_CLI_PATH = compiledCliPath;
+      process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = compiledPackagePath;
+
+      const config = resolveAgentSkillsConfig(tempProjectPath);
+      const paperCollectionSource = config.skillsSources.find((source) => source.includes('paper-collection'));
+
+      expect(paperCollectionSource).toBeTruthy();
+      expect(paperCollectionSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
+      expect(fs.existsSync(path.join(paperCollectionSource as string, 'runtime', 'paper-search.cjs'))).toBe(true);
+      expect(fs.existsSync(path.join(paperCollectionSource as string, 'package.json'))).toBe(true);
+      expect(fs.readFileSync(path.join(paperCollectionSource as string, 'SKILL.md'), 'utf-8')).toContain('Paper Collection Skill');
+    } finally {
+      if (previousCliPath === undefined) {
+        delete process.env.CDF_PAPER_SEARCH_CLI_PATH;
+      } else {
+        process.env.CDF_PAPER_SEARCH_CLI_PATH = previousCliPath;
+      }
+      if (previousPackagePath === undefined) {
+        delete process.env.CDF_PAPER_SEARCH_PACKAGE_PATH;
+      } else {
+        process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = previousPackagePath;
+      }
+    }
   });
 
   it('grants read-only permissions for model-discoverable Skill sources outside the project', () => {

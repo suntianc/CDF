@@ -17,7 +17,9 @@ describe('Knowledge Base Skill', () => {
     expect(markdown).toContain('write and verify the `AGENTS.md` managed block first');
     expect(markdown).toContain('OKF `type`');
     expect(markdown).toContain('timestamp');
+    expect(markdown).toContain('For Paper entries, `source` and `authors` are CDF-managed OKF metadata');
     expect(markdown).toContain('Do not invent `source.type: agent`');
+    expect(markdown).not.toContain('`source` is not part of the CDF-managed OKF metadata');
     expect(markdown).not.toContain('Defaults to { type: "agent" }');
     expect(markdown).toContain('<!-- CDF:knowledge-base:start -->');
     expect(markdown).toContain('<!-- CDF:knowledge-base:end -->');

@@ -31,15 +31,33 @@ vi.mock('./database', () => ({
   },
 }));
 
-vi.mock('./knowledge-base', () => ({
-  getKnowledgeBaseRoot: (projectPath: string) => `${projectPath}/.cdf/knowledge`,
+vi.mock('./knowledge-base', async () => {
+  const fs = await import('fs');
+  const path = await import('path');
+  return {
+  resolvePaperPdfResourcePath: (projectPath: string, resource: string) => {
+    const root = `${projectPath}/.cdf/knowledge`;
+    const normalized = resource.split('\\').join('/').trim();
+    if (!normalized || path.isAbsolute(normalized)) {
+      throw new Error('Paper PDF resource must be a relative path inside the Knowledge Base.');
+    }
+    if (normalized.split('/').some((part) => part === '..' || part === '' || part.startsWith('.'))) {
+      throw new Error('Paper PDF resource must stay inside the Knowledge Base.');
+    }
+    const target = path.resolve(root, normalized);
+    if (!fs.existsSync(target)) {
+      throw new Error(`Paper PDF resource not found: ${normalized}. Download or write the PDF under .cdf/knowledge first, then pass its Knowledge Base-relative path.`);
+    }
+    return target;
+  },
   listKnowledgeEntries: listMock,
   searchKnowledgeEntries: searchMock,
   createKnowledgeEntry: createMock,
   readKnowledgeEntry: readMock,
   updateKnowledgeEntry: updateMock,
   deleteKnowledgeEntry: deleteMock,
-}));
+};
+});
 
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
 

@@ -225,8 +225,20 @@ A Markdown document with YAML frontmatter that represents one OKF concept docume
 _Avoid_: note, record, file
 
 **Paper Entry**:
-A Knowledge Entry whose OKF concept type is Paper, representing one collected academic paper with its title, authors, abstract, origin source, tags, and an optional pointer to a locally stored PDF. The Paper Library shows exactly the Paper Entries of a Project's Knowledge Base.
+A Knowledge Entry whose OKF concept type is Paper, representing one collected academic paper with its title, authors, abstract, origin source, tags, bibliographic fields (journal, volume, issue, pages, year, DOI), an optional Journal Metrics Snapshot, and an optional pointer to a locally stored PDF. The Paper Library shows exactly the Paper Entries of a Project's Knowledge Base.
 _Avoid_: note about a paper, PDF file, reference string
+
+**Journal Metrics Snapshot**:
+Journal-level standing (impact factor, CAS tier, JCR quartile, indexing status) copied into a Paper Entry at collection time, always carrying the metric year and data source. The metrics belong to the journal, not the paper; the snapshot exists so the Paper Library can display, filter, and group papers without a join, and it may go stale until refreshed.
+_Avoid_: paper score, live journal ranking, per-paper citation metric
+
+**Bundled Paper Search CLI**:
+The version-pinned third-party paper-search CLI shipped with CDF that executes paper metadata search, journal metrics lookup, and open-access PDF discovery for the Paper Collection Skill, driven through Skill-guided shell calls. Its supported config keys are entered in CDF Research Config and synced into the CLI's own 0600 config file; its Sci-Hub fallback is never enabled. The Skill's strategy is the stable interface — the engine is swappable.
+_Avoid_: journal_metrics Agent Tool, hand-built registry client, Sci-Hub route
+
+**Paper Collection Skill**:
+A built-in Skill that closes the loop from paper discovery to a complete Paper Entry: choosing the metadata source (arXiv tools first, the Bundled Paper Search CLI for enrichment, Crawler Skill for sites neither covers), fetching a Journal Metrics Snapshot through the Bundled Paper Search CLI when its key is configured, downloading the PDF into the Knowledge Base's paper area, deduplicating against existing entries, and creating the Paper Entry with full metadata. Strategy only, no execution logic. A missing PDF is expressed by omitting the entry's resource pointer, never by a placeholder; missing metrics fields are absent, never guessed.
+_Avoid_: import wizard, paper downloader, arXiv plugin
 
 **Writing Project**:
 A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.

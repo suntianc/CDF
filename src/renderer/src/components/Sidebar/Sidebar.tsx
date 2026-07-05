@@ -1,18 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders } from 'lucide-react';
+import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders, Microscope } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
-import { useProjectStore } from '../../stores/projectStore';
+import { type AppView, useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   collapsed: boolean;
   width: number;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system';
+  activeView: AppView;
   onCollapse: () => void;
   onResize: (width: number) => void;
-  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system') => void;
+  onChangeView: (view: AppView) => void;
 }
 
 export function Sidebar({
@@ -177,6 +177,13 @@ export function Sidebar({
           >
             <Wrench className="w-4 h-4" />
             {t('sidebar.settings.tools')}
+          </div>
+          <div
+            className={`${styles.settingsMenuItem} ${activeView === 'research' ? styles.active : ''}`}
+            onClick={() => onChangeView('research')}
+          >
+            <Microscope className="w-4 h-4" />
+            {t('sidebar.settings.research')}
           </div>
           <div
             className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}

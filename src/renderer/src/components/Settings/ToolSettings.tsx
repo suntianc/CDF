@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Check, Loader2, AlertCircle, Wrench, Eye, EyeOff, HelpCircle, Save, Info, ShieldAlert, Sliders, X
+  Loader2, Wrench, Eye, EyeOff, Info, ShieldAlert, Sliders
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 

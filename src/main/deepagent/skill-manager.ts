@@ -6,6 +6,7 @@ import { listSkills, type FilesystemPermission } from 'deepagents';
 import type { ParsedFrontmatter } from '../../shared/types';
 import { getCrawlerSkillMarkdown } from '../crawler-skill';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
+import { getPaperCollectionSkillMarkdown, getPaperCollectionSkillResources } from '../paper-collection-skill';
 import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
   invalidateSkillSourceCaches,
@@ -120,6 +121,32 @@ function resolvePdfParsingSkillCliPath(skillDir: string): string {
   return materializePdfParsingSkillRuntime(path.join(__dirname, 'pdf-parsing-skill-cli.js'), skillDir);
 }
 
+export function materializePaperSearchRuntime(
+  compiledCliPath: string,
+  compiledPackagePath: string,
+  skillDir: string,
+): string {
+  const materializedCliPath = path.join(skillDir, 'runtime', 'paper-search.cjs');
+  if (!fs.existsSync(compiledCliPath)) return compiledCliPath;
+  ensureDir(path.dirname(materializedCliPath));
+  fs.copyFileSync(compiledCliPath, materializedCliPath);
+
+  if (fs.existsSync(compiledPackagePath)) {
+    fs.copyFileSync(compiledPackagePath, path.join(skillDir, 'package.json'));
+  }
+
+  return materializedCliPath;
+}
+
+function resolvePaperSearchRuntimePaths(skillDir: string): { cliPath: string; packagePath: string } {
+  const compiledCliPath = process.env.CDF_PAPER_SEARCH_CLI_PATH ?? path.join(__dirname, 'paper-search-cli.cjs');
+  const compiledPackagePath = process.env.CDF_PAPER_SEARCH_PACKAGE_PATH ?? path.join(__dirname, 'paper-search-cli.package.json');
+  return {
+    cliPath: materializePaperSearchRuntime(compiledCliPath, compiledPackagePath, skillDir),
+    packagePath: compiledPackagePath,
+  };
+}
+
 function ensureBuiltInPdfParsingSkill(): string {
   const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'pdf-parsing');
   ensureDir(skillDir);
@@ -132,8 +159,26 @@ function ensureBuiltInPdfParsingSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInPaperCollectionSkill(): string {
+  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'paper-collection');
+  ensureDir(skillDir);
+  const runtime = resolvePaperSearchRuntimePaths(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPaperCollectionSkillMarkdown({ cliPath: runtime.cliPath }), 'utf-8');
+  for (const resource of getPaperCollectionSkillResources({ cliPath: runtime.cliPath })) {
+    const resourcePath = path.join(skillDir, resource.relativePath);
+    ensureDir(path.dirname(resourcePath));
+    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
+  }
+  return skillDir;
+}
+
 export function getBuiltInSkillDirs(): string[] {
-  return [ensureBuiltInKnowledgeBaseSkill(), ensureBuiltInCrawlerSkill(), ensureBuiltInPdfParsingSkill()];
+  return [
+    ensureBuiltInKnowledgeBaseSkill(),
+    ensureBuiltInCrawlerSkill(),
+    ensureBuiltInPdfParsingSkill(),
+    ensureBuiltInPaperCollectionSkill(),
+  ];
 }
 
 function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {

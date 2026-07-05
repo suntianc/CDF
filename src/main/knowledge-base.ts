@@ -52,6 +52,35 @@ const KNOWLEDGE_CREATE_SCHEMA = {
     title: { type: 'string', description: 'Knowledge Entry title.' },
     description: { type: 'string', description: 'Optional OKF description.' },
     resource: { type: 'string', description: 'Optional OKF resource URI, path, or identifier.' },
+    authors: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Optional Paper author names.',
+    },
+    source: { type: 'string', description: 'Optional Paper origin source, such as arXiv ID, DOI, venue, or source URL.' },
+    journal: { type: 'string', description: 'Optional Paper journal or venue name.' },
+    volume: { type: 'string', description: 'Optional Paper volume.' },
+    issue: { type: 'string', description: 'Optional Paper issue.' },
+    pages: { type: 'string', description: 'Optional Paper page range.' },
+    year: { type: ['string', 'number'], description: 'Optional Paper publication year.' },
+    doi: { type: 'string', description: 'Optional Paper DOI.' },
+    journalMetrics: {
+      type: 'object',
+      description: 'Optional Journal Metrics Snapshot copied at collection time.',
+      properties: {
+        impactFactor: { type: ['number', 'string'] },
+        casTier: { type: 'string' },
+        jcrQuartile: { type: 'string' },
+        indexing: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        year: { type: ['number', 'string'] },
+        source: { type: 'string' },
+      },
+      required: ['year', 'source'],
+      additionalProperties: false,
+    },
     body: { type: 'string', description: 'Markdown body content for the Knowledge Entry.' },
     tags: {
       type: 'array',
@@ -152,6 +181,19 @@ function withOptionalField(
   }
 }
 
+function mergeOptionalField(
+  frontmatter: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (value === undefined) return;
+  if (value === '') {
+    delete frontmatter[key];
+    return;
+  }
+  frontmatter[key] = value;
+}
+
 function slugifyTitle(title: string): string {
   const slug = title
     .trim()
@@ -171,6 +213,47 @@ function generateAvailableRelativePath(projectPath: string, title: string): stri
   }
   return candidate;
 }
+
+export function resolvePaperPdfResourcePath(projectPath: string, resource: string): string {
+  const root = getKnowledgeBaseRoot(projectPath);
+  const normalized = resource.split('\\').join('/').trim();
+  if (!normalized || path.isAbsolute(normalized)) {
+    throw new Error('Paper PDF resource must be a relative path inside the Knowledge Base.');
+  }
+  if (!normalized.toLowerCase().endsWith('.pdf')) {
+    throw new Error('Paper PDF resource must point to a .pdf file.');
+  }
+  if (normalized.split('/').some((part) => part === '..' || part === '' || part.startsWith('.'))) {
+    throw new Error('Paper PDF resource must stay inside the Knowledge Base.');
+  }
+
+  const target = path.resolve(root, normalized);
+  const relativeToRoot = path.relative(root, target);
+  if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+    throw new Error('Paper PDF resource must stay inside the Knowledge Base.');
+  }
+  if (!fs.existsSync(target)) {
+    throw new Error(`Paper PDF resource not found: ${normalized}. Download or write the PDF under .cdf/knowledge first, then pass its Knowledge Base-relative path.`);
+  }
+  const stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error('Paper PDF resource must be a regular file inside the Knowledge Base.');
+  }
+
+  return target;
+}
+
+const PAPER_FRONTMATTER_FIELDS = [
+  'authors',
+  'source',
+  'journal',
+  'volume',
+  'issue',
+  'pages',
+  'year',
+  'doi',
+  'journalMetrics',
+] as const;
 
 function collectMarkdownFiles(root: string, currentDir = root): string[] {
   if (!fs.existsSync(currentDir)) return [];
@@ -271,6 +354,10 @@ export function createKnowledgeEntry(
   input: KnowledgeEntryCreateInput,
 ): KnowledgeEntrySummary {
   ensureKnowledgeBase(projectPath);
+  const type = input.type ?? 'Reference';
+  if (type === 'Paper' && input.resource) {
+    resolvePaperPdfResourcePath(projectPath, input.resource);
+  }
   const relativePath = input.relativePath ?? generateAvailableRelativePath(projectPath, input.title);
   const filePath = resolveKnowledgeEntryPath(projectPath, relativePath);
   if (fs.existsSync(filePath)) {
@@ -279,13 +366,18 @@ export function createKnowledgeEntry(
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const now = new Date().toISOString();
   const frontmatter: Record<string, unknown> = {
-    type: input.type ?? 'Reference',
+    type,
     title: input.title,
     tags: input.tags ?? [],
     timestamp: now,
   };
   withOptionalField(frontmatter, 'description', input.description);
   withOptionalField(frontmatter, 'resource', input.resource);
+  if (type === 'Paper') {
+    for (const field of PAPER_FRONTMATTER_FIELDS) {
+      withOptionalField(frontmatter, field, input[field]);
+    }
+  }
   fs.writeFileSync(filePath, stringifyKnowledgeEntry(frontmatter, input.body ?? ''), 'utf-8');
   return readKnowledgeEntry(projectPath, relativePath);
 }
@@ -313,6 +405,14 @@ export function updateKnowledgeEntry(
     tags: input.tags ?? existing.tags,
     timestamp: now,
   };
+  if (frontmatter.type === 'Paper') {
+    for (const field of PAPER_FRONTMATTER_FIELDS) {
+      mergeOptionalField(frontmatter, field, input[field]);
+    }
+    if (typeof frontmatter.resource === 'string' && frontmatter.resource.length > 0) {
+      resolvePaperPdfResourcePath(projectPath, frontmatter.resource);
+    }
+  }
   if (frontmatter.description === undefined || frontmatter.description === '') {
     delete frontmatter.description;
   }
@@ -462,6 +562,7 @@ export function createKnowledgeCreateTool(projectPath: string) {
             title: entry.title,
             description: entry.frontmatter.description,
             resource: entry.frontmatter.resource,
+            frontmatter: entry.frontmatter,
             tags: entry.tags,
             timestamp: entry.frontmatter.timestamp,
             warnings: entry.warnings,

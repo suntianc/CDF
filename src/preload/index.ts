@@ -4,6 +4,7 @@ import type {
   KnowledgeEntrySearchOptions,
   KnowledgeEntryUpdateInput,
   LocalEmbeddingModelState,
+  PaperSearchConfigKey,
   ProjectScene,
 } from '../shared/types';
 
@@ -11,6 +12,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   store: {
     get: (key: string) => ipcRenderer.invoke('store:get', key),
     set: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
+  },
+  shell: {
+    openExternalUrl: (url: string) => ipcRenderer.invoke('shell:openExternalUrl', url),
   },
   db: {
     getProjects: () => ipcRenderer.invoke('db:getProjects'),
@@ -211,6 +215,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   papers: {
     openPdf: (projectId: string, resource: string) =>
       ipcRenderer.invoke('paper-library:openPdf', projectId, resource),
+  },
+  paperSearch: {
+    getSettings: () => ipcRenderer.invoke('paper-search:getSettings'),
+    saveConfigValue: (key: PaperSearchConfigKey, value: string) =>
+      ipcRenderer.invoke('paper-search:saveConfigValue', key, value),
+    clearConfigValue: (key: PaperSearchConfigKey) =>
+      ipcRenderer.invoke('paper-search:clearConfigValue', key),
   },
   embedding: {
     getSettings: () => ipcRenderer.invoke('embedding:getSettings'),

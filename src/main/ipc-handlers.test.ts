@@ -18,6 +18,7 @@ const {
   savePhysicalSkillMock,
   importPhysicalSkillDirectoryMock,
   initializeScenePresetMock,
+  shellOpenExternalMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -37,6 +38,7 @@ const {
   savePhysicalSkillMock: vi.fn(),
   importPhysicalSkillDirectoryMock: vi.fn(),
   initializeScenePresetMock: vi.fn(),
+  shellOpenExternalMock: vi.fn(async () => undefined),
 }));
 
 vi.mock('electron', () => ({
@@ -48,6 +50,9 @@ vi.mock('electron', () => ({
   },
   app: {
     getPath: vi.fn(() => '/tmp/cdf-ipc-test'),
+  },
+  shell: {
+    openExternal: shellOpenExternalMock,
   },
 }));
 
@@ -122,6 +127,26 @@ describe('IPC handlers', () => {
     savePhysicalSkillMock.mockReset();
     importPhysicalSkillDirectoryMock.mockReset();
     initializeScenePresetMock.mockReset();
+    shellOpenExternalMock.mockClear();
+  });
+
+  it('opens external http urls through the system browser shell', async () => {
+    registerIpcHandlers();
+    const openExternalHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'shell:openExternalUrl')?.[1];
+    expect(openExternalHandler).toBeTypeOf('function');
+
+    await expect(openExternalHandler({}, 'https://www.easyscholar.cc/console/user/open')).resolves.toEqual({ ok: true });
+
+    expect(shellOpenExternalMock).toHaveBeenCalledWith('https://www.easyscholar.cc/console/user/open');
+  });
+
+  it('rejects non-http external urls', async () => {
+    registerIpcHandlers();
+    const openExternalHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'shell:openExternalUrl')?.[1];
+    expect(openExternalHandler).toBeTypeOf('function');
+
+    await expect(openExternalHandler({}, 'file:///tmp/secret')).rejects.toThrow('External URL must use http or https');
+    expect(shellOpenExternalMock).not.toHaveBeenCalled();
   });
 
   it('should acknowledge llm:chat immediately and stream asynchronously', () => {
