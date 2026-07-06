@@ -237,11 +237,11 @@ The version-pinned third-party paper-search CLI shipped with CDF that executes p
 _Avoid_: journal_metrics Agent Tool, hand-built registry client, Sci-Hub route
 
 **Paper Search Skill**:
-A built-in Skill that only searches and presents candidate academic papers: it runs metadata discovery, enriches candidates with Journal Metrics Snapshots, writes `/paper-collection-cache/latest.json` plus `/paper-collection-cache/index.json`, and then stops for user selection. It never downloads PDFs and never creates Paper Entries; paid or no-open-PDF candidates are routed to Paper Collection Skill Mode B after the user obtains an authorized local PDF.
+A built-in Skill that only searches and presents candidate academic papers: it runs metadata discovery, enriches candidates with Journal Metrics Snapshots, writes `<projectPath>/.cdf/paper-collection-cache/latest.json` plus `<projectPath>/.cdf/paper-collection-cache/index.json` as a project-local disk cache, and then stops for user selection. It never downloads PDFs and never creates Paper Entries; paid or no-open-PDF candidates are routed to Paper Collection Skill Mode B after the user obtains an authorized local PDF.
 _Avoid_: paper importer, downloader, reference manager
 
 **Paper Collection Skill**:
-A built-in Skill that imports papers into the Paper Library after the user has supplied a resource. Mode A imports selected candidates from the Paper Search cache, reusing cached Journal Metrics Snapshots and downloading only open-access PDFs. Mode B imports a user-provided authorized PDF under `.cdf/knowledge/papers/`, reconciles metadata with the latest cache when possible, and then creates the Paper Entry. It marks consumed cache payloads and can recover archived payloads from `/paper-collection-cache/archive/` after the 30 minute threshold.
+A built-in Skill that imports papers into the Paper Library after the user has supplied a resource. Mode A imports selected candidates from the Paper Search cache, reusing cached Journal Metrics Snapshots and downloading only open-access PDFs. Mode B imports a user-provided authorized PDF under `.cdf/knowledge/papers/`, reconciles metadata with the latest cache when possible, and then creates the Paper Entry. It marks consumed cache payloads and can recover archived payloads from `<projectPath>/.cdf/paper-collection-cache/archive/` after the 30 minute threshold.
 _Avoid_: discovery skill, paper search, reference manager
 
 **Writing Project**:

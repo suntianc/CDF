@@ -4,6 +4,7 @@ import {
   createInMemoryPaperCollectionThreadState,
   markLatestConsumed,
   maybeArchive,
+  PAPER_COLLECTION_CACHE_DIR,
   readArchive,
   readIndex,
   readLatestPaperCollectionCache,
@@ -27,6 +28,10 @@ describe('paper collection cache', () => {
       },
     },
   };
+
+  it('stores the cache under the project .cdf area', () => {
+    expect(PAPER_COLLECTION_CACHE_DIR).toBe('.cdf/paper-collection-cache');
+  });
 
   it('restores the latest paper search payload after writing it', () => {
     const threadState = createInMemoryPaperCollectionThreadState();
@@ -96,7 +101,7 @@ describe('paper collection cache', () => {
     }
 
     expect(readLatestPaperCollectionCache(threadState)).toBeUndefined();
-    expect(result.archivePath).toBe('/paper-collection-cache/archive/2026-07-05T10:00:00Z.json');
+    expect(result.archivePath).toBe('.cdf/paper-collection-cache/archive/2026-07-05T10:00:00Z.json');
     expect(readArchive(threadState, result.archivePath as string)).toEqual(consumedPayload);
     expect(readIndex(threadState)[0]).toMatchObject({
       status: 'archived',

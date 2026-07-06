@@ -11,6 +11,11 @@ function paperSearchCommand(cliPath?: string): string {
   return cliPath ? `node ${JSON.stringify(cliPath)}` : 'node runtime/paper-search.cjs';
 }
 
+const PAPER_COLLECTION_CACHE_SKILL_DIR = '<projectPath>/.cdf/paper-collection-cache';
+const PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH = `${PAPER_COLLECTION_CACHE_SKILL_DIR}/latest.json`;
+const PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH = `${PAPER_COLLECTION_CACHE_SKILL_DIR}/index.json`;
+const PAPER_COLLECTION_CACHE_ARCHIVE_SKILL_DIR = `${PAPER_COLLECTION_CACHE_SKILL_DIR}/archive`;
+
 export function getPaperCollectionSkillMarkdown(options: PaperCollectionSkillOptions = {}): string {
   const command = paperSearchCommand(options.cliPath);
   return [
@@ -31,13 +36,13 @@ export function getPaperCollectionSkillMarkdown(options: PaperCollectionSkillOpt
     '',
     '## Modes',
     '',
-    'Mode A: the user chooses candidates from `/paper-collection-cache/latest.json` or from an archived payload found through `/paper-collection-cache/index.json`.',
+    `Mode A: the user chooses candidates from \`${PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH}\` or from an archived payload found through \`${PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH}\`.`,
     'Mode B: the user provides a PDF path for a paper they acquired through institutional authorization. Accept an absolute path, a Knowledge Base relative path, or a bare filename under `.cdf/knowledge/papers/`.',
     'Both modes end by creating or updating Paper Entries and marking the latest cache payload consumed.',
     '',
     '## Mode A: Selected Cached Candidates',
     '',
-    'Read `/paper-collection-cache/latest.json`. If it does not exist, tell the user to run Paper Search first. If it exists but has no candidates, tell the user the cached search has no candidates and ask them to run Paper Search again.',
+    `Read \`${PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH}\`. If it does not exist, tell the user to run Paper Search first. If it exists but has no candidates, tell the user the cached search has no candidates and ask them to run Paper Search again.`,
     'Import only the candidates the user selected. Do not infer unselected papers.',
     'Use cached `journalMetricsByJournal` snapshots. Do not call `journal-metrics` from this Skill; metrics were already fetched by Paper Search.',
     `Run \`${command} download <paper-id> --platform arxiv --save-path <knowledgeRoot>/papers --pretty\` only for open-access PDF candidates.`,
@@ -53,8 +58,12 @@ export function getPaperCollectionSkillMarkdown(options: PaperCollectionSkillOpt
     '',
     '## Archived Search Recovery',
     '',
-    'When the user asks for a previous result such as "the fifth paper from last time", read `/paper-collection-cache/index.json`, find an `archivePath`, read `/paper-collection-cache/archive/<searchedAt>.json`, and continue Mode A from that archived payload.',
+    `When the user asks for a previous result such as "the fifth paper from last time", read \`${PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH}\`, find an \`archivePath\`, read \`${PAPER_COLLECTION_CACHE_ARCHIVE_SKILL_DIR}/<searchedAt>.json\`, and continue Mode A from that archived payload.`,
     'Search cache archival uses a 30 minutes / 30 分钟 threshold after `consumedAt`; archived payloads remain valid import sources.',
+    '',
+    '## Timestamps',
+    '',
+    'Run `date -u +%Y-%m-%dT%H:%M:%SZ` immediately before writing `consumedAt`. Preserve cached `searchedAt` exactly. Use the command output as the timestamp; never infer it from memory or conversation context. 禁止编造时间.',
     '',
     '## Compliance',
     '',
@@ -80,7 +89,8 @@ export function getPaperCollectionSkillMarkdown(options: PaperCollectionSkillOpt
     '',
     '## Completion',
     '',
-    'After a successful Mode A or Mode B import, write `consumedAt` to `/paper-collection-cache/latest.json` when the import used the latest cache, and update `/paper-collection-cache/index.json` for the matching `searchedAt` to `status: "consumed"`.',
+    `After a successful Mode A or Mode B import, write \`consumedAt\` to \`${PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH}\` when the import used the latest cache, and update \`${PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH}\` for the matching \`searchedAt\` to \`status: "consumed"\`.`,
+    'Only write the schema fields listed by Paper Search to `latest.json` and `index.json`. Do not add extra fields.',
   ].join('\n');
 }
 
@@ -97,9 +107,9 @@ export function getPaperCollectionSkillResources(options: PaperCollectionSkillOp
           download: `${command} download <paper-id> --platform arxiv --save-path <knowledgeRoot>/papers --pretty`,
         },
         cache: {
-          latest: '/paper-collection-cache/latest.json',
-          index: '/paper-collection-cache/index.json',
-          archive: '/paper-collection-cache/archive/',
+          latest: PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH,
+          index: PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH,
+          archive: `${PAPER_COLLECTION_CACHE_ARCHIVE_SKILL_DIR}/`,
         },
       }, null, 2) + '\n',
     },

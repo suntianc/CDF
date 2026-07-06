@@ -21,6 +21,11 @@ export const PAPER_SEARCH_CANDIDATE_FIELDS = [
   'pdfAccess',
 ] as const;
 
+const PAPER_COLLECTION_CACHE_SKILL_DIR = '<projectPath>/.cdf/paper-collection-cache';
+const PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH = `${PAPER_COLLECTION_CACHE_SKILL_DIR}/latest.json`;
+const PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH = `${PAPER_COLLECTION_CACHE_SKILL_DIR}/index.json`;
+const PAPER_COLLECTION_CACHE_ARCHIVE_SKILL_DIR = `${PAPER_COLLECTION_CACHE_SKILL_DIR}/archive`;
+
 function paperSearchCommand(cliPath?: string): string {
   return cliPath ? `node ${JSON.stringify(cliPath)}` : 'node runtime/paper-search.cjs';
 }
@@ -53,7 +58,8 @@ export function getPaperSearchSkillMarkdown(options: PaperSearchSkillOptions = {
     '',
     `- \`${command} search "<query>" --platform arxiv --max-results 5 --pretty\`: search candidate metadata and open-access PDF availability.`,
     `- \`${command} search "<query>" --sources crossref,openalex --max-results 5 --pretty\`: search registry sources for non-arXiv literature.`,
-    `- \`${command} journal-metrics "<journal>" --pretty\`: fetch one Journal Metrics Snapshot per normalized journal name when the easyScholar key is configured.`,
+    `- \`${command} config list --pretty\`: inspect which paper-search config keys are configured without revealing secret values.`,
+    `- \`${command} journal-metrics "<journal>" --pretty\`: fetch one Journal Metrics Snapshot per normalized non-empty journal name.`,
     '',
     'Do not run the CLI download subcommand in this Skill. Downloading or importing belongs to the Paper Collection Skill after the user chooses candidates.',
     'Do not enable Sci-Hub, do not pass a Sci-Hub platform, and do not instruct the user to enable Sci-Hub.',
@@ -64,13 +70,24 @@ export function getPaperSearchSkillMarkdown(options: PaperSearchSkillOptions = {
     'The `journalMetrics` field carries impact factor, CAS tier, JCR quartile, indexing status, metric year, and data source when available.',
     'Represent PDF access in the `pdfAccess` field with exactly one of: open | paywalled | unknown.',
     '',
+    '## Journal Metrics',
+    '',
+    'Use `config list --pretty` only as a safe detector: it reports each key with a `configured` boolean and masked value. Do not run `config get` because it can reveal plaintext secrets. Do not run `config set` or `config unset`; keys are managed by CDF Research Settings.',
+    `For each distinct normalized non-empty journal name, run \`${command} journal-metrics "<journal>" --pretty\` and handle failures; 先试、按失败处理. If the CLI reports that a key is missing, tell the user to configure it in Research Settings and continue the search without metrics.`,
+    'If a candidate has no journal name, such as an arXiv preprint, tell the user 预印本无期刊指标 and do not fabricate journal metrics or `pdfAccess`.',
+    '',
     '## Cache Contract',
     '',
-    'Before starting a new search, read `/paper-collection-cache/latest.json`. If it does not exist, start the new search directly.',
-    'If latest exists and has `consumedAt` and `now - consumedAt >= 30 minutes / 30 分钟`, copy the entire latest payload to `/paper-collection-cache/archive/<searchedAt>.json`, update the matching `/paper-collection-cache/index.json` entry to `status: "archived"` with `archivePath`, then delete or overwrite `latest.json`.',
+    `Before starting a new search, read \`${PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH}\`. If it does not exist, start the new search directly.`,
+    `If latest exists and has \`consumedAt\` and \`now - consumedAt >= 30 minutes / 30 分钟\`, copy the entire latest payload to \`${PAPER_COLLECTION_CACHE_ARCHIVE_SKILL_DIR}/<searchedAt>.json\`, update the matching \`${PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH}\` entry to \`status: "archived"\` with \`archivePath\`, then delete or overwrite \`latest.json\`.`,
     'If `consumedAt` is missing or the elapsed time is under 30 minutes, overwrite `latest.json` without archiving; this protects an in-progress user selection. In this branch, keep existing `index.json` history and only append the new search entry.',
-    'After search and journal metrics enrichment, write `/paper-collection-cache/latest.json` with `searchedAt`, `query`, `source`, `candidates`, and `journalMetricsByJournal`, then append `/paper-collection-cache/index.json` with `{searchedAt, query, candidateCount, status: "fresh"}`.',
+    `After search and journal metrics enrichment, write \`${PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH}\` with \`searchedAt\`, \`query\`, \`source\`, \`candidates\`, and \`journalMetricsByJournal\`, then append \`${PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH}\` with \`{searchedAt, query, candidateCount, status: "fresh"}\`.`,
+    'Only write the schema fields listed in this Cache Contract to `latest.json` and `index.json`. Do not add extra fields.',
     'Normalize journal names before metrics lookup and query each distinct journal once.',
+    '',
+    '## Timestamps',
+    '',
+    'Run `date -u +%Y-%m-%dT%H:%M:%SZ` immediately before writing `searchedAt`, `consumedAt`, or checking archive age. Use the command output as the timestamp; never infer it from memory or conversation context. 禁止编造时间.',
     '',
     '## Failure Semantics',
     '',
@@ -96,12 +113,13 @@ export function getPaperSearchSkillResources(options: PaperSearchSkillOptions = 
         commands: {
           searchArxiv: `${command} search "<query>" --platform arxiv --max-results 5 --pretty`,
           searchRegistries: `${command} search "<query>" --sources crossref,openalex --max-results 5 --pretty`,
+          configList: `${command} config list --pretty`,
           journalMetrics: `${command} journal-metrics "<journal>" --pretty`,
         },
         cache: {
-          latest: '/paper-collection-cache/latest.json',
-          index: '/paper-collection-cache/index.json',
-          archive: '/paper-collection-cache/archive/',
+          latest: PAPER_COLLECTION_CACHE_LATEST_SKILL_PATH,
+          index: PAPER_COLLECTION_CACHE_INDEX_SKILL_PATH,
+          archive: `${PAPER_COLLECTION_CACHE_ARCHIVE_SKILL_DIR}/`,
           candidateFields: PAPER_SEARCH_CANDIDATE_FIELDS,
         },
       }, null, 2) + '\n',

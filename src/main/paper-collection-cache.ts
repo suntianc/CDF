@@ -24,7 +24,7 @@ export interface PaperCollectionThreadState {
   listFiles(prefix: string): string[];
 }
 
-export const PAPER_COLLECTION_CACHE_DIR = '/paper-collection-cache';
+export const PAPER_COLLECTION_CACHE_DIR = '.cdf/paper-collection-cache';
 export const PAPER_COLLECTION_LATEST_PATH = `${PAPER_COLLECTION_CACHE_DIR}/latest.json`;
 export const PAPER_COLLECTION_INDEX_PATH = `${PAPER_COLLECTION_CACHE_DIR}/index.json`;
 export const PAPER_COLLECTION_ARCHIVE_DIR = `${PAPER_COLLECTION_CACHE_DIR}/archive`;

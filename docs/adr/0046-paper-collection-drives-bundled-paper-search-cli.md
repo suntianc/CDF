@@ -83,14 +83,14 @@ that workflow into two built-in Skills:
   path rules, reconciles metadata from the cache when possible, and
   creates the Paper Entry.
 
-The cross-Skill cache lives in the deepagents StateBackend virtual file
-system under `/paper-collection-cache/`:
+The cross-Skill cache lives as a project-local disk cache under
+`<projectPath>/.cdf/paper-collection-cache/`:
 
 ```json
 {
-  "latest": "/paper-collection-cache/latest.json",
-  "index": "/paper-collection-cache/index.json",
-  "archive": "/paper-collection-cache/archive/<searchedAt>.json",
+  "latest": "<projectPath>/.cdf/paper-collection-cache/latest.json",
+  "index": "<projectPath>/.cdf/paper-collection-cache/index.json",
+  "archive": "<projectPath>/.cdf/paper-collection-cache/archive/<searchedAt>.json",
   "latestPayload": {
     "searchedAt": "2026-07-05T10:00:00Z",
     "consumedAt": "2026-07-05T10:15:00Z",
@@ -107,6 +107,8 @@ history list with `fresh`, `consumed`, and `archived` statuses plus an
 optional `archivePath`. A consumed latest payload is archived after 30
 minutes so a new search does not silently erase an older import context,
 while short interruptions still keep the active latest payload in place.
+Because the cache is stored under the Project `.cdf` area, it persists
+across Conversation sessions.
 
 Mode B exists for paid or otherwise non-open PDFs: CDF must not bypass
 publisher access controls, but it can help the user import a PDF they
