@@ -19,16 +19,24 @@ import { parseSkillMetadata } from './skills-runtime/skill-metadata';
 describe('skill-manager', () => {
   const tempProjectPath = path.join(os.tmpdir(), `cdf-skill-test-${Math.random().toString(36).slice(2)}`);
   const tempHomePath = path.join(os.tmpdir(), `cdf-skill-home-${Math.random().toString(36).slice(2)}`);
+  let previousBuiltInSkillsRoot: string | undefined;
 
   beforeEach(() => {
+    previousBuiltInSkillsRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT;
     fs.rmSync(tempProjectPath, { recursive: true, force: true });
     fs.rmSync(tempHomePath, { recursive: true, force: true });
     fs.mkdirSync(tempHomePath, { recursive: true });
     vi.spyOn(os, 'homedir').mockReturnValue(tempHomePath);
     fs.mkdirSync(tempProjectPath, { recursive: true });
+    process.env.CDF_BUILT_IN_SKILLS_ROOT = path.join(tempHomePath, 'built-in-skills');
   });
 
   afterEach(() => {
+    if (previousBuiltInSkillsRoot === undefined) {
+      delete process.env.CDF_BUILT_IN_SKILLS_ROOT;
+    } else {
+      process.env.CDF_BUILT_IN_SKILLS_ROOT = previousBuiltInSkillsRoot;
+    }
     vi.restoreAllMocks();
     fs.rmSync(tempProjectPath, { recursive: true, force: true });
     fs.rmSync(tempHomePath, { recursive: true, force: true });
@@ -323,23 +331,28 @@ describe('skill-manager', () => {
     const compiledPackagePath = path.join(compiledDir, 'paper-search-cli.package.json');
     fs.writeFileSync(compiledCliPath, "process.stdout.write('paper-search-runtime');\n", 'utf-8');
     fs.writeFileSync(compiledPackagePath, '{"version":"0.3.4"}\n', 'utf-8');
+    const builtInSkillsRoot = path.join(tempProjectPath, 'isolated-built-in-skills');
     const previousCliPath = process.env.CDF_PAPER_SEARCH_CLI_PATH;
     const previousPackagePath = process.env.CDF_PAPER_SEARCH_PACKAGE_PATH;
+    const previousTestBuiltInSkillsRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT;
 
     try {
       process.env.CDF_PAPER_SEARCH_CLI_PATH = compiledCliPath;
       process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = compiledPackagePath;
+      process.env.CDF_BUILT_IN_SKILLS_ROOT = builtInSkillsRoot;
 
       const config = resolveAgentSkillsConfig(tempProjectPath);
       const paperSearchSource = config.skillsSources.find((source) => source.includes('paper-search'));
       const paperCollectionSource = config.skillsSources.find((source) => source.includes('paper-collection'));
 
       expect(paperSearchSource).toBeTruthy();
+      expect(paperSearchSource?.startsWith(builtInSkillsRoot)).toBe(true);
       expect(paperSearchSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
       expect(fs.existsSync(path.join(paperSearchSource as string, 'runtime', 'paper-search.cjs'))).toBe(true);
       expect(fs.existsSync(path.join(paperSearchSource as string, 'package.json'))).toBe(true);
       expect(fs.readFileSync(path.join(paperSearchSource as string, 'SKILL.md'), 'utf-8')).toContain('Paper Search Skill');
       expect(paperCollectionSource).toBeTruthy();
+      expect(paperCollectionSource?.startsWith(builtInSkillsRoot)).toBe(true);
       expect(paperCollectionSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
       expect(fs.existsSync(path.join(paperCollectionSource as string, 'runtime', 'paper-search.cjs'))).toBe(true);
       expect(fs.existsSync(path.join(paperCollectionSource as string, 'package.json'))).toBe(true);
@@ -354,6 +367,11 @@ describe('skill-manager', () => {
         delete process.env.CDF_PAPER_SEARCH_PACKAGE_PATH;
       } else {
         process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = previousPackagePath;
+      }
+      if (previousTestBuiltInSkillsRoot === undefined) {
+        delete process.env.CDF_BUILT_IN_SKILLS_ROOT;
+      } else {
+        process.env.CDF_BUILT_IN_SKILLS_ROOT = previousTestBuiltInSkillsRoot;
       }
     }
   });

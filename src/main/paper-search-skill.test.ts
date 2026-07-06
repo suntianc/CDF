@@ -68,6 +68,25 @@ describe('Paper Search Skill', () => {
     expect(markdown).toContain('预印本无期刊指标');
   });
 
+  it('requires enrichment before presenting and caching search candidates', () => {
+    const markdown = getPaperSearchSkillMarkdown({
+      cliPath: '/tmp/cdf-built-in-skills/paper-search/runtime/paper-search.cjs',
+    });
+
+    expect(markdown).toContain('## Enrichment');
+    expect(markdown).toContain('After platform discovery and before presenting candidates or writing cache');
+    expect(markdown).toContain('run `node "/tmp/cdf-built-in-skills/paper-search/runtime/paper-search.cjs" run get_paper_by_doi --json-args');
+    expect(markdown).toContain('fill `journal`, `volume`, `issue`, `pages`, and `year` from the `data.papers` entry whose `source` is `crossref`');
+    expect(markdown).toContain('fall back to another source entry with a non-empty `journal`');
+    expect(markdown).toContain('search "<title>" --sources crossref --max-results 3');
+    expect(markdown).toContain('strict title match');
+    expect(markdown).toContain('ignoring case and punctuation');
+    expect(markdown).toContain('For every non-empty enriched journal name');
+    expect(markdown).toContain('Present enriched candidates with the journal name and available metrics');
+    expect(markdown).toContain('arXiv 预印本,未见正式发表版本');
+    expect(markdown).toContain('Do not let one enrichment source timeout or failure block the whole candidate list');
+  });
+
   it('publishes search and journal metrics entrypoints without a download command', () => {
     const resources = getPaperSearchSkillResources({
       cliPath: '/tmp/skill/runtime/paper-search.cjs',
@@ -77,9 +96,11 @@ describe('Paper Search Skill', () => {
     expect(manifest.commands).toMatchObject({
       searchArxiv: expect.stringContaining('search "<query>"'),
       searchRegistries: expect.stringContaining('crossref,openalex'),
+      enrichDoi: expect.stringContaining('run get_paper_by_doi --json-args'),
       configList: expect.stringContaining('config list --pretty'),
       journalMetrics: expect.stringContaining('journal-metrics "<journal>"'),
     });
+    expect(manifest.commands.enrichDoi).toContain('{"doi":"<doi>"}');
     expect(JSON.stringify(manifest.commands)).not.toContain('download');
     expect(JSON.stringify(manifest.commands)).not.toContain('config get');
     expect(JSON.stringify(manifest.cache)).not.toMatch(/"\/paper-collection-cache\//);

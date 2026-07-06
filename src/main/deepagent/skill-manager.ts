@@ -87,15 +87,19 @@ function ensureDir(targetDir: string): void {
   }
 }
 
+function resolveBuiltInSkillsRoot(): string {
+  return process.env.CDF_BUILT_IN_SKILLS_ROOT ?? path.join(os.tmpdir(), 'cdf-built-in-skills');
+}
+
 function ensureBuiltInKnowledgeBaseSkill(): string {
-  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base');
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'knowledge-base');
   ensureDir(skillDir);
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getKnowledgeBaseSkillMarkdown(), 'utf-8');
   return skillDir;
 }
 
 function ensureBuiltInCrawlerSkill(): string {
-  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'crawler');
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'crawler');
   ensureDir(skillDir);
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getCrawlerSkillMarkdown(), 'utf-8');
   return skillDir;
@@ -149,7 +153,7 @@ function resolvePaperSearchRuntimePaths(skillDir: string): { cliPath: string; pa
 }
 
 function ensureBuiltInPdfParsingSkill(): string {
-  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'pdf-parsing');
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'pdf-parsing');
   ensureDir(skillDir);
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPdfParsingSkillMarkdown(), 'utf-8');
   for (const resource of getPdfParsingSkillResources({ cliPath: resolvePdfParsingSkillCliPath(skillDir) })) {
@@ -161,7 +165,7 @@ function ensureBuiltInPdfParsingSkill(): string {
 }
 
 function ensureBuiltInPaperCollectionSkill(): string {
-  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'paper-collection');
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'paper-collection');
   ensureDir(skillDir);
   const runtime = resolvePaperSearchRuntimePaths(skillDir);
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPaperCollectionSkillMarkdown({ cliPath: runtime.cliPath }), 'utf-8');
@@ -174,7 +178,7 @@ function ensureBuiltInPaperCollectionSkill(): string {
 }
 
 function ensureBuiltInPaperSearchSkill(): string {
-  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'paper-search');
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'paper-search');
   ensureDir(skillDir);
   const runtime = resolvePaperSearchRuntimePaths(skillDir);
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPaperSearchSkillMarkdown({ cliPath: runtime.cliPath }), 'utf-8');

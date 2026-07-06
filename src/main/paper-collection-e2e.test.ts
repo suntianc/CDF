@@ -31,7 +31,15 @@ function writeFakePaperSearchCli(cliPath: string): void {
     'const args = process.argv.slice(2);',
     "if (args[0] === 'search') {",
     "  const query = args[1] || '';",
-    "  const paper = query.includes('download-fails') ? {",
+    "  const paper = query.includes('needs-enrichment') ? {",
+    "    id: '1706.03762v7',",
+    "    title: 'Attention Is All You Need',",
+    "    authors: ['Ashish Vaswani', 'Noam Shazeer'],",
+    "    source: 'arxiv',",
+    "    year: 2017,",
+    "    doi: '10.48550/arXiv.1706.03762',",
+    "    pdfUrl: 'https://arxiv.org/pdf/1706.03762v7',",
+    "  } : query.includes('download-fails') ? {",
     "    id: 'download-fails',",
     "    title: 'Download Fails Paper',",
     "    authors: ['Grace Hopper'],",
@@ -53,6 +61,49 @@ function writeFakePaperSearchCli(cliPath: string): void {
     "  };",
     "  process.stdout.write(JSON.stringify({ ok: true, papers: [paper], text: 'Found 1 papers' }));",
     '  process.exit(0);',
+    '}',
+    "if (args[0] === 'run' && args[1] === 'get_paper_by_doi') {",
+    "  const jsonArgs = args[args.indexOf('--json-args') + 1] || '{}';",
+    '  const parsed = JSON.parse(jsonArgs);',
+    "  if (parsed.doi === '10.48550/arXiv.1706.03762') {",
+    '    process.stdout.write(JSON.stringify({',
+    '      ok: true,',
+    "      tool: 'get_paper_by_doi',",
+    "      message: 'Found DOI metadata',",
+    '      data: {',
+    "        doi: '10.48550/arXiv.1706.03762',",
+    "        sources_used: ['crossref', 'openalex'],",
+    '        papers: [',
+    '          {',
+    "            title: 'Attention Is All You Need',",
+    "            source: 'crossref',",
+    "            journal: 'Advances in Neural Information Processing Systems',",
+    "            volume: '30',",
+    "            issue: '',",
+    "            pages: '5998-6008',",
+    '            year: 2017,',
+    "            doi: '10.48550/arXiv.1706.03762'",
+    '          },',
+    '          {',
+    "            title: 'Attention Is All You Need',",
+    "            source: 'openalex',",
+    "            journal: '',",
+    "            volume: '',",
+    "            issue: '',",
+    "            pages: '',",
+    '            year: 2017,',
+    "            doi: '10.48550/arXiv.1706.03762'",
+    '          }',
+    '        ],',
+    "        failed_sources: ['pubmed'],",
+    "        errors: { pubmed: 'timed out' }",
+    '      },',
+    "      diagnostic: { severity: 'warning', summary: 'Some requested sources failed: pubmed' }",
+    '    }));',
+    '    process.exit(0);',
+    '  }',
+    "  process.stderr.write(JSON.stringify({ ok: false, error: 'DOI not found' }));",
+    '  process.exit(4);',
     '}',
     "if (args[0] === 'download') {",
     '  const paperId = args[1];',
@@ -373,6 +424,85 @@ describe('Paper Collection arXiv loop', () => {
         status: 'fresh',
       },
     ]);
+  });
+
+  it('enriches DOI search candidates before querying metrics and writing the cache', () => {
+    const cliPath = materializeFakePaperSearchCli(projectPath);
+    const threadState = createInMemoryPaperCollectionThreadState();
+    const countFile = path.join(projectPath, 'metrics-count.txt');
+    const searchResult = JSON.parse(execFileSync(process.execPath, [
+      cliPath,
+      'search',
+      'needs-enrichment',
+      '--platform',
+      'arxiv',
+      '--max-results',
+      '1',
+      '--pretty',
+    ], { encoding: 'utf-8' }));
+    const paper = searchResult.papers[0];
+
+    expect(paper.journal).toBeUndefined();
+
+    const enrichment = JSON.parse(execFileSync(process.execPath, [
+      cliPath,
+      'run',
+      'get_paper_by_doi',
+      '--json-args',
+      JSON.stringify({ doi: paper.doi }),
+    ], { encoding: 'utf-8' })).data;
+    const publishedPaper = enrichment.papers.find((candidate: Record<string, unknown>) =>
+      candidate.source === 'crossref'
+    ) ?? enrichment.papers.find((candidate: Record<string, unknown>) =>
+      typeof candidate.journal === 'string' && candidate.journal.length > 0
+    );
+
+    expect(enrichment.failed_sources).toContain('pubmed');
+    expect(enrichment.errors.pubmed).toBe('timed out');
+    expect(publishedPaper.source).toBe('crossref');
+
+    const enrichedPaper = {
+      ...paper,
+      journal: publishedPaper.journal,
+      volume: publishedPaper.volume,
+      issue: publishedPaper.issue,
+      pages: publishedPaper.pages,
+      year: publishedPaper.year,
+    };
+    const journalMetricsByJournal: Record<string, unknown> = {};
+    const key = normalizeJournalName(enrichedPaper.journal);
+    const metricsResult = JSON.parse(execFileSync(process.execPath, [
+      cliPath,
+      'journal-metrics',
+      enrichedPaper.journal,
+      '--pretty',
+    ], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        CDF_FAKE_METRICS_COUNT_FILE: countFile,
+      },
+    }));
+    journalMetricsByJournal[key] = metricsResult.data[0];
+
+    writeLatest(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: 'needs-enrichment',
+      source: 'arxiv',
+      candidates: [enrichedPaper],
+      journalMetricsByJournal,
+    });
+
+    const latest = readLatest(threadState) as PaperCollectionCachePayload;
+    expect(latest.candidates[0]).toMatchObject({
+      title: 'Attention Is All You Need',
+      journal: 'Advances in Neural Information Processing Systems',
+      volume: '30',
+      pages: '5998-6008',
+      year: 2017,
+    });
+    expect(latest.journalMetricsByJournal).toHaveProperty(key);
+    expect(fs.readFileSync(countFile, 'utf-8')).toBe('1');
   });
 
   it('imports selected cached candidates without querying journal metrics again and marks the cache consumed', () => {
