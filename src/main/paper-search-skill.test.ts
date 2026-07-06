@@ -87,6 +87,19 @@ describe('Paper Search Skill', () => {
     expect(markdown).toContain('Do not let one enrichment source timeout or failure block the whole candidate list');
   });
 
+  it('describes DOI enrichment timeout fallback through single-source crossref title search', () => {
+    const markdown = getPaperSearchSkillMarkdown({
+      cliPath: '/tmp/cdf-built-in-skills/paper-search/runtime/paper-search.cjs',
+    });
+
+    expect(markdown).toContain('If a DOI enrichment command times out or is killed');
+    expect(markdown).toContain('do not retry the full `get_paper_by_doi` fan-out');
+    expect(markdown).toContain('fall back to the title search path');
+    expect(markdown).toContain('search "<title>" --sources crossref --max-results 3');
+    expect(markdown).toContain('If the fallback also fails');
+    expect(markdown).toContain('tell the user which candidates could not be enriched and why');
+  });
+
   it('publishes search and journal metrics entrypoints without a download command', () => {
     const resources = getPaperSearchSkillResources({
       cliPath: '/tmp/skill/runtime/paper-search.cjs',

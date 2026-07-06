@@ -74,6 +74,8 @@ export function getPaperSearchSkillMarkdown(options: PaperSearchSkillOptions = {
     '',
     'After platform discovery and before presenting candidates or writing cache, enrich every candidate as far as the metadata sources allow.',
     `If a candidate has a DOI, run \`${command} run get_paper_by_doi --json-args '{"doi":"<doi>"}'\` and fill \`journal\`, \`volume\`, \`issue\`, \`pages\`, and \`year\` from the \`data.papers\` entry whose \`source\` is \`crossref\`; if that entry's \`journal\` is empty, fall back to another source entry with a non-empty \`journal\`.`,
+    `If a DOI enrichment command times out or is killed, do not retry the full \`get_paper_by_doi\` fan-out; fall back to the title search path: \`${command} search "<title>" --sources crossref --max-results 3 --pretty\`, with the same strict title matching.`,
+    'If the fallback also fails, skip enrichment for that candidate and tell the user which candidates could not be enriched and why.',
     `If a candidate has no DOI, run \`${command} search "<title>" --sources crossref --max-results 3 --pretty\` with the full title. Use the result only on a strict title match, ignoring case and punctuation; if uncertain, leave the fields absent and do not guess.`,
     'For every non-empty enriched journal name, normalize and deduplicate it before querying `journal-metrics`.',
     'Present enriched candidates with the journal name and available metrics, including impact factor, CAS tier, and JCR quartile when available.',

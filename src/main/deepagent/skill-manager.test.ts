@@ -101,6 +101,63 @@ describe('skill-manager', () => {
     expect(execFileSync(process.execPath, [materializedCliPath], { encoding: 'utf-8' })).toBe('0.3.4');
   });
 
+  it('keeps Paper Skills pointed at the materialized CLI when the compiled CLI disappears', () => {
+    const compiledDir = path.join(tempProjectPath, 'out', 'main');
+    fs.mkdirSync(compiledDir, { recursive: true });
+    const compiledCliPath = path.join(compiledDir, 'paper-search-cli.cjs');
+    const compiledPackagePath = path.join(compiledDir, 'paper-search-cli.package.json');
+    fs.writeFileSync(compiledCliPath, "process.stdout.write('paper-search-runtime');\n", 'utf-8');
+    fs.writeFileSync(compiledPackagePath, '{"version":"0.3.4"}\n', 'utf-8');
+    const builtInSkillsRoot = path.join(tempProjectPath, 'isolated-built-in-skills');
+    const previousCliPath = process.env.CDF_PAPER_SEARCH_CLI_PATH;
+    const previousPackagePath = process.env.CDF_PAPER_SEARCH_PACKAGE_PATH;
+    const previousTestBuiltInSkillsRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT;
+
+    try {
+      process.env.CDF_PAPER_SEARCH_CLI_PATH = compiledCliPath;
+      process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = compiledPackagePath;
+      process.env.CDF_BUILT_IN_SKILLS_ROOT = builtInSkillsRoot;
+
+      resolveAgentSkillsConfig(tempProjectPath);
+      fs.rmSync(compiledCliPath, { force: true });
+
+      const config = resolveAgentSkillsConfig(tempProjectPath);
+      const paperSearchSource = config.skillsSources.find((source) => source.includes('paper-search'));
+      const paperCollectionSource = config.skillsSources.find((source) => source.includes('paper-collection'));
+
+      expect(paperSearchSource).toBeTruthy();
+      expect(paperCollectionSource).toBeTruthy();
+
+      const paperSearchCliPath = path.join(paperSearchSource as string, 'runtime', 'paper-search.cjs');
+      const paperCollectionCliPath = path.join(paperCollectionSource as string, 'runtime', 'paper-search.cjs');
+      const paperSearchMarkdown = fs.readFileSync(path.join(paperSearchSource as string, 'SKILL.md'), 'utf-8');
+      const paperCollectionMarkdown = fs.readFileSync(path.join(paperCollectionSource as string, 'SKILL.md'), 'utf-8');
+
+      expect(fs.existsSync(paperSearchCliPath)).toBe(true);
+      expect(fs.existsSync(paperCollectionCliPath)).toBe(true);
+      expect(paperSearchMarkdown).toContain(JSON.stringify(paperSearchCliPath));
+      expect(paperSearchMarkdown).not.toContain(JSON.stringify(compiledCliPath));
+      expect(paperCollectionMarkdown).toContain(JSON.stringify(paperCollectionCliPath));
+      expect(paperCollectionMarkdown).not.toContain(JSON.stringify(compiledCliPath));
+    } finally {
+      if (previousCliPath === undefined) {
+        delete process.env.CDF_PAPER_SEARCH_CLI_PATH;
+      } else {
+        process.env.CDF_PAPER_SEARCH_CLI_PATH = previousCliPath;
+      }
+      if (previousPackagePath === undefined) {
+        delete process.env.CDF_PAPER_SEARCH_PACKAGE_PATH;
+      } else {
+        process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = previousPackagePath;
+      }
+      if (previousTestBuiltInSkillsRoot === undefined) {
+        delete process.env.CDF_BUILT_IN_SKILLS_ROOT;
+      } else {
+        process.env.CDF_BUILT_IN_SKILLS_ROOT = previousTestBuiltInSkillsRoot;
+      }
+    }
+  });
+
   it('should save and list physical skill bundles', () => {
     savePhysicalSkill(tempProjectPath, 'project', {
       name: 'test-js-skill',

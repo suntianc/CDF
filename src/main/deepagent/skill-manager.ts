@@ -132,7 +132,9 @@ export function materializePaperSearchRuntime(
   skillDir: string,
 ): string {
   const materializedCliPath = path.join(skillDir, 'runtime', 'paper-search.cjs');
-  if (!fs.existsSync(compiledCliPath)) return compiledCliPath;
+  if (!fs.existsSync(compiledCliPath)) {
+    return fs.existsSync(materializedCliPath) ? materializedCliPath : compiledCliPath;
+  }
   ensureDir(path.dirname(materializedCliPath));
   fs.copyFileSync(compiledCliPath, materializedCliPath);
 
