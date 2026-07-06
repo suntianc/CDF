@@ -175,6 +175,7 @@ export default function App() {
               scene={currentScene}
               conversation={(
                 <ChatArea
+                  scene={currentScene}
                   onOpenSettings={() => setActiveView('settings')}
                   sidebarCollapsed={sidebarCollapsed}
                   onToggleSidebar={() => setSidebarCollapsed(false)}
