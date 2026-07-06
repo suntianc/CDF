@@ -198,6 +198,48 @@ export type ParsePdfWithSkillResult = ParsePdfWithSkillCompletedResult | ParsePd
   error?: string;
 };
 
+export type PdfParseArtifactLookupResult =
+  | {
+      status: 'reusable-artifact';
+      artifactDir: string;
+      artifactId: string;
+      createdAt?: string;
+      source: PdfParseSourceMetadata;
+      recoveredViewPath: string;
+      baselinePath: string;
+      diagnostics: PdfParseDiagnostic[];
+      conversationSummary: string;
+      nextActions: Array<{
+        kind: 'read-recovered-view';
+        path: string;
+        description: string;
+      }>;
+    }
+  | {
+      status: 'stale-artifact';
+      artifactDir: string;
+      artifactId: string;
+      createdAt?: string;
+      source: PdfParseSourceMetadata;
+      currentSource: PdfParseSourceMetadata;
+      diagnostics: PdfParseDiagnostic[];
+      conversationSummary: string;
+      nextActions: Array<{
+        kind: 'rerun-baseline-parse';
+        description: string;
+      }>;
+    }
+  | {
+      status: 'not-parsed';
+      source: PdfParseSourceMetadata;
+      diagnostics: PdfParseDiagnostic[];
+      conversationSummary: string;
+      nextActions: Array<{
+        kind: 'run-baseline-parse';
+        description: string;
+      }>;
+    };
+
 export interface PdfParsingSkillResource {
   relativePath: string;
   content: string;
@@ -208,6 +250,7 @@ export interface PdfParsingSkillResourceOptions {
 }
 
 type PdfParsingSkillEntrypointKey =
+  | 'findArtifact'
   | 'baselineParse'
   | 'ensureMarker'
   | 'discoverCapabilities'
@@ -223,6 +266,12 @@ const PDF_PARSING_SKILL_ENTRYPOINTS: Record<PdfParsingSkillEntrypointKey, {
   exportName: string;
   purpose: string;
 }> = {
+  findArtifact: {
+    script: 'scripts/find-artifact.js',
+    internalModule: 'src/main/pdf-parsing-skill.ts',
+    exportName: 'findReusablePdfParseArtifact',
+    purpose: 'Find a reusable project-local PDF Parse Artifact by source PDF hash before parsing.',
+  },
   baselineParse: {
     script: 'scripts/baseline-parse.js',
     internalModule: 'src/main/pdf-parsing-skill.ts',
@@ -419,6 +468,15 @@ export function getPdfParsingSkillMarkdown(): string {
     '',
     'Use this Skill as the Agent-facing PDF parsing entry point.',
     '',
+    '## Artifact Lookup',
+    '',
+    'Before running Marker, check whether the source PDF already has a reusable artifact.',
+    '',
+    '1. Run `scripts/find-artifact.js --project <projectPath> --file <absolutePdfPath>`.',
+    '2. If it returns `reusable-artifact`, read the returned `recoveredViewPath` and do not rerun Marker.',
+    '3. If it returns `stale-artifact`, the source PDF SHA-256 no longer matches artifact metadata; rerun baseline parsing.',
+    '4. If it returns `not-parsed`, run baseline parsing on demand.',
+    '',
     '## Baseline Parse',
     '',
     '1. Accept a readable absolute local PDF path.',
@@ -460,6 +518,7 @@ export function getPdfParsingSkillMarkdown(): string {
     '',
     'PDF-specific execution is packaged in this Skill as `entrypoints.json` and `scripts/*.js` resources.',
     '',
+    '- `scripts/find-artifact.js --project <projectPath> --file <absolutePdfPath>`: checks `.cdf/pdf-parses/` by source SHA-256 and returns `reusable-artifact`, `stale-artifact`, or `not-parsed` with next actions.',
     '- `scripts/baseline-parse.js --project <projectPath> --file <absolutePdfPath> [--page-range <range>]`: runs Marker through the compiled CDF PDF Skill CLI, writes `.cdf/pdf-parses/<artifactId>/`, and returns a compact JSON summary with diagnostics and next actions.',
     '- `scripts/ensure-marker.js --mode prepare|check`: verifies or prepares the local Marker command used by baseline parsing.',
     '- `scripts/discover-capabilities.js [--viable-routes <vision-capability,multimodal-agent>]`: probes local Marker, merges Agent-judged non-local route categories, and returns viable PDF Recovery Capability route categories, source/privacy/cost/problem-fit notes, and next actions when no capability is available.',
@@ -1328,6 +1387,152 @@ export function shouldRerunMarkerBaseline(
   const sourceSha256 = options.sourceSha256 ?? (fs.existsSync(options.sourcePath) ? hashFile(options.sourcePath) : undefined);
   if (!sourceSha256 || metadata.source?.sha256 !== sourceSha256) return true;
   return false;
+}
+
+function readJsonFileOrUndefined<T>(filePath: string): T | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function artifactCreatedAtSortValue(artifactId: string, createdAt?: string): number {
+  if (createdAt) {
+    const parsed = Date.parse(createdAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const idTimestamp = artifactId.match(/^(\d{4}-\d{2}-\d{2}T\d{6}Z)/)?.[1];
+  if (!idTimestamp) return 0;
+  const normalized = idTimestamp.replace(
+    /^(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})Z$/,
+    '$1T$2:$3:$4Z',
+  );
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+interface PdfParseArtifactMetadata {
+  artifactId?: string;
+  createdAt?: string;
+  source?: Partial<PdfParseSourceMetadata>;
+}
+
+interface PdfParseArtifactCandidate {
+  artifactDir: string;
+  artifactId: string;
+  createdAt?: string;
+  source: PdfParseSourceMetadata;
+  diagnostics: PdfParseDiagnostic[];
+  sortValue: number;
+}
+
+function listPdfParseArtifactCandidates(projectPath: string): PdfParseArtifactCandidate[] {
+  const artifactsRoot = path.join(projectPath, '.cdf', 'pdf-parses');
+  if (!fs.existsSync(artifactsRoot)) return [];
+
+  const candidates: PdfParseArtifactCandidate[] = [];
+  for (const entry of fs.readdirSync(artifactsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const artifactDir = path.join(artifactsRoot, entry.name);
+    const metadata = readJsonFileOrUndefined<PdfParseArtifactMetadata>(path.join(artifactDir, 'metadata.json'));
+    const source = metadata?.source;
+    if (!source?.path || !source.sha256 || typeof source.fileSize !== 'number') continue;
+    const artifactId = metadata.artifactId ?? entry.name;
+    candidates.push({
+      artifactDir,
+      artifactId,
+      createdAt: metadata.createdAt,
+      source: {
+        path: source.path,
+        fileSize: source.fileSize,
+        sha256: source.sha256,
+      },
+      diagnostics: readJsonFileOrUndefined<PdfParseDiagnostic[]>(path.join(artifactDir, 'diagnostics.json')) ?? [],
+      sortValue: artifactCreatedAtSortValue(artifactId, metadata.createdAt),
+    });
+  }
+  return candidates.sort((left, right) => right.sortValue - left.sortValue || right.artifactId.localeCompare(left.artifactId));
+}
+
+function isReusablePdfParseArtifact(candidate: PdfParseArtifactCandidate): boolean {
+  return fs.existsSync(path.join(candidate.artifactDir, 'baseline.json'))
+    && fs.existsSync(path.join(candidate.artifactDir, 'recovered-view.md'));
+}
+
+export function findReusablePdfParseArtifact(
+  projectPath: string,
+  filePath: string,
+): PdfParseArtifactLookupResult {
+  const currentSource = sourceMetadata(filePath);
+  const candidates = listPdfParseArtifactCandidates(projectPath);
+  const reusable = candidates.find((candidate) => (
+    candidate.source.sha256 === currentSource.sha256 && isReusablePdfParseArtifact(candidate)
+  ));
+
+  if (reusable) {
+    const recoveredViewPath = path.join(reusable.artifactDir, 'recovered-view.md');
+    return {
+      status: 'reusable-artifact',
+      artifactDir: reusable.artifactDir,
+      artifactId: reusable.artifactId,
+      createdAt: reusable.createdAt,
+      source: currentSource,
+      recoveredViewPath,
+      baselinePath: path.join(reusable.artifactDir, 'baseline.json'),
+      diagnostics: reusable.diagnostics,
+      conversationSummary: [
+        `Found reusable PDF parse artifact: ${reusable.artifactDir}`,
+        `Recovered view: ${recoveredViewPath}`,
+        `Diagnostics: ${summarizeDiagnostics(reusable.diagnostics)}`,
+      ].join('\n'),
+      nextActions: [
+        {
+          kind: 'read-recovered-view',
+          path: recoveredViewPath,
+          description: 'Read recovered-view.md from this artifact instead of rerunning Marker.',
+        },
+      ],
+    };
+  }
+
+  const stale = candidates.find((candidate) => (
+    candidate.source.path === filePath && candidate.source.sha256 !== currentSource.sha256
+  ));
+  if (stale) {
+    return {
+      status: 'stale-artifact',
+      artifactDir: stale.artifactDir,
+      artifactId: stale.artifactId,
+      createdAt: stale.createdAt,
+      source: stale.source,
+      currentSource,
+      diagnostics: stale.diagnostics,
+      conversationSummary: [
+        `Found stale PDF parse artifact: ${stale.artifactDir}`,
+        'The current source PDF SHA-256 does not match artifact metadata; rerun baseline parsing.',
+      ].join('\n'),
+      nextActions: [
+        {
+          kind: 'rerun-baseline-parse',
+          description: 'Run scripts/baseline-parse.js for the current PDF before reading full text.',
+        },
+      ],
+    };
+  }
+
+  return {
+    status: 'not-parsed',
+    source: currentSource,
+    diagnostics: [],
+    conversationSummary: 'No PDF parse artifact found for this source PDF; run baseline parsing before full-text reading.',
+    nextActions: [
+      {
+        kind: 'run-baseline-parse',
+        description: 'Run scripts/baseline-parse.js to create a PDF Parse Artifact.',
+      },
+    ],
+  };
 }
 
 function hashFile(filePath: string): string {

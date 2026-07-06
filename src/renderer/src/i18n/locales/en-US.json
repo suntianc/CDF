@@ -477,7 +477,7 @@
     "writing": "Writing",
     "experiments": "Experiments",
     "papersEmptyTitle": "Paper Library is empty",
-    "papersEmptyDescription": "Ask an Agent in the Conversation panel to collect papers into the project Knowledge Base.",
+    "papersEmptyDescription": "Ask an Agent in the Conversation panel to collect papers into the project Knowledge Base. After collection, use Paper Reading Skill for source-grounded full-text reading.",
     "paperCount": "{{count}} Paper Entries",
     "paperLoading": "Loading Paper Entries...",
     "paperLoadError": "Failed to load Paper Entries: {{message}}",

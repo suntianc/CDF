@@ -477,7 +477,7 @@
     "writing": "写作",
     "experiments": "实验记录",
     "papersEmptyTitle": "论文库为空",
-    "papersEmptyDescription": "在对话面板中让 Agent 收集论文，并写入项目知识库。",
+    "papersEmptyDescription": "在对话面板中让 Agent 收集论文，并写入项目知识库。收集后可用 Paper Reading Skill 做带来源定位的全文阅读。",
     "paperCount": "{{count}} 个 Paper Entry",
     "paperLoading": "正在加载 Paper Entry...",
     "paperLoadError": "加载 Paper Entry 失败：{{message}}",

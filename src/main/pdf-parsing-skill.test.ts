@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -90,6 +91,50 @@ function writeCompressedStreamPdf(content: string): void {
   ]));
 }
 
+function hashCurrentPdf(): string {
+  const hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(pdfPath));
+  return hash.digest('hex');
+}
+
+function writePdfParseArtifact(
+  artifactId: string,
+  options: {
+    sourcePath?: string;
+    sourceSha256?: string;
+    createdAt?: string;
+    recoveredMarkdown?: string;
+  } = {},
+): string {
+  const artifactDir = path.join(projectPath, '.cdf', 'pdf-parses', artifactId);
+  fs.mkdirSync(artifactDir, { recursive: true });
+  const sourceSha256 = options.sourceSha256 ?? hashCurrentPdf();
+  fs.writeFileSync(path.join(artifactDir, 'metadata.json'), JSON.stringify({
+    artifactVersion: 1,
+    artifactId,
+    createdAt: options.createdAt ?? '2026-07-02T15:30:00.000Z',
+    source: {
+      path: options.sourcePath ?? pdfPath,
+      fileSize: fs.statSync(options.sourcePath ?? pdfPath).size,
+      sha256: sourceSha256,
+    },
+    baseline: {
+      parser: 'marker',
+      jobId: `job-${artifactId}`,
+    },
+  }, null, 2), 'utf-8');
+  fs.writeFileSync(path.join(artifactDir, 'baseline.json'), JSON.stringify({
+    parser: 'marker',
+    sourceFile: options.sourcePath ?? pdfPath,
+    markdown: options.recoveredMarkdown ?? `# ${artifactId}`,
+    diagnostics: [],
+    blocks: [],
+  }, null, 2), 'utf-8');
+  fs.writeFileSync(path.join(artifactDir, 'recovered-view.md'), options.recoveredMarkdown ?? `# ${artifactId}`, 'utf-8');
+  fs.writeFileSync(path.join(artifactDir, 'diagnostics.json'), '[]\n', 'utf-8');
+  return artifactDir;
+}
+
 beforeEach(() => {
   projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-pdf-skill-'));
   pdfPath = path.join(projectPath, 'paper.pdf');
@@ -136,6 +181,120 @@ afterEach(() => {
 });
 
 describe('PDF Parsing Skill baseline artifact', () => {
+  it('finds the latest reusable artifact for a PDF before rerunning Marker', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    writePdfParseArtifact('2026-07-02T153000Z-oldhash', {
+      createdAt: '2026-07-02T15:30:00.000Z',
+      recoveredMarkdown: '# Older parse',
+    });
+    const latestArtifactDir = writePdfParseArtifact('2026-07-03T153000Z-newhash', {
+      createdAt: '2026-07-03T15:30:00.000Z',
+      recoveredMarkdown: '# Latest parse',
+    });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'find-artifact.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], { encoding: 'utf-8' });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'reusable-artifact',
+      artifactDir: latestArtifactDir,
+      recoveredViewPath: path.join(latestArtifactDir, 'recovered-view.md'),
+      source: {
+        path: pdfPath,
+        sha256: hashCurrentPdf(),
+      },
+      nextActions: [
+        {
+          kind: 'read-recovered-view',
+          path: path.join(latestArtifactDir, 'recovered-view.md'),
+        },
+      ],
+    });
+    expect(result.conversationSummary).toContain(latestArtifactDir);
+    expect(result.conversationSummary).toContain('reusable PDF parse artifact');
+  });
+
+  it('reports a stale artifact when the source PDF sha no longer matches metadata', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const artifactDir = writePdfParseArtifact('2026-07-02T153000Z-stale', {
+      sourceSha256: 'a'.repeat(64),
+      createdAt: '2026-07-02T15:30:00.000Z',
+    });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'find-artifact.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], { encoding: 'utf-8' });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'stale-artifact',
+      artifactDir,
+      source: {
+        path: pdfPath,
+        sha256: 'a'.repeat(64),
+      },
+      currentSource: {
+        path: pdfPath,
+        sha256: hashCurrentPdf(),
+      },
+      nextActions: [
+        {
+          kind: 'rerun-baseline-parse',
+        },
+      ],
+    });
+    expect(result.conversationSummary).toContain('stale PDF parse artifact');
+    expect(result.conversationSummary).toContain('rerun baseline parsing');
+  });
+
+  it('reports not-parsed when no artifact metadata matches the source PDF', () => {
+    const builtInSkillDirs = getBuiltInSkillDirs();
+    const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
+    const otherPdfPath = path.join(projectPath, 'other.pdf');
+    fs.writeFileSync(otherPdfPath, '%PDF-1.7\n% other fixture\n', 'utf-8');
+    writePdfParseArtifact('2026-07-02T153000Z-other', {
+      sourcePath: otherPdfPath,
+      sourceSha256: 'b'.repeat(64),
+      createdAt: '2026-07-02T15:30:00.000Z',
+    });
+
+    const output = execFileSync(process.execPath, [
+      path.join(pdfSkillDir, 'scripts', 'find-artifact.js'),
+      '--project',
+      projectPath,
+      '--file',
+      pdfPath,
+    ], { encoding: 'utf-8' });
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      status: 'not-parsed',
+      source: {
+        path: pdfPath,
+        sha256: hashCurrentPdf(),
+      },
+      nextActions: [
+        {
+          kind: 'run-baseline-parse',
+        },
+      ],
+    });
+    expect(result).not.toHaveProperty('artifactDir');
+    expect(result.conversationSummary).toContain('No PDF parse artifact found');
+  });
+
   it('is discoverable and writes a project-local artifact instead of returning large parse JSON', async () => {
     const builtInSkillDirs = getBuiltInSkillDirs();
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`));
@@ -143,6 +302,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
 
     expect(pdfSkillDir).toBeTruthy();
     expect(skillMarkdown).toContain('PDF Parsing Skill');
+    expect(skillMarkdown).toContain('## Artifact Lookup');
+    expect(skillMarkdown).toContain('scripts/find-artifact.js');
+    expect(skillMarkdown).toContain('reusable-artifact');
+    expect(skillMarkdown).toContain('stale-artifact');
+    expect(skillMarkdown).toContain('not-parsed');
     expect(skillMarkdown).toContain('## Failure Handling');
     expect(skillMarkdown).toContain('missing runtime chunks');
     expect(skillMarkdown).toContain('--disable_ocr');
@@ -158,6 +322,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
       skill: 'pdf-parsing',
       globalToolsRemoved: ['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel'],
       scripts: {
+        findArtifact: 'scripts/find-artifact.js',
         baselineParse: 'scripts/baseline-parse.js',
         ensureMarker: 'scripts/ensure-marker.js',
         discoverCapabilities: 'scripts/discover-capabilities.js',
@@ -169,6 +334,7 @@ describe('PDF Parsing Skill baseline artifact', () => {
       },
     });
     for (const scriptFile of [
+      'find-artifact.js',
       'baseline-parse.js',
       'ensure-marker.js',
       'discover-capabilities.js',

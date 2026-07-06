@@ -101,11 +101,11 @@ An Agent-level rule that hides specific MCP servers from an Agent. Configured MC
 _Avoid_: MCP binding, MCP whitelist, MCP mount, agent MCP selection
 
 **Paper Library**:
-A Scene-specific panel that manages collected academic papers — OKF metadata files, locally stored PDFs, and vector indexes for Agent retrieval.
-_Avoid_: reference manager, paper database, Zotero
+A Scene-specific panel that manages collected academic papers — OKF metadata files and locally stored PDFs, with full text reached on demand through Structured Paper Parses.
+_Avoid_: reference manager, paper database, Zotero, vector index
 
 **Structured Paper Parse**:
-A Markdown representation of an academic PDF optimized for Agent retrieval, citation grounding, and RAG chunking, preserving semantic structure and source location over visual fidelity.
+A Markdown representation of an academic PDF optimized for Agent retrieval and citation grounding, preserving semantic structure and source location over visual fidelity.
 _Avoid_: PDF preview, layout clone, pretty Markdown export
 
 **Structured Paper Parse Contract**:
@@ -243,6 +243,10 @@ _Avoid_: paper importer, downloader, reference manager
 **Paper Collection Skill**:
 A built-in Skill that imports papers into the Paper Library after the user has supplied a resource. Mode A imports selected candidates from the Paper Search cache, reusing cached Journal Metrics Snapshots and downloading only open-access PDFs. Mode B imports a user-provided authorized PDF under `.cdf/knowledge/papers/`, reconciles metadata with the latest cache when possible, and then creates the Paper Entry. It marks consumed cache payloads and can recover archived payloads from `<projectPath>/.cdf/paper-collection-cache/archive/` after the 30 minute threshold.
 _Avoid_: discovery skill, paper search, reference manager
+
+**Paper Reading Skill**:
+A built-in strategy-only Skill that guides an Agent from Paper Entries to full text: metadata and abstract triage, on-demand parsing through the PDF Parsing Skill with artifact reuse, full-text reading, and citing with Paper Source Location. It introduces no index and no background pipeline.
+_Avoid_: RAG system, semantic search, vector retrieval, paper importer
 
 **Writing Project**:
 A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.

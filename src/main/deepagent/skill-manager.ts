@@ -7,6 +7,7 @@ import type { ParsedFrontmatter } from '../../shared/types';
 import { getCrawlerSkillMarkdown } from '../crawler-skill';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
 import { getPaperCollectionSkillMarkdown, getPaperCollectionSkillResources } from '../paper-collection-skill';
+import { getPaperReadingSkillMarkdown, getPaperReadingSkillResources } from '../paper-reading-skill';
 import { getPaperSearchSkillMarkdown, getPaperSearchSkillResources } from '../paper-search-skill';
 import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
@@ -179,6 +180,18 @@ function ensureBuiltInPaperCollectionSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInPaperReadingSkill(): string {
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'paper-reading');
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPaperReadingSkillMarkdown(), 'utf-8');
+  for (const resource of getPaperReadingSkillResources()) {
+    const resourcePath = path.join(skillDir, resource.relativePath);
+    ensureDir(path.dirname(resourcePath));
+    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
+  }
+  return skillDir;
+}
+
 function ensureBuiltInPaperSearchSkill(): string {
   const skillDir = path.join(resolveBuiltInSkillsRoot(), 'paper-search');
   ensureDir(skillDir);
@@ -199,6 +212,7 @@ export function getBuiltInSkillDirs(): string[] {
     ensureBuiltInPdfParsingSkill(),
     ensureBuiltInPaperSearchSkill(),
     ensureBuiltInPaperCollectionSkill(),
+    ensureBuiltInPaperReadingSkill(),
   ];
 }
 

@@ -11,6 +11,7 @@ import {
   discoverPdfRecoveryCapabilities,
   executePdfRecoveryPlan,
   finalizeRecoveredPaperParseView,
+  findReusablePdfParseArtifact,
   generatePdfRecoveryPlan,
   parsePdfWithSkill,
   recordPdfRecoveryRouteSelection,
@@ -188,6 +189,12 @@ async function baselineParse(args: ParsedArgs): Promise<void> {
   });
 }
 
+function findArtifact(args: ParsedArgs): void {
+  const projectPath = requiredStringArg(args, 'project');
+  const filePath = requiredStringArg(args, 'file');
+  output(findReusablePdfParseArtifact(projectPath, filePath));
+}
+
 function refreshRecoveryPlan(args: ParsedArgs): void {
   const artifactDir = requiredStringArg(args, 'artifact');
   const metadata = readJson<{ artifactId?: string }>(path.join(artifactDir, 'metadata.json'));
@@ -307,6 +314,9 @@ async function main(): Promise<void> {
   const [operation, ...argv] = process.argv.slice(2);
   const args = parseArgs(argv);
   switch (operation) {
+    case 'findArtifact':
+      findArtifact(args);
+      return;
     case 'baselineParse':
       await baselineParse(args);
       return;
