@@ -64,3 +64,57 @@ Skill-taught registry calls, and curl-based PDF download.
   easyScholar account (free or paid); CDF handles absence, not billing.
 - The CLI's other sources (Web of Science, Scopus keys, etc.) become
   available for free if users configure them, without CDF code changes.
+
+## Phase 2: Skill split and cache
+
+The Phase 0 Skill still coupled discovery, metrics enrichment, PDF
+download, and Paper Entry creation in one Agent workflow. Phase 2 splits
+that workflow into two built-in Skills:
+
+- **Paper Search Skill**: search only. It runs candidate discovery,
+  deduplicates journal metric lookups by normalized journal name,
+  presents candidates, writes the cross-Skill cache, and stops for user
+  selection. It does not run the CLI download subcommand and does not
+  create Paper Entries.
+- **Paper Collection Skill**: import only. Mode A consumes selected
+  cached candidates and downloads only open-access PDFs. Mode B accepts a
+  user-provided authorized PDF already placed under
+  `.cdf/knowledge/papers/`, validates it with the existing Paper resource
+  path rules, reconciles metadata from the cache when possible, and
+  creates the Paper Entry.
+
+The cross-Skill cache lives in the deepagents StateBackend virtual file
+system under `/paper-collection-cache/`:
+
+```json
+{
+  "latest": "/paper-collection-cache/latest.json",
+  "index": "/paper-collection-cache/index.json",
+  "archive": "/paper-collection-cache/archive/<searchedAt>.json",
+  "latestPayload": {
+    "searchedAt": "2026-07-05T10:00:00Z",
+    "consumedAt": "2026-07-05T10:15:00Z",
+    "query": "agentic retrieval",
+    "source": "arxiv",
+    "candidates": [],
+    "journalMetricsByJournal": {}
+  }
+}
+```
+
+`latest.json` carries the most recent search payload. `index.json` is the
+history list with `fresh`, `consumed`, and `archived` statuses plus an
+optional `archivePath`. A consumed latest payload is archived after 30
+minutes so a new search does not silently erase an older import context,
+while short interruptions still keep the active latest payload in place.
+
+Mode B exists for paid or otherwise non-open PDFs: CDF must not bypass
+publisher access controls, but it can help the user import a PDF they
+obtained through institutional authorization. The existing Sci-Hub
+prohibition remains unchanged.
+
+If the split breaks the Phase 0 workflow in practice, the rollback path
+is to collapse the two Skill texts back into one Paper Collection Skill
+while keeping the same bundled CLI, `knowledge_create` contract, and
+Paper Entry schema. The cache module can remain as an internal helper
+until the split is restored.

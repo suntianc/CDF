@@ -11,6 +11,17 @@ import {
   searchKnowledgeEntries,
 } from './knowledge-base';
 import { materializePaperSearchRuntime } from './deepagent/skill-manager';
+import {
+  appendToIndex,
+  createInMemoryPaperCollectionThreadState,
+  markLatestConsumed,
+  maybeArchive,
+  readArchive,
+  readIndex,
+  readLatest,
+  writeLatest,
+  type PaperCollectionCachePayload,
+} from './paper-collection-cache';
 
 function writeFakePaperSearchCli(cliPath: string): void {
   fs.writeFileSync(cliPath, [
@@ -104,6 +115,13 @@ function slugFromPaperId(paperId: string): string {
 
 function normalizeJournalName(journal: string): string {
   return journal.trim().toLowerCase();
+}
+
+function metricsFromCache(
+  payload: PaperCollectionCachePayload,
+  journal: string
+): Record<string, unknown> | undefined {
+  return payload.journalMetricsByJournal[normalizeJournalName(journal)] as Record<string, unknown> | undefined;
 }
 
 describe('Paper Collection arXiv loop', () => {
@@ -287,5 +305,290 @@ describe('Paper Collection arXiv loop', () => {
 
     expect(metricsByJournal.size).toBe(1);
     expect(fs.readFileSync(countFile, 'utf-8')).toBe('1');
+  });
+
+  it('searches candidates, deduplicates journal metrics, and writes the cross-Skill cache', () => {
+    const cliPath = materializeFakePaperSearchCli(projectPath);
+    const threadState = createInMemoryPaperCollectionThreadState();
+    const countFile = path.join(projectPath, 'metrics-count.txt');
+    const searchResult = JSON.parse(execFileSync(process.execPath, [
+      cliPath,
+      'search',
+      '1706.03762',
+      '--platform',
+      'arxiv',
+      '--max-results',
+      '1',
+      '--pretty',
+    ], { encoding: 'utf-8' }));
+    const candidates = [
+      searchResult.papers[0],
+      {
+        ...searchResult.papers[0],
+        id: '1706.03762-copy',
+        journal: ` ${searchResult.papers[0].journal.toUpperCase()} `,
+      },
+    ];
+    const journalMetricsByJournal: Record<string, unknown> = {};
+
+    for (const paper of candidates) {
+      const key = normalizeJournalName(paper.journal);
+      if (journalMetricsByJournal[key]) continue;
+      const metricsResult = JSON.parse(execFileSync(process.execPath, [
+        cliPath,
+        'journal-metrics',
+        paper.journal,
+        '--pretty',
+      ], {
+        encoding: 'utf-8',
+        env: {
+          ...process.env,
+          CDF_FAKE_METRICS_COUNT_FILE: countFile,
+        },
+      }));
+      journalMetricsByJournal[key] = metricsResult.data[0];
+    }
+
+    writeLatest(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: '1706.03762',
+      source: 'arxiv',
+      candidates,
+      journalMetricsByJournal,
+    });
+    appendToIndex(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: '1706.03762',
+      candidateCount: candidates.length,
+      status: 'fresh',
+    });
+
+    expect(fs.readFileSync(countFile, 'utf-8')).toBe('1');
+    expect(readLatest(threadState)?.candidates).toHaveLength(2);
+    expect(readIndex(threadState)).toEqual([
+      {
+        searchedAt: '2026-07-05T10:00:00Z',
+        query: '1706.03762',
+        candidateCount: 2,
+        status: 'fresh',
+      },
+    ]);
+  });
+
+  it('imports selected cached candidates without querying journal metrics again and marks the cache consumed', () => {
+    const cliPath = materializeFakePaperSearchCli(projectPath);
+    const threadState = createInMemoryPaperCollectionThreadState();
+    const countFile = path.join(projectPath, 'metrics-count.txt');
+    fs.writeFileSync(countFile, '1', 'utf-8');
+    const candidates = [
+      {
+        id: '1706.03762v7',
+        title: 'Attention Is All You Need',
+        authors: ['Ashish Vaswani', 'Noam Shazeer'],
+        source: 'arxiv',
+        journal: 'Advances in Neural Information Processing Systems',
+        year: 2017,
+        doi: '10.48550/arXiv.1706.03762',
+        pdfUrl: 'https://arxiv.org/pdf/1706.03762v7',
+      },
+      {
+        id: '1605.08386v1',
+        title: 'Another Selected Paper',
+        authors: ['Ada Lovelace'],
+        source: 'arxiv',
+        journal: 'Advances in Neural Information Processing Systems',
+        year: 2016,
+        doi: '10.48550/arXiv.1605.08386',
+        pdfUrl: 'https://arxiv.org/pdf/1605.08386v1',
+      },
+    ];
+    writeLatest(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: 'transformers',
+      source: 'arxiv',
+      candidates,
+      journalMetricsByJournal: {
+        [normalizeJournalName('Advances in Neural Information Processing Systems')]: {
+          impactFactor: 12.5,
+          casTier: '1区',
+          jcrQuartile: 'Q1',
+          indexing: ['SCI'],
+          year: 2025,
+          source: 'easyScholar',
+        },
+      },
+    });
+    appendToIndex(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: 'transformers',
+      candidateCount: candidates.length,
+      status: 'fresh',
+    });
+
+    const latest = readLatest(threadState) as PaperCollectionCachePayload;
+    for (const paper of latest.candidates as Array<typeof candidates[number]>) {
+      const slug = slugFromPaperId(paper.id);
+      const resource = `papers/${slug}.pdf`;
+      const downloadResult = JSON.parse(execFileSync(process.execPath, [
+        cliPath,
+        'download',
+        paper.id,
+        '--platform',
+        'arxiv',
+        '--save-path',
+        path.join(getKnowledgeBaseRoot(projectPath), 'papers'),
+        '--pretty',
+      ], { encoding: 'utf-8' }));
+      const metrics = metricsFromCache(latest, paper.journal);
+
+      expect(downloadResult.ok).toBe(true);
+      createKnowledgeEntry(projectPath, {
+        relativePath: `papers/${slug}.md`,
+        type: 'Paper',
+        title: paper.title,
+        authors: paper.authors,
+        source: `arXiv:${slug}`,
+        journal: paper.journal,
+        year: paper.year,
+        doi: paper.doi,
+        journalMetrics: metrics,
+        resource,
+        body: `PDF URL: ${paper.pdfUrl}`,
+      });
+    }
+    markLatestConsumed(threadState, '2026-07-05T10:20:00Z');
+
+    expect(listKnowledgeEntries(projectPath).map((entry) => entry.relativePath).sort()).toEqual([
+      'papers/1605.08386.md',
+      'papers/1706.03762.md',
+    ]);
+    expect(fs.readFileSync(countFile, 'utf-8')).toBe('1');
+    expect(readLatest(threadState)?.consumedAt).toBe('2026-07-05T10:20:00Z');
+    expect(readIndex(threadState)[0].status).toBe('consumed');
+  });
+
+  it('imports a user-provided PDF by reconciling metadata from the latest cache', () => {
+    const threadState = createInMemoryPaperCollectionThreadState();
+    const knowledgeRoot = getKnowledgeBaseRoot(projectPath);
+    const papersDir = path.join(knowledgeRoot, 'papers');
+    fs.mkdirSync(papersDir, { recursive: true });
+    fs.writeFileSync(path.join(papersDir, 'paid-paper.pdf'), '%PDF-1.4\n%%EOF\n', 'utf-8');
+    writeLatest(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: 'paid paper',
+      source: 'mixed',
+      candidates: [
+        {
+          title: 'Paid Paper',
+          authors: ['Katherine Johnson'],
+          source: 'crossref',
+          journal: 'Journal of Paid Access',
+          year: 2026,
+          doi: '10.1000/paid',
+        },
+      ],
+      journalMetricsByJournal: {},
+    });
+    appendToIndex(threadState, {
+      searchedAt: '2026-07-05T10:00:00Z',
+      query: 'paid paper',
+      candidateCount: 1,
+      status: 'fresh',
+    });
+
+    const resolvedPdf = resolvePaperPdfResourcePath(projectPath, 'papers/paid-paper.pdf');
+    const cached = (readLatest(threadState)?.candidates as Array<Record<string, unknown>>)
+      .find((candidate) => candidate.title === 'Paid Paper');
+
+    const entry = createKnowledgeEntry(projectPath, {
+      relativePath: 'papers/paid-paper.md',
+      type: 'Paper',
+      title: cached?.title as string,
+      authors: cached?.authors as string[],
+      source: cached?.source as string,
+      journal: cached?.journal as string,
+      year: cached?.year as number,
+      doi: cached?.doi as string,
+      resource: 'papers/paid-paper.pdf',
+      body: 'PDF supplied by the user through institutional access.',
+    });
+    markLatestConsumed(threadState, '2026-07-05T10:25:00Z');
+
+    expect(resolvedPdf).toBe(path.join(papersDir, 'paid-paper.pdf'));
+    expect(entry.frontmatter).toMatchObject({
+      title: 'Paid Paper',
+      authors: ['Katherine Johnson'],
+      doi: '10.1000/paid',
+      resource: 'papers/paid-paper.pdf',
+    });
+    expect(readIndex(threadState)[0].status).toBe('consumed');
+  });
+
+  it('rejects an escaped user-provided PDF path without creating a Paper Entry', () => {
+    expect(() => resolvePaperPdfResourcePath(projectPath, '/etc/passwd')).toThrow();
+    expect(listKnowledgeEntries(projectPath)).toEqual([]);
+  });
+
+  it('recovers an archived search payload and continues collection from it', () => {
+    const cliPath = materializeFakePaperSearchCli(projectPath);
+    const threadState = createInMemoryPaperCollectionThreadState();
+    const consumedPayload: PaperCollectionCachePayload = {
+      searchedAt: '2026-07-05T10:00:00Z',
+      consumedAt: '2026-07-05T10:15:00Z',
+      query: 'archived transformer',
+      source: 'arxiv',
+      candidates: [
+        {
+          id: '1706.03762v7',
+          title: 'Attention Is All You Need',
+          authors: ['Ashish Vaswani'],
+          source: 'arxiv',
+          journal: 'arXiv',
+          year: 2017,
+          pdfUrl: 'https://arxiv.org/pdf/1706.03762v7',
+        },
+      ],
+      journalMetricsByJournal: {},
+    };
+    writeLatest(threadState, consumedPayload);
+    appendToIndex(threadState, {
+      searchedAt: consumedPayload.searchedAt,
+      query: consumedPayload.query,
+      candidateCount: 1,
+      status: 'consumed',
+    });
+
+    const archiveResult = maybeArchive(threadState, new Date('2026-07-05T10:45:00Z'));
+    const archived = readArchive(threadState, archiveResult.archivePath as string) as PaperCollectionCachePayload;
+    const paper = archived.candidates[0] as Record<string, unknown>;
+    const slug = slugFromPaperId(paper.id as string);
+    execFileSync(process.execPath, [
+      cliPath,
+      'download',
+      paper.id as string,
+      '--platform',
+      'arxiv',
+      '--save-path',
+      path.join(getKnowledgeBaseRoot(projectPath), 'papers'),
+      '--pretty',
+    ], { encoding: 'utf-8' });
+    createKnowledgeEntry(projectPath, {
+      relativePath: `papers/${slug}.md`,
+      type: 'Paper',
+      title: paper.title as string,
+      authors: paper.authors as string[],
+      source: `arXiv:${slug}`,
+      journal: paper.journal as string,
+      year: paper.year as number,
+      resource: `papers/${slug}.pdf`,
+      body: 'Recovered from archived search cache.',
+    });
+
+    expect(archiveResult.archived).toBe(true);
+    expect(readIndex(threadState)[0]).toMatchObject({
+      status: 'archived',
+      archivePath: archiveResult.archivePath,
+    });
+    expect(listKnowledgeEntries(projectPath).map((entry) => entry.relativePath)).toEqual(['papers/1706.03762.md']);
   });
 });

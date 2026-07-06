@@ -5,22 +5,28 @@ import {
 } from './paper-collection-skill';
 
 describe('Paper Collection Skill', () => {
-  it('describes the arXiv-first paper collection workflow and compliance guardrails', () => {
+  it('describes import-only Mode A and Mode B workflows with compliance guardrails', () => {
     const markdown = getPaperCollectionSkillMarkdown({
       cliPath: '/tmp/cdf-built-in-skills/paper-collection/runtime/paper-search.cjs',
     });
+    const frontmatter = markdown.slice(0, markdown.indexOf('---', 4));
 
     expect(markdown).toContain('paper-collection');
     expect(markdown).toContain('Paper Collection Skill');
-    expect(markdown).toContain('arXiv tools first');
-    expect(markdown).toContain('paper-search search');
-    expect(markdown).toContain('paper-search journal-metrics');
-    expect(markdown).toContain('paper-search download');
+    expect(frontmatter).not.toMatch(/\bsearch\b/i);
+    expect(markdown).toContain('Mode A');
+    expect(markdown).toContain('/paper-collection-cache/latest.json');
+    expect(markdown).toContain('tell the user to run Paper Search first');
+    expect(markdown).toContain('cached search has no candidates');
+    expect(markdown).toContain('Do not call `journal-metrics`');
+    expect(markdown).toContain('Mode B');
+    expect(markdown).toContain('resolvePaperPdfResourcePath');
+    expect(markdown).toContain('reconcile with that cached candidate');
+    expect(markdown).toContain('30 分钟');
     expect(markdown).toContain('papers/<slug>.md');
     expect(markdown).toContain('papers/<slug>.pdf');
     expect(markdown).toContain('knowledge_search');
     expect(markdown).toContain('knowledge_create');
-    expect(markdown).toContain('query each journal once');
     expect(markdown).toContain('Do not enable Sci-Hub');
     expect(markdown).toContain('Do not create a second Paper Entry');
     expect(markdown).toContain('/tmp/cdf-built-in-skills/paper-collection/runtime/paper-search.cjs');
@@ -39,10 +45,14 @@ describe('Paper Collection Skill', () => {
     ]);
     expect(JSON.parse(resources[0].content)).toMatchObject({
       commands: {
-        search: expect.stringContaining('search "<query>"'),
-        journalMetrics: expect.stringContaining('journal-metrics "<journal>"'),
         download: expect.stringContaining('download <paper-id>'),
       },
+      cache: {
+        latest: '/paper-collection-cache/latest.json',
+        index: '/paper-collection-cache/index.json',
+      },
     });
+    expect(JSON.stringify(JSON.parse(resources[0].content).commands)).not.toContain('journal-metrics');
+    expect(JSON.stringify(JSON.parse(resources[0].content).commands)).not.toContain('search "<query>"');
   });
 });

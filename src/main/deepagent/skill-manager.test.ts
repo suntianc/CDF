@@ -316,7 +316,7 @@ describe('skill-manager', () => {
     expect(crawlerSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
   });
 
-  it('loads the built-in Paper Collection Skill and materializes its bundled CLI', () => {
+  it('loads the built-in Paper Search and Paper Collection Skills with their bundled CLI runtime', () => {
     const compiledDir = path.join(tempProjectPath, 'compiled-paper-search');
     fs.mkdirSync(compiledDir, { recursive: true });
     const compiledCliPath = path.join(compiledDir, 'paper-search-cli.cjs');
@@ -331,8 +331,14 @@ describe('skill-manager', () => {
       process.env.CDF_PAPER_SEARCH_PACKAGE_PATH = compiledPackagePath;
 
       const config = resolveAgentSkillsConfig(tempProjectPath);
+      const paperSearchSource = config.skillsSources.find((source) => source.includes('paper-search'));
       const paperCollectionSource = config.skillsSources.find((source) => source.includes('paper-collection'));
 
+      expect(paperSearchSource).toBeTruthy();
+      expect(paperSearchSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
+      expect(fs.existsSync(path.join(paperSearchSource as string, 'runtime', 'paper-search.cjs'))).toBe(true);
+      expect(fs.existsSync(path.join(paperSearchSource as string, 'package.json'))).toBe(true);
+      expect(fs.readFileSync(path.join(paperSearchSource as string, 'SKILL.md'), 'utf-8')).toContain('Paper Search Skill');
       expect(paperCollectionSource).toBeTruthy();
       expect(paperCollectionSource?.startsWith(path.join(os.homedir(), '.cdf', 'skills'))).toBe(false);
       expect(fs.existsSync(path.join(paperCollectionSource as string, 'runtime', 'paper-search.cjs'))).toBe(true);

@@ -233,12 +233,16 @@ Journal-level standing (impact factor, CAS tier, JCR quartile, indexing status) 
 _Avoid_: paper score, live journal ranking, per-paper citation metric
 
 **Bundled Paper Search CLI**:
-The version-pinned third-party paper-search CLI shipped with CDF that executes paper metadata search, journal metrics lookup, and open-access PDF discovery for the Paper Collection Skill, driven through Skill-guided shell calls. Its supported config keys are entered in CDF Research Config and synced into the CLI's own 0600 config file; its Sci-Hub fallback is never enabled. The Skill's strategy is the stable interface — the engine is swappable.
+The version-pinned third-party paper-search CLI shipped with CDF that executes paper metadata search, journal metrics lookup, and open-access PDF discovery for the Paper Search and Paper Collection Skills, driven through Skill-guided shell calls. Its supported config keys are entered in CDF Research Config and synced into the CLI's own 0600 config file; its Sci-Hub fallback is never enabled. The Skills' strategy is the stable interface — the engine is swappable.
 _Avoid_: journal_metrics Agent Tool, hand-built registry client, Sci-Hub route
 
+**Paper Search Skill**:
+A built-in Skill that only searches and presents candidate academic papers: it runs metadata discovery, enriches candidates with Journal Metrics Snapshots, writes `/paper-collection-cache/latest.json` plus `/paper-collection-cache/index.json`, and then stops for user selection. It never downloads PDFs and never creates Paper Entries; paid or no-open-PDF candidates are routed to Paper Collection Skill Mode B after the user obtains an authorized local PDF.
+_Avoid_: paper importer, downloader, reference manager
+
 **Paper Collection Skill**:
-A built-in Skill that closes the loop from paper discovery to a complete Paper Entry: choosing the metadata source (arXiv tools first, the Bundled Paper Search CLI for enrichment, Crawler Skill for sites neither covers), fetching a Journal Metrics Snapshot through the Bundled Paper Search CLI when its key is configured, downloading the PDF into the Knowledge Base's paper area, deduplicating against existing entries, and creating the Paper Entry with full metadata. Strategy only, no execution logic. A missing PDF is expressed by omitting the entry's resource pointer, never by a placeholder; missing metrics fields are absent, never guessed.
-_Avoid_: import wizard, paper downloader, arXiv plugin
+A built-in Skill that imports papers into the Paper Library after the user has supplied a resource. Mode A imports selected candidates from the Paper Search cache, reusing cached Journal Metrics Snapshots and downloading only open-access PDFs. Mode B imports a user-provided authorized PDF under `.cdf/knowledge/papers/`, reconciles metadata with the latest cache when possible, and then creates the Paper Entry. It marks consumed cache payloads and can recover archived payloads from `/paper-collection-cache/archive/` after the 30 minute threshold.
+_Avoid_: discovery skill, paper search, reference manager
 
 **Writing Project**:
 A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.

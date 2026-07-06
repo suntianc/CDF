@@ -7,6 +7,7 @@ import type { ParsedFrontmatter } from '../../shared/types';
 import { getCrawlerSkillMarkdown } from '../crawler-skill';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
 import { getPaperCollectionSkillMarkdown, getPaperCollectionSkillResources } from '../paper-collection-skill';
+import { getPaperSearchSkillMarkdown, getPaperSearchSkillResources } from '../paper-search-skill';
 import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
   invalidateSkillSourceCaches,
@@ -172,11 +173,25 @@ function ensureBuiltInPaperCollectionSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInPaperSearchSkill(): string {
+  const skillDir = path.join(os.tmpdir(), 'cdf-built-in-skills', 'paper-search');
+  ensureDir(skillDir);
+  const runtime = resolvePaperSearchRuntimePaths(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getPaperSearchSkillMarkdown({ cliPath: runtime.cliPath }), 'utf-8');
+  for (const resource of getPaperSearchSkillResources({ cliPath: runtime.cliPath })) {
+    const resourcePath = path.join(skillDir, resource.relativePath);
+    ensureDir(path.dirname(resourcePath));
+    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
+  }
+  return skillDir;
+}
+
 export function getBuiltInSkillDirs(): string[] {
   return [
     ensureBuiltInKnowledgeBaseSkill(),
     ensureBuiltInCrawlerSkill(),
     ensureBuiltInPdfParsingSkill(),
+    ensureBuiltInPaperSearchSkill(),
     ensureBuiltInPaperCollectionSkill(),
   ];
 }
