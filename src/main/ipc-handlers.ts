@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron';
+import { ipcMain, dialog, app, shell } from 'electron';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
@@ -28,11 +28,7 @@ import { parseSkillOverrideState } from '../shared/skill-overrides';
 import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import type {
-  EmbeddingSettings,
-  EmbeddingSourceOption,
-  EmbeddingSourceSelection,
   LLMProvider,
-  LocalEmbeddingModelState,
   MCPServer,
   PaperSearchConfigKey,
   PaperSearchConfigSettings,
@@ -52,14 +48,6 @@ import {
   setPaperSearchConfigValue,
   unsetPaperSearchConfigValue,
 } from './paper-search-config';
-import {
-  LOCAL_E5_SOURCE,
-  ensureLocalE5Model,
-  getLocalE5ModelStatus,
-  type LocalModelDownloadProgress,
-} from './embedding/local-embedder';
-import { inspectVectorStore, type VectorStoreRebuildImpact } from './embedding/vector-store';
-import { getDefaultEmbeddingDimsForProvider, getDefaultEmbeddingModelForProvider } from './embedding/provider-defaults';
 import { initializeScenePreset } from './scene-presets';
 
 function stripMarkdownFrontmatter(content: string): string {
@@ -91,82 +79,6 @@ const getProviderLabel = (type: string): string => {
 const normalizeProjectScene = (scene: unknown): ProjectScene => (
   scene === 'research' ? 'research' : 'general'
 );
-
-const EMBEDDING_SOURCE_STORE_KEY = 'embeddingSource';
-const LOCAL_MODEL_PROGRESS_CHANNEL = 'embedding:local-model-progress';
-
-let localModelDownloadPromise: Promise<LocalEmbeddingModelState> | null = null;
-let localModelDownloading = false;
-let localModelProgress: LocalEmbeddingModelState['progress'];
-
-const defaultEmbeddingSelection = (): EmbeddingSourceSelection => ({
-  kind: 'local',
-  sourceId: LOCAL_E5_SOURCE.id,
-  model: LOCAL_E5_SOURCE.model,
-  dims: LOCAL_E5_SOURCE.dims,
-});
-
-const supportsCloudEmbedding = (providerType: LLMProvider['provider_type']): boolean =>
-  providerType !== 'anthropic' && providerType !== 'ollama';
-
-const sourceIdForCloud = (providerId: string, model: string): string => `cloud:${providerId}:${model}`;
-
-const normalizeEmbeddingSelection = (
-  selection: unknown,
-  options: EmbeddingSourceOption[],
-): EmbeddingSourceSelection => {
-  if (!selection || typeof selection !== 'object') return defaultEmbeddingSelection();
-  const raw = selection as Partial<EmbeddingSourceSelection> & { providerId?: string; dims?: number; model?: string };
-  if (raw.kind === 'local') return defaultEmbeddingSelection();
-  if (raw.kind !== 'cloud' || !raw.providerId || !raw.model) return defaultEmbeddingSelection();
-
-  const option = options.find((candidate) => candidate.kind === 'cloud' && candidate.providerId === raw.providerId);
-  if (!option || option.kind !== 'cloud') return defaultEmbeddingSelection();
-  const model = raw.model.trim() || option.model;
-  const dims = Number.isInteger(raw.dims) && raw.dims > 0 ? raw.dims : option.dims;
-  return {
-    kind: 'cloud',
-    sourceId: sourceIdForCloud(option.providerId, model),
-    providerId: option.providerId,
-    providerName: option.providerName,
-    providerType: option.providerType,
-    model,
-    dims,
-  };
-};
-
-const buildEmbeddingOptions = (): EmbeddingSourceOption[] => {
-  const providers = db.prepare('SELECT * FROM llm_providers ORDER BY created_at DESC').all() as LLMProvider[];
-  return [
-    {
-      ...defaultEmbeddingSelection(),
-      label: 'Local · multilingual-e5-small',
-      hasCredential: true,
-    },
-    ...providers
-      .filter((provider) => supportsCloudEmbedding(provider.provider_type))
-      .map((provider): EmbeddingSourceOption => {
-        const model = getDefaultEmbeddingModelForProvider(provider.provider_type);
-        const dims = getDefaultEmbeddingDimsForProvider(provider.provider_type);
-        return {
-          kind: 'cloud',
-          sourceId: sourceIdForCloud(provider.id, model),
-          providerId: provider.id,
-          providerName: provider.name,
-          providerType: provider.provider_type,
-          model,
-          dims,
-          label: `${provider.name} · ${model}`,
-          hasCredential: !!provider.api_key || provider.provider_type === 'custom',
-        };
-      }),
-  ];
-};
-
-const getLocalEmbeddingModelPath = (): string => path.join(app.getPath('userData'), 'models');
-
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 function normalizeExternalHttpUrl(value: unknown): string {
   if (typeof value !== 'string') {
@@ -212,58 +124,6 @@ function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
   migrateLegacyEasyScholarKey();
   return getPaperSearchConfigSettings();
 }
-
-const buildLocalModelState = (overrides: Partial<LocalEmbeddingModelState> = {}): LocalEmbeddingModelState => {
-  const status = getLocalE5ModelStatus(getLocalEmbeddingModelPath());
-  return {
-    ready: status.ready,
-    missingFiles: status.missingFiles,
-    downloading: localModelDownloading,
-    progress: localModelProgress,
-    ...overrides,
-  };
-};
-
-const sendLocalModelState = (state: LocalEmbeddingModelState): void => {
-  for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(LOCAL_MODEL_PROGRESS_CHANNEL, state);
-  }
-};
-
-const toLocalModelProgress = (event: LocalModelDownloadProgress): LocalEmbeddingModelState['progress'] => ({
-  file: event.file,
-  fileIndex: event.fileIndex,
-  fileCount: event.fileCount,
-  loaded: event.loaded,
-  total: event.total,
-});
-
-const getRebuildImpact = (sourceId: string): VectorStoreRebuildImpact => {
-  const projects = db.prepare('SELECT path FROM projects').all() as Array<{ path?: string }>;
-  let impact: VectorStoreRebuildImpact = { collections: 0, items: 0 };
-  for (const project of projects) {
-    if (!project.path) continue;
-    const projectImpact = inspectVectorStore(project.path).rebuildImpactForSource(sourceId);
-    impact = {
-      collections: impact.collections + projectImpact.collections,
-      items: impact.items + projectImpact.items,
-    };
-  }
-  return impact;
-};
-
-const getEmbeddingSettings = (): EmbeddingSettings => {
-  const options = buildEmbeddingOptions();
-  const selected = normalizeEmbeddingSelection(store.get(EMBEDDING_SOURCE_STORE_KEY), options);
-  const impact = getRebuildImpact(selected.sourceId);
-  return {
-    selected,
-    options,
-    localModel: buildLocalModelState(),
-    affectedCollections: impact.collections,
-    affectedItems: impact.items,
-  };
-};
 
 export function registerIpcHandlers() {
   const ensureProjectForSession = (projectId: string) => {
@@ -356,72 +216,6 @@ export function registerIpcHandlers() {
   // electron-store handlers
   ipcMain.handle('store:get', (_, key: string) => store.get(key));
   ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
-
-  ipcMain.handle('embedding:getSettings', () => getEmbeddingSettings());
-  ipcMain.handle('embedding:ensureLocalModel', () => {
-    if (localModelDownloadPromise) return localModelDownloadPromise;
-
-    localModelDownloading = true;
-    localModelProgress = undefined;
-    sendLocalModelState(buildLocalModelState({ downloading: true }));
-
-    localModelDownloadPromise = ensureLocalE5Model({
-      localModelPath: getLocalEmbeddingModelPath(),
-      onProgress: (event) => {
-        localModelProgress = toLocalModelProgress(event);
-        sendLocalModelState(buildLocalModelState({ downloading: true, progress: localModelProgress }));
-      },
-    })
-      .then((status) => {
-        localModelDownloading = false;
-        localModelProgress = undefined;
-        const state = buildLocalModelState({
-          ready: status.ready,
-          missingFiles: status.missingFiles,
-          downloading: false,
-        });
-        sendLocalModelState(state);
-        return state;
-      })
-      .catch((error) => {
-        localModelDownloading = false;
-        const state = buildLocalModelState({
-          downloading: false,
-          error: getErrorMessage(error),
-        });
-        sendLocalModelState(state);
-        throw error;
-      })
-      .finally(() => {
-        localModelDownloadPromise = null;
-      });
-
-    return localModelDownloadPromise;
-  });
-  ipcMain.handle('embedding:setSource', (_, selection: EmbeddingSourceSelection, confirmRebuild?: boolean) => {
-    const options = buildEmbeddingOptions();
-    const selected = normalizeEmbeddingSelection(selection, options);
-    const impact = getRebuildImpact(selected.sourceId);
-    if (impact.collections > 0 && !confirmRebuild) {
-      return {
-        ok: false,
-        requiresRebuild: true,
-        message: `Changing Embedding Source requires confirming rebuild for ${impact.collections} Vector Index collection(s) and ${impact.items} item(s).`,
-        affectedCollections: impact.collections,
-        affectedItems: impact.items,
-      };
-    }
-    store.set(EMBEDDING_SOURCE_STORE_KEY, selected);
-    if (impact.collections > 0) {
-      store.set('embeddingRebuildRequired', {
-        sourceId: selected.sourceId,
-        collections: impact.collections,
-        items: impact.items,
-        createdAt: new Date().toISOString(),
-      });
-    }
-    return { ok: true, settings: getEmbeddingSettings() };
-  });
 
   // Database handlers: Projects
   ipcMain.handle('db:getProjects', () => {

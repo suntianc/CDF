@@ -62,62 +62,6 @@ export interface LLMProvider {
   updated_at: number;
 }
 
-export type EmbeddingSourceSelection =
-  | {
-      kind: 'local';
-      sourceId: string;
-      model: string;
-      dims: number;
-    }
-  | {
-      kind: 'cloud';
-      sourceId: string;
-      providerId: string;
-      providerName: string;
-      providerType: LLMProvider['provider_type'];
-      model: string;
-      dims: number;
-    };
-
-export type EmbeddingSourceOption = EmbeddingSourceSelection & {
-  label: string;
-  hasCredential: boolean;
-};
-
-export interface LocalEmbeddingModelProgress {
-  file: string;
-  fileIndex: number;
-  fileCount: number;
-  loaded: number;
-  total?: number;
-}
-
-export interface LocalEmbeddingModelState {
-  ready: boolean;
-  missingFiles: string[];
-  downloading: boolean;
-  progress?: LocalEmbeddingModelProgress;
-  error?: string;
-}
-
-export interface EmbeddingSettings {
-  selected: EmbeddingSourceSelection;
-  options: EmbeddingSourceOption[];
-  localModel: LocalEmbeddingModelState;
-  affectedCollections: number;
-  affectedItems: number;
-}
-
-export type EmbeddingSetSourceResult =
-  | { ok: true; settings: EmbeddingSettings }
-  | {
-      ok: false;
-      requiresRebuild: true;
-      message: string;
-      affectedCollections: number;
-      affectedItems: number;
-    };
-
 export interface Agent {
   id: string;
   project_id: string;
@@ -940,12 +884,6 @@ export interface ElectronAPI {
     getSettings: () => Promise<PaperSearchConfigSettings>;
     saveConfigValue: (key: PaperSearchConfigKey, value: string) => Promise<PaperSearchConfigSettings>;
     clearConfigValue: (key: PaperSearchConfigKey) => Promise<PaperSearchConfigSettings>;
-  };
-  embedding: {
-    getSettings: () => Promise<EmbeddingSettings>;
-    setSource: (selection: EmbeddingSourceSelection, confirmRebuild?: boolean) => Promise<EmbeddingSetSourceResult>;
-    ensureLocalModel: () => Promise<LocalEmbeddingModelState>;
-    onLocalModelProgress: (callback: (event: any, data: LocalEmbeddingModelState) => void) => () => void;
   };
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   context: {

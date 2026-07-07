@@ -4,7 +4,4 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
-  onnxruntime-node: true
-  protobufjs: true
-  sharp: true
   utf-8-validate: true

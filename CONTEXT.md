@@ -156,18 +156,6 @@ _Avoid_: prompt log, response transcript, page image archive, comparison trace
 An Agent-generated plan that selects which pages or blocks need recovery after a baseline PDF parse, based on parser diagnostics, source grounding gaps, and expected value. The user asks for automatic PDF parsing; page selection is an internal recovery-planning step.
 _Avoid_: manual page selection, user page-picking workflow, parser retry loop
 
-**Embedding Pipeline**:
-The content-agnostic infrastructure that turns caller-provided text into vectors and stores/queries them. It does not chunk documents and has no knowledge of what the text means; chunking belongs to its consumers.
-_Avoid_: RAG system, semantic search feature, indexer
-
-**Embedding Source**:
-The model that produces vectors: either the bundled-by-download local model or a cloud embedding API reusing a configured LLM provider's credentials. Chosen explicitly in settings; never switched implicitly.
-_Avoid_: provider, backend, auto-detected API
-
-**Vector Index**:
-A per-project, rebuildable derived cache of vectors stored in the project's `.cdf` area. Every Vector Index is bound to the single Embedding Source model that created it; queries embed with that same model, and changing Embedding Source requires an explicit, user-confirmed rebuild.
-_Avoid_: vector database, source of truth, mixed-model index
-
 **PDF Recovery Capability**:
 Any Agent-accessible capability that can repair or enrich weak PDF parse evidence, such as a multimodal model provider, a vision-capable MCP tool, a local CLI, or a future native page-analysis tool. The Master Agent discovers viable capabilities and asks the user to choose when meaningful trade-offs exist instead of assuming one fixed model path.
 _Avoid_: hardcoded fallback model, fixed recovery provider, parser-owned LLM call

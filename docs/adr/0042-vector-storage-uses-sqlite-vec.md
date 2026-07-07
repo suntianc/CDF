@@ -1,5 +1,9 @@
 # Vector storage uses the sqlite-vec extension behind a VectorStore interface
 
+## Status
+
+Superseded by ADR-0047.
+
 At CDF's scale (10k–100k vectors, 384 dims) plain BLOB columns plus brute-force cosine in JS would perform the same as sqlite-vec, which also scans exhaustively; we chose sqlite-vec anyway for SQL-level integration (metadata filters and KNN in one query) and to avoid a later migration, accepting a pre-1.0 single-maintainer dependency and one-time packaging work (per-platform prebuilt binaries, `asarUnpack`, `loadExtension`). Unlike better-sqlite3, sqlite-vec is a SQLite loadable extension compiled against the stable SQLite C API, not the Node ABI — the same binary works in Node test runs and the Electron runtime, so it does not join the existing rebuild dance.
 
 All access goes through a `VectorStore` interface (collections, upsert/query/delete by text) so that if the dependency stalls, swapping to BLOB + JS cosine — or a future ANN engine — is an implementation change, not an interface change. Vector indexes live per-project at `.cdf/vectors.db` as rebuildable derived caches (gitignored), so they travel with the project folder and can always be regenerated from Structured Paper Parses and OKF files.

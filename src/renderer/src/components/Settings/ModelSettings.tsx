@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLLMStore } from '../../stores/llmStore';
-import { EmbeddingSettings, EmbeddingSourceSelection, LLMProvider, LocalEmbeddingModelState } from '../../../../shared/types';
+import { LLMProvider } from '../../../../shared/types';
 import {
-  Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
+  Plus, Trash2, Eye, EyeOff, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import { ProviderIcon } from '../ui/ProviderIcon';
@@ -113,30 +113,10 @@ export function ModelSettings() {
   // Connecting testing states
   const [testingId, setTestingId] = useState<string | null>(null);
   const [fetchingModelsId, setFetchingModelsId] = useState<string | null>(null);
-  const [embeddingSettings, setEmbeddingSettings] = useState<EmbeddingSettings | null>(null);
-  const [embeddingDraft, setEmbeddingDraft] = useState<EmbeddingSourceSelection | null>(null);
-  const [savingEmbedding, setSavingEmbedding] = useState(false);
 
   useEffect(() => {
     fetchProviders();
   }, [fetchProviders]);
-
-  useEffect(() => {
-    window.electronAPI.embedding.getSettings()
-      .then((settings) => {
-        setEmbeddingSettings(settings);
-        setEmbeddingDraft(settings.selected);
-      })
-      .catch((err: any) => {
-        showToast(t('settings.model.embeddingLoadFailed', { error: err.message || String(err) }), 'error');
-      });
-  }, [t]);
-
-  useEffect(() => {
-    return window.electronAPI.embedding.onLocalModelProgress((_event, state: LocalEmbeddingModelState) => {
-      setEmbeddingSettings((current) => current ? { ...current, localModel: state } : current);
-    });
-  }, []);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -358,63 +338,6 @@ export function ModelSettings() {
     }
   };
 
-  const handleSaveEmbeddingSource = async () => {
-    if (!embeddingDraft) return;
-    setSavingEmbedding(true);
-    try {
-      const result = await window.electronAPI.embedding.setSource(embeddingDraft, false);
-      if (!result.ok && result.requiresRebuild) {
-        if (!confirm(t('settings.model.embeddingRebuildConfirm', { message: result.message }))) return;
-        const confirmedResult = await window.electronAPI.embedding.setSource(embeddingDraft, true);
-        if (!confirmedResult.ok) {
-          showToast(t('settings.model.embeddingSaveFailed', { error: confirmedResult.message }), 'error');
-          return;
-        }
-        setEmbeddingSettings(confirmedResult.settings);
-        setEmbeddingDraft(confirmedResult.settings.selected);
-        showToast(t('settings.model.embeddingSaved'), 'success');
-        return;
-      }
-      setEmbeddingSettings(result.settings);
-      setEmbeddingDraft(result.settings.selected);
-      showToast(t('settings.model.embeddingSaved'), 'success');
-    } catch (err: any) {
-      const message = err.message || String(err);
-      showToast(t('settings.model.embeddingSaveFailed', { error: message }), 'error');
-    } finally {
-      setSavingEmbedding(false);
-    }
-  };
-
-  const handleEnsureLocalModel = async () => {
-    setEmbeddingSettings((current) => current
-      ? {
-        ...current,
-        localModel: {
-          ...current.localModel,
-          downloading: true,
-          error: undefined,
-        },
-      }
-      : current);
-    try {
-      const state = await window.electronAPI.embedding.ensureLocalModel();
-      setEmbeddingSettings((current) => current ? { ...current, localModel: state } : current);
-      showToast(t('settings.model.embeddingLocalReady'), 'success');
-    } catch (err: any) {
-      showToast(t('settings.model.embeddingLocalDownloadFailed', { error: err.message || String(err) }), 'error');
-    }
-  };
-
-  const embeddingOptionValue = embeddingDraft?.kind === 'cloud'
-    ? embeddingDraft.providerId
-    : 'local';
-  const localModelState = embeddingSettings?.localModel;
-  const localModelProgress = localModelState?.progress;
-  const localModelProgressPercent = localModelProgress?.total
-    ? Math.min(100, Math.round((localModelProgress.loaded / localModelProgress.total) * 100))
-    : undefined;
-
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Topbar */}
@@ -437,125 +360,6 @@ export function ModelSettings() {
           <div className="mb-4 p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-lg flex items-start gap-2 text-xs text-[var(--color-danger)]">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
-          </div>
-        )}
-
-        {embeddingSettings && embeddingDraft && (
-          <div className="provider-card mb-4">
-            <div className="provider-card-head">
-              <div className="provider-meta">
-                <div className="provider-icon bg-[var(--color-accent-dim)] text-[var(--color-accent)]">
-                  <RefreshCw className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="provider-name">{t('settings.model.embeddingTitle')}</div>
-                  <div className="provider-type">{t('settings.model.embeddingDesc')}</div>
-                </div>
-              </div>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={handleSaveEmbeddingSource}
-                disabled={savingEmbedding}
-              >
-                {savingEmbedding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                {t('settings.model.embeddingSave')}
-              </button>
-            </div>
-            <div className="grid grid-cols-[minmax(220px,1fr)_minmax(180px,1fr)_120px] gap-3 mt-3 max-md:grid-cols-1">
-              <div className="form-group">
-                <label className="form-label">{t('settings.model.embeddingSource')}</label>
-                <CustomSelect
-                  value={embeddingOptionValue}
-                  onChange={(value) => {
-                    if (value === 'local') {
-                      const localOption = embeddingSettings.options.find((option) => option.kind === 'local');
-                      if (localOption) setEmbeddingDraft(localOption);
-                      return;
-                    }
-                    const cloudOption = embeddingSettings.options.find((option) => option.kind === 'cloud' && option.providerId === value);
-                    if (cloudOption) setEmbeddingDraft(cloudOption);
-                  }}
-                  options={embeddingSettings.options.map((option) => ({
-                    value: option.kind === 'cloud' ? option.providerId : 'local',
-                    label: option.label,
-                  }))}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{t('settings.model.embeddingModel')}</label>
-                <input
-                  className="form-input"
-                  value={embeddingDraft.model}
-                  onChange={(e) => {
-                    if (embeddingDraft.kind === 'cloud') {
-                      setEmbeddingDraft({ ...embeddingDraft, model: e.target.value });
-                    }
-                  }}
-                  disabled={embeddingDraft.kind === 'local'}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{t('settings.model.embeddingDims')}</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  min={1}
-                  value={embeddingDraft.dims}
-                  onChange={(e) => {
-                    if (embeddingDraft.kind === 'cloud') {
-                      setEmbeddingDraft({ ...embeddingDraft, dims: parseInt(e.target.value, 10) || 1536 });
-                    }
-                  }}
-                  disabled={embeddingDraft.kind === 'local'}
-                />
-              </div>
-            </div>
-            {embeddingDraft.kind === 'local' && localModelState && (
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3 py-2 max-md:flex-col max-md:items-stretch">
-                <div className="min-w-0 text-xs">
-                  <div className="font-medium text-[var(--color-text-primary)]">
-                    {localModelState.ready
-                      ? t('settings.model.embeddingLocalReady')
-                      : t('settings.model.embeddingLocalMissing', { count: localModelState.missingFiles.length })}
-                  </div>
-                  {localModelState.downloading && localModelProgress && (
-                    <div className="mt-1 text-[var(--color-text-secondary)]">
-                      {t('settings.model.embeddingLocalDownloading', {
-                        file: localModelProgress.file,
-                        current: localModelProgress.fileIndex,
-                        total: localModelProgress.fileCount,
-                        percent: localModelProgressPercent ?? 0,
-                      })}
-                    </div>
-                  )}
-                  {localModelState.error && (
-                    <div className="mt-1 text-[var(--color-danger)]">{localModelState.error}</div>
-                  )}
-                </div>
-                {!localModelState.ready && (
-                  <button
-                    className="btn btn-secondary btn-sm shrink-0"
-                    onClick={handleEnsureLocalModel}
-                    disabled={localModelState.downloading}
-                  >
-                    {localModelState.downloading ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    )}
-                    {t('settings.model.embeddingLocalDownload')}
-                  </button>
-                )}
-              </div>
-            )}
-            {embeddingSettings.affectedCollections > 0 && (
-              <div className="mt-3 text-xs text-[var(--color-warning)]">
-                {t('settings.model.embeddingImpact', {
-                  collections: embeddingSettings.affectedCollections,
-                  items: embeddingSettings.affectedItems,
-                })}
-              </div>
-            )}
           </div>
         )}
 

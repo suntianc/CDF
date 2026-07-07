@@ -82,8 +82,6 @@ describe('Paper Reading Skill', () => {
     expect(markdown).toContain('recovered-view.md');
     expect(markdown).toContain('Paper Source Location');
     expect(markdown).toContain('Do not clean, delete, compact, or archive `.cdf/pdf-parses/`');
-    expect(markdown).not.toContain('vector');
-    expect(markdown).not.toContain('embedding');
     expect(getPaperReadingSkillResources()).toEqual([]);
     expect(paperReadingDir).toBeTruthy();
     expect(fs.existsSync(path.join(paperReadingDir as string, 'scripts'))).toBe(false);
