@@ -53,6 +53,64 @@ export interface JudgePayload {
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
+const THINK_OPEN_TAG = '<think>';
+const THINK_CLOSE_TAG = '</think>';
+
+function getPotentialThinkTagSuffixLength(text: string): number {
+  const tags = [THINK_OPEN_TAG, THINK_CLOSE_TAG];
+  const maxLength = Math.min(Math.max(...tags.map((tag) => tag.length - 1)), text.length);
+  for (let length = maxLength; length > 0; length--) {
+    const suffix = text.slice(-length);
+    if (tags.some((tag) => tag.startsWith(suffix))) {
+      return length;
+    }
+  }
+  return 0;
+}
+
+class VisibleTextThinkTagFilter {
+  private buffer = '';
+  private rawThinkDepth = 0;
+
+  push(text: string): string {
+    this.buffer += text;
+    let output = '';
+
+    while (this.buffer.length > 0) {
+      const openIdx = this.buffer.indexOf(THINK_OPEN_TAG);
+      const closeIdx = this.buffer.indexOf(THINK_CLOSE_TAG);
+      const nextIdx = [openIdx, closeIdx].filter((idx) => idx >= 0).sort((a, b) => a - b)[0];
+
+      if (nextIdx === undefined) {
+        const pendingLength = getPotentialThinkTagSuffixLength(this.buffer);
+        output += pendingLength > 0 ? this.buffer.slice(0, -pendingLength) : this.buffer;
+        this.buffer = pendingLength > 0 ? this.buffer.slice(-pendingLength) : '';
+        break;
+      }
+
+      output += this.buffer.slice(0, nextIdx);
+      if (nextIdx === openIdx) {
+        output += THINK_OPEN_TAG;
+        this.rawThinkDepth += 1;
+        this.buffer = this.buffer.slice(nextIdx + THINK_OPEN_TAG.length);
+      } else {
+        if (this.rawThinkDepth > 0) {
+          output += THINK_CLOSE_TAG;
+          this.rawThinkDepth -= 1;
+        }
+        this.buffer = this.buffer.slice(nextIdx + THINK_CLOSE_TAG.length);
+      }
+    }
+
+    return output;
+  }
+
+  flush(): string {
+    const text = this.buffer;
+    this.buffer = '';
+    return text;
+  }
+}
 
 function isInterruptError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -253,6 +311,28 @@ function markTextSent(accumulator: LLMStreamAccumulator): void {
 
 function markReasoningSent(accumulator: LLMStreamAccumulator): void {
   accumulator.hasSentReasoning = true;
+}
+
+function sendReasoningOpen(sender: WebContents, channel: string, accumulator: LLMStreamAccumulator): void {
+  markReasoningSent(accumulator);
+  accumulator.hasSentReasoningClosed = false;
+  sender.send(channel, { type: 'message_chunk', text: THINK_OPEN_TAG });
+}
+
+function sendReasoningClose(sender: WebContents, channel: string, accumulator: LLMStreamAccumulator): void {
+  sender.send(channel, { type: 'message_chunk', text: `${THINK_CLOSE_TAG}\n\n` });
+  accumulator.hasSentReasoningClosed = true;
+}
+
+function sendReasoningBlock(sender: WebContents, channel: string, accumulator: LLMStreamAccumulator, text: string): void {
+  sendReasoningOpen(sender, channel, accumulator);
+  sender.send(channel, { type: 'message_chunk', text });
+  sendReasoningClose(sender, channel, accumulator);
+}
+
+function sanitizeVisibleText(text: string): string {
+  const filter = new VisibleTextThinkTagFilter();
+  return filter.push(text) + filter.flush();
 }
 
 function takeReasoningText(accumulator: LLMStreamAccumulator, model: unknown): string {
@@ -501,11 +581,23 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
             const reasoningText = takeReasoningText(accumulator, runtime.model);
             if (!hasSentReasoning && reasoningText) {
               hasSentReasoning = true;
-              markReasoningSent(accumulator);
-              sender.send(channel, { type: 'message_chunk', text: '<think>' });
-              sender.send(channel, { type: 'message_chunk', text: reasoningText });
-              sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+              sendReasoningBlock(sender, channel, accumulator, reasoningText);
             }
+          };
+          const visibleTextFilter = new VisibleTextThinkTagFilter();
+          const emitVisibleText = (text: string) => {
+            const visibleText = visibleTextFilter.push(text);
+            if (!visibleText) return;
+            checkAndFlushCache();
+            markTextSent(accumulator);
+            sender.send(channel, { type: 'message_chunk', text: visibleText });
+          };
+          const flushVisibleText = () => {
+            const visibleText = visibleTextFilter.flush();
+            if (!visibleText) return;
+            checkAndFlushCache();
+            markTextSent(accumulator);
+            sender.send(channel, { type: 'message_chunk', text: visibleText });
           };
 
           const consumeReasoning = async () => {
@@ -515,20 +607,18 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               if (!hasReasoning) {
                 hasReasoning = true;
                 hasSentReasoning = true;
-                markReasoningSent(accumulator);
-                sender.send(channel, { type: 'message_chunk', text: '<think>' });
+                sendReasoningOpen(sender, channel, accumulator);
               }
               sender.send(channel, { type: 'message_chunk', text: token });
             }
             if (hasReasoning && !controller.signal.aborted) {
-              sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+              sendReasoningClose(sender, channel, accumulator);
             }
             isReasoningDone = true;
             checkAndFlushCache();
             if (textBuffer.length > 0 && !controller.signal.aborted) {
               for (const t of textBuffer) {
-                markTextSent(accumulator);
-                sender.send(channel, { type: 'message_chunk', text: t });
+                emitVisibleText(t);
               }
               textBuffer.length = 0;
             }
@@ -542,14 +632,15 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
               if (hasReasoningSource && !isReasoningDone) {
                 textBuffer.push(token);
               } else {
-                checkAndFlushCache();
-                markTextSent(accumulator);
-                sender.send(channel, { type: 'message_chunk', text: token });
+                emitVisibleText(token);
               }
             }
           };
 
           await Promise.all([consumeReasoning(), consumeText()]);
+          if (!controller.signal.aborted) {
+            flushVisibleText();
+          }
         }
       })();
 
@@ -560,10 +651,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           const reasoningText = takeReasoningText(accumulator, runtime.model);
           if (reasoningText) {
             console.log(`[LLM STREAM] 在工具调用前冲刷发送 request accumulator 思考`);
-            markReasoningSent(accumulator);
-            sender.send(channel, { type: 'message_chunk', text: '<think>' });
-            sender.send(channel, { type: 'message_chunk', text: reasoningText });
-            sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+            sendReasoningBlock(sender, channel, accumulator, reasoningText);
           }
 
           const input = call.input as { name?: string; task?: string; subagent_type?: string; description?: string };
@@ -880,32 +968,30 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
 
       if (accumulator.hasSentReasoning && !accumulator.hasSentReasoningClosed) {
         console.log(`[LLM STREAM] 闭合未结束的实时思考流`);
-        sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
-        accumulator.hasSentReasoningClosed = true;
+        sendReasoningClose(sender, channel, accumulator);
       }
 
       if (!accumulator.hasSentReasoning) {
         const reasoningText = takeReasoningText(accumulator, runtime.model);
         if (reasoningText) {
           console.log(`[LLM STREAM] 轮次结束前冲刷发送残留的思考`);
-          markReasoningSent(accumulator);
-          sender.send(channel, { type: 'message_chunk', text: '<think>' });
-          sender.send(channel, { type: 'message_chunk', text: reasoningText });
-          sender.send(channel, { type: 'message_chunk', text: '</think>\n\n' });
+          sendReasoningBlock(sender, channel, accumulator, reasoningText);
         }
       }
 
       if (!accumulator.hasSentText) {
         const assistantContent = getLatestAssistantContent(output);
         if (assistantContent && assistantContent.trim()) {
-          console.log(`[LLM STREAM] 非流式输出检测，向前端补发正文 content length:`, assistantContent.length);
-          sender.send(channel, { type: 'message_chunk', text: assistantContent });
+          const visibleContent = sanitizeVisibleText(assistantContent);
+          console.log(`[LLM STREAM] 非流式输出检测，向前端补发正文 content length:`, visibleContent.length);
+          sender.send(channel, { type: 'message_chunk', text: visibleContent });
           markTextSent(accumulator);
         } else {
           const fallbackText = getFallbackText(accumulator, runtime.model);
           if (fallbackText.trim()) {
-            console.log(`[LLM STREAM] 从 request accumulator 补发正文 content length:`, fallbackText.length);
-            sender.send(channel, { type: 'message_chunk', text: fallbackText });
+            const visibleContent = sanitizeVisibleText(fallbackText);
+            console.log(`[LLM STREAM] 从 request accumulator 补发正文 content length:`, visibleContent.length);
+            sender.send(channel, { type: 'message_chunk', text: visibleContent });
             markTextSent(accumulator);
           }
         }

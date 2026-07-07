@@ -948,6 +948,49 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-concurrent', { type: 'message_done' });
   });
 
+  it('should drop an orphan think close tag from streamed visible text across chunk boundaries', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              reasoning: (async function* () {
+                yield '内部思考';
+              })(),
+              text: (async function* () {
+                yield '可以随时告知编号继续导入。';
+                yield '</thi';
+                yield 'nk>';
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {})(),
+          output: Promise.resolve({}),
+        }),
+      },
+      inputMessages: [{ role: 'user', content: '导入论文' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await runLLMChat({ send } as any, 'req-orphan-think-close', {
+      projectId: 'project-1',
+      sessionId: 'session-orphan-think-close',
+      message: {
+        id: 'message-orphan-think-close',
+        content: '导入论文',
+      },
+    });
+
+    const streamedContent = send.mock.calls
+      .filter(([channel, event]) => channel === 'llm:chunk-req-orphan-think-close' && event.type === 'message_chunk')
+      .map(([, event]) => event.text)
+      .join('');
+
+    expect(streamedContent).toBe('<think>内部思考</think>\n\n可以随时告知编号继续导入。');
+  });
+
   it('should pass runtime model overrides to deepagent runtime', async () => {
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
