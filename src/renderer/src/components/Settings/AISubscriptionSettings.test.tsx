@@ -94,10 +94,13 @@ describe('AISubscriptionSettings', () => {
 
     const card = screen.getByRole('group', { name: 'MiniMax Token Plan' });
     const imageSwitch = within(card).getByRole('switch', { name: /^Image generation$|^图像生成$/ }) as HTMLInputElement;
-    const textSwitch = within(card).getByRole('switch', { name: /^Text chat$|^文本聊天$/ }) as HTMLInputElement;
+    const musicSwitch = within(card).getByRole('switch', { name: /^Music generation$|^音乐生成$/ }) as HTMLInputElement;
     expect(imageSwitch.disabled).toBe(false);
     expect(imageSwitch.checked).toBe(true);
-    expect(textSwitch.checked).toBe(true);
+    expect(musicSwitch.checked).toBe(true);
+    // Always-on capabilities are not exposed as switches
+    expect(within(card).queryByRole('switch', { name: /^Text chat$|^文本聊天$/ })).toBeNull();
+    expect(within(card).queryByRole('switch', { name: /^Quota status$|^配额状态$/ })).toBeNull();
 
     fireEvent.click(imageSwitch);
 
@@ -107,7 +110,7 @@ describe('AISubscriptionSettings', () => {
       false
     ));
     expect((await within(card).findByRole('switch', { name: /^Image generation$|^图像生成$/ }) as HTMLInputElement).checked).toBe(false);
-    expect((within(card).getByRole('switch', { name: /^Text chat$|^文本聊天$/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(card).getByRole('switch', { name: /^Music generation$|^音乐生成$/ }) as HTMLInputElement).checked).toBe(true);
   });
 
   it('refreshes connection status from a connected MiniMax card', async () => {

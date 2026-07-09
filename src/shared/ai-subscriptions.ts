@@ -128,16 +128,14 @@ const AI_SUBSCRIPTION_DEFINITIONS: AISubscriptionDefinition[] = [
   {
     id: 'minimax-token-plan',
     displayName: 'MiniMax Token Plan',
+    // text.chat / text.reasoning / quota.status are always on for Token Plan (no switches).
     capabilities: [
-      { capabilityId: 'text.chat', label: 'Text chat' },
-      { capabilityId: 'text.reasoning', label: 'Text reasoning' },
       { capabilityId: 'image.generate', label: 'Image generation' },
       { capabilityId: 'image.edit', label: 'Image editing' },
       { capabilityId: 'speech.synthesize', label: 'Speech generation' },
       { capabilityId: 'video.generate', label: 'Video generation' },
       { capabilityId: 'music.generate', label: 'Music generation' },
       // web_search intentionally omitted for Token Plan
-      { capabilityId: 'quota.status', label: 'Quota status' },
     ],
     // Token Plan text allowlist: M3 + M2.7 (+ highspeed) only. Claude/Anthropic protocol at runtime.
     textModels: MINIMAX_TOKEN_PLAN_TEXT_MODELS.map((item) => ({ ...item })),
@@ -318,9 +316,12 @@ export function buildAISubscriptionTextModelCandidates(
   entries: ReadonlyArray<AISubscriptionEntry>
 ): AISubscriptionTextModelCandidate[] {
   return entries.flatMap((entry) => {
+    if (entry.status !== 'connected') return [];
+    // text.chat switch is optional: when undeclared (e.g. MiniMax Token Plan), text is always on.
     const textCapability = entry.capabilities.find((item) => item.capabilityId === 'text.chat');
-    if (entry.status !== 'connected' || !textCapability?.enabled) return [];
+    if (textCapability && !textCapability.enabled) return [];
     const definition = entryDefinition(entry.id);
+    if (definition.textModels.length === 0) return [];
     return definition.textModels.map((model) => ({
       sourceType: 'ai_subscription' as const,
       sourceId: entry.id,

@@ -45,15 +45,19 @@ describe('AI subscription read model', () => {
     const minimax = entries.find((entry) => entry.id === 'minimax-token-plan');
 
     expect(minimax?.capabilities.find((capability) => capability.capabilityId === 'image.generate')?.enabled).toBe(false);
-    expect(minimax?.capabilities.find((capability) => capability.capabilityId === 'text.chat')?.enabled).toBe(true);
+    expect(minimax?.capabilities.find((capability) => capability.capabilityId === 'music.generate')?.enabled).toBe(true);
     expect(selectAISubscriptionCapabilityRoutes(entries, 'image.generate')).toEqual([]);
-    expect(selectAISubscriptionCapabilityRoutes(entries, 'text.chat')).toEqual([
+    expect(selectAISubscriptionCapabilityRoutes(entries, 'music.generate')).toEqual([
       expect.objectContaining({
         entryId: 'minimax-token-plan',
-        capabilityId: 'text.chat',
+        capabilityId: 'music.generate',
         sourceType: 'ai_subscription',
       }),
     ]);
+    // Always-on: no switches for text.chat / text.reasoning / quota.status
+    expect(minimax?.capabilities.some((c) => c.capabilityId === 'text.chat')).toBe(false);
+    expect(minimax?.capabilities.some((c) => c.capabilityId === 'text.reasoning')).toBe(false);
+    expect(minimax?.capabilities.some((c) => c.capabilityId === 'quota.status')).toBe(false);
   });
 
   it('exposes text model candidates only for connected text-capable MiniMax', () => {

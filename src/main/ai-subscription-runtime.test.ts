@@ -26,9 +26,8 @@ function connectedMiniMax(overrides: Partial<AISubscriptionEntry> = {}): AISubsc
     displayName: 'MiniMax Token Plan',
     status: 'connected',
     usageSummaries: [],
-    capabilities: [
-      { capabilityId: 'text.chat', label: 'Text chat', enabled: true, switchDisabled: false, availability: 'available' },
-    ],
+    // Token Plan has no text.chat switch — text is always on when connected.
+    capabilities: [],
     ...overrides,
   };
 }

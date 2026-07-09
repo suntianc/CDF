@@ -358,20 +358,6 @@ describe('createDeepAgentRuntime', () => {
       'MiniMax-M2.7',
     ],
     [
-      'disabled text capability',
-      {
-        entries: {
-          'minimax-token-plan': {
-            status: 'connected',
-            capabilities: {
-              'text.chat': false,
-            },
-          },
-        },
-      },
-      'MiniMax-M2.7',
-    ],
-    [
       'unsupported selected model',
       {
         entries: {

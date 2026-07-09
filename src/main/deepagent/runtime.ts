@@ -599,6 +599,37 @@ function appendRuntimePrompt(basePrompt: string, runtimePrompt: string): string 
   return `${basePrompt}\n\n${trimmedRuntimePrompt}`;
 }
 
+/**
+ * deepagents base prompt only documents filesystem tools. Models often claim
+ * those are the only tools. Explicitly list CDF media tools so bindTools
+ * and the system prompt stay consistent.
+ */
+function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
+  const lines: string[] = [
+    '## CDF media capability tools',
+    'In addition to filesystem tools, you have these CDF tools (use them by name when needed):',
+  ];
+  const catalog: Record<string, string> = {
+    generate_image:
+      'Text-to-image or image-to-image (MiniMax Token Plan image-01). After success, display with ![alt](path).',
+    synthesize_speech:
+      'Text-to-speech (Speech 2.8 only: speech-2.8-hd / speech-2.8-turbo). Link audio as [label](path).',
+    generate_music:
+      'Generate songs (music-2.6 only). Needs lyrics unless instrumental/lyrics_optimizer. Link as [title](path).',
+  };
+  let any = false;
+  for (const [name, desc] of Object.entries(catalog)) {
+    if (!toolNames.includes(name)) continue;
+    any = true;
+    lines.push(`- \`${name}\`: ${desc}`);
+  }
+  if (!any) return '';
+  lines.push(
+    'These tools require a connected MiniMax Token Plan with the matching capability switch enabled (image/speech/music).'
+  );
+  return lines.join('\n');
+}
+
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
@@ -642,8 +673,6 @@ export async function createDeepAgentRuntime(
     .map((fileName) => path.join(project.path, fileName))
     .slice(0, 1);
 
-  const systemPrompt = appendRuntimePrompt((agentRow.system_prompt || '') + buildProjectContext(project), skillsRuntime.prompt);
-
   const builtInTools: any[] = createBuiltInTools(project.path);
 
   try {
@@ -667,6 +696,17 @@ export async function createDeepAgentRuntime(
   } catch (err) {
     console.warn('[RUNTIME] Failed to load parallel task tool:', err);
   }
+
+  const builtInToolNames = getRuntimeToolNames(builtInTools);
+  console.log('[runtime] built-in tool names:', builtInToolNames.join(', '));
+
+  const systemPrompt = appendRuntimePrompt(
+    appendRuntimePrompt(
+      (agentRow.system_prompt || '') + buildProjectContext(project),
+      skillsRuntime.prompt
+    ),
+    buildCdfCapabilityToolsPrompt(builtInToolNames)
+  );
 
   console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);
 

@@ -190,6 +190,9 @@ describe('createBuiltInTools', () => {
       'obscura_browse',
       'knowledge_search',
       'knowledge_create',
+      'generate_image',
+      'synthesize_speech',
+      'generate_music',
     ]);
   });
 });

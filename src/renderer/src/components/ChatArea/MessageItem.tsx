@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+
+export const ImageZoomContext = React.createContext<(url: string) => void>(() => {});
 import { createPortal } from 'react-dom';
 import { ToolMessageCard } from './ToolMessageCard';
 import { StreamdownRenderer } from './StreamdownRenderer';
@@ -558,14 +560,16 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
           </div>,
           document.body
         )}
-        <MessageContentRenderer
-          content={message.content}
-          isLast={isLast}
-          isStreaming={isStreaming}
-          messageId={message.id}
-          thinkDurationSeconds={message.think_duration_seconds}
-          thinkRecent={isRecent}
-        />
+        <ImageZoomContext.Provider value={setLightboxUrl}>
+          <MessageContentRenderer
+            content={message.content}
+            isLast={isLast}
+            isStreaming={isStreaming}
+            messageId={message.id}
+            thinkDurationSeconds={message.think_duration_seconds}
+            thinkRecent={isRecent}
+          />
+        </ImageZoomContext.Provider>
         <div className="message-time">
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}

@@ -109,7 +109,7 @@ describe('AI subscription main store', () => {
 
     const routeIds = getAISubscriptionCapabilityRoutes('image.generate').map((route) => route.entryId);
     expect(routeIds).not.toContain('minimax-token-plan');
-    expect(getAISubscriptionCapabilityRoutes('text.chat').map((r) => r.entryId)).toContain('minimax-token-plan');
+    expect(getAISubscriptionCapabilityRoutes('music.generate').map((r) => r.entryId)).toContain('minimax-token-plan');
   });
 
   it('disconnects a subscription, clearing its vault secret and resetting status to logged out', () => {

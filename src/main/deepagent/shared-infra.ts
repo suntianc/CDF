@@ -19,6 +19,9 @@ import { createArxivTool } from './arxiv-tool';
 import { loadMcpTools } from './mcp-connector';
 import type { ApprovalMode, MCPServer } from '../../shared/types';
 import { createKnowledgeCreateTool, createKnowledgeSearchTool } from '../knowledge-base';
+import { createGenerateImageTool } from '../capabilities/generate-image';
+import { createSynthesizeSpeechTool } from '../capabilities/synthesize-speech';
+import { createGenerateMusicTool } from '../capabilities/generate-music';
 
 // Re-export loadMcpTools for consumers that only need shared-infra
 export { loadMcpTools };
@@ -202,7 +205,8 @@ export function resolveInterruptOn(
 // ===== 工具构建函数 =====
 
 /**
- * 构建内建工具（delete_file、bash、fetch），绑定到指定工作目录
+ * 构建内建工具（delete_file、bash、fetch、generate_image/speech/music 等），绑定到指定工作目录
+ * 注意：文生视频（Hailuo）未接入 — 当前套餐常见等级不够，等需要时再挂 generate_video。
  */
 export function createBuiltInTools(workingDir: string): any[] {
   return [
@@ -212,6 +216,9 @@ export function createBuiltInTools(workingDir: string): any[] {
     createObscuraBrowserTool({ runner: createObscuraCliRunner() }),
     createKnowledgeSearchTool(workingDir),
     createKnowledgeCreateTool(workingDir),
+    createGenerateImageTool(workingDir),
+    createSynthesizeSpeechTool(workingDir),
+    createGenerateMusicTool(workingDir),
   ];
 }
 

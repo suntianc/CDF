@@ -1,8 +1,9 @@
-import React, { memo } from 'react';
+import React, { memo, useContext } from 'react';
 import { Streamdown } from 'streamdown';
 import { createMathPlugin } from '@streamdown/math';
 import { Info, Lightbulb, AlertCircle, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { CodeBlock } from './MarkdownRenderer';
+import { ImageZoomContext } from './MessageItem';
 import 'katex/dist/katex.min.css';
 
 interface StreamdownRendererProps {
@@ -341,6 +342,43 @@ function renderStreamdown(text: string, isTypewriting: boolean, densityClass: st
   );
 }
 
+function getSafeImageSrc(src: string): string {
+  if (!src) return '';
+  if (src.startsWith('data:')) {
+    return src;
+  }
+  if (src.startsWith('file://')) {
+    return src.replace('file://', 'cdf-file://');
+  }
+  if (src.startsWith('/')) {
+    return `cdf-file://${src}`;
+  }
+  return src;
+}
+
+const ImgComponent = ({ src, alt }: { src?: string; alt?: string }) => {
+  const zoomImage = useContext(ImageZoomContext);
+  const safeSrc = getSafeImageSrc(src || '');
+
+  if (!safeSrc) return null;
+
+  // Use a random salt to isolate DOM keys for identical image URLs in the same bubble
+  const uniqueKey = React.useMemo(() => {
+    return `img-wrapper-${safeSrc}-${Math.floor(Math.random() * 1000000)}`;
+  }, [safeSrc]);
+
+  return (
+    <span key={uniqueKey} className="inline-block my-1">
+      <img
+        src={safeSrc}
+        alt={alt || 'image'}
+        className="max-w-[280px] max-h-[200px] object-contain rounded-lg border border-[var(--color-border)]/20 cursor-zoom-in shadow-sm hover:opacity-90 hover:scale-[1.01] active:scale-[0.99] transition-all duration-150"
+        onClick={() => zoomImage(safeSrc)}
+      />
+    </span>
+  );
+};
+
 // Map custom component bindings
 customComponents.code = CodeComponent;
 customComponents.blockquote = BlockquoteRenderer;
@@ -362,13 +400,51 @@ customComponents.h5 = HeadingComponent(5);
 customComponents.h6 = HeadingComponent(6);
 customComponents.details = DetailsComponent;
 customComponents.summary = SummaryComponent;
+customComponents.img = ImgComponent;
+
+function preprocessMarkdownImages(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  
+  // Regex to match ![alt](url) syntax
+  return text.replace(/!\[([^\]]*?)\]\(([^)]+)\)/g, (match, alt, url) => {
+    const trimmedUrl = url.trim();
+    
+    // Check if the URL string ends with a quoted title (e.g. "title" or 'title')
+    const titleRegex = /\s+["'](.*?)["']$/;
+    const hasTitle = titleRegex.test(trimmedUrl);
+    
+    let pathPart = trimmedUrl;
+    let titlePart = '';
+    
+    if (hasTitle) {
+      const matchTitle = trimmedUrl.match(titleRegex);
+      if (matchTitle) {
+        titlePart = matchTitle[1];
+        pathPart = trimmedUrl.replace(titleRegex, '');
+      }
+    }
+    
+    // If it is a local absolute path or file protocol, and contains spaces
+    if ((pathPart.startsWith('/') || pathPart.startsWith('file://')) && pathPart.includes(' ')) {
+      pathPart = pathPart
+        .split('/')
+        .map(seg => encodeURIComponent(decodeURIComponent(seg)))
+        .join('/');
+    }
+    
+    const titleString = titlePart ? ` "${titlePart}"` : '';
+    return `![${alt}](${pathPart}${titleString})`;
+  });
+}
 
 export const StreamdownRenderer = memo(({ text, isTypewriting = false, density = 'default' }: StreamdownRendererProps) => {
   if (!text) return null;
 
+  const processedText = preprocessMarkdownImages(text);
   const densityClass = density === 'compact' ? 'text-xs' : 'text-sm';
-  if (containsDetailsBlock(text)) {
-    const segments = splitDetailsBlocks(text);
+  
+  if (containsDetailsBlock(processedText)) {
+    const segments = splitDetailsBlocks(processedText);
     return (
       <>
         {segments.map((segment, index) => {
@@ -389,7 +465,7 @@ export const StreamdownRenderer = memo(({ text, isTypewriting = false, density =
     );
   }
 
-  return renderStreamdown(text, isTypewriting, densityClass);
+  return renderStreamdown(processedText, isTypewriting, densityClass);
 });
 
 StreamdownRenderer.displayName = 'StreamdownRenderer';

@@ -104,8 +104,9 @@ export function resolveAISubscriptionRuntimeModel(
     );
   }
 
+  // text.chat is always-on for Token Plan (no switch). Only enforce when the capability is declared.
   const textCapability = entry.capabilities.find((capability) => capability.capabilityId === 'text.chat');
-  if (!textCapability?.enabled) {
+  if (textCapability && !textCapability.enabled) {
     throw new AISubscriptionRuntimeError(
       'settings.aiSubscriptions.runtimeError.textDisabled',
       { name: entry.displayName }

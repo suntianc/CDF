@@ -1,5 +1,19 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, protocol, net } from 'electron';
 import { registerIpcHandlers } from './ipc-handlers';
+
+// Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'cdf-file',
+    privileges: {
+      bypassCSP: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    }
+  }
+]);
 import { disconnectAllMcpServers } from './deepagent/mcp-connector';
 import { watchSystemCommandsDir, stopAllWatchers } from './commands/chokidar-watcher';
 import { stopFileWatcher } from './services/file-watcher';
@@ -7,6 +21,7 @@ import { configureNetworkProxy } from './network-proxy';
 import store from './store';
 import log from './logger';
 import path from 'path';
+import fs from 'node:fs';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -70,6 +85,23 @@ function createWindow() {
 
 app.whenReady().then(() => {
   log.info('App is ready');
+  
+  // Register cdf-file protocol handler to safely resolve absolute local paths to file URLs
+  protocol.handle('cdf-file', async (request) => {
+    try {
+      const urlPath = decodeURIComponent(request.url.slice('cdf-file://'.length));
+      let filePath = urlPath;
+      if (process.platform === 'win32' && filePath.startsWith('/')) {
+        filePath = filePath.slice(1);
+      }
+      const data = await fs.promises.readFile(filePath);
+      return new Response(data);
+    } catch (error) {
+      log.error('[cdf-file] Failed to read local file:', error);
+      return new Response('File not found', { status: 404 });
+    }
+  });
+
   configureNetworkProxy();
   registerIpcHandlers();
 
