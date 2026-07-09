@@ -213,7 +213,7 @@ export function ConversationViewportSurface({
           <div role="alert" aria-live="assertive" className="p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-xl flex items-start gap-2.5 text-xs text-[var(--color-danger)] shadow-sm animate-shake">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <div>{error.message}</div>
+              <div>{t(error.message, { defaultValue: error.message, ...(error.messageParams ?? {}) })}</div>
               {error.recoverableActions && error.recoverableActions.length > 0 && (
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   {error.recoverableActions.map((a) => (

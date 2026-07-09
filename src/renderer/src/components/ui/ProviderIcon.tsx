@@ -15,15 +15,23 @@ import minimaxColorSvg from '@lobehub/icons-static-svg/icons/minimax-color.svg?r
 import moonshotSvg from '@lobehub/icons-static-svg/icons/moonshot.svg?raw';
 import qwenColorSvg from '@lobehub/icons-static-svg/icons/qwen-color.svg?raw';
 import xiaomimimoSvg from '@lobehub/icons-static-svg/icons/xiaomimimo.svg?raw';
+import codexColorSvg from '@lobehub/icons-static-svg/icons/codex-color.svg?raw';
+import xaiSvg from '@lobehub/icons-static-svg/icons/xai.svg?raw';
+import grokSvg from '@lobehub/icons-static-svg/icons/grok.svg?raw';
+import githubSvg from '@lobehub/icons-static-svg/icons/github.svg?raw';
+import antigravityColorSvg from '@lobehub/icons-static-svg/icons/antigravity-color.svg?raw';
+import antigravityPackageSvg from '@lobehub/icons-static-svg/icons/antigravity.svg?raw';
 
 // Brand colors from lobehub/lobe-icons src/<Brand>/style.ts COLOR_PRIMARY.
 // Used for providers that have no -color.svg variant in the static-svg pkg.
 const BRAND_COLORS: Record<string, string> = {
-  openai: '#000000',
+  openai: 'var(--color-text-primary)',
   anthropic: '#141413',
-  ollama: '#000000',
+  ollama: 'var(--color-text-primary)',
   moonshot: '#16191E',
-  xiaomimimo: '#000000',
+  xiaomimimo: 'var(--color-text-primary)',
+  antigravity: 'var(--color-accent)',
+  github: 'var(--color-text-primary)',
 };
 
 // Mono SVGs (inherits currentColor).
@@ -33,6 +41,10 @@ const MONO_SVG: Record<string, string> = {
   ollama: ollamaSvg,
   moonshot: moonshotSvg,
   xiaomimimo: xiaomimimoSvg,
+  xai: xaiSvg,
+  grok: grokSvg,
+  github: githubSvg,
+  antigravity: antigravityPackageSvg,
 };
 
 // Pre-baked color SVGs (have explicit brand colors/gradients).
@@ -43,6 +55,8 @@ const COLOR_SVG: Record<string, string> = {
   'glm-overseas': zhipuColorSvg,
   'minimax-overseas': minimaxColorSvg,
   qwen: qwenColorSvg,
+  codex: codexColorSvg,
+  antigravity: antigravityColorSvg,
 };
 
 interface Props {

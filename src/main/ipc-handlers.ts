@@ -44,11 +44,23 @@ import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
 import {
+  connectAISubscriptionWithKey,
+  disconnectAISubscription,
+  getAISubscriptionCapabilityRoutes,
+  getAISubscriptionEntries,
+  refreshAISubscriptionStatus,
+  saveAISubscriptionCapabilityState,
+} from './ai-subscription-store';
+import {
   getPaperSearchConfigSettings,
   setPaperSearchConfigValue,
   unsetPaperSearchConfigValue,
 } from './paper-search-config';
 import { initializeScenePreset } from './scene-presets';
+import type {
+  AISubscriptionEntryId,
+  CapabilityId,
+} from '../shared/ai-subscriptions';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -216,6 +228,31 @@ export function registerIpcHandlers() {
   // electron-store handlers
   ipcMain.handle('store:get', (_, key: string) => store.get(key));
   ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
+
+  ipcMain.handle('aiSubscriptions:getEntries', () => getAISubscriptionEntries());
+  ipcMain.handle(
+    'aiSubscriptions:setCapabilityEnabled',
+    (_, entryId: AISubscriptionEntryId, capabilityId: CapabilityId, enabled: boolean) =>
+      saveAISubscriptionCapabilityState(entryId, capabilityId, Boolean(enabled))
+  );
+  ipcMain.handle(
+    'aiSubscriptions:connectWithKey',
+    (_, entryId: AISubscriptionEntryId, subscriptionKey: string) =>
+      connectAISubscriptionWithKey(entryId, String(subscriptionKey))
+  );
+  ipcMain.handle(
+    'aiSubscriptions:disconnect',
+    (_, entryId: AISubscriptionEntryId) => disconnectAISubscription(entryId)
+  );
+  ipcMain.handle(
+    'aiSubscriptions:getCapabilityRoutes',
+    (_, capabilityId: CapabilityId) => getAISubscriptionCapabilityRoutes(capabilityId)
+  );
+  ipcMain.handle(
+    'aiSubscriptions:refreshStatus',
+    (_, entryId: AISubscriptionEntryId) =>
+      refreshAISubscriptionStatus(entryId)
+  );
 
   // Database handlers: Projects
   ipcMain.handle('db:getProjects', () => {

@@ -52,11 +52,29 @@ export interface RuntimeProviderModelConfig {
   apiKey?: string;
   apiUrl?: string;
   defaultModel: string;
-  providerType: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'zhipu' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'moonshot' | 'qwen' | 'xiaomimimo';
+  providerType:
+    | 'openai'
+    | 'anthropic'
+    | 'ollama'
+    | 'custom'
+    | 'deepseek'
+    | 'zhipu'
+    | 'glm-overseas'
+    | 'minimax'
+    | 'minimax-overseas'
+    | 'moonshot'
+    | 'qwen'
+    | 'xiaomimimo';
   model?: string;
   contextLimit?: number;
   /** 节点级 LLM temperature 覆盖,undefined 时维持 provider 默认 */
   temperature?: number;
+  /** Force OpenAI Responses API (legacy OpenAI Responses clients). */
+  useResponsesApi?: boolean;
+  /** Extra body kwargs for OpenAI clients. */
+  modelKwargs?: Record<string, unknown>;
+  /** Extra HTTP headers. */
+  defaultHeaders?: Record<string, string>;
 }
 
 const LARGE_CODE_OUTPUT_TOKEN_LIMIT = 65_536;
@@ -518,14 +536,18 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
     case 'xiaomimimo': {
       const modelConfig: Record<string, unknown> = {
         model: modelName,
-        temperature: 0,
+        temperature: config.temperature !== undefined ? config.temperature : 0,
         streaming: true,
       };
-      if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
       if (config.apiKey) modelConfig.apiKey = config.apiKey;
-      if (normalizedApiUrl) {
+      if (config.useResponsesApi) modelConfig.useResponsesApi = true;
+      if (config.modelKwargs) modelConfig.modelKwargs = config.modelKwargs;
+      if (normalizedApiUrl || config.defaultHeaders) {
         modelConfig.configuration = {
-          baseURL: normalizedApiUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/?$/, ''),
+          ...(normalizedApiUrl
+            ? { baseURL: normalizedApiUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/?$/, '') }
+            : {}),
+          ...(config.defaultHeaders ? { defaultHeaders: config.defaultHeaders } : {}),
         };
       }
       model = new ChatOpenAI(modelConfig);

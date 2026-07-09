@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import type {
+  AISubscriptionCapabilityRoute,
+  AISubscriptionEntry,
+  AISubscriptionEntryId,
+  CapabilityId,
+} from './ai-subscriptions';
 import type { SkillEffectiveVisibility, SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
 
 // D-03/D-10: Schema for subagent delegated task results
@@ -176,7 +182,7 @@ export type LLMStreamEvent =
   | { type: 'skill_attribution'; attributions: SkillAttribution[] }
   | { type: 'approval_required'; approval: AgentApprovalRequest }
   | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
-  | { type: 'runtime_error'; error: string }
+  | { type: 'runtime_error'; error: string; errorCode?: string; errorMessageKey?: string; errorMessageParams?: Record<string, string | number> }
   | { type: 'delegated_task_start'; taskId: string; agentSlug: string; agentName: string; goal: string }
   | { type: 'delegated_task_chunk'; taskId: string; text: string }
   | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
@@ -297,7 +303,11 @@ export interface AtMentionCandidateList {
 // defensive slice and the truncated-banner string both reference it.
 export const MAX_AT_MENTION_CANDIDATES = 5000;
 
+export type ConversationModelSourceType = 'llm_provider' | 'ai_subscription';
+
 export interface ChatRuntimeOverrides {
+  modelSource?: ConversationModelSourceType;
+  sourceId?: string;
   providerId?: string;
   model?: string;
   /** D-09: frontmatter `allowed-tools` whitelist. Non-empty lists are enforced
@@ -747,6 +757,18 @@ export interface ElectronAPI {
   store: {
     get: (key: string) => Promise<any>;
     set: (key: string, value: unknown) => Promise<void>;
+  };
+  aiSubscriptions: {
+    getEntries: () => Promise<AISubscriptionEntry[]>;
+    setCapabilityEnabled: (
+      entryId: AISubscriptionEntryId,
+      capabilityId: CapabilityId,
+      enabled: boolean
+    ) => Promise<AISubscriptionEntry[]>;
+    connectWithKey: (entryId: AISubscriptionEntryId, subscriptionKey: string) => Promise<AISubscriptionEntry[]>;
+    disconnect: (entryId: AISubscriptionEntryId) => Promise<AISubscriptionEntry[]>;
+    getCapabilityRoutes: (capabilityId: CapabilityId) => Promise<AISubscriptionCapabilityRoute[]>;
+    refreshStatus: (entryId: AISubscriptionEntryId) => Promise<AISubscriptionEntry[]>;
   };
   shell: {
     openExternalUrl: (url: string) => Promise<{ ok: true }>;

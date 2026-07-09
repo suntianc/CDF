@@ -346,6 +346,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .model-selector-trigger {
+  appearance: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -357,6 +358,8 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   color: var(--text-secondary);
   transition: all 0.15s;
   background: transparent;
+  font: inherit;
+  cursor: pointer;
   user-select: none;
 }
 
@@ -433,8 +436,14 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .model-select-option {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  width: 100%;
   padding: 7px 12px;
   font-size: 12px;
+  font-family: inherit;
+  text-align: left;
   color: var(--text-secondary);
   transition: all 0.12s;
   display: block;
@@ -442,6 +451,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .model-select-option:hover {
@@ -1313,5 +1323,4 @@ html[data-theme="light"] .toast {
   margin-top: 8px;
   background: oklch(1 0 0 / 0.05);
 }
-
 

@@ -12,6 +12,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get: (key: string) => ipcRenderer.invoke('store:get', key),
     set: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
   },
+  aiSubscriptions: {
+    getEntries: () => ipcRenderer.invoke('aiSubscriptions:getEntries'),
+    setCapabilityEnabled: (entryId: string, capabilityId: string, enabled: boolean) =>
+      ipcRenderer.invoke('aiSubscriptions:setCapabilityEnabled', entryId, capabilityId, enabled),
+    connectWithKey: (entryId: string, subscriptionKey: string) =>
+      ipcRenderer.invoke('aiSubscriptions:connectWithKey', entryId, subscriptionKey),
+    disconnect: (entryId: string) =>
+      ipcRenderer.invoke('aiSubscriptions:disconnect', entryId),
+    getCapabilityRoutes: (capabilityId: string) =>
+      ipcRenderer.invoke('aiSubscriptions:getCapabilityRoutes', capabilityId),
+    refreshStatus: (entryId: string) =>
+      ipcRenderer.invoke('aiSubscriptions:refreshStatus', entryId),
+  },
   shell: {
     openExternalUrl: (url: string) => ipcRenderer.invoke('shell:openExternalUrl', url),
   },

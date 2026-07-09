@@ -375,6 +375,60 @@ describe('Conversation Runtime Projection', () => {
     ]);
   });
 
+  it('keeps runtime error translation metadata for user-visible alerts', () => {
+    const initial = createConversationRuntimeState({
+      sessionId: 'session-1',
+      streamingMessageId: 'assistant-start',
+      currentAssistantMsgId: 'assistant-current',
+      messages: [
+        {
+          id: 'user-1',
+          session_id: 'session-1',
+          role: 'user',
+          content: 'use subscription',
+          created_at: 900,
+          tokens: 1,
+        },
+        {
+          id: 'assistant-current',
+          session_id: 'session-1',
+          role: 'assistant',
+          content: '',
+          created_at: 950,
+          tokens: 0,
+        },
+      ],
+    });
+
+    const result = projectConversationRuntime(
+      initial,
+      {
+        kind: 'llm',
+        event: {
+          type: 'runtime_error',
+          error: 'settings.aiSubscriptions.runtimeError.notConnected',
+          errorMessageKey: 'settings.aiSubscriptions.runtimeError.notConnected',
+          errorMessageParams: { name: 'Codex OAuth', status: 'expired' },
+        },
+      },
+      deps,
+    );
+
+    expect(result.effects).toEqual([
+      { type: 'cleanupStream' },
+      {
+        type: 'setRetryableError',
+        message: 'settings.aiSubscriptions.runtimeError.notConnected',
+        messageParams: { name: 'Codex OAuth', status: 'expired' },
+      },
+      {
+        type: 'rejectStream',
+        error: 'settings.aiSubscriptions.runtimeError.notConnected',
+        messageParams: { name: 'Codex OAuth', status: 'expired' },
+      },
+    ]);
+  });
+
   it('projects pending approval state until the approval is resolved', () => {
     const initial = createConversationRuntimeState({
       sessionId: 'session-1',

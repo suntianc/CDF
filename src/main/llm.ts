@@ -1103,6 +1103,11 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       sender.send(channel, {
         type: 'runtime_error',
         error: error?.message || String(error),
+        errorCode: typeof error?.code === 'string' ? error.code : undefined,
+        errorMessageKey: typeof error?.messageKey === 'string' ? error.messageKey : undefined,
+        errorMessageParams: error?.messageParams && typeof error.messageParams === 'object'
+          ? error.messageParams
+          : undefined,
       });
       throw error;
     }

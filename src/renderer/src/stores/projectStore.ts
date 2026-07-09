@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Project } from '@shared/types';
 
-export type AppView = 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'research' | 'workflows' | 'system';
+export type AppView = 'chat' | 'settings' | 'ai-subscriptions' | 'agents' | 'plugins' | 'tools' | 'research' | 'workflows' | 'system';
 
 interface ProjectState {
   projects: Project[];

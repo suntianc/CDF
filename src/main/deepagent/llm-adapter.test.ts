@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { createLangChainModel, getOllamaBaseUrl } from './llm-adapter';
+import {
+  createLangChainModel,
+  getOllamaBaseUrl,
+} from './llm-adapter';
 
 describe('createLangChainModel', () => {
   it('should create OpenAI-compatible models', () => {
@@ -158,6 +161,14 @@ describe('getOllamaBaseUrl', () => {
     expect(getOllamaBaseUrl('http://localhost:11434/v1')).toBe('http://localhost:11434');
   });
 });
+
+function sseResponse(lines: string[]): Response {
+  const body = lines.map((line) => (line.startsWith('data:') || line === '' ? line : `data: ${line}`)).join('\n') + '\n';
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
 
 // ===== Streaming / thinking preservation regression =====
 // Load-bearing test for the 6-hunk patch-package on @langchain/anthropic@1.4.0.

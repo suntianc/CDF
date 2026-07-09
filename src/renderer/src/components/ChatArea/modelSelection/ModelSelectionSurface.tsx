@@ -1,27 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
-import type { LLMProvider } from '@shared/types';
-import { getModelCandidates } from './useModelSelectionController';
+import type {
+  ModelSelectionGroup,
+  ModelSourceType,
+} from './useModelSelectionController';
 
 export interface ModelSelectionSurfaceProps {
   variant: 'welcome' | 'composer';
-  providers: ReadonlyArray<LLMProvider>;
-  selectedProviderId: string;
+  modelGroups: ReadonlyArray<ModelSelectionGroup>;
+  selectedSourceType: ModelSourceType;
+  selectedSourceId: string;
   selectedModel: string;
-  currentProvider: LLMProvider | null;
-  currentModel: string;
-  onSelectModel: (providerId: string, modelName: string) => void;
+  currentModelLabel: string;
+  onSelectModel: (sourceType: ModelSourceType, sourceId: string, modelName: string) => void;
   onOpenSettings?: () => void;
 }
 
 export function ModelSelectionSurface({
   variant,
-  providers,
-  selectedProviderId,
+  modelGroups,
+  selectedSourceType,
+  selectedSourceId,
   selectedModel,
-  currentProvider,
-  currentModel,
+  currentModelLabel,
   onSelectModel,
   onOpenSettings,
 }: ModelSelectionSurfaceProps) {
@@ -31,9 +33,7 @@ export function ModelSelectionSurface({
   const directionClass = variant === 'welcome'
     ? 'model-selector model-selector--welcome'
     : 'model-selector model-selector--composer';
-  const currentModelLabel = currentProvider
-    ? `${currentProvider.name} • ${currentModel || currentProvider.default_model}`
-    : t('chat.selectModel');
+  const triggerLabel = currentModelLabel || t('chat.selectModel');
 
   useEffect(() => {
     if (!open) return;
@@ -55,7 +55,7 @@ export function ModelSelectionSurface({
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [open, selectedProviderId, selectedModel, providers]);
+  }, [open, selectedSourceType, selectedSourceId, selectedModel, modelGroups]);
 
   return (
     <div
@@ -63,22 +63,26 @@ export function ModelSelectionSurface({
       className={`${directionClass} ${open ? 'open' : ''}`}
       onClick={(event) => event.stopPropagation()}
     >
-      <div
+      <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="model-selector-trigger"
-        title={currentModelLabel}
+        title={triggerLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
         <span
           className={`model-selector-label ${variant === 'composer' ? 'truncate max-w-[150px]' : ''}`}
-          title={currentModelLabel}
+          title={triggerLabel}
         >
-          {currentModelLabel}
+          {triggerLabel}
         </span>
         <ChevronDown className="model-chevron w-3.5 h-3.5" />
-      </div>
-      <div className="model-dropdown">
-        {providers.length === 0 ? (
-          <div
+      </button>
+      <div className="model-dropdown" role="listbox" aria-label={t('chat.selectModel')}>
+        {modelGroups.length === 0 ? (
+          <button
+            type="button"
             onClick={() => {
               setOpen(false);
               onOpenSettings?.();
@@ -86,30 +90,41 @@ export function ModelSelectionSurface({
             className="model-select-option text-[var(--color-text-muted)] italic cursor-pointer text-center py-2"
           >
             {t('chat.noProvidersAvailable')}
-          </div>
+          </button>
         ) : (
-          providers.map((provider) => (
-            <div key={provider.id} className="model-group">
-              <div className="model-group-name">{provider.name}</div>
-              {getModelCandidates(
-                provider,
-                provider.id === selectedProviderId ? selectedModel : undefined
-              ).map((modelName) => (
-                <div
-                  key={modelName}
+          modelGroups.map((group) => (
+            <div key={group.id} className="model-group">
+              <div className="model-group-name">
+                <span>{group.sourceName}</span>
+                <span className="ml-1 text-[10px] font-normal text-[var(--color-text-muted)]">
+                  {t(`chat.modelSelection.sourceKinds.${group.sourceType}`)}
+                </span>
+              </div>
+              {group.candidates.map((candidate) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={
+                    selectedSourceType === candidate.sourceType &&
+                    selectedSourceId === candidate.sourceId &&
+                    selectedModel === candidate.model
+                  }
+                  key={candidate.key}
                   className={`model-select-option ${
-                    currentProvider?.id === provider.id && currentModel === modelName
+                    selectedSourceType === candidate.sourceType &&
+                    selectedSourceId === candidate.sourceId &&
+                    selectedModel === candidate.model
                       ? 'selected'
                       : ''
                   }`}
-                  title={`${provider.name} • ${modelName}`}
+                  title={`${candidate.sourceName} • ${candidate.label}`}
                   onClick={() => {
-                    onSelectModel(provider.id, modelName);
+                    onSelectModel(candidate.sourceType, candidate.sourceId, candidate.model);
                     setOpen(false);
                   }}
                 >
-                  {modelName}
-                </div>
+                  {candidate.sourceName} • {candidate.label}
+                </button>
               ))}
             </div>
           ))

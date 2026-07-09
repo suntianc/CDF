@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders, Microscope } from 'lucide-react';
+import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders, Microscope, Sparkles } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
 import { type AppView, useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -156,6 +156,13 @@ export function Sidebar({
           >
             <Monitor className="w-4 h-4" />
             {t('sidebar.settings.llm')}
+          </div>
+          <div
+            className={`${styles.settingsMenuItem} ${activeView === 'ai-subscriptions' ? styles.active : ''}`}
+            onClick={() => onChangeView('ai-subscriptions')}
+          >
+            <Sparkles className="w-4 h-4" />
+            {t('sidebar.settings.aiSubscriptions')}
           </div>
           <div
             className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}

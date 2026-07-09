@@ -1,13 +1,17 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LLMProvider } from '@shared/types';
+import { buildAISubscriptionEntries } from '@shared/ai-subscriptions';
 import { ModelSelectionSurface } from './ModelSelectionSurface';
+import { buildModelSelectionGroups } from './useModelSelectionController';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => ({
       'chat.selectModel': 'Select model',
       'chat.noProvidersAvailable': 'No providers available',
+      'chat.modelSelection.sourceKinds.llm_provider': 'API provider',
+      'chat.modelSelection.sourceKinds.ai_subscription': 'AI subscription',
     }[key] ?? key),
   }),
 }));
@@ -40,49 +44,88 @@ describe('ModelSelectionSurface', () => {
     render(
       <ModelSelectionSurface
         variant="welcome"
-        providers={providers}
-        selectedProviderId="provider-1"
+        modelGroups={buildModelSelectionGroups(providers)}
+        selectedSourceType="llm_provider"
+        selectedSourceId="provider-1"
         selectedModel="gpt-4.1-mini"
-        currentProvider={providers[0]}
-        currentModel="gpt-4.1-mini"
+        currentModelLabel="OpenAI • gpt-4.1-mini"
         onSelectModel={onSelectModel}
       />
     );
 
-    expect(screen.getByText('OpenAI • gpt-4.1-mini')).toBeTruthy();
+    const trigger = screen.getByRole('button', { name: 'OpenAI • gpt-4.1-mini' });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
 
-    fireEvent.click(screen.getByText('OpenAI • gpt-4.1-mini'));
+    fireEvent.click(trigger);
 
     expect(screen.getByText('OpenAI')).toBeTruthy();
-    expect(screen.getAllByText('gpt-4.1-mini')).toHaveLength(1);
+    expect(screen.getByText('Anthropic')).toBeTruthy();
+    expect(screen.getAllByRole('option', { name: 'OpenAI • gpt-4.1-mini' })).toHaveLength(1);
 
-    fireEvent.click(screen.getByTitle('Anthropic • claude-sonnet'));
-    expect(onSelectModel).toHaveBeenCalledWith('provider-2', 'claude-sonnet');
+    fireEvent.click(screen.getByRole('option', { name: 'Anthropic • claude-sonnet' }));
+    expect(onSelectModel).toHaveBeenCalledWith('llm_provider', 'provider-2', 'claude-sonnet');
+  });
+
+  it('renders AI subscription text candidates as a separate source group without account-management controls', () => {
+    const onSelectModel = vi.fn();
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4.1' }),
+    ];
+    const subscriptions = buildAISubscriptionEntries({
+      entries: {
+        'minimax-token-plan': { status: 'connected' },
+      },
+    });
+
+    render(
+      <ModelSelectionSurface
+        variant="welcome"
+        modelGroups={buildModelSelectionGroups(providers, subscriptions)}
+        selectedSourceType="ai_subscription"
+        selectedSourceId="minimax-token-plan"
+        selectedModel="MiniMax-M2.7"
+        currentModelLabel="MiniMax Token Plan • MiniMax M2.7"
+        onSelectModel={onSelectModel}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'MiniMax Token Plan • MiniMax M2.7' }));
+
+    expect(screen.getByText('OpenAI')).toBeTruthy();
+    expect(screen.getByText('MiniMax Token Plan')).toBeTruthy();
+    expect(screen.getByText('API provider')).toBeTruthy();
+    expect(screen.getByText('AI subscription')).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'MiniMax Token Plan • MiniMax M2.7' })).toBeTruthy();
+    expect(document.body.textContent ?? '').not.toMatch(/login|quota|switch|endpoint|adapter|route/i);
+
+    fireEvent.click(screen.getByRole('option', { name: 'MiniMax Token Plan • MiniMax M2.7' }));
+    expect(onSelectModel).toHaveBeenCalledWith('ai_subscription', 'minimax-token-plan', 'MiniMax-M2.7');
   });
 
   it('offers settings when no providers are available', () => {
     const onOpenSettings = vi.fn();
 
-    const { container } = render(
+    render(
       <ModelSelectionSurface
         variant="composer"
-        providers={[]}
-        selectedProviderId=""
+        modelGroups={[]}
+        selectedSourceType="llm_provider"
+        selectedSourceId=""
         selectedModel=""
-        currentProvider={null}
-        currentModel=""
+        currentModelLabel=""
         onSelectModel={() => {}}
         onOpenSettings={onOpenSettings}
       />
     );
 
-    fireEvent.click(screen.getByText('Select model'));
-    expect(container.querySelector('.model-selector')?.className).toContain('open');
+    const trigger = screen.getByRole('button', { name: 'Select model' });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
 
-    fireEvent.click(screen.getByText('No providers available'));
+    fireEvent.click(screen.getByRole('button', { name: 'No providers available' }));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.model-selector')?.className).not.toContain('open');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('keeps dropdown open state local to each Model Selection Surface', () => {
@@ -91,40 +134,41 @@ describe('ModelSelectionSurface', () => {
       provider({ id: 'provider-2', name: 'Anthropic', default_model: 'claude-sonnet' }),
     ];
 
-    const { container } = render(
+    render(
       <>
         <ModelSelectionSurface
           variant="welcome"
-          providers={providers}
-          selectedProviderId="provider-1"
+          modelGroups={buildModelSelectionGroups(providers)}
+          selectedSourceType="llm_provider"
+          selectedSourceId="provider-1"
           selectedModel="gpt-4.1"
-          currentProvider={providers[0]}
-          currentModel="gpt-4.1"
+          currentModelLabel="OpenAI • gpt-4.1"
           onSelectModel={() => {}}
         />
         <ModelSelectionSurface
           variant="composer"
-          providers={providers}
-          selectedProviderId="provider-2"
+          modelGroups={buildModelSelectionGroups(providers)}
+          selectedSourceType="llm_provider"
+          selectedSourceId="provider-2"
           selectedModel="claude-sonnet"
-          currentProvider={providers[1]}
-          currentModel="claude-sonnet"
+          currentModelLabel="Anthropic • claude-sonnet"
           onSelectModel={() => {}}
         />
       </>
     );
 
-    const selectors = container.querySelectorAll('.model-selector');
-    fireEvent.click(screen.getByText('OpenAI • gpt-4.1'));
-    expect(selectors[0].className).toContain('open');
-    expect(selectors[1].className).not.toContain('open');
+    const welcomeTrigger = screen.getByRole('button', { name: 'OpenAI • gpt-4.1' });
+    const composerTrigger = screen.getByRole('button', { name: 'Anthropic • claude-sonnet' });
+    fireEvent.click(welcomeTrigger);
+    expect(welcomeTrigger.getAttribute('aria-expanded')).toBe('true');
+    expect(composerTrigger.getAttribute('aria-expanded')).toBe('false');
 
-    fireEvent.click(screen.getByText('Anthropic • claude-sonnet'));
-    expect(selectors[0].className).toContain('open');
-    expect(selectors[1].className).toContain('open');
+    fireEvent.click(composerTrigger);
+    expect(welcomeTrigger.getAttribute('aria-expanded')).toBe('true');
+    expect(composerTrigger.getAttribute('aria-expanded')).toBe('true');
 
     fireEvent.mouseDown(document.body);
-    expect(selectors[0].className).not.toContain('open');
-    expect(selectors[1].className).not.toContain('open');
+    expect(welcomeTrigger.getAttribute('aria-expanded')).toBe('false');
+    expect(composerTrigger.getAttribute('aria-expanded')).toBe('false');
   });
 });

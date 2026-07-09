@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { ModelSettings } from './components/Settings/ModelSettings';
+import { AISubscriptionSettings } from './components/Settings/AISubscriptionSettings';
 import { ToolSettings } from './components/Settings/ToolSettings';
 import { ResearchSettings } from './components/Settings/ResearchSettings';
 import { SystemSettings } from './components/Settings/SystemSettings';
@@ -165,6 +166,7 @@ export default function App() {
           className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up min-w-[40%]"
         >
           {activeView === 'settings' && <ModelSettings />}
+          {activeView === 'ai-subscriptions' && <AISubscriptionSettings />}
           {activeView === 'tools' && <ToolSettings />}
           {activeView === 'research' && <ResearchSettings />}
           {activeView === 'system' && <SystemSettings />}

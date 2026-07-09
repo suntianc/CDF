@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LLMStreamEvent } from '@shared/types';
 import { useSessionStore } from './sessionStore';
 
 describe('sessionStore sendMessage', () => {
@@ -121,6 +122,78 @@ describe('sessionStore sendMessage', () => {
     // Second Assistant message segment ("世界")
     expect(state.messages[3].role).toBe('assistant');
     expect(state.messages[3].content).toBe('世界');
+  });
+
+  it('uses a persisted AI subscription model override when sending a session message', async () => {
+    const saveMessage = vi.fn(async (message) => message);
+    let chunkListener: ((event: unknown, data: LLMStreamEvent) => void) | null = null;
+
+    useSessionStore.setState({
+      sessionModelOverrides: {
+        'session-1': {
+          providerId: 'minimax-token-plan',
+          sourceId: 'minimax-token-plan',
+          sourceType: 'ai_subscription',
+          model: 'MiniMax-M2.7',
+        },
+      },
+    });
+
+    window.electronAPI = {
+      store: {
+        get: vi.fn(),
+        set: vi.fn(),
+      },
+      db: {
+        getProjects: vi.fn(),
+        createProject: vi.fn(),
+        deleteProject: vi.fn(),
+        getSessions: vi.fn(),
+        createSession: vi.fn(),
+        deleteSession: vi.fn(),
+        getMessages: vi.fn(async () => []),
+        saveMessage,
+        getProviders: vi.fn(),
+        saveProvider: vi.fn(),
+        deleteProvider: vi.fn(),
+        setActiveProvider: vi.fn(),
+        selectDirectory: vi.fn(),
+      },
+      llm: {
+        chat: vi.fn(async () => {
+          await chunkListener?.(null, { type: 'message_done' });
+        }),
+        judge: vi.fn(),
+        stopChat: vi.fn(),
+        testProvider: vi.fn(),
+        fetchProviderModels: vi.fn(),
+        fetchOllamaModels: vi.fn(),
+        onChunk: vi.fn((_requestId, callback) => {
+          chunkListener = callback;
+          return () => {
+            chunkListener = null;
+          };
+        }),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
+      },
+      platform: 'darwin',
+    };
+
+    await useSessionStore.getState().sendMessage('project-1', 'Use the selected subscription model');
+
+    expect(window.electronAPI.llm.chat).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        overrides: {
+          modelSource: 'ai_subscription',
+          sourceId: 'minimax-token-plan',
+          providerId: undefined,
+          model: 'MiniMax-M2.7',
+        },
+      })
+    );
   });
 
   it('serializes stream event persistence so tool_start cannot overwrite tool_end', async () => {
@@ -960,6 +1033,8 @@ describe('sessionStore model overrides persistence', () => {
     // Verify stored state
     expect(useSessionStore.getState().sessionModelOverrides['session-1']).toEqual({
       providerId: 'provider-1',
+      sourceId: 'provider-1',
+      sourceType: 'llm_provider',
       model: 'gpt-4',
     });
 
@@ -967,7 +1042,12 @@ describe('sessionStore model overrides persistence', () => {
     const saved = localStorage.getItem('sessionModelOverrides');
     expect(saved).toBeDefined();
     expect(JSON.parse(saved!)).toEqual({
-      'session-1': { providerId: 'provider-1', model: 'gpt-4' },
+      'session-1': {
+        providerId: 'provider-1',
+        sourceId: 'provider-1',
+        sourceType: 'llm_provider',
+        model: 'gpt-4',
+      },
     });
   });
 

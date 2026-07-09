@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
-import type { Agent, LLMProvider, Message, Project, Session, TodoItem } from '@shared/types';
+import type { AISubscriptionEntry } from '@shared/ai-subscriptions';
+import type { Agent, ConversationModelSourceType, LLMProvider, Message, Project, Session, TodoItem } from '@shared/types';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useProjectStore } from '../../stores/projectStore';
 import {
@@ -50,7 +52,8 @@ interface ConversationWorkspaceModel {
   };
   model: {
     providers: LLMProvider[];
-    sessionModelOverrides: Record<string, { providerId: string; model: string }>;
+    aiSubscriptionEntries: AISubscriptionEntry[];
+    sessionModelOverrides: Record<string, { providerId: string; sourceId?: string; sourceType?: ConversationModelSourceType; model: string }>;
   };
 }
 
@@ -73,6 +76,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     sessionModelOverrides,
   } = useSessionStore();
   const { providers } = useLLMStore();
+  const aiSubscriptionEntries = useAISubscriptionStore((state) => state.entries);
   const { agents } = useAgentStore();
   const { status: goalStatus, goal: activeGoal } = useGoalJudgeStatus(activeSessionId || '');
 
@@ -160,6 +164,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     },
     model: {
       providers,
+      aiSubscriptionEntries,
       sessionModelOverrides: sessionModelOverrides || {},
     },
   };

@@ -12,6 +12,7 @@
       "system": "系统设置",
       "systemDesc": "配置系统的语言、主题外观及其他全局性参数",
       "llm": "LLM 管理",
+      "aiSubscriptions": "AI 订阅",
       "agents": "Agents 管理",
       "skillsMcp": "Skills & MCP 管理",
       "tools": "工具配置",
@@ -320,6 +321,66 @@
       "deleteProviderFailed": "删除供应商失败",
       "activated": "✓ 已激活默认提供商: {{name}}"
     },
+    "aiSubscriptions": {
+      "title": "AI 订阅",
+      "desc": "管理订阅或账号入口的登录状态、配额摘要和能力开关。",
+      "loading": "加载中...",
+      "login": "登录",
+      "refresh": "刷新",
+      "expandEntry": "展开 {{name}}",
+      "collapseEntry": "收起 {{name}}",
+      "error": {
+        "loadFailed": "加载 AI 订阅失败",
+        "updateCapabilityFailed": "更新 AI 订阅能力失败",
+        "startLoginFailed": "启动 AI 订阅登录失败",
+        "refreshStatusFailed": "刷新 AI 订阅状态失败"
+      },
+      "runtimeError": {
+        "sourceMissing": "选中的 AI 订阅模型缺少订阅来源。",
+        "sourceUnavailable": "AI 订阅 {{sourceId}} 不可用。",
+        "notConnected": "{{name}} 未连接。请先在 AI 订阅设置中连接后再使用它的文本模型。",
+        "textDisabled": "{{name}} 的文本聊天能力已关闭。请先在 AI 订阅设置中重新开启后再使用它的文本模型。",
+        "modelUnsupported": "{{name}} 未提供选中的文本模型。请在模型选择器中选择其他模型。"
+      },
+      "usage": {
+        "usedLimit": "{{label}}：{{used}} / {{limit}}",
+        "unavailable": "{{label}}：暂无数据",
+        "period": {
+          "five_hour": "5 小时配额",
+          "weekly": "周配额",
+          "monthly": "月配额",
+          "other": "配额"
+        }
+      },
+      "status": {
+        "logged_out": "未登录",
+        "connecting": "连接中",
+        "connected": "已连接",
+        "expired": "已过期",
+        "unavailable": "不可用"
+      },
+      "capability": {
+        "text_chat": "文本聊天",
+        "text_reasoning": "文本推理",
+        "image_generate": "图像生成",
+        "image_edit": "图像编辑",
+        "speech_synthesize": "语音生成",
+        "video_generate": "视频生成",
+        "music_generate": "音乐生成",
+        "search_web": "网页搜索",
+        "code_agent": "代码 Agent",
+        "quota_status": "配额状态"
+      },
+      "connect": "连接",
+      "subscriptionKeyLabel": "订阅 Key",
+      "subscriptionKeyPlaceholder": "粘贴你的 MiniMax 订阅 Key",
+      "disconnect": "断开",
+      "reopenAuthorization": "重新打开授权",
+      "complete": "完成",
+      "oauthCodeLabel": "授权码",
+      "oauthCodePlaceholder": "粘贴浏览器中显示的代码",
+      "oauthCodeHint": "已打开浏览器进行登录。如果页面显示了一段代码,请复制并粘贴到这里完成登录;否则将自动完成。"
+    },
     "tool": {
       "tavilyDesc": "专为大模型设计的智能搜索引擎。提供极高精度的网页内容提取，针对大模型进行了搜索输出优化。常用于通用事实问答与新闻检索。",
       "tavilyKeyPlaceholder": "请输入 Tavily API Key (tvly-...)",
@@ -434,6 +495,12 @@
     "welcomePlaceholder": "给 CDF 下达指令，或者问点什么……",
     "addAttachment": "添加附件",
     "noProvidersAvailable": "暂无可用提供商，点击去配置",
+    "modelSelection": {
+      "sourceKinds": {
+        "llm_provider": "API 提供商",
+        "ai_subscription": "AI 订阅"
+      }
+    },
     "send": "发送",
     "sendMessage": "发送消息",
     "createProjectTitle": "创建项目",

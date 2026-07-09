@@ -12,6 +12,7 @@
       "system": "System Settings",
       "systemDesc": "Configure interface language, appearance theme, and other global configurations",
       "llm": "LLM Management",
+      "aiSubscriptions": "AI Subscriptions",
       "agents": "Agents",
       "skillsMcp": "Skills & MCP",
       "tools": "Tools",
@@ -320,6 +321,66 @@
       "deleteProviderFailed": "Failed to delete provider",
       "activated": "✓ Default provider activated: {{name}}"
     },
+    "aiSubscriptions": {
+      "title": "AI Subscriptions",
+      "desc": "Manage login state, quota summaries, and capability switches for subscription or account entrypoints.",
+      "loading": "Loading...",
+      "login": "Login",
+      "refresh": "Refresh",
+      "expandEntry": "Expand {{name}}",
+      "collapseEntry": "Collapse {{name}}",
+      "error": {
+        "loadFailed": "Failed to load AI subscriptions",
+        "updateCapabilityFailed": "Failed to update AI subscription capability",
+        "startLoginFailed": "Failed to start AI subscription login",
+        "refreshStatusFailed": "Failed to refresh AI subscription status"
+      },
+      "runtimeError": {
+        "sourceMissing": "The selected AI subscription model is missing its subscription source.",
+        "sourceUnavailable": "AI subscription {{sourceId}} is not available.",
+        "notConnected": "{{name}} is not connected. Connect it in AI Subscriptions settings before using its text model.",
+        "textDisabled": "{{name}} text chat is disabled. Re-enable it in AI Subscriptions settings before using its text model.",
+        "modelUnsupported": "{{name}} does not expose the selected text model. Choose another model in the Model Selection Surface."
+      },
+      "usage": {
+        "usedLimit": "{{label}}: {{used}} / {{limit}}",
+        "unavailable": "{{label}}: unavailable",
+        "period": {
+          "five_hour": "5-hour quota",
+          "weekly": "Weekly quota",
+          "monthly": "Monthly quota",
+          "other": "Quota"
+        }
+      },
+      "status": {
+        "logged_out": "Logged out",
+        "connecting": "Connecting",
+        "connected": "Connected",
+        "expired": "Expired",
+        "unavailable": "Unavailable"
+      },
+      "capability": {
+        "text_chat": "Text chat",
+        "text_reasoning": "Text reasoning",
+        "image_generate": "Image generation",
+        "image_edit": "Image editing",
+        "speech_synthesize": "Speech generation",
+        "video_generate": "Video generation",
+        "music_generate": "Music generation",
+        "search_web": "Web search",
+        "code_agent": "Code agent",
+        "quota_status": "Quota status"
+      },
+      "connect": "Connect",
+      "subscriptionKeyLabel": "Subscription key",
+      "subscriptionKeyPlaceholder": "Paste your MiniMax subscription key",
+      "disconnect": "Disconnect",
+      "reopenAuthorization": "Reopen authorization",
+      "complete": "Complete",
+      "oauthCodeLabel": "Authorization code",
+      "oauthCodePlaceholder": "Paste the code shown in your browser",
+      "oauthCodeHint": "A browser window opened for sign-in. If it shows a code to copy, paste it here to finish. Otherwise it completes automatically."
+    },
     "tool": {
       "tavilyDesc": "AI-powered search engine. Provides high-precision web content extraction, optimized for LLMs. Used for general fact QA and news search.",
       "tavilyKeyPlaceholder": "Enter Tavily API key (tvly-...)",
@@ -434,6 +495,12 @@
     "welcomePlaceholder": "Give CDF an instruction, or ask a question...",
     "addAttachment": "Add attachment",
     "noProvidersAvailable": "No providers available, click to configure",
+    "modelSelection": {
+      "sourceKinds": {
+        "llm_provider": "API provider",
+        "ai_subscription": "AI subscription"
+      }
+    },
     "send": "Send",
     "sendMessage": "Send message",
     "createProjectTitle": "Create project",

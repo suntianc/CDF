@@ -38,7 +38,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: 'session-1',
         currentProjectId: 'project-1',
         isStreaming: false,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [],
         resolveCommand: () => null,
@@ -68,7 +69,7 @@ describe('useComposerSubmissionController', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'project-1',
       'Fix the failing tests',
-      { providerId: 'provider-1', model: 'model-a' },
+      { modelSource: 'llm_provider', sourceId: 'provider-1', providerId: 'provider-1', model: 'model-a' },
       undefined,
       { imageBase64: undefined }
     );
@@ -104,7 +105,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: null,
         currentProjectId: 'project-1',
         isStreaming: false,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [],
         resolveCommand: () => null,
@@ -132,14 +134,14 @@ describe('useComposerSubmissionController', () => {
 
     expect(submissionResult).toEqual({ type: 'submittedConversation' });
     expect(createSession).toHaveBeenCalledWith('project-1', 'Fix the failing');
-    expect(setSessionModelOverride).toHaveBeenNthCalledWith(1, 'session-2', 'provider-1', 'model-a');
-    expect(setSessionModelOverride).toHaveBeenNthCalledWith(2, '', '', '');
+    expect(setSessionModelOverride).toHaveBeenNthCalledWith(1, 'session-2', 'provider-1', 'model-a', 'llm_provider');
+    expect(setSessionModelOverride).toHaveBeenNthCalledWith(2, '', '', '', 'llm_provider');
     expect(selectSession).toHaveBeenCalledWith('session-2');
     expect(fetchSessions).toHaveBeenCalledWith('project-1');
     expect(sendMessage).toHaveBeenCalledWith(
       'project-1',
       'Fix the failing tests',
-      { providerId: 'provider-1', model: 'model-a' },
+      { modelSource: 'llm_provider', sourceId: 'provider-1', providerId: 'provider-1', model: 'model-a' },
       undefined,
       { imageBase64: undefined }
     );
@@ -148,6 +150,83 @@ describe('useComposerSubmissionController', () => {
     );
     expect(dispatchCommand).not.toHaveBeenCalled();
     expect(result.current.composerInput.text).toBe('');
+  });
+
+  it('carries a Welcome AI subscription model override into the new Conversation', async () => {
+    const sendMessage = vi.fn(async () => {});
+    const dispatchCommand = vi.fn(async () => {});
+    const createSession = vi.fn(async () => ({ id: 'session-2' }));
+    const selectSession = vi.fn(async () => {});
+    const fetchSessions = vi.fn(async () => {});
+    const setSessionModelOverride = vi.fn();
+
+    const { result } = renderHook(() => {
+      const composerInput = useComposerInputController({
+        mode: 'welcome',
+        isStreaming: false,
+        projectId: 'project-1',
+        hasPathMentionProject: true,
+        commands: [],
+        resolveCommand: () => null,
+        listPathMentionCandidates: async () => ({ candidates: [], truncated: false }),
+      });
+
+      const submission = useComposerSubmissionController({
+        composerInput,
+        mode: 'welcome',
+        activeSessionId: null,
+        currentProjectId: 'project-1',
+        isStreaming: false,
+        selectedSourceType: 'ai_subscription',
+        selectedSourceId: 'minimax-token-plan',
+        selectedModel: 'MiniMax-M2.7',
+        commands: [],
+        resolveCommand: () => null,
+        dispatchCommand,
+        createSession,
+        selectSession,
+        fetchSessions,
+        sendMessage,
+        getWelcomeModelOverride: () => ({
+          providerId: 'minimax-token-plan',
+          sourceId: 'minimax-token-plan',
+          sourceType: 'ai_subscription',
+          model: 'MiniMax-M2.7',
+        }),
+        setSessionModelOverride,
+        t: (key) => key,
+      });
+
+      return { composerInput, submission };
+    });
+
+    act(() => {
+      result.current.composerInput.handleTextChange('Use MiniMax subscription', 'Use MiniMax subscription'.length);
+    });
+
+    await act(async () => {
+      await result.current.submission.submit();
+    });
+
+    expect(setSessionModelOverride).toHaveBeenNthCalledWith(
+      1,
+      'session-2',
+      'minimax-token-plan',
+      'MiniMax-M2.7',
+      'ai_subscription'
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'project-1',
+      'Use MiniMax subscription',
+      {
+        modelSource: 'ai_subscription',
+        sourceId: 'minimax-token-plan',
+        providerId: undefined,
+        model: 'MiniMax-M2.7',
+      },
+      undefined,
+      { imageBase64: undefined }
+    );
   });
 
   it('dispatches a selected Command Entry in a Session Conversation', async () => {
@@ -179,7 +258,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: 'session-1',
         currentProjectId: 'project-1',
         isStreaming: false,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [goalCommand],
         resolveCommand: (input) => (input === '/goal' ? plan : null),
@@ -241,7 +321,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: null,
         currentProjectId: 'project-1',
         isStreaming: false,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [goalCommand],
         resolveCommand,
@@ -312,7 +393,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: null,
         currentProjectId: 'project-1',
         isStreaming: false,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [],
         resolveCommand: () => null,
@@ -347,7 +429,7 @@ describe('useComposerSubmissionController', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'project-1',
       '请描述这张图片',
-      { providerId: 'provider-1', model: 'model-a' },
+      { modelSource: 'llm_provider', sourceId: 'provider-1', providerId: 'provider-1', model: 'model-a' },
       undefined,
       { imageBase64: ['data:image/png;base64,abc'] }
     );
@@ -381,7 +463,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: null,
         currentProjectId: 'project-1',
         isStreaming: false,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [],
         resolveCommand: () => null,
@@ -442,7 +525,8 @@ describe('useComposerSubmissionController', () => {
         activeSessionId: 'session-1',
         currentProjectId: 'project-1',
         isStreaming: true,
-        selectedProviderId: 'provider-1',
+        selectedSourceType: 'llm_provider',
+        selectedSourceId: 'provider-1',
         selectedModel: 'model-a',
         commands: [],
         resolveCommand: () => null,

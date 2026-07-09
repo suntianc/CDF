@@ -113,7 +113,21 @@ vi.mock('./skills-runtime/cdf-skills-runtime', () => ({
 }));
 
 import { createDeepAgentRuntime } from './runtime';
+import { createLangChainModel } from './llm-adapter';
 import { createStreamAccumulator, runWithStreamAccumulator } from './stream-accumulator';
+
+interface CreateDeepAgentParams {
+  model?: unknown;
+  systemPrompt?: string;
+  tools: Array<{ name: string }>;
+  subagents?: unknown;
+}
+
+function firstCreateDeepAgentParams(): CreateDeepAgentParams {
+  const firstCall = createDeepAgentMock.mock.calls[0];
+  expect(firstCall).toBeTruthy();
+  return firstCall[0] as CreateDeepAgentParams;
+}
 
 describe('createDeepAgentRuntime', () => {
   const tempProjectPath = path.join(os.tmpdir(), `cdf-runtime-test-${Math.random().toString(36).slice(2)}`);
@@ -288,6 +302,108 @@ describe('createDeepAgentRuntime', () => {
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.systemPrompt).toContain('Agent 2 prompt');
     expect(params.subagents).toBeUndefined();
+  });
+
+  it('resolves MiniMax Token Plan through Anthropic/Claude-compatible MiniMax runtime', async () => {
+    storeGetMock.mockImplementation((key?: string) => {
+      if (key === 'skillOverrides') return {};
+      if (key === 'aiSubscriptions') return { entries: { 'minimax-token-plan': { status: 'connected' } } };
+      if (key === 'aiSubscriptionSecrets') return { 'minimax-token-plan': 'sk-minimax' };
+      return 'strict';
+    });
+
+    await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: '新问题' },
+      'agent-1',
+      { modelSource: 'ai_subscription', sourceId: 'minimax-token-plan', model: 'MiniMax-M2.7' }
+    );
+
+    expect(vi.mocked(createLangChainModel)).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: 'sk-minimax',
+      apiUrl: 'https://api.minimaxi.com/anthropic',
+      providerType: 'minimax',
+      model: 'MiniMax-M2.7',
+      contextLimit: 204_800,
+    }));
+  });
+
+  it.each([
+    [
+      'logged-out',
+      {
+        entries: {
+          'minimax-token-plan': { status: 'logged_out' },
+        },
+      },
+      'MiniMax-M2.7',
+    ],
+    [
+      'expired',
+      {
+        entries: {
+          'minimax-token-plan': { status: 'expired' },
+        },
+      },
+      'MiniMax-M2.7',
+    ],
+    [
+      'unavailable',
+      {
+        entries: {
+          'minimax-token-plan': { status: 'unavailable' },
+        },
+      },
+      'MiniMax-M2.7',
+    ],
+    [
+      'disabled text capability',
+      {
+        entries: {
+          'minimax-token-plan': {
+            status: 'connected',
+            capabilities: {
+              'text.chat': false,
+            },
+          },
+        },
+      },
+      'MiniMax-M2.7',
+    ],
+    [
+      'unsupported selected model',
+      {
+        entries: {
+          'minimax-token-plan': { status: 'connected' },
+        },
+      },
+      'Missing subscription model',
+    ],
+  ])('returns a recoverable error for %s AI subscription model selections', async (_caseName, persistedState, model) => {
+    storeGetMock.mockImplementation((key?: string) => {
+      if (key === 'skillOverrides') return {};
+      if (key === 'aiSubscriptions') return persistedState;
+      if (key === 'aiSubscriptionSecrets') return { 'minimax-token-plan': 'sk-minimax' };
+      return 'strict';
+    });
+
+    await expect(createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: '新问题' },
+      'agent-1',
+      {
+        modelSource: 'ai_subscription',
+        sourceId: 'minimax-token-plan',
+        model,
+      }
+    )).rejects.toMatchObject({
+      code: 'AI_SUBSCRIPTION_UNAVAILABLE',
+      recoverable: true,
+      messageKey: expect.stringMatching(/^settings\.aiSubscriptions\.runtimeError\./),
+      message: expect.stringMatching(/^settings\.aiSubscriptions\.runtimeError\./),
+    });
   });
 
   it('preserves qualified additional skill names when building preload hints', async () => {

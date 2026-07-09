@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { CommandDispatchAction, SlashCommand } from '@shared/types';
+import type { CommandDispatchAction, ConversationModelSourceType, SlashCommand } from '@shared/types';
 import type { ComposerInputController } from './useComposerInputController';
 import type { ComposerInputMode } from './composerInput';
 
@@ -19,7 +19,8 @@ export interface UseComposerSubmissionControllerOptions {
   activeSessionId: string | null;
   currentProjectId: string | null;
   isStreaming: boolean;
-  selectedProviderId: string;
+  selectedSourceType: ConversationModelSourceType;
+  selectedSourceId: string;
   selectedModel: string;
   commands: ReadonlyArray<SlashCommand>;
   resolveCommand: (
@@ -33,12 +34,17 @@ export interface UseComposerSubmissionControllerOptions {
   sendMessage: (
     projectId: string,
     content: string,
-    overrides?: { providerId?: string; model?: string },
+    overrides?: { modelSource?: ConversationModelSourceType; sourceId?: string; providerId?: string; model?: string },
     targetSessionId?: string,
     options?: { imageBase64?: string[] }
   ) => Promise<void>;
-  getWelcomeModelOverride: () => { providerId: string; model: string } | null;
-  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => void;
+  getWelcomeModelOverride: () => { providerId: string; sourceId?: string; sourceType?: ConversationModelSourceType; model: string } | null;
+  setSessionModelOverride: (
+    sessionId: string,
+    sourceId: string,
+    model: string,
+    sourceType?: ConversationModelSourceType
+  ) => void;
   t: (key: string) => string;
 }
 
@@ -47,7 +53,8 @@ export function useComposerSubmissionController({
   mode,
   currentProjectId,
   isStreaming,
-  selectedProviderId,
+  selectedSourceType,
+  selectedSourceId,
   selectedModel,
   commands,
   resolveCommand,
@@ -79,10 +86,11 @@ export function useComposerSubmissionController({
       if (welcomeOverride) {
         setSessionModelOverride(
           conversation.id,
-          welcomeOverride.providerId,
-          welcomeOverride.model
+          welcomeOverride.sourceId || welcomeOverride.providerId,
+          welcomeOverride.model,
+          welcomeOverride.sourceType || 'llm_provider'
         );
-        setSessionModelOverride('', '', '');
+        setSessionModelOverride('', '', '', 'llm_provider');
       }
       await selectSession(conversation.id);
       await fetchSessions(currentProjectId);
@@ -136,7 +144,9 @@ export function useComposerSubmissionController({
         currentProjectId,
         intent.content,
         {
-          providerId: selectedProviderId || undefined,
+          modelSource: selectedSourceId ? selectedSourceType : undefined,
+          sourceId: selectedSourceId || undefined,
+          providerId: selectedSourceType === 'llm_provider' ? selectedSourceId || undefined : undefined,
           model: selectedModel || undefined,
         },
         undefined,
@@ -160,7 +170,8 @@ export function useComposerSubmissionController({
     prepareWelcomeConversation,
     resolveCommand,
     selectedModel,
-    selectedProviderId,
+    selectedSourceId,
+    selectedSourceType,
     selectSession,
     sendMessage,
     setSessionModelOverride,

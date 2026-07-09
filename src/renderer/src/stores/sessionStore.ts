@@ -12,6 +12,7 @@ import {
   AgentRun,
   AgentToolCall,
   ChatRuntimeOverrides,
+  ConversationModelSourceType,
   ExecutionStep,
   LLMStreamEvent,
   Message,
@@ -88,6 +89,7 @@ function reconcilePersistedToolMessages(messages: Message[], toolCalls: AgentToo
 
 export interface SessionError {
   message: string;
+  messageParams?: Record<string, string | number>;
   recoverableActions?: { label: string; action: () => void }[];
 }
 
@@ -163,8 +165,13 @@ interface SessionState {
   // on session switch — goal is sticky per P6 lock. ChatArea/GoalSystemBubble
   // filter by activeSessionId at render time.
   goalJudgeStatus: Map<string, GoalJudgeStatusEntry>;
-  sessionModelOverrides: Record<string, { providerId: string; model: string }>;
-  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => void;
+  sessionModelOverrides: Record<string, { providerId: string; sourceId?: string; sourceType?: ConversationModelSourceType; model: string }>;
+  setSessionModelOverride: (
+    sessionId: string,
+    sourceId: string,
+    model: string,
+    sourceType?: ConversationModelSourceType
+  ) => void;
   fetchSessions: (projectId: string) => Promise<void>;
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -237,11 +244,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   viewingParallelWorker: null,
   setViewingParallelWorker: (key) => set({ viewingParallelWorker: key, viewingSubagentId: null }),
 
-  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
+  setSessionModelOverride: (
+    sessionId: string,
+    sourceId: string,
+    model: string,
+    sourceType: ConversationModelSourceType = 'llm_provider'
+  ) => {
     set((state) => {
       const nextOverrides = {
         ...state.sessionModelOverrides,
-        [sessionId]: { providerId, model },
+        [sessionId]: { providerId: sourceId, sourceId, sourceType, model },
       };
       try {
         localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
@@ -760,6 +772,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             set({
               error: {
                 message: effect.message || '对话请求出错',
+                messageParams: effect.messageParams,
                 recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }],
               },
             });
@@ -821,8 +834,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
 
       const sessionModelOverride = get().sessionModelOverrides[sessionId] || {};
+      const sessionOverrideSourceType = sessionModelOverride.sourceType || 'llm_provider';
       const finalOverrides = {
-        providerId: sessionModelOverride.providerId || undefined,
+        modelSource: sessionModelOverride.sourceId ? sessionOverrideSourceType : undefined,
+        sourceId: sessionModelOverride.sourceId || undefined,
+        providerId: sessionOverrideSourceType === 'llm_provider'
+          ? sessionModelOverride.providerId || undefined
+          : undefined,
         model: sessionModelOverride.model || undefined,
         ...overrides,
       };

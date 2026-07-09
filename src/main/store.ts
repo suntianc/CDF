@@ -1,5 +1,6 @@
 import Store from 'electron-store';
 import type { ApprovalMode } from '../shared/types';
+import type { PersistedAISubscriptionState } from '../shared/ai-subscriptions';
 import type { SkillOverrideState } from '../shared/skill-overrides';
 
 interface StoreSchema {
@@ -18,6 +19,7 @@ interface StoreSchema {
   approvalMode: ApprovalMode;
   autoSave: boolean;
   skillOverrides: Record<string, SkillOverrideState>;
+  aiSubscriptions: PersistedAISubscriptionState;
 }
 
 const store = new Store<StoreSchema>({
@@ -31,6 +33,7 @@ const store = new Store<StoreSchema>({
     approvalMode: 'strict',
     autoSave: false,
     skillOverrides: {},
+    aiSubscriptions: {},
   },
   schema: {
     theme: { type: 'string', enum: ['light', 'dark', 'system'] },
@@ -56,6 +59,10 @@ const store = new Store<StoreSchema>({
         type: 'string',
         enum: ['on', 'name-only', 'user-invocable-only', 'off'],
       },
+    },
+    aiSubscriptions: {
+      type: 'object',
+      additionalProperties: true,
     },
   },
   clearInvalidConfig: true,

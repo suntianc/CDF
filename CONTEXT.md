@@ -100,6 +100,38 @@ _Avoid_: binding, whitelist, permission
 An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. Distinct from Skill Override — MCP tools have no progressive disclosure, so there are no partial-visibility states.
 _Avoid_: MCP binding, MCP whitelist, MCP mount, agent MCP selection
 
+**Connected Account**:
+A user-authorized external account or subscription route that CDF may use for provider-hosted capabilities through OAuth, browser login state, CLI/token-plan auth, or another account-level authorization flow. It owns login/logout, account identity, authorization scope, token refresh, subscription or plan status, account health, and the account's declared or discovered subscription capabilities. It is the aggregation boundary for subscription/product capabilities and is separate from API-key/base-URL LLM model configuration.
+_Avoid_: LLM provider, model provider, API key entry, tool config
+
+**LLM Provider**:
+An app-wide API-key/base-URL text model integration that CDF may use for Conversation and Agent reasoning, including API key, base URL, local model runtime, available text models, default text model, and context limit. It remains the accepted name for CDF's existing model-provider configuration. An LLM Provider may also be the authorization source for API-backed capability routes, but it is not a subscription/product capability aggregation surface and is separate from Connected Account login state.
+_Avoid_: connected account, OAuth login, capability connection, tool config
+
+**Capability Connection**:
+A configured app-wide route that makes one CDF capability usable through a specific authorization source, such as a Connected Account, API key, local runtime, or future provider integration. Multiple Capability Connections may exist for the same capability, and runtime selection may consider the current Conversation model context, explicit user choice, availability, quota, privacy, cost, or task fit.
+_Avoid_: account, API key, model provider, LLM provider, tool config
+
+**Capability Profile**:
+The declared or discovered set of capabilities available through one authorization source or subscription plan, such as text chat, image generation, image editing, speech synthesis, video generation, music generation, search, or quota status. Capability Profiles describe what an account, LLM Provider, token plan, or local runtime can offer; Capability Connections turn those offers into callable CDF capability routes.
+_Avoid_: tool list, provider type, model list, subscription label
+
+**Capability Adapter**:
+A provider-facing implementation of a CDF capability that translates the shared capability request and result shape into one provider, account type, token plan, or local runtime. It is hidden behind the public Agent Tool for that capability.
+_Avoid_: public tool, provider tool, model provider, account
+
+**Capability Route Hint**:
+An optional preference passed with a public Agent Tool call to express the user's requested capability source category, such as Gemini, Grok, Codex, MiniMax token plan, or automatic selection. It is a routing hint, not provider-specific tool parameters and not a guarantee that the route is available.
+_Avoid_: provider parameters, default provider, active provider, hardcoded adapter
+
+**Capability Availability Surface**:
+A Settings surface attached to the owning source settings for inspecting and managing capability route health. In the first version, subscription/account-backed capability availability appears inside the AI Subscription Surface, API-backed capability availability appears inside LLM Provider details, and local/MCP-backed capability availability appears inside Tools and MCP; it is not a standalone top-level page and is not the source of truth for manually asserting provider capabilities.
+_Avoid_: manual capability checklist, provider settings page, tool list, model selector
+
+**AI Subscription Surface**:
+The user-facing Settings tab for subscription-backed or account-backed AI capabilities. It presents each supported subscription entrypoint as an expandable card, showing only the subscription name and period usage summary by default; the expanded card shows the subscription's capability switch list.
+_Avoid_: Connected Accounts page, OAuth settings page, provider capability checklist
+
 **Paper Library**:
 A Scene-specific panel that manages collected academic papers — OKF metadata files and locally stored PDFs, with full text reached on demand through Structured Paper Parses.
 _Avoid_: reference manager, paper database, Zotero, vector index

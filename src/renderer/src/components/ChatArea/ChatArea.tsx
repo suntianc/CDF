@@ -6,6 +6,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import {
   Plus, SlidersHorizontal
 } from 'lucide-react';
@@ -58,6 +59,7 @@ export function ChatArea({
   const stopMessage = useSessionStore((s) => s.stopMessage);
   const setSessionModelOverride = useSessionStore((s) => s.setSessionModelOverride);
   const fetchProviders = useLLMStore((s) => s.fetchProviders);
+  const fetchAISubscriptionEntries = useAISubscriptionStore((s) => s.fetchEntries);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
   const setViewingSubagent = useSessionStore((s) => s.setViewingSubagent);
   const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
@@ -79,7 +81,7 @@ export function ChatArea({
     hasActiveGoal,
   } = workspaceModel.viewport;
   const { todos, streamingMessageId, activeRunId } = workspaceModel.plan;
-  const { providers, sessionModelOverrides } = workspaceModel.model;
+  const { providers, aiSubscriptionEntries, sessionModelOverrides } = workspaceModel.model;
   const { activeSessionAgent, masterProvider } = workspaceModel.agent;
   const currentProjectDisplayName = currentProjectName ?? t('chat.unknownProject');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -110,6 +112,10 @@ export function ChatArea({
     fetchAgents,
   });
 
+  useEffect(() => {
+    fetchAISubscriptionEntries();
+  }, [fetchAISubscriptionEntries]);
+
   const planDisclosure = useConversationPlanDisclosure({
     activeSessionId,
     todos,
@@ -122,6 +128,7 @@ export function ChatArea({
   const modelSelection = useModelSelectionController({
     activeSessionId,
     providers,
+    aiSubscriptionEntries,
     sessionModelOverrides,
     masterProvider,
     setSessionModelOverride,
@@ -156,7 +163,8 @@ export function ChatArea({
     activeSessionId,
     currentProjectId,
     isStreaming,
-    selectedProviderId: modelSelection.selectedProviderId,
+    selectedSourceType: modelSelection.selectedSourceType,
+    selectedSourceId: modelSelection.selectedSourceId,
     selectedModel: modelSelection.selectedModel,
     commands: registry.commands,
     resolveCommand: dispatcherResolve,
@@ -166,8 +174,8 @@ export function ChatArea({
     fetchSessions,
     sendMessage,
     getWelcomeModelOverride: () => useSessionStore.getState().sessionModelOverrides[''] || null,
-    setSessionModelOverride: (sessionId, providerId, model) => {
-      setSessionModelOverride(sessionId, providerId, model);
+    setSessionModelOverride: (sessionId, sourceId, model, sourceType) => {
+      setSessionModelOverride(sessionId, sourceId, model, sourceType);
     },
     t,
   });
@@ -221,11 +229,11 @@ export function ChatArea({
         modelSelectorSlot={
           <ModelSelectionSurface
             variant="welcome"
-            providers={providers}
-            selectedProviderId={modelSelection.selectedProviderId}
+            modelGroups={modelSelection.modelGroups}
+            selectedSourceType={modelSelection.selectedSourceType}
+            selectedSourceId={modelSelection.selectedSourceId}
             selectedModel={modelSelection.selectedModel}
-            currentProvider={modelSelection.currentProvider}
-            currentModel={modelSelection.currentModel}
+            currentModelLabel={modelSelection.currentModelLabel}
             onSelectModel={modelSelection.selectModel}
             onOpenSettings={onOpenSettings}
           />
@@ -316,11 +324,11 @@ export function ChatArea({
             modelSelectorSlot={
               <ModelSelectionSurface
                 variant="composer"
-                providers={providers}
-                selectedProviderId={modelSelection.selectedProviderId}
+                modelGroups={modelSelection.modelGroups}
+                selectedSourceType={modelSelection.selectedSourceType}
+                selectedSourceId={modelSelection.selectedSourceId}
                 selectedModel={modelSelection.selectedModel}
-                currentProvider={modelSelection.currentProvider}
-                currentModel={modelSelection.currentModel}
+                currentModelLabel={modelSelection.currentModelLabel}
                 onSelectModel={modelSelection.selectModel}
                 onOpenSettings={onOpenSettings}
               />

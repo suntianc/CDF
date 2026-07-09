@@ -97,7 +97,7 @@ export function ConversationWelcomeSurface({
           <div role="alert" aria-live="assertive" className="w-full p-3 rounded-lg bg-[var(--color-danger-dim)] text-[var(--color-danger)] text-xs flex items-start gap-2 border border-[var(--color-danger)]/20 animate-fade-in shadow-sm">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <div className="font-medium">{error.message}</div>
+              <div className="font-medium">{t(error.message, { defaultValue: error.message, ...(error.messageParams ?? {}) })}</div>
               {error.recoverableActions && error.recoverableActions.length > 0 && (
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   {error.recoverableActions.map((action) => (

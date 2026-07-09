@@ -9,7 +9,8 @@ import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddlewar
 import db from '../database';
 import store from '../store';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
-import { createLangChainModel } from './llm-adapter';
+import { createLangChainModel, type RuntimeProviderModelConfig } from './llm-adapter';
+import { resolveAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
 import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import {
@@ -24,6 +25,7 @@ import {
   loadRegistryTools,
   loadMcpTools,
   getRuntimeToolNames,
+  type ProviderRow,
 } from './shared-infra';
 import { createAgentTools } from './agent-tools';
 import { createWorkflowTools } from '../workflow/tools';
@@ -67,6 +69,32 @@ interface RuntimeInputMessage {
   id: string;
   content: string;
   imageBase64?: string[];
+}
+
+function resolveRuntimeProviderModelConfig(
+  agentRow: RuntimeAgentRow,
+  overrides?: RuntimeModelOverrides
+): { config: RuntimeProviderModelConfig; fallbackProvider: ProviderRow } {
+  if (overrides?.modelSource === 'ai_subscription') {
+    return {
+      config: resolveAISubscriptionRuntimeModel(overrides.sourceId || overrides.providerId, overrides.model),
+      fallbackProvider: getProvider(agentRow.provider_id),
+    };
+  }
+
+  const provider = getProvider(normalizeProviderId(overrides?.sourceId || overrides?.providerId) || agentRow.provider_id);
+  const modelName = overrides?.model || provider.default_model;
+  return {
+    config: {
+      apiKey: provider.api_key,
+      apiUrl: provider.api_url,
+      defaultModel: provider.default_model,
+      providerType: provider.provider_type,
+      model: modelName,
+      contextLimit: provider.context_limit,
+    },
+    fallbackProvider: provider,
+  };
 }
 
 export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
@@ -581,16 +609,9 @@ export async function createDeepAgentRuntime(
 ) {
   const project = getProject(projectId);
   const agentRow = getRuntimeAgent(projectId, agentId);
-  const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
-  const modelName = overrides?.model || provider.default_model;
-  registerCdfHarnessProfile(provider.provider_type, modelName);
-  const model = createLangChainModel({
-    apiKey: provider.api_key,
-    apiUrl: provider.api_url,
-    defaultModel: provider.default_model,
-    providerType: provider.provider_type,
-    model: modelName,
-  });
+  const { config: runtimeModelConfig, fallbackProvider: provider } = resolveRuntimeProviderModelConfig(agentRow, overrides);
+  registerCdfHarnessProfile(runtimeModelConfig.providerType, runtimeModelConfig.model || runtimeModelConfig.defaultModel);
+  const model = createLangChainModel(runtimeModelConfig);
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
@@ -760,15 +781,7 @@ export function createRuntimeModel(
   overrides?: RuntimeModelOverrides
 ) {
   const agentRow = getRuntimeAgent(projectId, agentId);
-  const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
-  const modelName = overrides?.model || provider.default_model;
-  registerCdfHarnessProfile(provider.provider_type, modelName);
-  return createLangChainModel({
-    apiKey: provider.api_key,
-    apiUrl: provider.api_url,
-    defaultModel: provider.default_model,
-    providerType: provider.provider_type,
-    model: modelName,
-    contextLimit: provider.context_limit,
-  });
+  const { config } = resolveRuntimeProviderModelConfig(agentRow, overrides);
+  registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel);
+  return createLangChainModel(config);
 }

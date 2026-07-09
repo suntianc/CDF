@@ -81,8 +81,8 @@ export type ConversationRuntimeProjectionEffect =
   | { type: 'openActivityPanel' }
   | { type: 'cleanupStream' }
   | { type: 'resolveStream' }
-  | { type: 'setRetryableError'; message: string }
-  | { type: 'rejectStream'; error: string };
+  | { type: 'setRetryableError'; message: string; messageParams?: Record<string, string | number> }
+  | { type: 'rejectStream'; error: string; messageParams?: Record<string, string | number> };
 
 export interface ConversationRuntimeProjectionResult {
   state: ConversationRuntimeProjectionState;
@@ -727,8 +727,16 @@ export function projectConversationRuntime(
       },
       effects: [
         { type: 'cleanupStream' },
-        { type: 'setRetryableError', message: event.event.error },
-        { type: 'rejectStream', error: event.event.error },
+        {
+          type: 'setRetryableError',
+          message: event.event.errorMessageKey || event.event.error,
+          messageParams: event.event.errorMessageParams,
+        },
+        {
+          type: 'rejectStream',
+          error: event.event.errorMessageKey || event.event.error,
+          messageParams: event.event.errorMessageParams,
+        },
       ],
     };
   }
