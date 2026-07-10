@@ -130,102 +130,6 @@ vi.mock('./scene-presets', () => ({
 import { registerIpcHandlers } from './ipc-handlers';
 import { IPC_INVOKE_CHANNELS, llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
 
-// 各域迁移进契约后逐段追加；T8 收官时由全局完整性测试双向锁死。
-const MIGRATED_IPC_HANDLER_CHANNELS = [
-  // db 核心域（#116）
-  'db:getProjects',
-  'db:createProject',
-  'db:deleteProject',
-  'db:renameProject',
-  'db:getSessions',
-  'db:createSession',
-  'db:deleteSession',
-  'db:getMessages',
-  'db:saveMessage',
-  'db:updateMessageThinkDuration',
-  'db:deleteMessage',
-  'db:getProviders',
-  'db:saveProvider',
-  'db:deleteProvider',
-  'db:setActiveProvider',
-  'db:selectDirectory',
-  // db 扩展域（#117）
-  'db:getAgents',
-  'db:saveAgent',
-  'db:deleteAgent',
-  'db:getSkills',
-  'db:getProjectSkillOverrides',
-  'db:setProjectSkillOverride',
-  'db:saveSkill',
-  'db:deleteSkill',
-  'db:importSkillDirectory',
-  'db:getSkillVersions',
-  'db:getAgentRuns',
-  'db:getAgentToolCalls',
-  'db:getLatestTodos',
-  'db:getMcpServers',
-  'db:saveMcpServer',
-  'db:deleteMcpServer',
-  'db:toggleMcpConnection',
-  'db:checkMcpHealth',
-  'db:selectFile',
-  'db:getToolConfigs',
-  'db:saveToolConfig',
-  'db:deleteToolConfig',
-  'db:getWorkflows',
-  'db:getWorkflow',
-  'db:saveWorkflow',
-  'db:deleteWorkflow',
-  'db:getWorkflowExecutions',
-  'db:getWorkflowExecution',
-  'db:getWorkflowNodeRuns',
-  'db:openFile',
-  'db:revealFile',
-  // llm + deepagents 域（#118）
-  'llm:chat',
-  'llm:judge',
-  'llm:stopChat',
-  'llm:resolveApproval',
-  'llm:testProvider',
-  'llm:fetchProviderModels',
-  'llm:fetchOllamaModels',
-  'deepagents:createAgent',
-  // fs + commands 域（#120）
-  'fs:readDirectory',
-  'fs:readFile',
-  'fs:getFileInfo',
-  'fs:writeFile',
-  'fs:createFile',
-  'fs:createDirectory',
-  'fs:renameEntry',
-  'fs:trashEntry',
-  'fs:showItemInFolder',
-  'fs:watchDirectory',
-  'fs:unwatchDirectory',
-  'commands:list',
-  'commands:readProjectCommands',
-  'commands:readBody',
-  'commands:readSkillBody',
-  // 剩余小域（#121）
-  'shell:openExternalUrl',
-  'store:get',
-  'store:set',
-  'aiSubscriptions:getEntries',
-  'aiSubscriptions:getActiveLogins',
-  'aiSubscriptions:setCapabilityEnabled',
-  'aiSubscriptions:connectWithKey',
-  'aiSubscriptions:startLogin',
-  'aiSubscriptions:pollLogin',
-  'aiSubscriptions:cancelLogin',
-  'aiSubscriptions:disconnect',
-  'aiSubscriptions:getCapabilityRoutes',
-  'aiSubscriptions:refreshStatus',
-  'project:listAtMentionCandidates',
-  'paper-search:getSettings',
-  'paper-search:saveConfigValue',
-  'paper-search:clearConfigValue',
-  'context:currentSession',
-] as const;
 
 describe('IPC handlers', () => {
   beforeEach(() => {
@@ -243,15 +147,13 @@ describe('IPC handlers', () => {
     pollAISubscriptionLoginMock.mockReset();
   });
 
-  it('declares and registers every migrated ipc-handlers channel in the IPC contract', () => {
+  it('registers exactly the channels declared in the IPC contract — no missing, no ghosts', () => {
+    // registerIpcHandlers 内部级联调用 workflow / at-mention / knowledge 注册入口，
+    // 因此这里收集到的是全部 4 个注册文件的并集。
     registerIpcHandlers();
-    const registered = new Set(ipcHandleMock.mock.calls.map(([channel]) => channel));
-    const declared = new Set<string>(IPC_INVOKE_CHANNELS);
-
-    for (const channel of MIGRATED_IPC_HANDLER_CHANNELS) {
-      expect(declared, `contract is missing ${channel}`).toContain(channel);
-      expect(registered, `no handler registered for ${channel}`).toContain(channel);
-    }
+    const registered = [...new Set(ipcHandleMock.mock.calls.map(([channel]) => channel))].sort();
+    const declared = [...IPC_INVOKE_CHANNELS].sort();
+    expect(registered).toEqual(declared);
   });
 
   it('builds dynamic event channel names through the shared factories', () => {

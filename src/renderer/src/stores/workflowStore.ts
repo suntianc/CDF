@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ExecutionStep, Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution } from '../../../shared/types';
+import { ExecutionStep, Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent, WorkflowApprovalRequest, WorkflowApprovalResolution, WorkflowTriggerSource } from '../../../shared/types';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -22,7 +22,7 @@ interface WorkflowState {
 
   fetchExecutions: (workflowId: string) => Promise<void>;
   fetchNodeRuns: (executionId: string) => Promise<void>;
-  runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
+  runWorkflow: (workflowId: string, projectId: string, triggerSource: WorkflowTriggerSource, input?: Record<string, unknown>) => Promise<string>;
   stopWorkflow: (executionId: string) => Promise<void>;
   subscribeToExecution: (executionId: string) => () => void;
   resolveWorkflowApproval: (decision: 'approve' | 'reject') => Promise<void>;
@@ -127,7 +127,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  runWorkflow: async (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
+  runWorkflow: async (workflowId: string, projectId: string, triggerSource: WorkflowTriggerSource, input?: Record<string, unknown>) => {
     set({ error: null, nodeTrace: {}, activeExecutionId: null, processedSeqs: new Set<number>() });
     try {
       const executionId = await window.electronAPI.workflow.runWorkflow(workflowId, projectId, triggerSource, input);

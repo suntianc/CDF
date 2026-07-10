@@ -112,7 +112,7 @@ function TreeNode({
           console.error('[FileTree] Failed to read file:', result.error.message);
           return;
         }
-        if ('binary' in result.data && result.data.binary) {
+        if ('binary' in result.data) {
           return;
         }
         useFileStore.getState().openPreview({

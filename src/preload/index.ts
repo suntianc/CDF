@@ -29,7 +29,7 @@ import type {
 import type { SkillOverrideState } from '../shared/skill-overrides';
 import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
 
-contextBridge.exposeInMainWorld('electronAPI', {
+const api = {
   store: {
     get: (key: string) => typedInvoke('store:get', key),
     set: (key: string, value: unknown) => typedInvoke('store:set', key, value),
@@ -272,4 +272,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       typedInvoke('context:currentSession', sessionId, contextLimit, overriddenModelName),
   },
   platform: process.platform,
-});
+};
+
+contextBridge.exposeInMainWorld('electronAPI', api);
+
+// window.electronAPI 的类型即实际暴露对象：契约 → preload → window，结构性漂移不可能存在。
+export type PreloadApi = typeof api;

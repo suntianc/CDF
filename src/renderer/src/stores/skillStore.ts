@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { Skill } from '../../../shared/types';
+import { Skill, SkillSaveInput } from '../../../shared/types';
 
 interface SkillState {
   skills: Skill[];
   isLoading: boolean;
   error: string | null;
   fetchSkills: (projectId: string) => Promise<void>;
-  saveSkill: (projectId: string, skill: Partial<Skill>) => Promise<void>;
+  saveSkill: (projectId: string, skill: SkillSaveInput) => Promise<void>;
   deleteSkill: (projectId: string, id: string) => Promise<void>;
 }
 

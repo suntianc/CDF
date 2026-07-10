@@ -58,6 +58,7 @@ export const useAISubscriptionStore = create<AISubscriptionState>((set, get) => 
         window.electronAPI.aiSubscriptions.getActiveLogins(),
       ]);
       for (const entryId of activeLoginAttempts.keys()) {
+        if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') continue;
         if (!loginDescriptors[entryId]) activeLoginAttempts.delete(entryId);
       }
       set({ entries, loginDescriptors, isLoading: false });

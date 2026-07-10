@@ -1,3 +1,4 @@
+import type { SearchProviderType } from '@shared/types';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -93,7 +94,7 @@ const getIntegratedTools = (t: (key: string) => string): ToolMeta[] => [
 
 interface ToolConfigItem {
   id: string;
-  tool_type: string;
+  tool_type: SearchProviderType;
   name: string;
   api_key: string;
   config: Record<string, any>;

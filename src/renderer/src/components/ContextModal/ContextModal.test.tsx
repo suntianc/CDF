@@ -51,8 +51,10 @@ vi.mock('@/components/ui/dialog', () => ({
 }));
 
 declare global {
+  // 与 env.d.ts 的 Window.electronAPI 保持同型：裸 any 会经 `Window & typeof globalThis`
+  // 交叉把全 renderer 的 electronAPI 毒化成 any。
   // eslint-disable-next-line no-var
-  var electronAPI: any;
+  var electronAPI: Window['electronAPI'];
 }
 
 beforeEach(() => {
@@ -65,7 +67,7 @@ beforeEach(() => {
   mockLLMGet.mockReturnValue({ activeProvider: { context_limit: 200_000, default_model: 'claude-opus' } });
   globalThis.electronAPI = {
     context: { currentSession: mockCurrentSession },
-  };
+  } as unknown as Window['electronAPI'];
 });
 
 import { ContextModal } from './ContextModal';

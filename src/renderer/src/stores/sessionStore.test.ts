@@ -81,7 +81,7 @@ describe('sessionStore sendMessage', () => {
         onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
-    };
+    } as unknown as Window['electronAPI'];
 
     await useSessionStore.getState().sendMessage('project-1', '测试消息');
 
@@ -179,7 +179,7 @@ describe('sessionStore sendMessage', () => {
         onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
-    };
+    } as unknown as Window['electronAPI'];
 
     await useSessionStore.getState().sendMessage('project-1', 'Use the selected subscription model');
 
@@ -254,7 +254,7 @@ describe('sessionStore sendMessage', () => {
         onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
-    };
+    } as unknown as Window['electronAPI'];
 
     const sendPromise = useSessionStore.getState().sendMessage('project-1', '测试工具生命周期');
     await vi.waitFor(() => expect(runningSaveStarted).toHaveBeenCalledTimes(1));
@@ -316,7 +316,7 @@ describe('sessionStore sendMessage', () => {
         onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
-    };
+    } as unknown as Window['electronAPI'];
 
     await useSessionStore.getState().sendMessage(
       'project-1',
@@ -382,7 +382,7 @@ describe('sessionStore sendMessage', () => {
         onParallelTaskStep: vi.fn(() => () => {}),
       },
       platform: 'darwin',
-    };
+    } as unknown as Window['electronAPI'];
 
     await useSessionStore.getState().sendMessage(
       'project-1',
@@ -467,7 +467,7 @@ describe('sessionStore sessionGoals (D-02/D-04/D-05)', () => {
         onChunk: vi.fn(),
       },
       platform: 'darwin',
-    };
+    } as unknown as Window['electronAPI'];
 
     useSessionStore.setState({
       sessions: [],
