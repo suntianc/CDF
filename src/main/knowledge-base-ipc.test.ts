@@ -60,6 +60,7 @@ vi.mock('./knowledge-base', async () => {
 });
 
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
+import { IPC_INVOKE_CHANNELS } from '../shared/ipc-contract';
 
 describe('Knowledge Base IPC', () => {
   beforeEach(() => {
@@ -108,6 +109,22 @@ describe('Knowledge Base IPC', () => {
     expect(readMock).toHaveBeenCalledWith('/tmp/project', 'notes/rag.md');
     expect(updateMock).toHaveBeenCalledWith('/tmp/project', 'notes/rag.md', { title: 'Updated' });
     expect(deleteMock).toHaveBeenCalledWith('/tmp/project', 'notes/rag.md');
+  });
+
+  it('registers exactly the knowledge-domain channels declared in the IPC contract', () => {
+    dbPrepareMock.mockReturnValue({
+      get: vi.fn(() => ({ path: '/tmp/project' })),
+    });
+
+    registerKnowledgeBaseHandlers();
+
+    const registered = ipcHandleMock.mock.calls.map(([channel]) => channel).sort();
+    const declared = IPC_INVOKE_CHANNELS
+      .filter((channel) => channel.startsWith('knowledge:') || channel.startsWith('paper-library:'))
+      .slice()
+      .sort();
+    expect(registered).toEqual(declared);
+    expect(declared.length).toBeGreaterThan(0);
   });
 
   it('opens Paper PDF resources inside the project Knowledge Base only', async () => {

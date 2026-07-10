@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { typedInvoke } from './typed-ipc';
 import type {
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
@@ -219,21 +220,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   knowledge: {
     list: (projectId: string, options?: KnowledgeEntrySearchOptions) =>
-      ipcRenderer.invoke('knowledge:list', projectId, options),
+      typedInvoke('knowledge:list', projectId, options),
     search: (projectId: string, options?: KnowledgeEntrySearchOptions) =>
-      ipcRenderer.invoke('knowledge:search', projectId, options),
+      typedInvoke('knowledge:search', projectId, options),
     create: (projectId: string, input: KnowledgeEntryCreateInput) =>
-      ipcRenderer.invoke('knowledge:create', projectId, input),
+      typedInvoke('knowledge:create', projectId, input),
     read: (projectId: string, relativePath: string) =>
-      ipcRenderer.invoke('knowledge:read', projectId, relativePath),
+      typedInvoke('knowledge:read', projectId, relativePath),
     update: (projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) =>
-      ipcRenderer.invoke('knowledge:update', projectId, relativePath, input),
+      typedInvoke('knowledge:update', projectId, relativePath, input),
     delete: (projectId: string, relativePath: string) =>
-      ipcRenderer.invoke('knowledge:delete', projectId, relativePath),
+      typedInvoke('knowledge:delete', projectId, relativePath),
   },
   papers: {
     openPdf: (projectId: string, resource: string) =>
-      ipcRenderer.invoke('paper-library:openPdf', projectId, resource),
+      typedInvoke('paper-library:openPdf', projectId, resource),
   },
   paperSearch: {
     getSettings: () => ipcRenderer.invoke('paper-search:getSettings'),

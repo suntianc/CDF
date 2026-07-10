@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow } from 'electron';
 import db from './database';
+import { typedHandle } from './typed-ipc';
 import {
   createKnowledgeEntry,
   deleteKnowledgeEntry,
@@ -12,12 +13,6 @@ import {
   searchKnowledgeEntries,
   updateKnowledgeEntry,
 } from './knowledge-base';
-import type {
-  KnowledgeEntryCreateInput,
-  KnowledgeEntrySearchOptions,
-  KnowledgeEntryUpdateInput,
-} from '../shared/types';
-
 function getProjectPath(projectId: string): string {
   const project = db
     .prepare('SELECT path FROM projects WHERE id = ?')
@@ -29,31 +24,31 @@ function getProjectPath(projectId: string): string {
 }
 
 export function registerKnowledgeBaseHandlers(): void {
-  ipcMain.handle('knowledge:list', async (_event, projectId: string, options?: KnowledgeEntrySearchOptions) => {
+  typedHandle('knowledge:list', async (_event, projectId, options) => {
     return listKnowledgeEntries(getProjectPath(projectId), options);
   });
 
-  ipcMain.handle('knowledge:search', async (_event, projectId: string, options: KnowledgeEntrySearchOptions = {}) => {
+  typedHandle('knowledge:search', async (_event, projectId, options = {}) => {
     return searchKnowledgeEntries(getProjectPath(projectId), options);
   });
 
-  ipcMain.handle('knowledge:create', async (_event, projectId: string, input: KnowledgeEntryCreateInput) => {
+  typedHandle('knowledge:create', async (_event, projectId, input) => {
     return createKnowledgeEntry(getProjectPath(projectId), input);
   });
 
-  ipcMain.handle('knowledge:read', async (_event, projectId: string, relativePath: string) => {
+  typedHandle('knowledge:read', async (_event, projectId, relativePath) => {
     return readKnowledgeEntry(getProjectPath(projectId), relativePath);
   });
 
-  ipcMain.handle('knowledge:update', async (_event, projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) => {
+  typedHandle('knowledge:update', async (_event, projectId, relativePath, input) => {
     return updateKnowledgeEntry(getProjectPath(projectId), relativePath, input);
   });
 
-  ipcMain.handle('knowledge:delete', async (_event, projectId: string, relativePath: string) => {
+  typedHandle('knowledge:delete', async (_event, projectId, relativePath) => {
     return deleteKnowledgeEntry(getProjectPath(projectId), relativePath);
   });
 
-  ipcMain.handle('paper-library:openPdf', async (_event, projectId: string, resource: string) => {
+  typedHandle('paper-library:openPdf', async (_event, projectId, resource) => {
     const pdfPath = resolvePaperPdfResourcePath(getProjectPath(projectId), resource);
     const window = new BrowserWindow({
       width: 960,
