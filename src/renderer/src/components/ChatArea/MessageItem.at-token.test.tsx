@@ -23,6 +23,11 @@ vi.mock('lucide-react', () => {
     File: sentinel('file'),
     Folder: sentinel('folder'),
     AlertTriangle: sentinel('alert-triangle'),
+    // 共享 AlertBlock 经由 StreamdownRenderer 进入 MessageItem 子树。
+    Info: sentinel('info'),
+    Lightbulb: sentinel('lightbulb'),
+    AlertCircle: sentinel('alert-circle'),
+    AlertOctagon: sentinel('alert-octagon'),
   };
 });
 
