@@ -511,7 +511,11 @@
       "sourceKinds": {
         "llm_provider": "API provider",
         "ai_subscription": "AI subscription"
-      }
+      },
+      "refreshConfig": "Refresh config",
+      "refreshingConfig": "Refreshing...",
+      "refreshConfigFailed": "Failed to refresh config: {{message}}",
+      "addModel": "Manage/Add model"
     },
     "reasoningEffort": {
       "depthLabel": "Reasoning depth",
@@ -698,9 +702,12 @@
   },
   "approvalMode": {
     "label": "Approval Mode",
-    "strict": "Strict",
-    "agentDecides": "Agent Decides",
-    "bypass": "Auto (Bypass)",
+    "strict": "Request Approval",
+    "strictDesc": "Always ask when editing external files and using the Internet",
+    "agentDecides": "Approve for Me",
+    "agentDecidesDesc": "Only ask for approval for detected risky operations",
+    "bypass": "Full Access",
+    "bypassDesc": "Unrestricted access to the Internet and any files on your computer",
     "bypassWarning": "All tool calls will execute automatically without confirmation"
   },
   "workflow": {

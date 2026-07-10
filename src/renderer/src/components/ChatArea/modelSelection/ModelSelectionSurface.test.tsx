@@ -1,9 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LLMProvider } from '@shared/types';
 import { buildAISubscriptionEntries } from '@shared/ai-subscriptions';
 import { ModelSelectionSurface } from './ModelSelectionSurface';
 import { buildModelSelectionGroups } from './useModelSelectionController';
+import { useLLMStore } from '../../../stores/llmStore';
+import { useAISubscriptionStore } from '../../../stores/aiSubscriptionStore';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -12,10 +14,23 @@ vi.mock('react-i18next', () => ({
       'chat.noProvidersAvailable': 'No providers available',
       'chat.modelSelection.sourceKinds.llm_provider': 'API provider',
       'chat.modelSelection.sourceKinds.ai_subscription': 'AI subscription',
+      'chat.modelSelection.refreshConfig': 'Refresh config',
+      'chat.modelSelection.refreshingConfig': 'Refreshing...',
+      'chat.modelSelection.addModel': 'Manage/Add model',
     }[key] ?? key),
+    i18n: { language: 'en-US' },
   }),
 }));
 
+
+const originalFetchProviders = useLLMStore.getState().fetchProviders;
+const originalFetchEntries = useAISubscriptionStore.getState().fetchEntries;
+
+afterEach(() => {
+  useLLMStore.setState({ fetchProviders: originalFetchProviders });
+  useAISubscriptionStore.setState({ fetchEntries: originalFetchEntries });
+  vi.clearAllMocks();
+});
 function provider(overrides: Partial<LLMProvider> & Pick<LLMProvider, 'id' | 'name' | 'default_model'>): LLMProvider {
   return {
     provider_type: 'openai',
@@ -123,6 +138,86 @@ describe('ModelSelectionSurface', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'No providers available' }));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('renders model descriptions when matching common models', () => {
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4o-mini' }),
+    ];
+
+    render(
+      <ModelSelectionSurface
+        variant="welcome"
+        modelGroups={buildModelSelectionGroups(providers)}
+        selectedSourceType="llm_provider"
+        selectedSourceId="provider-1"
+        selectedModel="gpt-4o-mini"
+        currentModelLabel="OpenAI • gpt-4o-mini"
+        onSelectModel={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'OpenAI • gpt-4o-mini' }));
+
+    expect(screen.getByText('Fast, lightweight, and highly cost-effective model')).toBeTruthy();
+    expect(screen.getAllByLabelText('openai')).toHaveLength(2);
+  });
+
+  it('triggers configuration and subscription refresh on clicking refresh config button', async () => {
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4.1' }),
+    ];
+    const fetchProviders = vi.fn(() => Promise.resolve());
+    const fetchEntries = vi.fn(() => Promise.resolve());
+    useLLMStore.setState({ fetchProviders });
+    useAISubscriptionStore.setState({ fetchEntries });
+
+    render(
+      <ModelSelectionSurface
+        variant="welcome"
+        modelGroups={buildModelSelectionGroups(providers)}
+        selectedSourceType="llm_provider"
+        selectedSourceId="provider-1"
+        selectedModel="gpt-4.1"
+        currentModelLabel="OpenAI • gpt-4.1"
+        onSelectModel={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'OpenAI • gpt-4.1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh config' }));
+
+    await waitFor(() => {
+      expect(fetchProviders).toHaveBeenCalledTimes(1);
+      expect(fetchEntries).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('triggers settings modal opening on clicking add model button', () => {
+    const onOpenSettings = vi.fn();
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4.1' }),
+    ];
+
+    render(
+      <ModelSelectionSurface
+        variant="composer"
+        modelGroups={buildModelSelectionGroups(providers)}
+        selectedSourceType="llm_provider"
+        selectedSourceId="provider-1"
+        selectedModel="gpt-4.1"
+        currentModelLabel="OpenAI • gpt-4.1"
+        onSelectModel={() => {}}
+        onOpenSettings={onOpenSettings}
+      />
+    );
+
+    const trigger = screen.getByRole('button', { name: 'OpenAI • gpt-4.1' });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('button', { name: 'Manage/Add model' }));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');

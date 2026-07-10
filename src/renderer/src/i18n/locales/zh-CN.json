@@ -511,7 +511,11 @@
       "sourceKinds": {
         "llm_provider": "API 提供商",
         "ai_subscription": "AI 订阅"
-      }
+      },
+      "refreshConfig": "刷新配置",
+      "refreshingConfig": "刷新中...",
+      "refreshConfigFailed": "刷新配置失败: {{message}}",
+      "addModel": "管理/添加模型"
     },
     "reasoningEffort": {
       "depthLabel": "思考深度",
@@ -698,9 +702,12 @@
   },
   "approvalMode": {
     "label": "审批模式",
-    "strict": "严格审批",
-    "agentDecides": "Agent 自行判断",
-    "bypass": "全自动（跳过审批）",
+    "strict": "请求批准",
+    "strictDesc": "编辑外部文件和使用互联网时始终询问",
+    "agentDecides": "替我审批",
+    "agentDecidesDesc": "仅对检测到的风险操作请求批准",
+    "bypass": "完全访问",
+    "bypassDesc": "可不受限制地访问互联网和您电脑上的任何文件",
     "bypassWarning": "所有工具调用将自动执行，不经确认"
   },
   "workflow": {

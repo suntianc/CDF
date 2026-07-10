@@ -92,12 +92,15 @@ export const ProviderIcon: FC<Props> = ({
     color: brandColor,
   };
 
+  const rawSvg = colorSvg ?? monoSvg;
+  const cleanSvg = rawSvg ? rawSvg.replace(/<title>.*?<\/title>/gi, '') : '';
+
   return (
     <span
       className={`inline-flex items-center justify-center leading-none ${shape === 'circle' ? 'rounded-full overflow-hidden' : ''} ${className}`}
       style={style}
       aria-label={provider}
-      dangerouslySetInnerHTML={{ __html: colorSvg ?? monoSvg }}
+      dangerouslySetInnerHTML={{ __html: cleanSvg }}
     />
   );
 };
