@@ -7,9 +7,43 @@ import type {
   KnowledgeEntrySearchOptions,
   KnowledgeEntrySummary,
   KnowledgeEntryUpdateInput,
+  LLMProvider,
+  LLMProviderSaveInput,
+  LLMProviderSaveResult,
+  Message,
+  MessageSaveInput,
+  Project,
+  ProjectScene,
+  Session,
 } from './types';
 
 export interface IpcInvokeContract {
+  // ===== db：Projects / Sessions / Messages / LLM Providers =====
+  'db:getProjects': { args: []; result: Project[] };
+  'db:createProject': {
+    args: [name: string, projectPath: string, scene?: ProjectScene];
+    result: Project;
+  };
+  'db:deleteProject': { args: [id: string]; result: void };
+  'db:renameProject': {
+    args: [id: string, name: string];
+    result: { id: string; name: string; updated_at: number };
+  };
+  'db:getSessions': { args: [projectId: string]; result: Session[] };
+  'db:createSession': {
+    args: [projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string];
+    result: Session;
+  };
+  'db:deleteSession': { args: [sessionId: string]; result: void };
+  'db:getMessages': { args: [sessionId: string]; result: Message[] };
+  'db:saveMessage': { args: [message: MessageSaveInput]; result: Message };
+  'db:updateMessageThinkDuration': { args: [id: string, seconds: number]; result: void };
+  'db:deleteMessage': { args: [id: string]; result: void };
+  'db:getProviders': { args: []; result: LLMProvider[] };
+  'db:saveProvider': { args: [provider: LLMProviderSaveInput]; result: LLMProviderSaveResult };
+  'db:deleteProvider': { args: [id: string]; result: void };
+  'db:setActiveProvider': { args: [id: string]; result: void };
+  'db:selectDirectory': { args: []; result: string | null };
   // ===== Knowledge Base / Paper Library =====
   'knowledge:list': {
     args: [projectId: string, options?: KnowledgeEntrySearchOptions];
@@ -48,6 +82,22 @@ export type IpcInvokeResult<C extends IpcInvokeChannel> = IpcInvokeContract[C]['
 // 契约 channel 的运行时清单，供注册完整性测试使用。
 // satisfies 保证清单里只有合法 channel；下方 AssertNever 保证契约里没有漏列的 channel。
 export const IPC_INVOKE_CHANNELS = [
+  'db:getProjects',
+  'db:createProject',
+  'db:deleteProject',
+  'db:renameProject',
+  'db:getSessions',
+  'db:createSession',
+  'db:deleteSession',
+  'db:getMessages',
+  'db:saveMessage',
+  'db:updateMessageThinkDuration',
+  'db:deleteMessage',
+  'db:getProviders',
+  'db:saveProvider',
+  'db:deleteProvider',
+  'db:setActiveProvider',
+  'db:selectDirectory',
   'knowledge:list',
   'knowledge:search',
   'knowledge:create',

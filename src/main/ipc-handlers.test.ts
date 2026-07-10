@@ -128,6 +128,28 @@ vi.mock('./scene-presets', () => ({
 }));
 
 import { registerIpcHandlers } from './ipc-handlers';
+import { IPC_INVOKE_CHANNELS } from '../shared/ipc-contract';
+
+// 各域迁移进契约后逐段追加；T8 收官时由全局完整性测试双向锁死。
+const MIGRATED_IPC_HANDLER_CHANNELS = [
+  // db 核心域（#116）
+  'db:getProjects',
+  'db:createProject',
+  'db:deleteProject',
+  'db:renameProject',
+  'db:getSessions',
+  'db:createSession',
+  'db:deleteSession',
+  'db:getMessages',
+  'db:saveMessage',
+  'db:updateMessageThinkDuration',
+  'db:deleteMessage',
+  'db:getProviders',
+  'db:saveProvider',
+  'db:deleteProvider',
+  'db:setActiveProvider',
+  'db:selectDirectory',
+] as const;
 
 describe('IPC handlers', () => {
   beforeEach(() => {
@@ -143,6 +165,17 @@ describe('IPC handlers', () => {
     shellOpenExternalMock.mockClear();
     startAISubscriptionLoginMock.mockReset();
     pollAISubscriptionLoginMock.mockReset();
+  });
+
+  it('declares and registers every migrated ipc-handlers channel in the IPC contract', () => {
+    registerIpcHandlers();
+    const registered = new Set(ipcHandleMock.mock.calls.map(([channel]) => channel));
+    const declared = new Set<string>(IPC_INVOKE_CHANNELS);
+
+    for (const channel of MIGRATED_IPC_HANDLER_CHANNELS) {
+      expect(declared, `contract is missing ${channel}`).toContain(channel);
+      expect(registered, `no handler registered for ${channel}`).toContain(channel);
+    }
   });
 
   it('opens external http urls through the system browser shell', async () => {

@@ -56,6 +56,17 @@ export interface Message {
   imageBase64?: string[];
 }
 
+// IPC 保存入参：以 db:saveMessage handler 实际消费的字段为真（created_at 由主进程生成）。
+export interface MessageSaveInput {
+  id: string;
+  session_id: string;
+  role: Message['role'];
+  content: string;
+  tokens?: number | null;
+  think_duration_seconds?: number | null;
+  imageBase64?: string[];
+}
+
 export interface LLMProvider {
   id: string;
   name: string;
@@ -69,6 +80,33 @@ export interface LLMProvider {
   models?: string[];
   created_at: number;
   updated_at: number;
+}
+
+// IPC 保存入参：以 db:saveProvider handler 实际消费的字段为真。
+// api_key 传 '••••••••' 表示保留已存密钥；created_at/updated_at 由主进程生成。
+export interface LLMProviderSaveInput {
+  id: string;
+  name: string;
+  provider_type: LLMProvider['provider_type'];
+  api_key?: string;
+  api_url?: string;
+  default_model: string;
+  context_limit: number;
+  is_active: number | boolean;
+  models?: string[];
+}
+
+// db:saveProvider 的真实返回：不含 created_at/updated_at/api_key（handler 为真）。
+export interface LLMProviderSaveResult {
+  id: string;
+  name: string;
+  provider_type: LLMProvider['provider_type'];
+  api_url?: string;
+  default_model: string;
+  context_limit: number;
+  is_active: number | boolean;
+  models?: string[];
+  hasKey: boolean;
 }
 
 export interface Agent {

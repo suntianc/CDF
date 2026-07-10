@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, shell } from 'electron';
+import { typedHandle } from './typed-ipc';
 import log from './logger';
 import store from './store';
 import db from './database';
@@ -34,6 +35,7 @@ import type {
   PaperSearchConfigKey,
   PaperSearchConfigSettings,
   ProjectScene,
+  Session,
 } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
 import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
@@ -327,7 +329,7 @@ export function registerIpcHandlers() {
   );
 
   // Database handlers: Projects
-  ipcMain.handle('db:getProjects', () => {
+  typedHandle('db:getProjects', () => {
     const projects = db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all() as any[];
     return projects.map((p) => {
       const isGit = p.path ? fs.existsSync(path.join(p.path, '.git')) : false;
@@ -335,7 +337,7 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:createProject', (_, name: string, projectPath: string, scene?: ProjectScene) => {
+  typedHandle('db:createProject', (_, name, projectPath, scene) => {
     const projectScene = normalizeProjectScene(scene);
     const id = crypto.randomUUID();
     const now = Date.now();
@@ -347,24 +349,24 @@ export function registerIpcHandlers() {
     return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
   });
 
-  ipcMain.handle('db:deleteProject', (_, id: string) => {
+  typedHandle('db:deleteProject', (_, id) => {
     db.prepare('DELETE FROM projects WHERE id = ?').run(id);
   });
 
-  ipcMain.handle('db:renameProject', (_, id: string, name: string) => {
+  typedHandle('db:renameProject', (_, id, name) => {
     const now = Date.now();
     db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
     return { id, name, updated_at: now };
   });
 
   // Database handlers: Sessions
-  ipcMain.handle('db:getSessions', (_, projectId: string) => {
+  typedHandle('db:getSessions', (_, projectId) => {
     return db
       .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
-      .all(projectId);
+      .all(projectId) as Session[];
   });
 
-  ipcMain.handle('db:createSession', (_, projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => {
+  typedHandle('db:createSession', (_, projectId, name, parentSessionId, summary, agentId) => {
     const id = crypto.randomUUID();
     const now = Date.now();
     ensureProjectForSession(projectId);
@@ -377,12 +379,12 @@ export function registerIpcHandlers() {
     return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
   });
 
-  ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
+  typedHandle('db:deleteSession', (_, sessionId) => {
     db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
   });
 
   // Database handlers: Messages
-  ipcMain.handle('db:getMessages', (_, sessionId: string) => {
+  typedHandle('db:getMessages', (_, sessionId) => {
     const rows = db.prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as any[];
     return rows.map((row) => {
       if (row.image_data) {
@@ -392,7 +394,7 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:saveMessage', (_, message: any) => {
+  typedHandle('db:saveMessage', (_, message) => {
     const { id, session_id, role, content, tokens, think_duration_seconds, imageBase64 } = message;
     const now = Date.now();
 
@@ -423,16 +425,16 @@ export function registerIpcHandlers() {
     return { id, session_id, role, content, created_at: now, tokens, imageBase64 };
   });
 
-  ipcMain.handle('db:updateMessageThinkDuration', (_, id: string, seconds: number) => {
+  typedHandle('db:updateMessageThinkDuration', (_, id, seconds) => {
     db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
   });
 
-  ipcMain.handle('db:deleteMessage', (_, id: string) => {
+  typedHandle('db:deleteMessage', (_, id) => {
     db.prepare('DELETE FROM messages WHERE id = ?').run(id);
   });
 
   // Database handlers: LLM Providers
-  ipcMain.handle('db:getProviders', () => {
+  typedHandle('db:getProviders', () => {
     const providers = db.prepare('SELECT * FROM llm_providers ORDER BY created_at DESC').all() as any[];
     // Security: mask API key so renderer never sees it
     return providers.map(p => {
@@ -451,7 +453,7 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:saveProvider', (_, provider: any) => {
+  typedHandle('db:saveProvider', (_, provider) => {
     let { id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, models } = provider;
     
     // Force standard name for non-custom providers
@@ -493,11 +495,11 @@ export function registerIpcHandlers() {
     return { id, name, provider_type, api_url: normalizedApiUrl, default_model, context_limit, is_active, models, hasKey: !!finalApiKey };
   });
 
-  ipcMain.handle('db:deleteProvider', (_, id: string) => {
+  typedHandle('db:deleteProvider', (_, id) => {
     db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
   });
 
-  ipcMain.handle('db:setActiveProvider', (_, id: string) => {
+  typedHandle('db:setActiveProvider', (_, id) => {
     db.prepare('UPDATE llm_providers SET is_active = 0').run();
     db.prepare('UPDATE llm_providers SET is_active = 1 WHERE id = ?').run(id);
   });
@@ -583,7 +585,7 @@ export function registerIpcHandlers() {
     return await fetchOllamaModels(apiUrl);
   });
 
-  ipcMain.handle('db:selectDirectory', async () => {
+  typedHandle('db:selectDirectory', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
     });
