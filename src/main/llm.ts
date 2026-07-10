@@ -8,10 +8,12 @@ import type {
   AgentApprovalResolution,
   AgentRunStatus,
   AgentToolCallStatus,
-  ChatRuntimeOverrides,
+  ChatPayload,
   ExecutionStep,
+  JudgePayload,
   SkillAttribution,
 } from '../shared/types';
+import { llmChunkChannel } from '../shared/ipc-contract';
 
 /**
  * Build task tool input package for subagent delegation.
@@ -32,24 +34,8 @@ export function buildTaskPackage(agentSlug: string, goal: string): { name: strin
   };
 }
 
-export interface ChatPayload {
-  projectId: string;
-  sessionId: string;
-  agentId?: string | null;
-  message: {
-    id: string;
-    content: string;
-    imageBase64?: string[];
-  };
-  overrides?: ChatRuntimeOverrides;
-}
-
-export interface JudgePayload {
-  projectId: string;
-  agentId?: string | null;
-  prompt: string;
-  overrides?: ChatRuntimeOverrides;
-}
+// ChatPayload / JudgePayload 已迁移至 src/shared/types.ts（IPC 契约共享）。
+export type { ChatPayload, JudgePayload } from '../shared/types';
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
@@ -485,7 +471,7 @@ function findModelTriggeredSkillAttribution(
 
 
 export async function runLLMChat(sender: WebContents, requestId: string, payload: ChatPayload): Promise<void> {
-  const channel = `llm:chunk-${requestId}`;
+  const channel = llmChunkChannel(requestId);
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
   const accumulator = createStreamAccumulator();

@@ -423,6 +423,27 @@ export const MAX_AT_MENTION_CANDIDATES = 5000;
 
 export type ConversationModelSourceType = 'llm_provider' | 'ai_subscription';
 
+// llm:chat 的真实入参（handler 为真，原 src/main/llm.ts 定义迁移至此）。
+export interface ChatPayload {
+  projectId: string;
+  sessionId: string;
+  agentId?: string | null;
+  message: {
+    id: string;
+    content: string;
+    imageBase64?: string[];
+  };
+  overrides?: ChatRuntimeOverrides;
+}
+
+// llm:judge 的真实入参（handler 为真，原 src/main/llm.ts 定义迁移至此）。
+export interface JudgePayload {
+  projectId: string;
+  agentId?: string | null;
+  prompt: string;
+  overrides?: ChatRuntimeOverrides;
+}
+
 export interface ChatRuntimeOverrides {
   modelSource?: ConversationModelSourceType;
   sourceId?: string;
@@ -725,6 +746,14 @@ export interface ExecutionStep {
   duration_ms?: number; // tool_result
   spanId?: string;       // 当前步骤的 span 标识
   parentSpanId?: string; // 父级 span 标识
+}
+
+// agent:parallel-task-step-* 动态通道的 payload（原 parallel-task-tool.ts 定义迁移至此）。
+export interface ParallelTaskStepEvent {
+  batchId: string;
+  agentSlug: string;
+  workerId: string;
+  step: ExecutionStep;
 }
 
 export interface WorkflowNodeRun {

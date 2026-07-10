@@ -4,10 +4,15 @@
 // 纯类型层契约：不做运行时校验，运行时行为不变。
 import type {
   Agent,
+  AgentApprovalResolution,
   AgentRun,
   AgentSaveInput,
   AgentSaveResult,
   AgentToolCall,
+  ChatPayload,
+  JudgePayload,
+  LLMStreamEvent,
+  ParallelTaskStepEvent,
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntrySummary,
@@ -142,6 +147,23 @@ export interface IpcInvokeContract {
     args: [projectId: string, resource: string];
     result: { success: true };
   };
+  // ===== LLM 会话 / Provider 探测 =====
+  // fire-and-forget：handler 立即返回 { ok: true }，流式结果走 llm:chunk-* 动态通道。
+  'llm:chat': { args: [requestId: string, payload: ChatPayload]; result: { ok: true } };
+  'llm:judge': { args: [payload: JudgePayload]; result: { text: string } };
+  'llm:stopChat': { args: [requestId: string]; result: void };
+  'llm:resolveApproval': {
+    args: [requestId: string, resolution: AgentApprovalResolution];
+    result: void;
+  };
+  'llm:testProvider': { args: [providerId: string]; result: { ok: boolean; message: string } };
+  'llm:fetchProviderModels': { args: [providerId: string]; result: string[] };
+  'llm:fetchOllamaModels': { args: [apiUrl: string]; result: string[] };
+  // ===== deepagents =====
+  'deepagents:createAgent': {
+    args: [config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }];
+    result: { agentId: string };
+  };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract;
@@ -205,6 +227,14 @@ export const IPC_INVOKE_CHANNELS = [
   'knowledge:update',
   'knowledge:delete',
   'paper-library:openPdf',
+  'llm:chat',
+  'llm:judge',
+  'llm:stopChat',
+  'llm:resolveApproval',
+  'llm:testProvider',
+  'llm:fetchProviderModels',
+  'llm:fetchOllamaModels',
+  'deepagents:createAgent',
 ] as const satisfies readonly IpcInvokeChannel[];
 
 type AssertNever<T extends never> = T;
@@ -228,3 +258,9 @@ export function dynamicIpcChannel<P>(prefix: string): (id: string) => DynamicIpc
 }
 
 export type DynamicIpcPayload<C> = C extends DynamicIpcChannel<infer P> ? P : never;
+
+// LLM 流式 chunk：主进程发送侧与 preload 监听侧共用（按 requestId 拼名）。
+export const llmChunkChannel = dynamicIpcChannel<LLMStreamEvent>('llm:chunk-');
+
+// 并行任务步进：主进程发送侧与 preload 监听侧共用（按 sessionId 拼名）。
+export const parallelTaskStepChannel = dynamicIpcChannel<ParallelTaskStepEvent>('agent:parallel-task-step-');

@@ -128,7 +128,7 @@ vi.mock('./scene-presets', () => ({
 }));
 
 import { registerIpcHandlers } from './ipc-handlers';
-import { IPC_INVOKE_CHANNELS } from '../shared/ipc-contract';
+import { IPC_INVOKE_CHANNELS, llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
 
 // 各域迁移进契约后逐段追加；T8 收官时由全局完整性测试双向锁死。
 const MIGRATED_IPC_HANDLER_CHANNELS = [
@@ -181,6 +181,15 @@ const MIGRATED_IPC_HANDLER_CHANNELS = [
   'db:getWorkflowNodeRuns',
   'db:openFile',
   'db:revealFile',
+  // llm + deepagents 域（#118）
+  'llm:chat',
+  'llm:judge',
+  'llm:stopChat',
+  'llm:resolveApproval',
+  'llm:testProvider',
+  'llm:fetchProviderModels',
+  'llm:fetchOllamaModels',
+  'deepagents:createAgent',
 ] as const;
 
 describe('IPC handlers', () => {
@@ -208,6 +217,11 @@ describe('IPC handlers', () => {
       expect(declared, `contract is missing ${channel}`).toContain(channel);
       expect(registered, `no handler registered for ${channel}`).toContain(channel);
     }
+  });
+
+  it('builds dynamic event channel names through the shared factories', () => {
+    expect(llmChunkChannel('req-1')).toBe('llm:chunk-req-1');
+    expect(parallelTaskStepChannel('session-9')).toBe('agent:parallel-task-step-session-9');
   });
 
   it('opens external http urls through the system browser shell', async () => {

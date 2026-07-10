@@ -24,21 +24,18 @@ import {
   getRuntimeToolNames,
   type AgentRow,
 } from './shared-infra';
-import type { ApprovalMode, ExecutionStep } from '../../shared/types';
+import type { ApprovalMode, ExecutionStep, ParallelTaskStepEvent } from '../../shared/types';
+import { parallelTaskStepChannel } from '../../shared/ipc-contract';
 
 const WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 
-export interface ParallelTaskStepEvent {
-  batchId: string;
-  agentSlug: string;
-  workerId: string;
-  step: ExecutionStep;
-}
+// ParallelTaskStepEvent 已迁移至 src/shared/types.ts（IPC 契约共享）。
+export type { ParallelTaskStepEvent } from '../../shared/types';
 
 export function pushParallelTaskStep(sessionId: string, event: ParallelTaskStepEvent) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
-      win.webContents.send(`agent:parallel-task-step-${sessionId}`, event);
+      win.webContents.send(parallelTaskStepChannel(sessionId), event);
     }
   }
 }

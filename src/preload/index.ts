@@ -1,14 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { IpcRendererEvent } from 'electron';
 import { typedInvoke } from './typed-ipc';
+import { llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
 import type {
+  AgentApprovalResolution,
   AgentSaveInput,
+  ChatPayload,
+  JudgePayload,
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntryUpdateInput,
   LLMProviderSaveInput,
   MCPServerSaveInput,
+  LLMStreamEvent,
   MessageSaveInput,
   PaperSearchConfigKey,
+  ParallelTaskStepEvent,
   ProjectScene,
   SearchProviderSaveInput,
   SkillSaveInput,
@@ -102,16 +109,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revealFile: (filePath: string, projectId?: string) => typedInvoke('db:revealFile', filePath, projectId),
   },
   llm: {
-    chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
-    judge: (payload: any) => ipcRenderer.invoke('llm:judge', payload),
-    stopChat: (requestId: string) => ipcRenderer.invoke('llm:stopChat', requestId),
-    resolveApproval: (requestId: string, resolution: any) => ipcRenderer.invoke('llm:resolveApproval', requestId, resolution),
-    testProvider: (providerId: string) => ipcRenderer.invoke('llm:testProvider', providerId),
-    fetchProviderModels: (providerId: string) => ipcRenderer.invoke('llm:fetchProviderModels', providerId),
-    fetchOllamaModels: (apiUrl: string) => ipcRenderer.invoke('llm:fetchOllamaModels', apiUrl),
-    onChunk: (requestId: string, callback: (event: any, data: any) => void) => {
-      const channel = `llm:chunk-${requestId}`;
-      const listener = (event: any, data: any) => callback(event, data);
+    chat: (requestId: string, payload: ChatPayload) => typedInvoke('llm:chat', requestId, payload),
+    judge: (payload: JudgePayload) => typedInvoke('llm:judge', payload),
+    stopChat: (requestId: string) => typedInvoke('llm:stopChat', requestId),
+    resolveApproval: (requestId: string, resolution: AgentApprovalResolution) => typedInvoke('llm:resolveApproval', requestId, resolution),
+    testProvider: (providerId: string) => typedInvoke('llm:testProvider', providerId),
+    fetchProviderModels: (providerId: string) => typedInvoke('llm:fetchProviderModels', providerId),
+    fetchOllamaModels: (apiUrl: string) => typedInvoke('llm:fetchOllamaModels', apiUrl),
+    onChunk: (requestId: string, callback: (event: IpcRendererEvent, data: LLMStreamEvent) => void) => {
+      const channel = llmChunkChannel(requestId);
+      const listener = (event: IpcRendererEvent, data: LLMStreamEvent) => callback(event, data);
       ipcRenderer.on(channel, listener);
       return () => {
         ipcRenderer.removeListener(channel, listener);
@@ -120,10 +127,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   deepagents: {
     createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) =>
-      ipcRenderer.invoke('deepagents:createAgent', config),
-    onParallelTaskStep: (sessionId: string, callback: (event: any, data: any) => void) => {
-      const channel = `agent:parallel-task-step-${sessionId}`;
-      const listener = (event: any, data: any) => callback(event, data);
+      typedInvoke('deepagents:createAgent', config),
+    onParallelTaskStep: (sessionId: string, callback: (event: IpcRendererEvent, data: ParallelTaskStepEvent) => void) => {
+      const channel = parallelTaskStepChannel(sessionId);
+      const listener = (event: IpcRendererEvent, data: ParallelTaskStepEvent) => callback(event, data);
       ipcRenderer.on(channel, listener);
       return () => { ipcRenderer.removeListener(channel, listener); };
     },

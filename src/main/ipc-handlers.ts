@@ -508,26 +508,26 @@ export function registerIpcHandlers() {
   });
 
   // LLM Streaming API Call handler (deepagents-driven)
-  ipcMain.handle('llm:chat', (event, requestId: string, payload: any) => {
+  typedHandle('llm:chat', (event, requestId, payload) => {
     void runLLMChat(event.sender, requestId, payload).catch((error) => {
       console.error('LLM chat task failed:', error);
     });
     return { ok: true };
   });
 
-  ipcMain.handle('llm:judge', async (_, payload: any) => {
+  typedHandle('llm:judge', async (_, payload) => {
     return runLLMJudge(payload);
   });
 
-  ipcMain.handle('llm:stopChat', async (_, requestId: string) => {
+  typedHandle('llm:stopChat', async (_, requestId) => {
     stopLLMChat(requestId);
   });
 
-  ipcMain.handle('llm:resolveApproval', async (_, requestId: string, resolution: any) => {
+  typedHandle('llm:resolveApproval', async (_, requestId, resolution) => {
     resolveLLMApproval(requestId, resolution);
   });
 
-  ipcMain.handle('llm:testProvider', async (_, providerId: string) => {
+  typedHandle('llm:testProvider', async (_, providerId) => {
     const { provider, decryptedKey } = getProviderWithKey(providerId);
 
     if (provider.provider_type === 'ollama') {
@@ -557,7 +557,7 @@ export function registerIpcHandlers() {
     return { ok: false, message: `HTTP ${response.status}: ${text.slice(0, 120)}` };
   });
 
-  ipcMain.handle('llm:fetchProviderModels', async (_, providerId: string) => {
+  typedHandle('llm:fetchProviderModels', async (_, providerId) => {
     const { provider, decryptedKey } = getProviderWithKey(providerId);
 
     if (provider.provider_type === 'ollama') {
@@ -584,7 +584,7 @@ export function registerIpcHandlers() {
     return Array.isArray(data?.data) ? data.data.map((item: any) => item.id).filter(Boolean) : [];
   });
 
-  ipcMain.handle('llm:fetchOllamaModels', async (_, apiUrl: string) => {
+  typedHandle('llm:fetchOllamaModels', async (_, apiUrl) => {
     return await fetchOllamaModels(apiUrl);
   });
 
@@ -932,7 +932,7 @@ export function registerIpcHandlers() {
   // Store for deepagent instances (managed per session)
   const agentInstances = new Map<string, any>();
 
-  ipcMain.handle('deepagents:createAgent', async (_, config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) => {
+  typedHandle('deepagents:createAgent', async (_, config) => {
     const agentId = crypto.randomUUID();
     agentInstances.set(agentId, { config });
     return { agentId };
