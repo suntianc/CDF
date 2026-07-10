@@ -6,6 +6,7 @@
     "workflows": "工作流",
     "back": "返回",
     "collapse": "折叠侧边栏",
+    "navigation": "设置导航",
     "modelConfig": "模型配置",
     "settings": {
       "header": "通用设置",
@@ -537,10 +538,10 @@
     "sendMessage": "发送消息",
     "createProjectTitle": "创建项目",
     "createProjectDesc": "导入代码仓库或新建空白项目",
-    "configureSkillsTitle": "配置 Skills",
-    "configureSkillsDesc": "安装和启用智能体能力模块",
-    "connectMcpTitle": "连接 MCP",
-    "connectMcpDesc": "配置数据源和外部工具集成",
+    "configurePluginsTitle": "配置插件",
+    "configurePluginsDesc": "管理 Skills 与 MCP 集成",
+    "configureModelsTitle": "配置模型",
+    "configureModelsDesc": "添加和管理模型供应商",
     "shortcutHint": "按 <kbd>/</kbd> 调命令 · <kbd>@</kbd> 选文件 · <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行",
     "hideTaskPanel": "隐藏任务展板",
     "showTaskPanel": "显示任务展板",
@@ -693,6 +694,7 @@
     "cancelCreateProject": "取消",
     "confirmCreateProject": "创建",
     "creatingProject": "创建中...",
+    "createProjectFailed": "无法创建项目，请重试。",
     "scene": {
       "general": "通用",
       "research": "科研"

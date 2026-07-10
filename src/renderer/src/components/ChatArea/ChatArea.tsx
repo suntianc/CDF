@@ -37,6 +37,7 @@ import { CreateProjectDialog } from '@/components/ProjectTree/CreateProjectDialo
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
+  onOpenPlugins?: () => void;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   taskPanelOpen?: boolean;
@@ -47,7 +48,7 @@ interface ChatAreaProps {
 
 export function ChatArea({
   onOpenSettings,
-  sidebarCollapsed,
+  onOpenPlugins,
   onToggleSidebar,
   taskPanelOpen,
   onToggleTaskPanel,
@@ -269,6 +270,7 @@ export function ChatArea({
         onClearError={clearError}
         onCreateProject={() => setCreateProjectOpen(true)}
         onOpenSettings={onOpenSettings}
+        onOpenPlugins={onOpenPlugins}
         leftToolbarSlot={
           <>
             <DropdownMenu>

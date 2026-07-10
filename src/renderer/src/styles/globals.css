@@ -1151,7 +1151,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .folder-sessions-collapse.expanded {
   grid-template-rows: 1fr;
   opacity: 1;
-  margin-top: 6px;
+  margin-top: 2px;
   overflow: visible;
 }
 

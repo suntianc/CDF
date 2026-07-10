@@ -179,6 +179,7 @@ export default function App() {
                 <ChatArea
                   scene={currentScene}
                   onOpenSettings={() => setActiveView('settings')}
+                  onOpenPlugins={() => setActiveView('plugins')}
                   sidebarCollapsed={sidebarCollapsed}
                   onToggleSidebar={() => setSidebarCollapsed(false)}
                   taskPanelOpen={taskPanelOpen}
@@ -217,8 +218,9 @@ export default function App() {
       {sidebarCollapsed && !isEditingWorkflow && (
         <button
           onClick={() => setSidebarCollapsed(false)}
-          className="absolute top-[5px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag after:absolute after:inset-[-8px] after:content-['']"
+          className="absolute top-[4px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-[background-color,color,opacity,transform] duration-150 ease-[var(--ease-out)] opacity-60 hover:opacity-100 no-drag after:absolute after:inset-[-8px] after:content-['']"
           title={t('app.expandSidebar')}
+          aria-label={t('app.expandSidebar')}
         >
           <PanelLeft className="w-4 h-4" />
         </button>

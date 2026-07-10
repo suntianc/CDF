@@ -20,10 +20,10 @@ vi.mock('@/components/AgentLibrary/AgentLibrary', () => ({
   AgentLibrary: () => null,
 }));
 vi.mock('@/components/PluginsPanel/PluginsPanel', () => ({
-  PluginsPanel: () => null,
+  PluginsPanel: () => <div data-testid="plugins-panel" />,
 }));
 vi.mock('@/components/Settings/ModelSettings', () => ({
-  ModelSettings: () => null,
+  ModelSettings: () => <div data-testid="model-settings" />,
 }));
 vi.mock('@/components/Settings/ToolSettings', () => ({
   ToolSettings: () => null,
@@ -41,15 +41,25 @@ vi.mock('@/components/Sidebar/Sidebar', () => ({
   Sidebar: () => null,
 }));
 vi.mock('@/components/ChatArea/ChatArea', () => ({
-  ChatArea: ({ taskPanelOpen, onToggleTaskPanel, onOpenTaskPanel }: {
+  ChatArea: ({
+    taskPanelOpen,
+    onToggleTaskPanel,
+    onOpenTaskPanel,
+    onOpenSettings,
+    onOpenPlugins,
+  }: {
     taskPanelOpen?: boolean;
     onToggleTaskPanel?: () => void;
     onOpenTaskPanel?: () => void;
+    onOpenSettings?: () => void;
+    onOpenPlugins?: () => void;
   }) => (
     <div data-testid="conversation-workspace">
       <span data-testid="task-panel-state">{taskPanelOpen ? 'open' : 'closed'}</span>
       <button type="button" onClick={onToggleTaskPanel}>toggle task panel</button>
       <button type="button" onClick={onOpenTaskPanel}>go approve now</button>
+      <button type="button" onClick={onOpenPlugins}>configure plugins</button>
+      <button type="button" onClick={onOpenSettings}>configure models</button>
     </div>
   ),
 }));
@@ -186,6 +196,19 @@ describe('App', () => {
     await screen.findByTestId('task-panel');
     expect(screen.getByTestId('task-panel').textContent).toBe('open');
     consoleSpy.mockRestore();
+  });
+
+  it('routes welcome configuration entries to their dedicated destinations', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'configure plugins' }));
+    await screen.findByTestId('plugins-panel');
+
+    useProjectStore.setState({ activeView: 'chat' });
+    await screen.findByTestId('conversation-workspace');
+
+    fireEvent.click(screen.getByRole('button', { name: 'configure models' }));
+    await screen.findByTestId('model-settings');
   });
 
   it('routes research projects to a research Scene Workspace while keeping Conversation available', () => {

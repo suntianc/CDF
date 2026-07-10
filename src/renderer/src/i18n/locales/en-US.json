@@ -6,6 +6,7 @@
     "workflows": "Workflows",
     "back": "Back",
     "collapse": "Collapse sidebar",
+    "navigation": "Settings navigation",
     "modelConfig": "Model config",
     "settings": {
       "header": "General Settings",
@@ -537,10 +538,10 @@
     "sendMessage": "Send message",
     "createProjectTitle": "Create project",
     "createProjectDesc": "Import a code repo or create a blank project",
-    "configureSkillsTitle": "Configure skills",
-    "configureSkillsDesc": "Install and enable agent capability modules",
-    "connectMcpTitle": "Connect MCP",
-    "connectMcpDesc": "Configure data sources and external tool integrations",
+    "configurePluginsTitle": "Configure plugins",
+    "configurePluginsDesc": "Manage Skills and MCP integrations",
+    "configureModelsTitle": "Configure models",
+    "configureModelsDesc": "Add and manage model providers",
     "shortcutHint": "Press <kbd>/</kbd> for commands · <kbd>@</kbd> for files · <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
     "hideTaskPanel": "Hide task panel",
     "showTaskPanel": "Show task panel",
@@ -693,6 +694,7 @@
     "cancelCreateProject": "Cancel",
     "confirmCreateProject": "Create",
     "creatingProject": "Creating...",
+    "createProjectFailed": "Unable to create the project. Try again.",
     "scene": {
       "general": "General",
       "research": "Research"
