@@ -27,20 +27,20 @@ export function ContextButton() {
       <TooltipTrigger asChild>
         <Button
           data-testid="context-button"
-          variant={isOpen ? 'default' : 'ghost'}
+          variant="ghost"
           size="sm"
           onClick={open}
           aria-label={t('context.viewContext')}
           className={cn(
-            'min-h-[32px] gap-2 text-[var(--color-info)] border border-[var(--color-info-dim)]/20 bg-[var(--color-info-dim)]/5 hover:bg-[var(--color-info-dim)]/15 transition-all duration-300 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shadow-sm rounded-lg',
-            isOpen && 'bg-[var(--color-info)] text-white hover:bg-[var(--color-info)]/90 border-transparent hover:-translate-y-0 shadow-inner'
+            'h-7 gap-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border-0 shadow-none px-1.5 py-1 rounded-md cursor-pointer transition-colors',
+            isOpen && 'text-[var(--color-info)] hover:text-[var(--color-info)] font-semibold'
           )}
         >
           <BarChart3 className="size-3.5 shrink-0" />
-          <span className="text-xs font-semibold tracking-wide">Context</span>
+          <span className="text-xs font-semibold">Context</span>
           <span className={cn(
             "w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300",
-            isOpen ? "bg-white animate-pulse" : "bg-[var(--color-info)]"
+            isOpen ? "bg-[var(--color-info)] animate-pulse" : "bg-[var(--color-text-muted)]"
           )} />
         </Button>
       </TooltipTrigger>

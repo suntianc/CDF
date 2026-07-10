@@ -359,10 +359,10 @@ export function ProjectTree() {
   const customProjects = projects.filter(p => p.id !== 'default-project');
 
   return (
-    <div className="flex flex-col gap-8 min-w-0">
+    <div className="flex flex-col gap-3 min-w-0">
       {/* Category 1: Projects */}
       <div>
-        <div className="flex items-center justify-between px-3 py-1 mb-1 text-[var(--color-text-secondary)] font-medium select-none">
+        <div className="flex items-center justify-between px-3 py-1 mb-0 text-[var(--color-text-secondary)] font-medium select-none">
           <div 
             onClick={() => setListExpanded(!listExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"
@@ -387,7 +387,7 @@ export function ProjectTree() {
         
         {/* Project list collapsible content */}
         <div className={`folder-sessions-collapse ${listExpanded ? 'expanded' : ''}`}>
-          <div className="folder-sessions-inner space-y-1.5 min-w-0">
+          <div className="folder-sessions-inner space-y-0.5 min-w-0">
             {customProjects.map((project) => (
               <ProjectFolder
                 key={project.id}
@@ -414,7 +414,7 @@ export function ProjectTree() {
 
       {/* Category 2: Conversations (Dialogs) */}
       <div>
-        <div className="flex items-center justify-between px-3 py-1 mb-1 text-[var(--color-text-secondary)] font-medium select-none">
+        <div className="flex items-center justify-between px-3 py-1 mb-0 text-[var(--color-text-secondary)] font-medium select-none">
           <div 
             onClick={() => setSessionsExpanded(!sessionsExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"

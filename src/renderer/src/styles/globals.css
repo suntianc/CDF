@@ -358,7 +358,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   color: var(--text-secondary);
   transition: all 0.15s;
   background: transparent;
-  font: inherit;
   cursor: pointer;
   user-select: none;
 }
@@ -1152,7 +1151,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .folder-sessions-collapse.expanded {
   grid-template-rows: 1fr;
   opacity: 1;
-  margin-top: 6px;
+  margin-top: 2px;
   overflow: visible;
 }
 

@@ -26,10 +26,10 @@ vi.mock('react-i18next', () => {
     'chat.dismissError': 'Dismiss error',
     'chat.createProjectTitle': 'Create project',
     'chat.createProjectDesc': 'Start from a local folder',
-    'chat.configureSkillsTitle': 'Configure skills',
-    'chat.configureSkillsDesc': 'Choose the capabilities available to Agents',
-    'chat.connectMcpTitle': 'Connect MCP',
-    'chat.connectMcpDesc': 'Add local tools and servers',
+    "chat.configurePluginsTitle": "Configure plugins",
+    "chat.configurePluginsDesc": "Manage Skills and MCP integrations",
+    "chat.configureModelsTitle": "Configure models",
+    "chat.configureModelsDesc": "Add and manage model providers",
     'chat.shortcutHint': 'Press / for commands · @ for files · Enter to send',
   };
 
@@ -75,6 +75,7 @@ function renderSurface(overrides: Partial<Omit<ComponentProps<typeof Conversatio
     onClearError: vi.fn(),
     onCreateProject: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOpenPlugins: vi.fn(),
     ...overrides,
   };
 
@@ -123,6 +124,7 @@ describe('ConversationWelcomeSurface', () => {
     const onClearError = vi.fn();
     const onCreateProject = vi.fn();
     const onOpenSettings = vi.fn();
+    const onOpenPlugins = vi.fn();
     renderSurface({
       error: {
         message: 'Provider missing',
@@ -131,6 +133,7 @@ describe('ConversationWelcomeSurface', () => {
       onClearError,
       onCreateProject,
       onOpenSettings,
+      onOpenPlugins,
       leftToolbarSlot: <button type="button">Approval mode</button>,
       modelSelectorSlot: <button type="button">Model picker</button>,
     });
@@ -149,9 +152,12 @@ describe('ConversationWelcomeSurface', () => {
     fireEvent.click(screen.getByText('Create project').closest('button')!);
     expect(onCreateProject).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByText('Configure skills').closest('button')!);
-    fireEvent.click(screen.getByText('Connect MCP').closest('button')!);
-    expect(onOpenSettings).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByText('Configure plugins').closest('button')!);
+    expect(onOpenPlugins).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Configure models').closest('button')!);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it('delegates Command Entry selection from the Welcome Composer Input', async () => {
