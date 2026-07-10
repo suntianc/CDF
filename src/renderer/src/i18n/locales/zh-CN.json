@@ -326,7 +326,11 @@
       "desc": "管理订阅或账号入口的登录状态、配额摘要和能力开关。",
       "loading": "加载中...",
       "login": "登录",
+      "reconnect": "重新连接",
       "refresh": "刷新",
+      "deviceLogin": {
+        "instructions": "请在浏览器中完成登录；如有提示，请输入此代码："
+      },
       "expandEntry": "展开 {{name}}",
       "collapseEntry": "收起 {{name}}",
       "error": {
@@ -339,12 +343,20 @@
         "sourceMissing": "选中的 AI 订阅模型缺少订阅来源。",
         "sourceUnavailable": "AI 订阅 {{sourceId}} 不可用。",
         "notConnected": "{{name}} 未连接。请先在 AI 订阅设置中连接后再使用它的文本模型。",
+        "accountExpired": "{{name}} 的授权已过期，请在 AI 订阅设置中重新连接。",
+        "accountUnavailable": "{{name}} 当前不可用。请检查订阅权益或服务状态后刷新账号。",
+        "xaiEntitlementDenied": "{{name}} 拒绝了当前账号或模型（HTTP 403）。X Premium+ 不包含 API 访问权限；请确认 SuperGrok 或 Grok Build 权益，或改用 xAI API Key。",
         "textDisabled": "{{name}} 的文本聊天能力已关闭。请先在 AI 订阅设置中重新开启后再使用它的文本模型。",
         "modelUnsupported": "{{name}} 未提供选中的文本模型。请在模型选择器中选择其他模型。"
       },
       "usage": {
         "usedLimit": "{{label}}：{{used}} / {{limit}}",
         "unavailable": "{{label}}：暂无数据",
+        "resetSoon": "即将重置",
+        "resetIn": "{{duration}}后重置",
+        "durationDays": "{{count}}天",
+        "durationHours": "{{count}}小时",
+        "durationMinutes": "{{count}}分钟",
         "period": {
           "five_hour": "5 小时配额",
           "weekly": "周配额",

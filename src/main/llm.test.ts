@@ -414,6 +414,51 @@ describe('runLLMChat', () => {
     );
   });
 
+  it('preserves localizable subscription errors wrapped by the provider SDK', async () => {
+    const subscriptionError = Object.assign(new Error(
+      'settings.aiSubscriptions.runtimeError.xaiEntitlementDenied'
+    ), {
+      code: 'AI_SUBSCRIPTION_UNAVAILABLE',
+      messageKey: 'settings.aiSubscriptions.runtimeError.xaiEntitlementDenied',
+      messageParams: { name: 'xAI Grok OAuth' },
+    });
+    const wrappedError = new Error('Connection error.');
+    Object.assign(wrappedError, {
+      code: 'ERR_PROVIDER_CONNECTION',
+      cause: subscriptionError,
+    });
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn(async () => {
+          throw wrappedError;
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'run' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await expect(runLLMChat({ send } as any, 'req-subscription-error', {
+      projectId: 'project-1',
+      sessionId: 'session-subscription-error',
+      message: {
+        id: 'message-subscription-error',
+        content: 'run',
+      },
+    })).rejects.toThrow('Connection error.');
+
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-subscription-error',
+      expect.objectContaining({
+        type: 'runtime_error',
+        errorCode: 'AI_SUBSCRIPTION_UNAVAILABLE',
+        errorMessageKey: 'settings.aiSubscriptions.runtimeError.xaiEntitlementDenied',
+        errorMessageParams: { name: 'xAI Grok OAuth' },
+      })
+    );
+  });
+
   it('should not complete before run.output resolves after streams finish', async () => {
     vi.useFakeTimers();
     let resolveOutput!: (value: unknown) => void;

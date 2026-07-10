@@ -10,24 +10,40 @@ import {
 import { AISubscriptionSettings } from './AISubscriptionSettings';
 
 const getEntriesMock = vi.fn<() => Promise<AISubscriptionEntry[]>>();
+const getActiveLoginsMock = vi.fn();
 const setCapabilityEnabledMock = vi.fn();
 const refreshStatusMock = vi.fn();
 const connectWithKeyMock = vi.fn();
+const startLoginMock = vi.fn();
+const pollLoginMock = vi.fn();
+const cancelLoginMock = vi.fn();
 const disconnectMock = vi.fn();
+const openExternalUrlMock = vi.fn();
 
 function installElectronAPI(entries: AISubscriptionEntry[]) {
   getEntriesMock.mockResolvedValue(entries);
+  getActiveLoginsMock.mockResolvedValue({});
   setCapabilityEnabledMock.mockResolvedValue(entries);
   connectWithKeyMock.mockResolvedValue(entries);
+  startLoginMock.mockResolvedValue({ entries, descriptor: undefined });
+  pollLoginMock.mockResolvedValue({ entries, status: 'logged_out' });
+  cancelLoginMock.mockResolvedValue(entries);
   disconnectMock.mockResolvedValue(entries);
   refreshStatusMock.mockResolvedValue(entries);
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     aiSubscriptions: {
       getEntries: getEntriesMock,
+      getActiveLogins: getActiveLoginsMock,
       setCapabilityEnabled: setCapabilityEnabledMock,
       refreshStatus: refreshStatusMock,
       connectWithKey: connectWithKeyMock,
+      startLogin: startLoginMock,
+      pollLogin: pollLoginMock,
+      cancelLogin: cancelLoginMock,
       disconnect: disconnectMock,
+    },
+    shell: {
+      openExternalUrl: openExternalUrlMock,
     },
   };
 }
@@ -38,18 +54,168 @@ describe('AISubscriptionSettings', () => {
     installElectronAPI(buildAISubscriptionEntries());
   });
 
-  it('renders the MiniMax Token Plan card as the only subscription entry', async () => {
+  it('renders MiniMax, Codex, and xAI Grok subscription entrypoints', async () => {
     render(<AISubscriptionSettings />);
 
     expect(await screen.findByText('MiniMax Token Plan')).toBeTruthy();
-    expect(screen.queryByText('Codex OAuth')).toBeNull();
-    expect(screen.queryByText('xAI OAuth')).toBeNull();
+    expect(screen.getByText('Codex OAuth')).toBeTruthy();
+    expect(screen.getByText('xAI Grok OAuth')).toBeTruthy();
     expect(screen.queryByText('Antigravity OAuth')).toBeNull();
-    expect(screen.getAllByRole('button', { name: /^Login$|^登录$/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Login$|^登录$/ })).toHaveLength(3);
     expect(screen.queryByText(/^Image generation$|^图像生成$/)).toBeNull();
 
     const visibleText = document.body.textContent ?? '';
     expect(visibleText).not.toMatch(/adapter|endpoint|refresh token|subscription key|route id|model id/i);
+  });
+
+  it('starts Codex device login from its card and shows the user code', async () => {
+    const entries = buildAISubscriptionEntries();
+    installElectronAPI(entries);
+    startLoginMock.mockResolvedValue({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connecting' } },
+      }),
+      descriptor: {
+        attemptId: 'attempt-1',
+        flow: 'device_code',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 900_000,
+        pollIntervalMs: 5_000,
+      },
+    });
+
+    render(<AISubscriptionSettings />);
+
+    const card = await screen.findByRole('group', { name: 'Codex OAuth' });
+    fireEvent.click(within(card).getByRole('button', { name: /^Login$|^登录$/ }));
+
+    await waitFor(() => expect(startLoginMock).toHaveBeenCalledWith('codex-oauth'));
+    await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith(
+      'https://auth.openai.com/codex/device'
+    ));
+    expect(await within(card).findByText('ABCD-1234')).toBeTruthy();
+    expect(within(card).getByText('https://auth.openai.com/codex/device')).toBeTruthy();
+    expect(within(card).queryByLabelText(/Subscription key|订阅 Key/)).toBeNull();
+  });
+
+  it('offers direct reauthentication when an OAuth credential has expired', async () => {
+    const expired = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'expired' } },
+    });
+    installElectronAPI(expired);
+
+    render(<AISubscriptionSettings />);
+
+    const card = await screen.findByRole('group', { name: 'Codex OAuth' });
+    fireEvent.click(within(card).getByRole('button', { name: /^Reconnect$|^重新连接$/ }));
+    await waitFor(() => expect(startLoginMock).toHaveBeenCalledWith('codex-oauth'));
+  });
+
+  it('offers refresh, reconnect, and disconnect for an unavailable xAI entitlement', async () => {
+    const unavailable = buildAISubscriptionEntries({
+      entries: { 'xai-oauth': { status: 'unavailable' } },
+    });
+    installElectronAPI(unavailable);
+
+    render(<AISubscriptionSettings />);
+
+    const card = await screen.findByRole('group', { name: 'xAI Grok OAuth' });
+    expect(within(card).getByRole('button', { name: /^Refresh$|^刷新$/ })).toBeTruthy();
+    expect(within(card).getByRole('button', { name: /^Disconnect$|^断开$/ })).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: /^Reconnect$|^重新连接$/ }));
+    await waitFor(() => expect(startLoginMock).toHaveBeenCalledWith('xai-oauth'));
+  });
+
+  it('automatically polls Codex login until the card becomes connected', async () => {
+    const loggedOut = buildAISubscriptionEntries();
+    const connecting = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connecting' } },
+    });
+    const connected = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connected' } },
+    });
+    installElectronAPI(loggedOut);
+    startLoginMock.mockResolvedValue({
+      entries: connecting,
+      descriptor: {
+        attemptId: 'attempt-1',
+        flow: 'device_code',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 900_000,
+        pollIntervalMs: 1,
+      },
+    });
+    pollLoginMock.mockResolvedValue({ entries: connected, status: 'connected' });
+
+    render(<AISubscriptionSettings />);
+    const card = await screen.findByRole('group', { name: 'Codex OAuth' });
+    fireEvent.click(within(card).getByRole('button', { name: /^Login$|^登录$/ }));
+
+    await waitFor(() => expect(pollLoginMock).toHaveBeenCalledWith('codex-oauth', 'attempt-1'));
+    expect(await within(card).findByText(/^Connected$|^已连接$/)).toBeTruthy();
+    expect(within(card).queryByText('ABCD-1234')).toBeNull();
+  });
+
+  it('resumes a safe in-memory device attempt after the renderer reloads', async () => {
+    const connecting = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connecting' } },
+    });
+    const connected = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connected' } },
+    });
+    installElectronAPI(connecting);
+    getActiveLoginsMock.mockResolvedValue({
+      'codex-oauth': {
+        attemptId: 'attempt-after-reload',
+        flow: 'device_code',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'RELOAD-1234',
+        expiresAt: Date.now() + 900_000,
+        pollIntervalMs: 1,
+      },
+    });
+    pollLoginMock.mockResolvedValue({ entries: connected, status: 'connected' });
+
+    render(<AISubscriptionSettings />);
+
+    const card = await screen.findByRole('group', { name: 'Codex OAuth' });
+    expect(getActiveLoginsMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(pollLoginMock).toHaveBeenCalledWith(
+      'codex-oauth',
+      'attempt-after-reload'
+    ));
+    expect(await within(card).findByText(/^Connected$|^已连接$/)).toBeTruthy();
+  });
+
+  it('cancels an in-progress Codex login when the card is disconnected', async () => {
+    const loggedOut = buildAISubscriptionEntries();
+    const connecting = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connecting' } },
+    });
+    installElectronAPI(loggedOut);
+    startLoginMock.mockResolvedValue({
+      entries: connecting,
+      descriptor: {
+        attemptId: 'attempt-1',
+        flow: 'device_code',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 900_000,
+        pollIntervalMs: 60_000,
+      },
+    });
+
+    render(<AISubscriptionSettings />);
+    const card = await screen.findByRole('group', { name: 'Codex OAuth' });
+    fireEvent.click(within(card).getByRole('button', { name: /^Login$|^登录$/ }));
+    expect(await within(card).findByText('ABCD-1234')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: /^Refresh$|^刷新$/ })).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: /^Disconnect$|^断开$/ }));
+
+    await waitFor(() => expect(cancelLoginMock).toHaveBeenCalledWith('codex-oauth', 'attempt-1'));
+    expect(within(card).queryByText('ABCD-1234')).toBeNull();
   });
 
   it('previews disabled capability switches when a logged-out card expands', async () => {
@@ -111,6 +277,27 @@ describe('AISubscriptionSettings', () => {
     ));
     expect((await within(card).findByRole('switch', { name: /^Image generation$|^图像生成$/ }) as HTMLInputElement).checked).toBe(false);
     expect((within(card).getByRole('switch', { name: /^Music generation$|^音乐生成$/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('shows only Codex image generation and editing and no capability expander for Grok', async () => {
+    installElectronAPI(buildAISubscriptionEntries({
+      entries: {
+        'codex-oauth': { status: 'connected' },
+        'xai-oauth': { status: 'connected' },
+      },
+    }));
+
+    render(<AISubscriptionSettings />);
+
+    const codexCard = await screen.findByRole('group', { name: 'Codex OAuth' });
+    fireEvent.click(within(codexCard).getByRole('button', { name: /Expand Codex OAuth|展开 Codex OAuth/ }));
+    expect(within(codexCard).getByRole('switch', { name: /^Image generation$|^图像生成$/ })).toBeTruthy();
+    expect(within(codexCard).getByRole('switch', { name: /^Image editing$|^图像编辑$/ })).toBeTruthy();
+    expect(within(codexCard).queryByRole('switch', { name: /^Text chat$|^文本聊天$/ })).toBeNull();
+    expect(within(codexCard).queryByRole('switch', { name: /^Quota status$|^配额状态$/ })).toBeNull();
+
+    const grokCard = screen.getByRole('group', { name: 'xAI Grok OAuth' });
+    expect(within(grokCard).queryByRole('button', { name: /Expand xAI Grok OAuth|展开 xAI Grok OAuth/ })).toBeNull();
   });
 
   it('refreshes connection status from a connected MiniMax card', async () => {
@@ -177,5 +364,27 @@ describe('AISubscriptionSettings', () => {
     const card = await screen.findByRole('group', { name: 'MiniMax Token Plan' });
     expect(within(card).getByText(/128,000|128\.000/)).toBeTruthy();
     expect(within(card).getByText(/500,000|500\.000/)).toBeTruthy();
+  });
+
+  it('shows real Codex usage windows without inventing a Free plan label', async () => {
+    const entries = buildAISubscriptionEntries({
+      entries: {
+        'codex-oauth': {
+          status: 'connected',
+          usageSummaries: [
+            { period: 'five_hour', label: '5-hour quota', used: 35, limit: 100 },
+            { period: 'weekly', label: 'Weekly quota', used: 12, limit: 100 },
+          ],
+        },
+      },
+    });
+    installElectronAPI(entries);
+
+    render(<AISubscriptionSettings />);
+
+    const card = await screen.findByRole('group', { name: 'Codex OAuth' });
+    expect(within(card).getByText(/35 \/ 100/)).toBeTruthy();
+    expect(within(card).getByText(/12 \/ 100/)).toBeTruthy();
+    expect(within(card).queryByText('Free')).toBeNull();
   });
 });

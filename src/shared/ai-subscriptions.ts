@@ -1,5 +1,7 @@
 export const AI_SUBSCRIPTION_ENTRY_IDS = [
   'minimax-token-plan',
+  'codex-oauth',
+  'xai-oauth',
 ] as const;
 
 export type AISubscriptionEntryId = typeof AI_SUBSCRIPTION_ENTRY_IDS[number];
@@ -49,8 +51,34 @@ export const MINIMAX_TOKEN_PLAN_VIDEO_MODELS = [
 ] as const;
 export const MINIMAX_TOKEN_PLAN_MUSIC_MODELS = ['music-2.6'] as const;
 
+export const CODEX_OAUTH_TEXT_MODELS = [
+  { model: 'gpt-5.5', label: 'GPT-5.5', contextLimit: 272_000 },
+  { model: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', contextLimit: 272_000 },
+  { model: 'gpt-5.4', label: 'GPT-5.4', contextLimit: 272_000 },
+  { model: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', contextLimit: 272_000 },
+  { model: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark', contextLimit: 128_000 },
+] as const;
+
+export const XAI_OAUTH_TEXT_MODELS = [
+  { model: 'grok-build-0.1', label: 'Grok Build 0.1', contextLimit: 256_000 },
+  { model: 'grok-composer-2.5-fast', label: 'Grok Composer 2.5 Fast', contextLimit: 200_000 },
+  { model: 'grok-4.5', label: 'Grok 4.5', contextLimit: 500_000 },
+  { model: 'grok-4.3', label: 'Grok 4.3', contextLimit: 1_000_000 },
+  { model: 'grok-4.20-0309-reasoning', label: 'Grok 4.20 Reasoning', contextLimit: 2_000_000 },
+  { model: 'grok-4.20-0309-non-reasoning', label: 'Grok 4.20 Non-Reasoning', contextLimit: 2_000_000 },
+  { model: 'grok-4.20-multi-agent-0309', label: 'Grok 4.20 Multi-Agent', contextLimit: 2_000_000 },
+] as const;
+
 export function isMiniMaxTokenPlanTextModel(model: string): boolean {
   return MINIMAX_TOKEN_PLAN_TEXT_MODELS.some((item) => item.model === model);
+}
+
+export function isCodexOAuthTextModel(model: string): boolean {
+  return CODEX_OAUTH_TEXT_MODELS.some((item) => item.model === model);
+}
+
+export function isXaiOAuthTextModel(model: string): boolean {
+  return XAI_OAUTH_TEXT_MODELS.some((item) => item.model === model);
 }
 
 export interface PersistedAISubscriptionEntryState {
@@ -110,6 +138,28 @@ export interface AISubscriptionConnectionResult {
   usageSummaries?: AISubscriptionUsageSummary[];
 }
 
+export interface AISubscriptionLoginDescriptor {
+  attemptId: string;
+  flow: 'device_code';
+  verificationUrl: string;
+  userCode: string;
+  expiresAt: number;
+  pollIntervalMs: number;
+}
+
+export interface AISubscriptionLoginStartResult {
+  entries: AISubscriptionEntry[];
+  descriptor: AISubscriptionLoginDescriptor;
+}
+
+export interface AISubscriptionLoginPollResult {
+  entries: AISubscriptionEntry[];
+  status: AISubscriptionConnectionStatus;
+  nextPollAfterMs?: number;
+  reason?: string;
+  message?: string;
+}
+
 interface AISubscriptionDefinition {
   id: AISubscriptionEntryId;
   displayName: string;
@@ -139,6 +189,24 @@ const AI_SUBSCRIPTION_DEFINITIONS: AISubscriptionDefinition[] = [
     ],
     // Token Plan text allowlist: M3 + M2.7 (+ highspeed) only. Claude/Anthropic protocol at runtime.
     textModels: MINIMAX_TOKEN_PLAN_TEXT_MODELS.map((item) => ({ ...item })),
+  },
+  {
+    id: 'codex-oauth',
+    displayName: 'Codex OAuth',
+    capabilities: [
+      // Chat, reasoning, code, vision input, and quota share the selected model/account
+      // path and are therefore implicit. Only separately routable media tools are switches.
+      { capabilityId: 'image.generate', label: 'Image generation' },
+      { capabilityId: 'image.edit', label: 'Image editing' },
+    ],
+    textModels: CODEX_OAUTH_TEXT_MODELS.map((item) => ({ ...item })),
+  },
+  {
+    id: 'xai-oauth',
+    displayName: 'xAI Grok OAuth',
+    // Text, reasoning, and image understanding are implicit on the selected model path.
+    capabilities: [],
+    textModels: XAI_OAUTH_TEXT_MODELS.map((item) => ({ ...item })),
   },
 ];
 
@@ -289,7 +357,9 @@ export function setAISubscriptionConnectionResult(
       [entryId]: {
         ...(persisted.entries?.[entryId] ?? {}),
         status: result.status,
-        usageSummaries: normalizeUsageSummaries(result.usageSummaries),
+        ...(result.usageSummaries !== undefined
+          ? { usageSummaries: normalizeUsageSummaries(result.usageSummaries) }
+          : {}),
       },
     },
   };

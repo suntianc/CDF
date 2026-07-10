@@ -14,10 +14,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   aiSubscriptions: {
     getEntries: () => ipcRenderer.invoke('aiSubscriptions:getEntries'),
+    getActiveLogins: () => ipcRenderer.invoke('aiSubscriptions:getActiveLogins'),
     setCapabilityEnabled: (entryId: string, capabilityId: string, enabled: boolean) =>
       ipcRenderer.invoke('aiSubscriptions:setCapabilityEnabled', entryId, capabilityId, enabled),
     connectWithKey: (entryId: string, subscriptionKey: string) =>
       ipcRenderer.invoke('aiSubscriptions:connectWithKey', entryId, subscriptionKey),
+    startLogin: (entryId: string) =>
+      ipcRenderer.invoke('aiSubscriptions:startLogin', entryId),
+    pollLogin: (entryId: string, attemptId: string) =>
+      ipcRenderer.invoke('aiSubscriptions:pollLogin', entryId, attemptId),
+    cancelLogin: (entryId: string, attemptId: string) =>
+      ipcRenderer.invoke('aiSubscriptions:cancelLogin', entryId, attemptId),
     disconnect: (entryId: string) =>
       ipcRenderer.invoke('aiSubscriptions:disconnect', entryId),
     getCapabilityRoutes: (capabilityId: string) =>

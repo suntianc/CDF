@@ -90,6 +90,8 @@ describe('useModelSelectionController', () => {
     const aiSubscriptionEntries = buildAISubscriptionEntries({
       entries: {
         'minimax-token-plan': { status: 'connected' },
+        'codex-oauth': { status: 'connected' },
+        'xai-oauth': { status: 'connected' },
       },
     });
 
@@ -113,11 +115,15 @@ describe('useModelSelectionController', () => {
       'llm_provider:provider-1',
       'llm_provider:provider-2',
       'ai_subscription:minimax-token-plan',
+      'ai_subscription:codex-oauth',
+      'ai_subscription:xai-oauth',
     ]);
     expect(result.current.modelGroups.map((group) => group.sourceName)).toEqual([
       'OpenAI',
       'Anthropic',
       'MiniMax Token Plan',
+      'Codex OAuth',
+      'xAI Grok OAuth',
     ]);
     expect(result.current.currentModelLabel).toBe('MiniMax Token Plan • MiniMax M2.7');
 

@@ -123,6 +123,38 @@ function isInterruptError(error: unknown): boolean {
   return message.includes('actionrequests') && message.includes('reviewconfigs');
 }
 
+function findStructuredRuntimeError(error: unknown): {
+  code?: unknown;
+  messageKey?: unknown;
+  messageParams?: unknown;
+} | undefined {
+  const visited = new Set<object>();
+  let codeOnlyFallback: {
+    code?: unknown;
+    messageKey?: unknown;
+    messageParams?: unknown;
+  } | undefined;
+  let current = error;
+  for (let depth = 0; depth < 8 && current && typeof current === 'object'; depth += 1) {
+    if (visited.has(current)) break;
+    visited.add(current);
+    const candidate = current as {
+      code?: unknown;
+      messageKey?: unknown;
+      messageParams?: unknown;
+      cause?: unknown;
+    };
+    if (typeof candidate.messageKey === 'string') {
+      return candidate;
+    }
+    if (!codeOnlyFallback && typeof candidate.code === 'string') {
+      codeOnlyFallback = candidate;
+    }
+    current = candidate.cause;
+  }
+  return codeOnlyFallback;
+}
+
 function safeStringify(value: unknown): string | null {
   if (value === undefined) return null;
   try {
@@ -385,7 +417,7 @@ function extractModelText(value: unknown): string {
 }
 
 export async function runLLMJudge(payload: JudgePayload): Promise<{ text: string }> {
-  const model = createRuntimeModel(payload.projectId, payload.agentId, payload.overrides);
+  const model = await createRuntimeModel(payload.projectId, payload.agentId, payload.overrides);
   const response = await model.invoke(payload.prompt);
   return { text: extractModelText(response) };
 }
@@ -1078,6 +1110,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
     sender.send(channel, { type: 'message_done' });
   } catch (error: any) {
+    const structuredError = findStructuredRuntimeError(error);
     const runId = getLatestRunId(requestId);
     if (runId) {
       const status = error?.name === 'AbortError' || controller.signal.aborted ? 'aborted' : 'failed';
@@ -1103,10 +1136,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       sender.send(channel, {
         type: 'runtime_error',
         error: error?.message || String(error),
-        errorCode: typeof error?.code === 'string' ? error.code : undefined,
-        errorMessageKey: typeof error?.messageKey === 'string' ? error.messageKey : undefined,
-        errorMessageParams: error?.messageParams && typeof error.messageParams === 'object'
-          ? error.messageParams
+        errorCode: typeof structuredError?.code === 'string' ? structuredError.code : undefined,
+        errorMessageKey: typeof structuredError?.messageKey === 'string'
+          ? structuredError.messageKey
+          : undefined,
+        errorMessageParams: structuredError?.messageParams
+          && typeof structuredError.messageParams === 'object'
+          ? structuredError.messageParams
           : undefined,
       });
       throw error;

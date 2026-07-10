@@ -326,7 +326,11 @@
       "desc": "Manage login state, quota summaries, and capability switches for subscription or account entrypoints.",
       "loading": "Loading...",
       "login": "Login",
+      "reconnect": "Reconnect",
       "refresh": "Refresh",
+      "deviceLogin": {
+        "instructions": "Complete sign-in in your browser. Enter this code if prompted:"
+      },
       "expandEntry": "Expand {{name}}",
       "collapseEntry": "Collapse {{name}}",
       "error": {
@@ -339,12 +343,20 @@
         "sourceMissing": "The selected AI subscription model is missing its subscription source.",
         "sourceUnavailable": "AI subscription {{sourceId}} is not available.",
         "notConnected": "{{name}} is not connected. Connect it in AI Subscriptions settings before using its text model.",
+        "accountExpired": "{{name}} authorization has expired. Reconnect it in AI Subscriptions settings.",
+        "accountUnavailable": "{{name}} is currently unavailable. Check the subscription entitlement or provider status, then refresh the account.",
+        "xaiEntitlementDenied": "{{name}} rejected this account or model (HTTP 403). X Premium+ does not include API access; verify SuperGrok or Grok Build eligibility, or use an xAI API key.",
         "textDisabled": "{{name}} text chat is disabled. Re-enable it in AI Subscriptions settings before using its text model.",
         "modelUnsupported": "{{name}} does not expose the selected text model. Choose another model in the Model Selection Surface."
       },
       "usage": {
         "usedLimit": "{{label}}: {{used}} / {{limit}}",
         "unavailable": "{{label}}: unavailable",
+        "resetSoon": "Resets soon",
+        "resetIn": "Resets in {{duration}}",
+        "durationDays": "{{count}}d",
+        "durationHours": "{{count}}h",
+        "durationMinutes": "{{count}}m",
         "period": {
           "five_hour": "5-hour quota",
           "weekly": "Weekly quota",

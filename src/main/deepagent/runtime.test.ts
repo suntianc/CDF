@@ -83,10 +83,12 @@ vi.mock('../database', () => ({
 vi.mock('../store', () => ({
   default: {
     get: storeGetMock,
+    set: vi.fn(),
   },
 }));
 
 vi.mock('../security', () => ({
+  encryptApiKey: vi.fn((value: string) => value),
   decryptApiKey: vi.fn((value: string) => value),
 }));
 
@@ -239,6 +241,9 @@ describe('createDeepAgentRuntime', () => {
     expect(params.systemPrompt).toContain('全局 Skill 写入 `~/.cdf/skills/{skill名称}/SKILL.md`（对所有项目默认可见）');
     expect(params.systemPrompt).toContain('Agent 选择 Skill 只表示预加载或强调，不表示访问授权');
     expect(params.systemPrompt).toContain('CDF-owned skills prompt');
+    expect(params.systemPrompt).toContain(
+      'Text-to-image or image-to-image via MiniMax Token Plan or Codex OAuth.'
+    );
     expect(params.skills).toBeUndefined();
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
       builtInSkillDirs: [path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base')],

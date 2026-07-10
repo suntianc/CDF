@@ -5,13 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createGenerateImageTool,
   generateImage,
+  resolveCodexImageRoute,
   resolveTokenPlanImageRoute,
   writeImageArtifact,
 } from './generate-image';
 
-const { getEntriesMock, getSecretMock } = vi.hoisted(() => ({
+const {
+  createOAuthAuthenticatedFetchMock,
+  getEntriesMock,
+  getOAuthCredentialMock,
+  getSecretMock,
+  oauthFetchMock,
+} = vi.hoisted(() => ({
+  createOAuthAuthenticatedFetchMock: vi.fn(),
   getEntriesMock: vi.fn(),
+  getOAuthCredentialMock: vi.fn(),
   getSecretMock: vi.fn(),
+  oauthFetchMock: vi.fn(),
 }));
 
 vi.mock('../ai-subscription-store', () => ({
@@ -19,10 +29,262 @@ vi.mock('../ai-subscription-store', () => ({
 }));
 
 vi.mock('../ai-subscription-credentials', () => ({
+  getOAuthCredential: getOAuthCredentialMock,
   getSubscriptionSecret: getSecretMock,
 }));
 
+vi.mock('../ai-subscription-runtime', () => ({
+  CODEX_RESPONSES_API_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+  createOAuthAuthenticatedFetch: createOAuthAuthenticatedFetchMock,
+}));
+
 describe('generateImage', () => {
+  it('generates a Codex OAuth image through the Responses image_generation tool', async () => {
+    const writeArtifact = vi.fn().mockResolvedValue('/tmp/project/artifacts/codex-1.png');
+    const codexFetch = vi.fn().mockResolvedValue(new Response(
+      'data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":"aGVsbG8=","output_format":"png","revised_prompt":"a neon cat"}]}}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    ));
+
+    const result = await generateImage(
+      { prompt: 'a neon cat', route_hint: 'codex-oauth' },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact,
+      }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      model: 'gpt-image-2',
+      routeId: 'codex-oauth',
+      operation: 'generate',
+      artifacts: [{ path: '/tmp/project/artifacts/codex-1.png', mimeType: 'image/png' }],
+      displayMarkdown: '![a neon cat](/tmp/project/artifacts/codex-1.png)',
+    });
+    expect(codexFetch).toHaveBeenCalledWith(
+      'https://chatgpt.com/backend-api/codex/responses',
+      expect.objectContaining({ method: 'POST' })
+    );
+    const request = JSON.parse(String(codexFetch.mock.calls[0]?.[1]?.body));
+    expect(request).toEqual(expect.objectContaining({
+      model: 'gpt-5.4-mini',
+      store: false,
+      stream: true,
+      tool_choice: { type: 'image_generation' },
+      tools: [expect.objectContaining({
+        type: 'image_generation',
+        action: 'generate',
+        model: 'gpt-image-2',
+      })],
+    }));
+    expect(request.input[0].content).toEqual([
+      { type: 'input_text', text: 'a neon cat' },
+    ]);
+    expect(writeArtifact).toHaveBeenCalledWith(
+      Buffer.from('hello', 'utf8'),
+      { extension: 'png' }
+    );
+  });
+
+  it('surfaces a Codex image policy refusal instead of reporting an empty result', async () => {
+    const writeArtifact = vi.fn();
+    const codexFetch = vi.fn().mockResolvedValue(new Response([
+      'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","status":"failed"}}',
+      'data: {"type":"response.output_item.done","item":{"type":"message","status":"completed","content":[{"type":"output_text","text":"Sorry, I can’t help create sexualized or intimate imagery."}]}}',
+      'data: {"type":"response.completed","response":{"status":"completed","error":null,"output":[]}}',
+      '',
+    ].join('\n'), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    }));
+
+    const result = await generateImage(
+      { prompt: 'an intimate portrait', route_hint: 'codex-oauth' },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact,
+      }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Codex image_generation failed: Sorry, I can’t help create sexualized or intimate imagery.',
+      code: 'PROVIDER_RESPONSE',
+    });
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  it('keeps EMPTY_RESULT for a Codex response without an image or failure signal', async () => {
+    const codexFetch = vi.fn().mockResolvedValue(new Response(
+      'data: {"type":"response.completed","response":{"status":"completed","error":null,"output":[]}}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    ));
+
+    const result = await generateImage(
+      { prompt: 'a quiet landscape', route_hint: 'codex-oauth' },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact: vi.fn(),
+      }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Codex image_generation returned no images',
+      code: 'EMPTY_RESULT',
+    });
+  });
+
+  it('edits an image through Codex OAuth and returns a local artifact', async () => {
+    const writeArtifact = vi.fn().mockResolvedValue('/tmp/project/artifacts/codex-edit.png');
+    const codexFetch = vi.fn().mockResolvedValue(new Response(
+      'data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":"ZWRpdGVk","output_format":"png"}]}}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    ));
+
+    const result = await generateImage(
+      {
+        prompt: 'replace the background with a quiet library',
+        operation: 'edit',
+        route_hint: 'codex-oauth',
+        input_images: [{ kind: 'url', url: 'https://cdn.example.com/portrait.png' }],
+      },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact,
+      }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      model: 'gpt-image-2',
+      routeId: 'codex-oauth',
+      operation: 'edit',
+      artifacts: [{ path: '/tmp/project/artifacts/codex-edit.png', mimeType: 'image/png' }],
+      displayMarkdown: '![replace the background with a quiet library](/tmp/project/artifacts/codex-edit.png)',
+    });
+    const request = JSON.parse(String(codexFetch.mock.calls[0]?.[1]?.body));
+    expect(request.tools).toEqual([
+      expect.objectContaining({
+        type: 'image_generation',
+        action: 'edit',
+        model: 'gpt-image-2',
+      }),
+    ]);
+    expect(request.input[0].content).toEqual([
+      { type: 'input_text', text: 'replace the background with a quiet library' },
+      { type: 'input_image', image_url: 'https://cdn.example.com/portrait.png' },
+    ]);
+    expect(writeArtifact).toHaveBeenCalledWith(
+      Buffer.from('edited', 'utf8'),
+      { extension: 'png' }
+    );
+  });
+
+  it('converts a local image to a data URL before Codex OAuth editing', async () => {
+    const readLocalImageAsDataUrl = vi.fn().mockResolvedValue('data:image/png;base64,c291cmNl');
+    const codexFetch = vi.fn().mockResolvedValue(new Response(
+      'data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":"ZWRpdGVk","output_format":"png"}]}}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    ));
+
+    const result = await generateImage(
+      {
+        prompt: 'make the sky warmer',
+        operation: 'edit',
+        route_hint: 'codex-oauth',
+        input_images: [{ kind: 'local_file', path: '/tmp/source.png' }],
+      },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact: vi.fn().mockResolvedValue('/tmp/edited.png'),
+        readLocalImageAsDataUrl,
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readLocalImageAsDataUrl).toHaveBeenCalledWith('/tmp/source.png');
+    const request = JSON.parse(String(codexFetch.mock.calls[0]?.[1]?.body));
+    expect(request.input[0].content).toContainEqual({
+      type: 'input_image',
+      image_url: 'data:image/png;base64,c291cmNl',
+    });
+  });
+
+  it('falls back to Codex OAuth in auto mode when MiniMax is unavailable', async () => {
+    const codexFetch = vi.fn().mockResolvedValue(new Response(
+      'data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":"aGVsbG8=","output_format":"png"}]}}\n\n',
+      { status: 200 }
+    ));
+    const result = await generateImage(
+      { prompt: 'a cat' },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact: vi.fn().mockResolvedValue('/tmp/codex.png'),
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.routeId).toBe('codex-oauth');
+  });
+
+  it('does not call Codex when its image generation switch is disabled', async () => {
+    const codexFetch = vi.fn();
+    const result = await generateImage(
+      { prompt: 'a cat', route_hint: 'codex-oauth' },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: false, editEnabled: true, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact: vi.fn(),
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('CAPABILITY_DISABLED');
+    expect(codexFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not call Codex when its image editing switch is disabled', async () => {
+    const codexFetch = vi.fn();
+    const result = await generateImage(
+      {
+        prompt: 'make the sky warmer',
+        operation: 'edit',
+        route_hint: 'codex-oauth',
+        input_images: [{ kind: 'url', url: 'https://cdn.example.com/source.png' }],
+      },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => ({ generateEnabled: true, editEnabled: false, fetch: codexFetch }),
+        httpPostJson: vi.fn(),
+        writeArtifact: vi.fn(),
+      }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Codex OAuth image editing is disabled',
+      code: 'CAPABILITY_DISABLED',
+    });
+    expect(codexFetch).not.toHaveBeenCalled();
+  });
+
   it('creates a local image artifact when MiniMax Token Plan image route is available', async () => {
     const writeArtifact = vi.fn().mockResolvedValue('/tmp/project/artifacts/gen-1.png');
     const httpPostJson = vi.fn().mockResolvedValue({
@@ -257,7 +519,9 @@ describe('resolveTokenPlanImageRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getEntriesMock.mockReturnValue([]);
+    getOAuthCredentialMock.mockReturnValue(undefined);
     getSecretMock.mockReturnValue(undefined);
+    createOAuthAuthenticatedFetchMock.mockReturnValue(oauthFetchMock);
   });
 
   it('returns an enabled route when Token Plan is connected with image.generate on and a vaulted key', () => {
@@ -345,6 +609,54 @@ describe('resolveTokenPlanImageRoute', () => {
   });
 });
 
+describe('resolveCodexImageRoute', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getEntriesMock.mockReturnValue([]);
+    getOAuthCredentialMock.mockReturnValue(undefined);
+    createOAuthAuthenticatedFetchMock.mockReturnValue(oauthFetchMock);
+  });
+
+  it('returns independent generate and edit states for a connected OAuth account', () => {
+    getOAuthCredentialMock.mockReturnValue({
+      kind: 'oauth',
+      accessToken: 'codex-access',
+      obtainedAt: 1,
+    });
+    getEntriesMock.mockReturnValue([
+      {
+        id: 'codex-oauth',
+        displayName: 'Codex OAuth',
+        status: 'connected',
+        usageSummaries: [],
+        capabilities: [
+          {
+            capabilityId: 'image.generate',
+            label: 'Image generation',
+            enabled: true,
+            switchDisabled: false,
+            availability: 'available',
+          },
+          {
+            capabilityId: 'image.edit',
+            label: 'Image editing',
+            enabled: false,
+            switchDisabled: false,
+            availability: 'disabled',
+          },
+        ],
+      },
+    ]);
+
+    expect(resolveCodexImageRoute()).toEqual({
+      generateEnabled: true,
+      editEnabled: false,
+      fetch: oauthFetchMock,
+    });
+    expect(createOAuthAuthenticatedFetchMock).toHaveBeenCalledWith('codex-oauth');
+  });
+});
+
 describe('writeImageArtifact', () => {
   let tempProject: string;
 
@@ -374,5 +686,8 @@ describe('createGenerateImageTool', () => {
     expect(imageTool.description).toMatch(/!\[alt\]\(path-or-url\)/);
     expect(imageTool.description).toMatch(/must (include|embed|show|display)/i);
     expect(imageTool.description).toMatch(/input_images|image-to-image|edit/i);
+    expect(imageTool.description).toContain(
+      'Image generation and editing can use connected MiniMax Token Plan (image-01) or Codex OAuth (gpt-image-2).'
+    );
   });
 });

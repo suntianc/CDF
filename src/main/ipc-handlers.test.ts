@@ -19,6 +19,8 @@ const {
   importPhysicalSkillDirectoryMock,
   initializeScenePresetMock,
   shellOpenExternalMock,
+  startAISubscriptionLoginMock,
+  pollAISubscriptionLoginMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -39,6 +41,8 @@ const {
   importPhysicalSkillDirectoryMock: vi.fn(),
   initializeScenePresetMock: vi.fn(),
   shellOpenExternalMock: vi.fn(async () => undefined),
+  startAISubscriptionLoginMock: vi.fn(),
+  pollAISubscriptionLoginMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -62,6 +66,15 @@ vi.mock('./store', () => ({
     set: vi.fn(),
   },
 }));
+
+vi.mock('./ai-subscription-store', async () => {
+  const actual = await vi.importActual<typeof import('./ai-subscription-store')>('./ai-subscription-store');
+  return {
+    ...actual,
+    startAISubscriptionLogin: startAISubscriptionLoginMock,
+    pollAISubscriptionLogin: pollAISubscriptionLoginMock,
+  };
+});
 
 vi.mock('./database', () => ({
   default: {
@@ -128,6 +141,8 @@ describe('IPC handlers', () => {
     importPhysicalSkillDirectoryMock.mockReset();
     initializeScenePresetMock.mockReset();
     shellOpenExternalMock.mockClear();
+    startAISubscriptionLoginMock.mockReset();
+    pollAISubscriptionLoginMock.mockReset();
   });
 
   it('opens external http urls through the system browser shell', async () => {
@@ -147,6 +162,76 @@ describe('IPC handlers', () => {
 
     await expect(openExternalHandler({}, 'file:///tmp/secret')).rejects.toThrow('External URL must use http or https');
     expect(shellOpenExternalMock).not.toHaveBeenCalled();
+  });
+
+  it('does not expose AI subscription credentials through the renderer store bridge', () => {
+    registerIpcHandlers();
+    const storeGetHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'store:get')?.[1];
+    expect(storeGetHandler).toBeTypeOf('function');
+
+    expect(() => storeGetHandler({}, 'aiSubscriptionSecrets')).toThrow(
+      'Store key is not renderer-accessible'
+    );
+    expect(storeGetMock).not.toHaveBeenCalled();
+  });
+
+  it('starts Codex login through the AI subscription IPC with a safe descriptor', async () => {
+    const result = {
+      entries: [],
+      descriptor: {
+        attemptId: 'attempt-1',
+        flow: 'device_code',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: 1_800_000_900_000,
+        pollIntervalMs: 5_000,
+      },
+    };
+    startAISubscriptionLoginMock.mockResolvedValue(result);
+    registerIpcHandlers();
+    const startLoginHandler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'aiSubscriptions:startLogin'
+    )?.[1];
+    expect(startLoginHandler).toBeTypeOf('function');
+
+    await expect(startLoginHandler({}, 'codex-oauth')).resolves.toEqual(result);
+    expect(startAISubscriptionLoginMock).toHaveBeenCalledWith('codex-oauth');
+    expect(JSON.stringify(result)).not.toMatch(/device_auth_id|access.?token|refresh.?token|code.?verifier/i);
+  });
+
+  it('returns the device descriptor when the system browser cannot be opened', async () => {
+    const result = {
+      entries: [],
+      descriptor: {
+        attemptId: 'attempt-1',
+        flow: 'device_code',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: 1_800_000_900_000,
+        pollIntervalMs: 5_000,
+      },
+    };
+    startAISubscriptionLoginMock.mockResolvedValue(result);
+    shellOpenExternalMock.mockRejectedValueOnce(new Error('no browser'));
+    registerIpcHandlers();
+    const startLoginHandler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'aiSubscriptions:startLogin'
+    )?.[1];
+
+    await expect(startLoginHandler({}, 'codex-oauth')).resolves.toEqual(result);
+  });
+
+  it('polls Codex login completion through the AI subscription IPC', async () => {
+    const result = { entries: [], status: 'connected' };
+    pollAISubscriptionLoginMock.mockResolvedValue(result);
+    registerIpcHandlers();
+    const pollLoginHandler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'aiSubscriptions:pollLogin'
+    )?.[1];
+    expect(pollLoginHandler).toBeTypeOf('function');
+
+    await expect(pollLoginHandler({}, 'codex-oauth', 'attempt-1')).resolves.toEqual(result);
+    expect(pollAISubscriptionLoginMock).toHaveBeenCalledWith('codex-oauth', 'attempt-1');
   });
 
   it('should acknowledge llm:chat immediately and stream asynchronously', () => {

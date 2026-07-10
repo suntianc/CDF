@@ -10,7 +10,7 @@ import db from '../database';
 import store from '../store';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
 import { createLangChainModel, type RuntimeProviderModelConfig } from './llm-adapter';
-import { resolveAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
+import { prepareAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
 import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import {
@@ -71,13 +71,16 @@ interface RuntimeInputMessage {
   imageBase64?: string[];
 }
 
-function resolveRuntimeProviderModelConfig(
+async function resolveRuntimeProviderModelConfig(
   agentRow: RuntimeAgentRow,
   overrides?: RuntimeModelOverrides
-): { config: RuntimeProviderModelConfig; fallbackProvider: ProviderRow } {
+): Promise<{ config: RuntimeProviderModelConfig; fallbackProvider: ProviderRow }> {
   if (overrides?.modelSource === 'ai_subscription') {
     return {
-      config: resolveAISubscriptionRuntimeModel(overrides.sourceId || overrides.providerId, overrides.model),
+      config: await prepareAISubscriptionRuntimeModel(
+        overrides.sourceId || overrides.providerId,
+        overrides.model
+      ),
       fallbackProvider: getProvider(agentRow.provider_id),
     };
   }
@@ -611,7 +614,7 @@ function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
   ];
   const catalog: Record<string, string> = {
     generate_image:
-      'Text-to-image or image-to-image (MiniMax Token Plan image-01). After success, display with ![alt](path).',
+      'Text-to-image or image-to-image via MiniMax Token Plan or Codex OAuth. After success, display with ![alt](path).',
     synthesize_speech:
       'Text-to-speech (Speech 2.8 only: speech-2.8-hd / speech-2.8-turbo). Link audio as [label](path).',
     generate_music:
@@ -625,7 +628,7 @@ function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
   }
   if (!any) return '';
   lines.push(
-    'These tools require a connected MiniMax Token Plan with the matching capability switch enabled (image/speech/music).'
+    'These tools require a connected subscription route with the matching capability enabled.'
   );
   return lines.join('\n');
 }
@@ -640,7 +643,7 @@ export async function createDeepAgentRuntime(
 ) {
   const project = getProject(projectId);
   const agentRow = getRuntimeAgent(projectId, agentId);
-  const { config: runtimeModelConfig, fallbackProvider: provider } = resolveRuntimeProviderModelConfig(agentRow, overrides);
+  const { config: runtimeModelConfig, fallbackProvider: provider } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
   registerCdfHarnessProfile(runtimeModelConfig.providerType, runtimeModelConfig.model || runtimeModelConfig.defaultModel);
   const model = createLangChainModel(runtimeModelConfig);
   const backend = new CompositeBackend(new StateBackend(), {
@@ -815,13 +818,13 @@ export async function createDeepAgentRuntime(
   };
 }
 
-export function createRuntimeModel(
+export async function createRuntimeModel(
   projectId: string,
   agentId?: string | null,
   overrides?: RuntimeModelOverrides
 ) {
   const agentRow = getRuntimeAgent(projectId, agentId);
-  const { config } = resolveRuntimeProviderModelConfig(agentRow, overrides);
+  const { config } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
   registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel);
   return createLangChainModel(config);
 }

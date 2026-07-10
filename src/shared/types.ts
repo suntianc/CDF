@@ -3,6 +3,8 @@ import type {
   AISubscriptionCapabilityRoute,
   AISubscriptionEntry,
   AISubscriptionEntryId,
+  AISubscriptionLoginStartResult,
+  AISubscriptionLoginPollResult,
   CapabilityId,
 } from './ai-subscriptions';
 import type { SkillEffectiveVisibility, SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
@@ -760,12 +762,27 @@ export interface ElectronAPI {
   };
   aiSubscriptions: {
     getEntries: () => Promise<AISubscriptionEntry[]>;
+    getActiveLogins: () => Promise<Partial<Record<
+      Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>,
+      AISubscriptionLoginStartResult['descriptor']
+    >>>;
     setCapabilityEnabled: (
       entryId: AISubscriptionEntryId,
       capabilityId: CapabilityId,
       enabled: boolean
     ) => Promise<AISubscriptionEntry[]>;
     connectWithKey: (entryId: AISubscriptionEntryId, subscriptionKey: string) => Promise<AISubscriptionEntry[]>;
+    startLogin: (
+      entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>
+    ) => Promise<AISubscriptionLoginStartResult>;
+    pollLogin: (
+      entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>,
+      attemptId: string
+    ) => Promise<AISubscriptionLoginPollResult>;
+    cancelLogin: (
+      entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>,
+      attemptId: string
+    ) => Promise<AISubscriptionEntry[]>;
     disconnect: (entryId: AISubscriptionEntryId) => Promise<AISubscriptionEntry[]>;
     getCapabilityRoutes: (capabilityId: CapabilityId) => Promise<AISubscriptionCapabilityRoute[]>;
     refreshStatus: (entryId: AISubscriptionEntryId) => Promise<AISubscriptionEntry[]>;

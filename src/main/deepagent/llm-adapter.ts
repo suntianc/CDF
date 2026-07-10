@@ -75,6 +75,10 @@ export interface RuntimeProviderModelConfig {
   modelKwargs?: Record<string, unknown>;
   /** Extra HTTP headers. */
   defaultHeaders?: Record<string, string>;
+  /** Optional request transport, used by OAuth-backed providers for token rotation. */
+  fetch?: typeof fetch;
+  /** Request retry limit. OAuth transports own their bounded auth retry policy. */
+  maxRetries?: number;
 }
 
 const LARGE_CODE_OUTPUT_TOKEN_LIMIT = 65_536;
@@ -539,15 +543,17 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
         temperature: config.temperature !== undefined ? config.temperature : 0,
         streaming: true,
       };
+      if (config.maxRetries !== undefined) modelConfig.maxRetries = config.maxRetries;
       if (config.apiKey) modelConfig.apiKey = config.apiKey;
       if (config.useResponsesApi) modelConfig.useResponsesApi = true;
       if (config.modelKwargs) modelConfig.modelKwargs = config.modelKwargs;
-      if (normalizedApiUrl || config.defaultHeaders) {
+      if (normalizedApiUrl || config.defaultHeaders || config.fetch) {
         modelConfig.configuration = {
           ...(normalizedApiUrl
             ? { baseURL: normalizedApiUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/?$/, '') }
             : {}),
           ...(config.defaultHeaders ? { defaultHeaders: config.defaultHeaders } : {}),
+          ...(config.fetch ? { fetch: config.fetch } : {}),
         };
       }
       model = new ChatOpenAI(modelConfig);

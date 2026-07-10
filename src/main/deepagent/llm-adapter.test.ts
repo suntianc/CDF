@@ -18,6 +18,31 @@ describe('createLangChainModel', () => {
     expect(model.clientConfig?.baseURL).toBe('https://api.example.com/v1');
   });
 
+  it('passes an OAuth-aware fetch transport to the OpenAI client', () => {
+    const authenticatedFetch = async () => new Response('ok');
+    const model = createLangChainModel({
+      apiKey: 'oauth-access-token',
+      apiUrl: 'https://api.example.com/v1',
+      defaultModel: 'oauth-model',
+      providerType: 'openai',
+      fetch: authenticatedFetch,
+    }) as any;
+
+    expect(model.clientConfig?.fetch).toBe(authenticatedFetch);
+  });
+
+  it('passes an explicit retry limit to the LangChain request caller', () => {
+    const model = createLangChainModel({
+      apiKey: 'oauth-access-token',
+      apiUrl: 'https://api.example.com/v1',
+      defaultModel: 'oauth-model',
+      providerType: 'openai',
+      maxRetries: 0,
+    }) as any;
+
+    expect(model.caller?.maxRetries).toBe(0);
+  });
+
   it('should use ChatAnthropic for MiniMax', () => {
     const model = createLangChainModel({
       apiKey: 'test-key',

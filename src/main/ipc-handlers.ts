@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, shell } from 'electron';
+import log from './logger';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
@@ -44,12 +45,16 @@ import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
 import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
 import {
+  cancelAISubscriptionLogin,
   connectAISubscriptionWithKey,
   disconnectAISubscription,
+  getActiveAISubscriptionLoginDescriptors,
   getAISubscriptionCapabilityRoutes,
   getAISubscriptionEntries,
+  pollAISubscriptionLogin,
   refreshAISubscriptionStatus,
   saveAISubscriptionCapabilityState,
+  startAISubscriptionLogin,
 } from './ai-subscription-store';
 import {
   getPaperSearchConfigSettings,
@@ -109,6 +114,24 @@ function normalizeExternalHttpUrl(value: unknown): string {
   }
 
   return parsed.toString();
+}
+
+const RENDERER_STORE_KEYS = new Set([
+  'theme',
+  'currentProjectId',
+  'sidebarWidth',
+  'sidebarCollapsed',
+  'windowBounds',
+  'language',
+  'approvalMode',
+  'autoSave',
+  'skillOverrides',
+]);
+
+function assertRendererStoreKey(key: unknown): asserts key is string {
+  if (typeof key !== 'string' || !RENDERER_STORE_KEYS.has(key)) {
+    throw new Error('Store key is not renderer-accessible');
+  }
 }
 
 const PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID = 'paper-search-easyscholar';
@@ -226,10 +249,20 @@ export function registerIpcHandlers() {
   });
 
   // electron-store handlers
-  ipcMain.handle('store:get', (_, key: string) => store.get(key));
-  ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
+  ipcMain.handle('store:get', (_, key: string) => {
+    assertRendererStoreKey(key);
+    return store.get(key);
+  });
+  ipcMain.handle('store:set', (_, key: string, value: unknown) => {
+    assertRendererStoreKey(key);
+    return store.set(key, value);
+  });
 
   ipcMain.handle('aiSubscriptions:getEntries', () => getAISubscriptionEntries());
+  ipcMain.handle(
+    'aiSubscriptions:getActiveLogins',
+    () => getActiveAISubscriptionLoginDescriptors()
+  );
   ipcMain.handle(
     'aiSubscriptions:setCapabilityEnabled',
     (_, entryId: AISubscriptionEntryId, capabilityId: CapabilityId, enabled: boolean) =>
@@ -239,6 +272,45 @@ export function registerIpcHandlers() {
     'aiSubscriptions:connectWithKey',
     (_, entryId: AISubscriptionEntryId, subscriptionKey: string) =>
       connectAISubscriptionWithKey(entryId, String(subscriptionKey))
+  );
+  ipcMain.handle(
+    'aiSubscriptions:startLogin',
+    async (_, entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>) => {
+      if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
+        throw new Error(`OAuth login is not supported for ${String(entryId)}`);
+      }
+      const result = await startAISubscriptionLogin(entryId);
+      try {
+        await shell.openExternal(normalizeExternalHttpUrl(result.descriptor.verificationUrl));
+      } catch (error) {
+        log.warn('[ai-subscriptions] Failed to open OAuth verification URL', error);
+      }
+      return result;
+    }
+  );
+  ipcMain.handle(
+    'aiSubscriptions:pollLogin',
+    (_, entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) => {
+      if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
+        throw new Error(`OAuth login is not supported for ${String(entryId)}`);
+      }
+      if (typeof attemptId !== 'string' || !attemptId) {
+        throw new Error('OAuth login attempt id is required');
+      }
+      return pollAISubscriptionLogin(entryId, attemptId);
+    }
+  );
+  ipcMain.handle(
+    'aiSubscriptions:cancelLogin',
+    (_, entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) => {
+      if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
+        throw new Error(`OAuth login is not supported for ${String(entryId)}`);
+      }
+      if (typeof attemptId !== 'string' || !attemptId) {
+        throw new Error('OAuth login attempt id is required');
+      }
+      return cancelAISubscriptionLogin(entryId, attemptId);
+    }
   );
   ipcMain.handle(
     'aiSubscriptions:disconnect',

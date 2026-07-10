@@ -4,10 +4,14 @@ import path from 'path';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { MINIMAX_TOKEN_PLAN_IMAGE_MODELS } from '../../shared/ai-subscriptions';
-import { getSubscriptionSecret } from '../ai-subscription-credentials';
+import { getOAuthCredential, getSubscriptionSecret } from '../ai-subscription-credentials';
+import {
+  CODEX_RESPONSES_API_BASE_URL,
+  createOAuthAuthenticatedFetch,
+} from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
 
-export type GenerateImageRouteHint = 'auto' | 'minimax-token-plan';
+export type GenerateImageRouteHint = 'auto' | 'minimax-token-plan' | 'codex-oauth';
 export type GenerateImageOperation = 'generate' | 'edit';
 
 export type GenerateImageInputRef =
@@ -33,7 +37,7 @@ export type GenerateImageResult =
   | {
       ok: true;
       model: string;
-      routeId: 'minimax-token-plan';
+      routeId: 'minimax-token-plan' | 'codex-oauth';
       operation: GenerateImageOperation;
       artifacts: GenerateImageArtifact[];
       /** Ready-to-paste markdown so the chat UI renders the image, not a bare path. */
@@ -58,8 +62,15 @@ export interface TokenPlanImageRoute {
   editEnabled: boolean;
 }
 
+export interface CodexImageRoute {
+  generateEnabled: boolean;
+  editEnabled: boolean;
+  fetch: typeof fetch;
+}
+
 export interface GenerateImageDeps {
   resolveTokenPlanImageRoute: () => TokenPlanImageRoute | null;
+  resolveCodexImageRoute?: () => CodexImageRoute | null;
   httpPostJson: (
     url: string,
     headers: Record<string, string>,
@@ -69,16 +80,19 @@ export interface GenerateImageDeps {
     bytes: Buffer,
     options: { extension: string }
   ) => Promise<string>;
-  /** Load a local image file as a MiniMax-compatible data URL. */
+  /** Load a local image file as a provider-compatible data URL. */
   readLocalImageAsDataUrl?: (filePath: string) => Promise<string>;
 }
 
 const IMAGE_GENERATION_URL = 'https://api.minimaxi.com/v1/image_generation';
 const DEFAULT_MODEL = MINIMAX_TOKEN_PLAN_IMAGE_MODELS[0];
+const CODEX_IMAGE_MAIN_MODEL = 'gpt-5.4-mini';
+const CODEX_IMAGE_TOOL_MODEL = 'gpt-image-2';
 
 /**
  * Provider-neutral image generation entry for Agents.
  * MiniMax Token Plan → image-01 (text-to-image and subject-reference image-to-image).
+ * Codex OAuth → Responses image_generation + gpt-image-2 (text-to-image and image editing).
  */
 export async function generateImage(
   input: GenerateImageInput,
@@ -102,7 +116,40 @@ export async function generateImage(
     };
   }
 
+  const routeHint = input.route_hint ?? 'auto';
   const route = deps.resolveTokenPlanImageRoute();
+  const codexRoute = deps.resolveCodexImageRoute?.() ?? null;
+  const tokenPlanOperationEnabled = operation === 'edit'
+    ? route?.editEnabled === true
+    : route?.generateEnabled === true;
+  const codexOperationEnabled = operation === 'edit'
+    ? codexRoute?.editEnabled === true
+    : codexRoute?.generateEnabled === true;
+  const shouldUseCodex = routeHint === 'codex-oauth'
+    || (
+      routeHint === 'auto'
+      && !tokenPlanOperationEnabled
+      && codexOperationEnabled
+    );
+
+  if (shouldUseCodex) {
+    if (!codexRoute) {
+      return {
+        ok: false,
+        error: 'Codex OAuth is not connected for image generation',
+        code: 'ROUTE_UNAVAILABLE',
+      };
+    }
+    if (!codexOperationEnabled) {
+      return {
+        ok: false,
+        error: `Codex OAuth image ${operation === 'edit' ? 'editing' : 'generation'} is disabled`,
+        code: 'CAPABILITY_DISABLED',
+      };
+    }
+    return generateCodexImage(prompt, input, codexRoute, deps);
+  }
+
   if (!route || !route.accessToken?.trim()) {
     return {
       ok: false,
@@ -194,6 +241,293 @@ export async function generateImage(
   };
 }
 
+async function generateCodexImage(
+  prompt: string,
+  input: GenerateImageInput,
+  route: CodexImageRoute,
+  deps: GenerateImageDeps
+): Promise<GenerateImageResult> {
+  let inputImageUrls: string[] = [];
+  if (input.operation === 'edit' || (input.input_images?.length ?? 0) > 0) {
+    try {
+      inputImageUrls = await buildCodexInputImageUrls(input.input_images ?? [], deps);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        code: 'INVALID_INPUT',
+      };
+    }
+  }
+  const count = clampCount(input.count);
+  const artifacts: GenerateImageArtifact[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    let response: Response;
+    try {
+      response = await route.fetch(
+        `${CODEX_RESPONSES_API_BASE_URL}/responses`,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'text/event-stream',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(buildCodexImageRequest(
+            prompt,
+            input.operation ?? (inputImageUrls.length > 0 ? 'edit' : 'generate'),
+            inputImageUrls,
+            input.aspect_ratio
+          )),
+        }
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        code: 'PROVIDER_REQUEST_ERROR',
+      };
+    }
+
+    const parsed = await parseCodexImageResponse(response);
+    if (!parsed.ok) return parsed;
+    for (const image of parsed.images) {
+      const bytes = Buffer.from(stripDataUrlPrefix(image.base64), 'base64');
+      const output = normalizeCodexOutputFormat(image.outputFormat);
+      const filePath = await deps.writeArtifact(bytes, { extension: output.extension });
+      artifacts.push({ path: filePath, mimeType: output.mimeType });
+    }
+  }
+
+  if (artifacts.length === 0) {
+    return {
+      ok: false,
+      error: 'Codex image_generation returned no images',
+      code: 'EMPTY_RESULT',
+    };
+  }
+
+  return {
+    ok: true,
+    model: CODEX_IMAGE_TOOL_MODEL,
+    routeId: 'codex-oauth',
+    operation: input.operation ?? (inputImageUrls.length > 0 ? 'edit' : 'generate'),
+    artifacts,
+    displayMarkdown: buildDisplayMarkdown(prompt, artifacts),
+  };
+}
+
+async function buildCodexInputImageUrls(
+  inputImages: GenerateImageInputRef[],
+  deps: GenerateImageDeps
+): Promise<string[]> {
+  const imageUrls: string[] = [];
+  for (const image of inputImages) {
+    if (image.kind === 'url') {
+      const url = image.url?.trim();
+      if (!url) throw new Error('input_images url is empty');
+      imageUrls.push(url);
+      continue;
+    }
+    const filePath = image.path?.trim();
+    if (!filePath) throw new Error('input_images local_file path is empty');
+    const reader = deps.readLocalImageAsDataUrl ?? readLocalImageAsDataUrl;
+    imageUrls.push(await reader(filePath));
+  }
+  return imageUrls;
+}
+
+function buildCodexImageRequest(
+  prompt: string,
+  operation: GenerateImageOperation,
+  inputImageUrls: string[],
+  aspectRatio?: string
+): Record<string, unknown> {
+  const imageTool: Record<string, unknown> = {
+    type: 'image_generation',
+    action: operation,
+    model: CODEX_IMAGE_TOOL_MODEL,
+    output_format: 'png',
+  };
+  const size = codexSizeForAspectRatio(aspectRatio);
+  if (size) imageTool.size = size;
+
+  const content: Array<Record<string, string>> = [{ type: 'input_text', text: prompt }];
+  for (const imageUrl of inputImageUrls) {
+    content.push({ type: 'input_image', image_url: imageUrl });
+  }
+
+  return {
+    instructions: 'Create the requested image with the image generation tool.',
+    stream: true,
+    reasoning: { effort: 'medium', summary: 'auto' },
+    parallel_tool_calls: true,
+    include: ['reasoning.encrypted_content'],
+    model: CODEX_IMAGE_MAIN_MODEL,
+    store: false,
+    tool_choice: { type: 'image_generation' },
+    input: [
+      {
+        type: 'message',
+        role: 'user',
+        content,
+      },
+    ],
+    tools: [imageTool],
+  };
+}
+
+function codexSizeForAspectRatio(aspectRatio?: string): string | undefined {
+  const sizes: Record<string, string> = {
+    '1:1': '1024x1024',
+    '16:9': '1536x864',
+    '4:3': '1536x1152',
+    '3:2': '1536x1024',
+    '2:3': '1024x1536',
+    '3:4': '1152x1536',
+    '9:16': '864x1536',
+    '21:9': '1792x768',
+  };
+  return aspectRatio ? sizes[aspectRatio] : undefined;
+}
+
+interface CodexImagePayload {
+  base64: string;
+  outputFormat?: string;
+}
+
+async function parseCodexImageResponse(
+  response: Response
+): Promise<{ ok: true; images: CodexImagePayload[] } | GenerateImageResult & { ok: false }> {
+  const raw = await response.text();
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: `Codex image_generation failed (${response.status}): ${providerErrorMessage(raw)}`,
+      code: 'PROVIDER_HTTP_ERROR',
+    };
+  }
+
+  const payloads = parseCodexPayloads(raw);
+  const images: CodexImagePayload[] = [];
+  const seen = new Set<string>();
+  let providerError: string | undefined;
+  let imageGenerationFailed = false;
+  let providerMessage: string | undefined;
+
+  const collectOutput = (items: unknown) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const output = item as Record<string, unknown>;
+      if (output.type === 'message' && Array.isArray(output.content)) {
+        for (const content of output.content) {
+          if (!content || typeof content !== 'object') continue;
+          const part = content as Record<string, unknown>;
+          const message = part.type === 'output_text' && typeof part.text === 'string'
+            ? part.text
+            : part.type === 'refusal' && typeof part.refusal === 'string'
+              ? part.refusal
+              : undefined;
+          if (message?.trim() && !providerMessage) providerMessage = message.trim().slice(0, 500);
+        }
+        continue;
+      }
+      if (output.type !== 'image_generation_call') continue;
+      if (output.status === 'failed') imageGenerationFailed = true;
+      if (typeof output.result !== 'string') continue;
+      const base64 = output.result.trim();
+      if (!base64 || seen.has(base64)) continue;
+      seen.add(base64);
+      images.push({
+        base64,
+        outputFormat: typeof output.output_format === 'string' ? output.output_format : undefined,
+      });
+    }
+  };
+
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== 'object') continue;
+    const event = payload as Record<string, unknown>;
+    if (event.type === 'response.output_item.done') collectOutput([event.item]);
+    if (event.type === 'response.completed') {
+      const completed = event.response as Record<string, unknown> | undefined;
+      collectOutput(completed?.output);
+    }
+    collectOutput(event.output);
+    if (event.type === 'response.failed' || event.type === 'error') {
+      providerError = providerErrorMessage(JSON.stringify(event));
+    }
+  }
+
+  if (images.length > 0) return { ok: true, images };
+  if (imageGenerationFailed && !providerError) {
+    providerError = providerMessage
+      ? `Codex image_generation failed: ${providerMessage}`
+      : 'Codex image_generation failed';
+  }
+  return {
+    ok: false,
+    error: providerError || 'Codex image_generation returned no images',
+    code: providerError ? 'PROVIDER_RESPONSE' : 'EMPTY_RESULT',
+  };
+}
+
+function parseCodexPayloads(raw: string): unknown[] {
+  const payloads: unknown[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) continue;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === '[DONE]') continue;
+    try {
+      payloads.push(JSON.parse(data));
+    } catch {
+      // Ignore malformed keepalive/event lines and continue to the terminal payload.
+    }
+  }
+  if (payloads.length > 0) return payloads;
+  try {
+    return [JSON.parse(raw)];
+  } catch {
+    return [];
+  }
+}
+
+function providerErrorMessage(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const error = parsed.error as Record<string, unknown> | undefined;
+    const response = parsed.response as Record<string, unknown> | undefined;
+    const responseError = response?.error as Record<string, unknown> | undefined;
+    const code = error?.code ?? responseError?.code;
+    const message = error?.message ?? responseError?.message;
+    if (code && message) return `${String(code)}: ${String(message)}`;
+    if (message) return String(message);
+    if (code) return String(code);
+  } catch {
+    // Fall through to a bounded raw-text summary.
+  }
+  return raw.trim().slice(0, 500) || 'unknown provider error';
+}
+
+function stripDataUrlPrefix(value: string): string {
+  const comma = value.indexOf(',');
+  return value.startsWith('data:') && comma >= 0 ? value.slice(comma + 1) : value;
+}
+
+function normalizeCodexOutputFormat(value?: string): { extension: string; mimeType: string } {
+  switch (value?.trim().toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+      return { extension: 'jpg', mimeType: 'image/jpeg' };
+    case 'webp':
+      return { extension: 'webp', mimeType: 'image/webp' };
+    default:
+      return { extension: 'png', mimeType: 'image/png' };
+  }
+}
+
 async function buildSubjectReferences(
   inputImages: GenerateImageInputRef[],
   deps: GenerateImageDeps
@@ -250,6 +584,26 @@ export function resolveTokenPlanImageRoute(): TokenPlanImageRoute | null {
   };
 }
 
+/** Resolve Codex OAuth image capabilities through the shared authenticated Responses transport. */
+export function resolveCodexImageRoute(): CodexImageRoute | null {
+  const credential = getOAuthCredential('codex-oauth');
+  if (!credential?.accessToken || credential.terminalStatus) return null;
+
+  const entry = getAISubscriptionEntries().find((item) => item.id === 'codex-oauth');
+  if (!entry || entry.status !== 'connected') return null;
+  const generateCapability = entry.capabilities.find(
+    (capability) => capability.capabilityId === 'image.generate'
+  );
+  const editCapability = entry.capabilities.find(
+    (capability) => capability.capabilityId === 'image.edit'
+  );
+  return {
+    generateEnabled: generateCapability?.enabled !== false,
+    editEnabled: editCapability?.enabled !== false,
+    fetch: createOAuthAuthenticatedFetch('codex-oauth'),
+  };
+}
+
 /** Persist generated image bytes under `<project>/.cdf/artifacts/images/`. */
 export async function writeImageArtifact(
   projectPath: string,
@@ -264,7 +618,7 @@ export async function writeImageArtifact(
   return filePath;
 }
 
-/** Read a local JPG/PNG as a data URL for MiniMax subject_reference. */
+/** Read a local image as a data URL for provider image inputs. */
 export async function readLocalImageAsDataUrl(filePath: string): Promise<string> {
   const absolute = path.resolve(filePath);
   const bytes = await fs.promises.readFile(absolute);
@@ -301,6 +655,7 @@ export async function defaultHttpPostJson(
 export function createGenerateImageDeps(projectPath: string): GenerateImageDeps {
   return {
     resolveTokenPlanImageRoute,
+    resolveCodexImageRoute,
     httpPostJson: defaultHttpPostJson,
     writeArtifact: (bytes, options) => writeImageArtifact(projectPath, bytes, options),
     readLocalImageAsDataUrl,
@@ -308,7 +663,7 @@ export function createGenerateImageDeps(projectPath: string): GenerateImageDeps 
 }
 
 /**
- * Public Agent Tool: generate_image (text-to-image and image-to-image via Token Plan image-01).
+ * Public Agent Tool: generate_image across connected subscription capability routes.
  */
 export function createGenerateImageTool(projectPath: string) {
   const deps = createGenerateImageDeps(projectPath);
@@ -340,8 +695,9 @@ export function createGenerateImageTool(projectPath: string) {
       name: 'generate_image',
       description:
         'Generate or edit an image. Text-to-image uses prompt only; image-to-image (edit) uses prompt plus input_images ' +
-        'as MiniMax character subject references (best: single frontal person photo). ' +
-        'Uses connected MiniMax Token Plan (image-01). Returns local artifact paths plus displayMarkdown. ' +
+        'as source image references. ' +
+        'Image generation and editing can use connected MiniMax Token Plan (image-01) or Codex OAuth (gpt-image-2). ' +
+        'Returns local artifact paths plus displayMarkdown. ' +
         GENERATE_IMAGE_DISPLAY_RULE,
       schema: z.object({
         prompt: z.string().describe('Image description or edit instruction (max ~1500 characters)'),
@@ -350,7 +706,7 @@ export function createGenerateImageTool(projectPath: string) {
           .optional()
           .describe('Defaults to edit when input_images is set, otherwise generate'),
         route_hint: z
-          .enum(['auto', 'minimax-token-plan'])
+          .enum(['auto', 'minimax-token-plan', 'codex-oauth'])
           .optional()
           .describe('Preferred capability route; defaults to auto'),
         input_images: z
