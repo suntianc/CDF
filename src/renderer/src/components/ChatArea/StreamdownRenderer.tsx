@@ -256,12 +256,12 @@ const AComponent = ({ children, href }: any) => {
 
   if (isAudio) {
     return (
-      <div className="audio-player-container my-3 p-3.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[420px] shadow-sm">
+      <span className="audio-player-container my-3 p-3.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[420px] shadow-sm block">
         {children && (
-          <div className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate">
+          <span className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate block">
             <span className="animate-pulse">🎵</span>
             <span>{children}</span>
-          </div>
+          </span>
         )}
         <audio
           src={safeSrc}
@@ -269,18 +269,18 @@ const AComponent = ({ children, href }: any) => {
           preload="metadata"
           className="w-full h-9 outline-none"
         />
-      </div>
+      </span>
     );
   }
 
   if (isVideo) {
     return (
-      <div className="video-player-container my-3 p-2.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[540px] shadow-sm">
+      <span className="video-player-container my-3 p-2.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[540px] shadow-sm block">
         {children && (
-          <div className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate">
+          <span className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate block">
             <span>🎬</span>
             <span>{children}</span>
-          </div>
+          </span>
         )}
         <video
           src={safeSrc}
@@ -288,7 +288,7 @@ const AComponent = ({ children, href }: any) => {
           preload="metadata"
           className="w-full max-h-[320px] object-contain rounded-lg bg-black/90"
         />
-      </div>
+      </span>
     );
   }
 
