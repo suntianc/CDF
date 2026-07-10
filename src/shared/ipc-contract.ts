@@ -50,7 +50,36 @@ import type {
   WorkflowSaveInput,
 } from './types';
 import type { SkillOverrideState } from './skill-overrides';
-import type { CommandConflictError } from './types';
+import type {
+  AtMentionCandidateList,
+  CommandConflictError,
+  ContextAggregate,
+  PaperSearchConfigKey,
+  PaperSearchConfigSettings,
+} from './types';
+import type {
+  AISubscriptionCapabilityRoute,
+  AISubscriptionEntry,
+  AISubscriptionEntryId,
+  AISubscriptionLoginPollResult,
+  AISubscriptionLoginStartResult,
+  CapabilityId,
+} from './ai-subscriptions';
+
+// OAuth 登录仅支持的订阅入口子集。
+type OAuthAISubscriptionEntryId = Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>;
+
+// electron-store 桥的值域：JSON 可序列化值。
+// 不能写成裸 unknown —— 契约中任何 result: unknown 的条目都会成为 typedHandle
+// 泛型反推的 match-all 候选，破坏所有调用点的字面量收窄（实测 TS 6.0）。
+export type StoreJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | StoreJsonValue[]
+  | { [key: string]: StoreJsonValue };
 
 // fs 域 handler 的统一返回形态：成功回执 / 带数据成功 / 失败带 FileError。
 type FsAck = { ok: true } | { ok: false; error: FileError };
@@ -236,6 +265,60 @@ export interface IpcInvokeContract {
     args: [projectId: string, agentId: string | null | undefined, skillPath: string];
     result: { body: string; mtimeMs: number };
   };
+  // ===== shell / electron-store =====
+  'shell:openExternalUrl': { args: [url: string]; result: { ok: true } };
+  // 通用 kv 桥：值形态由各调用方约定，契约层如实标注 unknown。
+  'store:get': { args: [key: string]; result: StoreJsonValue };
+  'store:set': { args: [key: string, value: unknown]; result: void };
+  // ===== AI Subscription Surface =====
+  'aiSubscriptions:getEntries': { args: []; result: AISubscriptionEntry[] };
+  'aiSubscriptions:getActiveLogins': {
+    args: [];
+    result: Partial<Record<OAuthAISubscriptionEntryId, AISubscriptionLoginStartResult['descriptor']>>;
+  };
+  'aiSubscriptions:setCapabilityEnabled': {
+    args: [entryId: AISubscriptionEntryId, capabilityId: CapabilityId, enabled: boolean];
+    result: AISubscriptionEntry[];
+  };
+  'aiSubscriptions:connectWithKey': {
+    args: [entryId: AISubscriptionEntryId, subscriptionKey: string];
+    result: AISubscriptionEntry[];
+  };
+  'aiSubscriptions:startLogin': {
+    args: [entryId: OAuthAISubscriptionEntryId];
+    result: AISubscriptionLoginStartResult;
+  };
+  'aiSubscriptions:pollLogin': {
+    args: [entryId: OAuthAISubscriptionEntryId, attemptId: string];
+    result: AISubscriptionLoginPollResult;
+  };
+  'aiSubscriptions:cancelLogin': {
+    args: [entryId: OAuthAISubscriptionEntryId, attemptId: string];
+    result: AISubscriptionEntry[];
+  };
+  'aiSubscriptions:disconnect': { args: [entryId: AISubscriptionEntryId]; result: AISubscriptionEntry[] };
+  'aiSubscriptions:getCapabilityRoutes': {
+    args: [capabilityId: CapabilityId];
+    result: AISubscriptionCapabilityRoute[];
+  };
+  'aiSubscriptions:refreshStatus': { args: [entryId: AISubscriptionEntryId]; result: AISubscriptionEntry[] };
+  // ===== @Mention 候选 =====
+  'project:listAtMentionCandidates': { args: [projectId: string]; result: AtMentionCandidateList };
+  // ===== Paper Search 配置 =====
+  'paper-search:getSettings': { args: []; result: PaperSearchConfigSettings };
+  'paper-search:saveConfigValue': {
+    args: [key: PaperSearchConfigKey, value: string];
+    result: PaperSearchConfigSettings;
+  };
+  'paper-search:clearConfigValue': {
+    args: [key: PaperSearchConfigKey];
+    result: PaperSearchConfigSettings;
+  };
+  // ===== /context token 统计 =====
+  'context:currentSession': {
+    args: [sessionId: string, contextLimit?: number, overriddenModelName?: string];
+    result: ContextAggregate;
+  };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract;
@@ -329,6 +412,24 @@ export const IPC_INVOKE_CHANNELS = [
   'commands:readProjectCommands',
   'commands:readBody',
   'commands:readSkillBody',
+  'shell:openExternalUrl',
+  'store:get',
+  'store:set',
+  'aiSubscriptions:getEntries',
+  'aiSubscriptions:getActiveLogins',
+  'aiSubscriptions:setCapabilityEnabled',
+  'aiSubscriptions:connectWithKey',
+  'aiSubscriptions:startLogin',
+  'aiSubscriptions:pollLogin',
+  'aiSubscriptions:cancelLogin',
+  'aiSubscriptions:disconnect',
+  'aiSubscriptions:getCapabilityRoutes',
+  'aiSubscriptions:refreshStatus',
+  'project:listAtMentionCandidates',
+  'paper-search:getSettings',
+  'paper-search:saveConfigValue',
+  'paper-search:clearConfigValue',
+  'context:currentSession',
 ] as const satisfies readonly IpcInvokeChannel[];
 
 type AssertNever<T extends never> = T;

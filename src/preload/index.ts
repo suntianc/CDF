@@ -27,34 +27,35 @@ import type {
   WorkflowTriggerSource,
 } from '../shared/types';
 import type { SkillOverrideState } from '../shared/skill-overrides';
+import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   store: {
-    get: (key: string) => ipcRenderer.invoke('store:get', key),
-    set: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
+    get: (key: string) => typedInvoke('store:get', key),
+    set: (key: string, value: unknown) => typedInvoke('store:set', key, value),
   },
   aiSubscriptions: {
-    getEntries: () => ipcRenderer.invoke('aiSubscriptions:getEntries'),
-    getActiveLogins: () => ipcRenderer.invoke('aiSubscriptions:getActiveLogins'),
-    setCapabilityEnabled: (entryId: string, capabilityId: string, enabled: boolean) =>
-      ipcRenderer.invoke('aiSubscriptions:setCapabilityEnabled', entryId, capabilityId, enabled),
-    connectWithKey: (entryId: string, subscriptionKey: string) =>
-      ipcRenderer.invoke('aiSubscriptions:connectWithKey', entryId, subscriptionKey),
-    startLogin: (entryId: string) =>
-      ipcRenderer.invoke('aiSubscriptions:startLogin', entryId),
-    pollLogin: (entryId: string, attemptId: string) =>
-      ipcRenderer.invoke('aiSubscriptions:pollLogin', entryId, attemptId),
-    cancelLogin: (entryId: string, attemptId: string) =>
-      ipcRenderer.invoke('aiSubscriptions:cancelLogin', entryId, attemptId),
-    disconnect: (entryId: string) =>
-      ipcRenderer.invoke('aiSubscriptions:disconnect', entryId),
-    getCapabilityRoutes: (capabilityId: string) =>
-      ipcRenderer.invoke('aiSubscriptions:getCapabilityRoutes', capabilityId),
-    refreshStatus: (entryId: string) =>
-      ipcRenderer.invoke('aiSubscriptions:refreshStatus', entryId),
+    getEntries: () => typedInvoke('aiSubscriptions:getEntries'),
+    getActiveLogins: () => typedInvoke('aiSubscriptions:getActiveLogins'),
+    setCapabilityEnabled: (entryId: AISubscriptionEntryId, capabilityId: CapabilityId, enabled: boolean) =>
+      typedInvoke('aiSubscriptions:setCapabilityEnabled', entryId, capabilityId, enabled),
+    connectWithKey: (entryId: AISubscriptionEntryId, subscriptionKey: string) =>
+      typedInvoke('aiSubscriptions:connectWithKey', entryId, subscriptionKey),
+    startLogin: (entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>) =>
+      typedInvoke('aiSubscriptions:startLogin', entryId),
+    pollLogin: (entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) =>
+      typedInvoke('aiSubscriptions:pollLogin', entryId, attemptId),
+    cancelLogin: (entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) =>
+      typedInvoke('aiSubscriptions:cancelLogin', entryId, attemptId),
+    disconnect: (entryId: AISubscriptionEntryId) =>
+      typedInvoke('aiSubscriptions:disconnect', entryId),
+    getCapabilityRoutes: (capabilityId: CapabilityId) =>
+      typedInvoke('aiSubscriptions:getCapabilityRoutes', capabilityId),
+    refreshStatus: (entryId: AISubscriptionEntryId) =>
+      typedInvoke('aiSubscriptions:refreshStatus', entryId),
   },
   shell: {
-    openExternalUrl: (url: string) => ipcRenderer.invoke('shell:openExternalUrl', url),
+    openExternalUrl: (url: string) => typedInvoke('shell:openExternalUrl', url),
   },
   db: {
     getProjects: () => typedInvoke('db:getProjects'),
@@ -236,7 +237,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // infers `kind` from `path.endsWith('/')` (pitfall #4 — minimal payload).
   project: {
     listAtMentionCandidates: (projectId: string) =>
-      ipcRenderer.invoke('project:listAtMentionCandidates', projectId),
+      typedInvoke('project:listAtMentionCandidates', projectId),
   },
   knowledge: {
     list: (projectId: string, options?: KnowledgeEntrySearchOptions) =>
@@ -257,18 +258,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       typedInvoke('paper-library:openPdf', projectId, resource),
   },
   paperSearch: {
-    getSettings: () => ipcRenderer.invoke('paper-search:getSettings'),
+    getSettings: () => typedInvoke('paper-search:getSettings'),
     saveConfigValue: (key: PaperSearchConfigKey, value: string) =>
-      ipcRenderer.invoke('paper-search:saveConfigValue', key, value),
+      typedInvoke('paper-search:saveConfigValue', key, value),
     clearConfigValue: (key: PaperSearchConfigKey) =>
-      ipcRenderer.invoke('paper-search:clearConfigValue', key),
+      typedInvoke('paper-search:clearConfigValue', key),
   },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   // 08.2 P4: optional contextLimit so renderer can pin the active provider
   // limit (P10 mitigation). Falls back to default 200_000 server-side.
   context: {
     currentSession: (sessionId: string, contextLimit?: number, overriddenModelName?: string) =>
-      ipcRenderer.invoke('context:currentSession', sessionId, contextLimit, overriddenModelName),
+      typedInvoke('context:currentSession', sessionId, contextLimit, overriddenModelName),
   },
   platform: process.platform,
 });

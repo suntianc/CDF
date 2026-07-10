@@ -206,6 +206,25 @@ const MIGRATED_IPC_HANDLER_CHANNELS = [
   'commands:readProjectCommands',
   'commands:readBody',
   'commands:readSkillBody',
+  // 剩余小域（#121）
+  'shell:openExternalUrl',
+  'store:get',
+  'store:set',
+  'aiSubscriptions:getEntries',
+  'aiSubscriptions:getActiveLogins',
+  'aiSubscriptions:setCapabilityEnabled',
+  'aiSubscriptions:connectWithKey',
+  'aiSubscriptions:startLogin',
+  'aiSubscriptions:pollLogin',
+  'aiSubscriptions:cancelLogin',
+  'aiSubscriptions:disconnect',
+  'aiSubscriptions:getCapabilityRoutes',
+  'aiSubscriptions:refreshStatus',
+  'project:listAtMentionCandidates',
+  'paper-search:getSettings',
+  'paper-search:saveConfigValue',
+  'paper-search:clearConfigValue',
+  'context:currentSession',
 ] as const;
 
 describe('IPC handlers', () => {

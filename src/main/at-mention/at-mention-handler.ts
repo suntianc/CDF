@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { typedHandle } from '../typed-ipc';
 import db from '../database';
 
 import { listCandidates } from './candidate-lister';
@@ -21,7 +21,7 @@ import { listCandidates } from './candidate-lister';
  * empty popup without try/catch boilerplate.
  */
 export function registerAtMentionHandlers(): void {
-  ipcMain.handle('project:listAtMentionCandidates', async (_evt, projectId: string) => {
+  typedHandle('project:listAtMentionCandidates', async (_evt, projectId) => {
     try {
       const project = db
         .prepare('SELECT path FROM projects WHERE id = ?')

@@ -248,39 +248,39 @@ export function registerIpcHandlers() {
     return { provider, decryptedKey };
   };
 
-  ipcMain.handle('shell:openExternalUrl', async (_, url: unknown) => {
+  typedHandle('shell:openExternalUrl', async (_, url) => {
     await shell.openExternal(normalizeExternalHttpUrl(url));
     return { ok: true };
   });
 
   // electron-store handlers
-  ipcMain.handle('store:get', (_, key: string) => {
+  typedHandle('store:get', (_, key) => {
     assertRendererStoreKey(key);
     return store.get(key);
   });
-  ipcMain.handle('store:set', (_, key: string, value: unknown) => {
+  typedHandle('store:set', (_, key, value) => {
     assertRendererStoreKey(key);
     return store.set(key, value);
   });
 
-  ipcMain.handle('aiSubscriptions:getEntries', () => getAISubscriptionEntries());
-  ipcMain.handle(
+  typedHandle('aiSubscriptions:getEntries', () => getAISubscriptionEntries());
+  typedHandle(
     'aiSubscriptions:getActiveLogins',
     () => getActiveAISubscriptionLoginDescriptors()
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:setCapabilityEnabled',
-    (_, entryId: AISubscriptionEntryId, capabilityId: CapabilityId, enabled: boolean) =>
+    (_, entryId, capabilityId, enabled) =>
       saveAISubscriptionCapabilityState(entryId, capabilityId, Boolean(enabled))
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:connectWithKey',
-    (_, entryId: AISubscriptionEntryId, subscriptionKey: string) =>
+    (_, entryId, subscriptionKey) =>
       connectAISubscriptionWithKey(entryId, String(subscriptionKey))
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:startLogin',
-    async (_, entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>) => {
+    async (_, entryId) => {
       if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
         throw new Error(`OAuth login is not supported for ${String(entryId)}`);
       }
@@ -293,9 +293,9 @@ export function registerIpcHandlers() {
       return result;
     }
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:pollLogin',
-    (_, entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) => {
+    (_, entryId, attemptId) => {
       if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
         throw new Error(`OAuth login is not supported for ${String(entryId)}`);
       }
@@ -305,9 +305,9 @@ export function registerIpcHandlers() {
       return pollAISubscriptionLogin(entryId, attemptId);
     }
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:cancelLogin',
-    (_, entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) => {
+    (_, entryId, attemptId) => {
       if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
         throw new Error(`OAuth login is not supported for ${String(entryId)}`);
       }
@@ -317,17 +317,17 @@ export function registerIpcHandlers() {
       return cancelAISubscriptionLogin(entryId, attemptId);
     }
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:disconnect',
-    (_, entryId: AISubscriptionEntryId) => disconnectAISubscription(entryId)
+    (_, entryId) => disconnectAISubscription(entryId)
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:getCapabilityRoutes',
-    (_, capabilityId: CapabilityId) => getAISubscriptionCapabilityRoutes(capabilityId)
+    (_, capabilityId) => getAISubscriptionCapabilityRoutes(capabilityId)
   );
-  ipcMain.handle(
+  typedHandle(
     'aiSubscriptions:refreshStatus',
-    (_, entryId: AISubscriptionEntryId) =>
+    (_, entryId) =>
       refreshAISubscriptionStatus(entryId)
   );
 
@@ -894,9 +894,9 @@ export function registerIpcHandlers() {
     db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
   });
 
-  ipcMain.handle('paper-search:getSettings', () => getSyncedPaperSearchSettings());
+  typedHandle('paper-search:getSettings', () => getSyncedPaperSearchSettings());
 
-  ipcMain.handle('paper-search:saveConfigValue', (_, key: PaperSearchConfigKey, value: string) => {
+  typedHandle('paper-search:saveConfigValue', (_, key, value) => {
     if (typeof key !== 'string' || typeof value !== 'string' || value.trim().length === 0) {
       throw new Error('Paper Search CLI config value cannot be empty');
     }
@@ -904,7 +904,7 @@ export function registerIpcHandlers() {
     return setPaperSearchConfigValue(key, value);
   });
 
-  ipcMain.handle('paper-search:clearConfigValue', (_, key: PaperSearchConfigKey) => {
+  typedHandle('paper-search:clearConfigValue', (_, key) => {
     migrateLegacyEasyScholarKey();
     return unsetPaperSearchConfigValue(key);
   });
@@ -1309,7 +1309,7 @@ export function registerIpcHandlers() {
   // 08.2 P4: accepts optional `contextLimit` arg so renderer can pin
   // the active provider's limit (P10 mitigation). Falls back to provider
   // lookup → 200_000 default inside the aggregator.
-  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number, overriddenModelName?: string) => {
+  typedHandle('context:currentSession', async (_evt, sessionId, contextLimit, overriddenModelName) => {
     try {
       return await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
     } catch (err) {
@@ -1319,7 +1319,8 @@ export function registerIpcHandlers() {
           conversation: 0, skills: 0, mcp: 0, workflows: 0,
           systemPrompt: 0, systemTools: 0, customAgents: 0, memoryFiles: 0,
           messages: 0, projectCommandBodies: 0, freeSpace: 0, autocompactBuffer: 0,
-          mcpPerTool: [],
+          mcpPerTool: [], skillsPerSkill: [], workflowsPerWorkflow: [],
+          systemToolsPerTool: [], projectCommandsPerFile: [],
         },
         total: 0,
         modelName: '',
