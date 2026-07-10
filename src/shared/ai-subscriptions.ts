@@ -31,7 +31,7 @@ export type ReasoningEffort =
 
 export interface ModelReasoningProfile {
   supportedEfforts: readonly ReasoningEffort[];
-  defaultEffort?: ReasoningEffort;
+  defaultEffort: ReasoningEffort;
   control: 'depth' | 'agent_count';
 }
 
@@ -72,8 +72,8 @@ export const CODEX_OAUTH_TEXT_MODELS = [
     label: 'GPT-5.6 Sol',
     contextLimit: 372_000,
     reasoning: {
-      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-      defaultEffort: 'low',
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'medium',
       control: 'depth',
     },
   },
@@ -82,7 +82,7 @@ export const CODEX_OAUTH_TEXT_MODELS = [
     label: 'GPT-5.6 Terra',
     contextLimit: 372_000,
     reasoning: {
-      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       defaultEffort: 'medium',
       control: 'depth',
     },
@@ -133,7 +133,7 @@ export const CODEX_OAUTH_TEXT_MODELS = [
     contextLimit: 128_000,
     reasoning: {
       supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
-      defaultEffort: 'high',
+      defaultEffort: 'medium',
       control: 'depth',
     },
   },
@@ -148,7 +148,7 @@ export const XAI_OAUTH_TEXT_MODELS = [
     contextLimit: 500_000,
     reasoning: {
       supportedEfforts: ['low', 'medium', 'high'],
-      defaultEffort: 'high',
+      defaultEffort: 'medium',
       control: 'depth',
     },
   },
@@ -158,7 +158,7 @@ export const XAI_OAUTH_TEXT_MODELS = [
     contextLimit: 1_000_000,
     reasoning: {
       supportedEfforts: ['none', 'low', 'medium', 'high'],
-      defaultEffort: 'low',
+      defaultEffort: 'medium',
       control: 'depth',
     },
   },
@@ -170,6 +170,7 @@ export const XAI_OAUTH_TEXT_MODELS = [
     contextLimit: 2_000_000,
     reasoning: {
       supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'medium',
       control: 'agent_count',
     },
   },

@@ -181,9 +181,7 @@ export function useModelSelectionController({
     ? providers.find((provider) => provider.id === currentCandidate.sourceId) ?? masterProvider
     : null;
   const currentModel = currentCandidate?.model || masterProvider?.default_model || '';
-  const currentModelLabel = currentCandidate
-    ? `${currentCandidate.sourceName} • ${currentCandidate.label}`
-    : '';
+  const currentModelLabel = currentCandidate?.label || '';
   const reasoning = currentCandidate?.reasoning;
   const selectedReasoningEffort = reasoning?.supportedEfforts.includes(override?.reasoningEffort as ReasoningEffort)
     ? override?.reasoningEffort

@@ -358,7 +358,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   color: var(--text-secondary);
   transition: all 0.15s;
   background: transparent;
-  font: inherit;
   cursor: pointer;
   user-select: none;
 }

@@ -508,6 +508,7 @@
     "addAttachment": "Add attachment",
     "noProvidersAvailable": "No providers available, click to configure",
     "modelSelection": {
+      "label": "Model",
       "sourceKinds": {
         "llm_provider": "API provider",
         "ai_subscription": "AI subscription"
