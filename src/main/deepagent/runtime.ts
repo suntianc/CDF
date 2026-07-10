@@ -91,12 +91,12 @@ async function resolveRuntimeProviderModelConfig(
   const modelName = overrides?.model || provider.default_model;
   return {
     config: {
-      apiKey: provider.api_key,
-      apiUrl: provider.api_url,
+      apiKey: provider.api_key ?? undefined,
+      apiUrl: provider.api_url ?? undefined,
       defaultModel: provider.default_model,
-      providerType: provider.provider_type,
+      providerType: provider.provider_type as RuntimeProviderModelConfig['providerType'],
       model: modelName,
-      contextLimit: provider.context_limit,
+      contextLimit: provider.context_limit ?? undefined,
     },
     fallbackProvider: provider,
   };
@@ -769,10 +769,10 @@ export async function createDeepAgentRuntime(
 
       const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
       const subagentModel = createLangChainModel({
-        apiKey: providerRow.api_key,
-        apiUrl: providerRow.api_url,
+        apiKey: providerRow.api_key ?? undefined,
+        apiUrl: providerRow.api_url ?? undefined,
         defaultModel: providerRow.default_model,
-        providerType: providerRow.provider_type,
+        providerType: providerRow.provider_type as RuntimeProviderModelConfig['providerType'],
       });
 
       console.log(`[runtime] Subagent ${agentSlug}: provider_id=${agentRow.provider_id}, default_model=${providerRow?.default_model}, provider_type=${providerRow?.provider_type}`);

@@ -41,7 +41,7 @@ export function generateSlug(name: string): string {
 }
 
 interface SlugSource {
-  slug: string | null | undefined;
+  slug?: string | null;
   name: string;
 }
 

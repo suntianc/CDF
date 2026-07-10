@@ -71,6 +71,13 @@ async function waitForPdfParseJobStatus(jobId: string, status: string, timeoutMs
   return getPdfParseJob(jobId);
 }
 
+function completedParse(result: import('./pdf-parse').ParsePDFResult) {
+  if (result.status !== 'completed') {
+    throw new Error(`expected a completed parse result, got status=${result.status}`);
+  }
+  return result;
+}
+
 describe('parsePDF', () => {
   it('returns a Structured Paper Parse from Marker markdown when parsing finishes within timeout', async () => {
     const runner: MarkerRunner = {
@@ -96,7 +103,7 @@ describe('parsePDF', () => {
       }),
     };
 
-    const result = await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner });
+    const result = completedParse(await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner }));
 
     expect(result.status).toBe('completed');
     expect(result.parse?.parser).toBe('marker');
@@ -144,7 +151,7 @@ describe('parsePDF', () => {
       }),
     };
 
-    const result = await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner });
+    const result = completedParse(await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner }));
 
     expect(result.status).toBe('completed');
     expect(result.diagnostics).toEqual([
@@ -173,7 +180,7 @@ describe('parsePDF', () => {
       }),
     };
 
-    const result = await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner });
+    const result = completedParse(await parsePDF(pdfPath, { timeoutMs: 5000 }, { runner }));
 
     expect(result.status).toBe('completed');
     expect(result.diagnostics).toEqual([]);

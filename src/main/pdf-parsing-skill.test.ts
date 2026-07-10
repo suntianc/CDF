@@ -6,6 +6,7 @@ import zlib from 'zlib';
 import { execFileSync } from 'child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getBuiltInSkillDirs } from './deepagent/skill-manager';
+import type { PdfRecoveryPlan, PdfRecoveryRouteDecision } from './pdf-parsing-skill';
 import { resetPdfParseJobsForTests, type MarkerRunner } from './pdf-parse';
 import {
   clearPdfRecoveryPreference,
@@ -179,6 +180,13 @@ afterEach(() => {
   }
   fs.rmSync(projectPath, { recursive: true, force: true });
 });
+
+function artifactResult(result: import('./pdf-parsing-skill').ParsePdfWithSkillResult) {
+  if (!('artifactDir' in result)) {
+    throw new Error(`expected an artifact-producing parse result, got status=${result.status}`);
+  }
+  return result;
+}
 
 describe('PDF Parsing Skill baseline artifact', () => {
   it('finds the latest reusable artifact for a PDF before rerunning Marker', () => {
@@ -358,11 +366,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
       }),
     };
 
-    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+    const result = artifactResult(await parsePdfWithSkill(projectPath, pdfPath, {
       runner,
       now: () => new Date('2026-07-02T15:30:00.000Z'),
       createJobId: () => 'job-artifact',
-    });
+    }));
 
     expect(result.status).toBe('completed');
     expect(result.artifactDir).toBe(path.join(projectPath, '.cdf', 'pdf-parses', `2026-07-02T153000Z-${result.source.sha256.slice(0, 8)}`));
@@ -437,11 +445,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
       },
     };
 
-    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+    const result = artifactResult(await parsePdfWithSkill(projectPath, pdfPath, {
       runner,
       now: () => new Date('2026-07-02T15:45:00.000Z'),
       createJobId: () => 'job-artifact-images',
-    });
+    }));
 
     expect(result.status).toBe('completed');
     expect(fs.readFileSync(path.join(result.artifactDir, 'recovered-view.md'), 'utf-8')).toContain('![](_page_1_Figure_0.jpeg)');
@@ -463,11 +471,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
       }),
     };
 
-    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+    const result = artifactResult(await parsePdfWithSkill(projectPath, pdfPath, {
       runner,
       now: () => new Date('2026-07-02T15:50:00.000Z'),
       createJobId: () => 'job-weak-source-location',
-    });
+    }));
 
     expect(result.status).toBe('completed');
     expect(JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'diagnostics.json'), 'utf-8'))).toEqual([
@@ -501,11 +509,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
       }),
     };
 
-    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+    const result = artifactResult(await parsePdfWithSkill(projectPath, pdfPath, {
       runner,
       now: () => new Date('2026-07-02T15:55:00.000Z'),
       createJobId: () => 'job-block-offsets',
-    });
+    }));
     const baseline = JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'baseline.json'), 'utf-8'));
     const paragraph = baseline.blocks.find((block: { id: string }) => block.id === 'paragraph-0002');
 
@@ -524,11 +532,11 @@ describe('PDF Parsing Skill baseline artifact', () => {
       },
     };
 
-    const result = await parsePdfWithSkill(projectPath, pdfPath, {
+    const result = artifactResult(await parsePdfWithSkill(projectPath, pdfPath, {
       runner,
       now: () => new Date('2026-07-02T16:00:00.000Z'),
       createJobId: () => 'job-timeout-artifact',
-    });
+    }));
 
     expect(result.status).toBe('failed');
     expect(result.artifactDir).toBe(path.join(projectPath, '.cdf', 'pdf-parses', `2026-07-02T160000Z-${result.source.sha256.slice(0, 8)}`));
@@ -1225,11 +1233,11 @@ describe('PDF recovery capability discovery', () => {
     expect(JSON.stringify(discovery)).not.toContain('custom-provider');
     expect(JSON.stringify(discovery)).not.toContain('layout-vision-model');
 
-    const plan = {
+    const plan: PdfRecoveryPlan = {
       artifactId: 'parse-1',
       targets: [{ kind: 'page' as const, page: 3, reasons: ['OCR_ARTIFACTS' as const] }],
-      candidateRoutes: ['local-first', 'vision-capability', 'multimodal-agent'] as const,
-      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'] as const,
+      candidateRoutes: ['local-first', 'vision-capability', 'multimodal-agent'],
+      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'],
       requiresPlanConfirmation: true as const,
       requiresManualPageSelection: false as const,
     };
@@ -1262,11 +1270,11 @@ describe('PDF recovery capability discovery', () => {
     const localOnlyDiscovery = discoverPdfRecoveryCapabilities({
       localMarker: { available: true, commandSource: 'CDF_MARKER_COMMAND' },
     });
-    const plan = {
+    const plan: PdfRecoveryPlan = {
       artifactId: 'parse-1',
       targets: [{ kind: 'page' as const, page: 3, reasons: ['OCR_ARTIFACTS' as const] }],
-      candidateRoutes: ['vision-capability', 'multimodal-agent'] as const,
-      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'] as const,
+      candidateRoutes: ['vision-capability', 'multimodal-agent'],
+      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'],
       requiresPlanConfirmation: true as const,
       requiresManualPageSelection: false as const,
     };
@@ -1541,11 +1549,11 @@ describe('PDF recovery capability discovery', () => {
 
 describe('PDF recovery route choice and plan-level confirmation', () => {
   it('summarizes route choices, reuses safe preferences, re-prompts on new risk, and records approval state', () => {
-    const plan = {
+    const plan: PdfRecoveryPlan = {
       artifactId: 'parse-1',
       targets: [{ kind: 'page' as const, page: 3, reasons: ['OCR_ARTIFACTS' as const] }],
-      candidateRoutes: ['vision-capability', 'multimodal-agent'] as const,
-      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'] as const,
+      candidateRoutes: ['vision-capability', 'multimodal-agent'],
+      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'],
       requiresPlanConfirmation: true as const,
       requiresManualPageSelection: false as const,
     };
@@ -1613,8 +1621,8 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
 
     expect(summarizePdfRecoveryRoutes({
       targets: [{ kind: 'document' as const, reasons: ['WEAK_SOURCE_LOCATION' as const] }],
-      candidateRoutes: ['ask-each-time'] as const,
-      routeRisks: [] as const,
+      candidateRoutes: ['ask-each-time'],
+      routeRisks: [],
     })).toEqual([
       expect.objectContaining({
         route: 'ask-each-time',
@@ -1624,8 +1632,8 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
 
     expect(decidePdfRecoveryRoute(projectPath, {
       targets: [{ kind: 'document' as const, reasons: ['WEAK_SOURCE_LOCATION' as const] }],
-      candidateRoutes: ['ask-each-time'] as const,
-      routeRisks: [] as const,
+      candidateRoutes: ['ask-each-time'],
+      routeRisks: [],
       requiresPlanConfirmation: false as const,
     }, {
       selectedRoute: 'ask-each-time',
@@ -1638,6 +1646,7 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
 
     const artifactDir = path.join(projectPath, '.cdf', 'pdf-parses', 'parse-1');
     fs.mkdirSync(artifactDir, { recursive: true });
+    if (approved.status !== 'selected') throw new Error('expected a selected route decision');
     recordPdfRecoveryRouteSelection(artifactDir, approved);
     expect(JSON.parse(fs.readFileSync(path.join(artifactDir, 'run-state.json'), 'utf-8'))).toMatchObject({
       recoveryRoute: {
@@ -1652,11 +1661,11 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
     const discovery = discoverPdfRecoveryCapabilities({
       agentViableRoutes: ['vision-capability'],
     });
-    const riskyPlan = {
+    const riskyPlan: PdfRecoveryPlan = {
       artifactId: 'parse-risk',
       targets: [{ kind: 'page' as const, page: 2, reasons: ['MARKER_TIMEOUT' as const] }],
-      candidateRoutes: ['local-first', 'vision-capability'] as const,
-      routeRisks: ['network'] as const,
+      candidateRoutes: ['local-first', 'vision-capability'],
+      routeRisks: ['network'],
       requiresPlanConfirmation: true as const,
       requiresManualPageSelection: false as const,
     };
@@ -1682,8 +1691,8 @@ describe('PDF recovery route choice and plan-level confirmation', () => {
 
     expect(decidePdfRecoveryRoute(projectPath, {
       targets: [{ kind: 'document' as const, reasons: ['WEAK_SOURCE_LOCATION' as const] }],
-      candidateRoutes: ['local-first'] as const,
-      routeRisks: [] as const,
+      candidateRoutes: ['local-first'],
+      routeRisks: [],
       requiresPlanConfirmation: true as const,
     }, {
       selectedRoute: 'local-first',
@@ -1703,14 +1712,14 @@ describe('PDF recovery capability execution and overlays', () => {
     fs.writeFileSync(path.join(artifactDir, 'diagnostics.json'), '[]\n', 'utf-8');
     fs.writeFileSync(path.join(artifactDir, 'provenance.json'), JSON.stringify({ baseline: { parser: 'marker' }, recovery: [] }, null, 2), 'utf-8');
 
-    const plan = {
+    const plan: PdfRecoveryPlan = {
       artifactId: 'parse-1',
       targets: [
         { kind: 'page' as const, page: 3, reasons: ['OCR_ARTIFACTS' as const] },
         { kind: 'block' as const, blockId: 'table-0001', page: 4, reasons: ['MISSING_TABLE_STRUCTURE' as const] },
       ],
-      candidateRoutes: ['vision-capability'] as const,
-      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'] as const,
+      candidateRoutes: ['vision-capability'],
+      routeRisks: ['network', 'metered-provider', 'page-or-text-upload'],
       requiresPlanConfirmation: true as const,
       requiresManualPageSelection: false as const,
     };

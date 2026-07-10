@@ -17,7 +17,7 @@ const {
   dbPrepareMock: vi.fn(),
   decryptApiKeyMock: vi.fn((value: string) => `decrypted:${value}`),
   createLangChainModelMock: vi.fn(() => ({ model: 'mock-model' })),
-  loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
+  loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] as Array<{ name: string }> })),
   resolveAgentSkillsConfigMock: vi.fn((): any => ({ skillsSources: [] })),
   resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({ options: undefined, warnings: [] })),
   getScopePathMock: vi.fn((_projectPath: string, scope: string) =>

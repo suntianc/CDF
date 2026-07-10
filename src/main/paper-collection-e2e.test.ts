@@ -581,7 +581,7 @@ describe('Paper Collection arXiv loop', () => {
         journal: paper.journal,
         year: paper.year,
         doi: paper.doi,
-        journalMetrics: metrics,
+        journalMetrics: metrics as import('../shared/types').JournalMetricsSnapshot | undefined,
         resource,
         body: `PDF URL: ${paper.pdfUrl}`,
       });

@@ -27,7 +27,7 @@ const {
     scope === 'global' ? path.join(os.tmpdir(), 'cdf-runtime-test-global-skills') : path.join(_projectPath, '.cdf', 'skills')
   ),
   getBuiltInSkillDirsMock: vi.fn(() => [path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base')]),
-  loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
+  loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] as Array<{ name: string }> })),
   registerHarnessProfileMock: vi.fn(),
   resolveAgentSkillsConfigMock: vi.fn(() => ({
     skillsSources: ['/.cdf/skills'],
@@ -126,7 +126,7 @@ interface CreateDeepAgentParams {
 }
 
 function firstCreateDeepAgentParams(): CreateDeepAgentParams {
-  const firstCall = createDeepAgentMock.mock.calls[0];
+  const firstCall = createDeepAgentMock.mock.calls[0] as unknown[];
   expect(firstCall).toBeTruthy();
   return firstCall[0] as CreateDeepAgentParams;
 }

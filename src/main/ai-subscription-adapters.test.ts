@@ -5,6 +5,7 @@ import {
   createXaiOAuthAdapter,
 } from './ai-subscription-adapters';
 import type { OAuthCredential } from './ai-subscription-credentials';
+import type { OAuthHttpResponse } from './ai-subscription-adapters';
 
 describe('MiniMax Token Plan adapter', () => {
   it('requests token-plan remains with the subscription key as a Bearer credential and reports connected', async () => {
@@ -434,8 +435,8 @@ describe('Codex OAuth adapter', () => {
       expiresAt: 1_799_999_999_000,
       obtainedAt: 1_799_996_400_000,
     };
-    let resolveRefresh!: (value: unknown) => void;
-    const refreshResponse = new Promise((resolve) => {
+    let resolveRefresh!: (value: OAuthHttpResponse) => void;
+    const refreshResponse = new Promise<OAuthHttpResponse>((resolve) => {
       resolveRefresh = resolve;
     });
     const saveCredential = vi.fn((_entryId, nextCredential) => {

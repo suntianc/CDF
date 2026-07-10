@@ -89,7 +89,7 @@ function makePrepared(state: typeof dbState) {
         const sets = m[1].split(',').map((x) => x.trim());
         for (let i = 0; i < sets.length; i++) {
           const [col] = sets[i].split('=').map((x) => x.trim());
-          existing[col as keyof AgentRow] = params[i] as any;
+          (existing as unknown as Record<string, unknown>)[col] = params[i];
         }
         existing.updated_at = params[params.length - 2] as number;
         return { changes: 1 };
@@ -522,7 +522,7 @@ describe('createAgentTools', () => {
       expect(result.is_default).toBe(false);
       expect(dbState.agents.get(result.id)!.is_default).toBe(0);
       // No other agent in the project was promoted either.
-      const anyDefault = (dbState.agents.values() as any[]).some(
+      const anyDefault = Array.from(dbState.agents.values()).some(
         (a) => a.project_id === 'project-test-1' && a.is_default === 1,
       );
       expect(anyDefault).toBe(false);

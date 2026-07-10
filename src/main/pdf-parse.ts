@@ -688,7 +688,7 @@ function acquireMarkerRunLock(filePath: string): () => void {
         fs.rmSync(lockPath, { force: true });
       };
     } catch (error) {
-      const record = error && typeof error === 'object' ? error as NodeJS.ErrnoException : {};
+      const record = (error && typeof error === 'object' ? error : {}) as NodeJS.ErrnoException;
       if (record.code !== 'EEXIST') throw error;
       const existingPid = readLockPid(lockPath);
       if (existingPid !== null && !processLooksAlive(existingPid)) {
@@ -883,7 +883,7 @@ function runMarkerCommand(
   signal: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    const child: ChildProcessWithoutNullStreams = spawn(command, args, {
+    const child = spawn(command, args, {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

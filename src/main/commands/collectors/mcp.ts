@@ -59,7 +59,8 @@ export async function collectMcpCommands(agentId: string): Promise<McpCollectorR
   // can build the prompt from the same identifier.
   const commands: SlashCommand[] = agentServers.map((server) => ({
     name: server.name,
-    description: server.description || `MCP server: ${server.name}`,
+    // mcp_servers 表无 description 列；保留运行时兜底以兼容手工导入的行
+    description: (server as { description?: string }).description || `MCP server: ${server.name}`,
     source: 'mcp',
     target: server.name,
     sourceLabel: `mcp:${server.name}`,

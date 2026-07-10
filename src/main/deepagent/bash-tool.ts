@@ -96,13 +96,14 @@ export function createBashTool(options: BashToolOptions = {}) {
         shell,
       } as any);
 
-      let truncatedStdout = stdout;
-      let truncatedStderr = stderr;
-      if (stdout.length > maxOutputBytes) {
-        truncatedStdout = stdout.slice(0, maxOutputBytes) + '\n... output truncated (size limit)';
+      // execFile 的 options 走 as any 后 TS 推导为 Buffer 重载；运行时默认 utf8 实为 string
+      let truncatedStdout = String(stdout);
+      let truncatedStderr = String(stderr);
+      if (truncatedStdout.length > maxOutputBytes) {
+        truncatedStdout = truncatedStdout.slice(0, maxOutputBytes) + '\n... output truncated (size limit)';
       }
-      if (stderr.length > maxOutputBytes) {
-        truncatedStderr = stderr.slice(0, maxOutputBytes) + '\n... error truncated (size limit)';
+      if (truncatedStderr.length > maxOutputBytes) {
+        truncatedStderr = truncatedStderr.slice(0, maxOutputBytes) + '\n... error truncated (size limit)';
       }
 
       return {

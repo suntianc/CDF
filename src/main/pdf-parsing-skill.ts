@@ -125,7 +125,7 @@ export type PdfRecoveryRouteDecision =
     }
   | {
       status: 'needs-route-choice';
-      reason: PdfRecoveryPreferenceResolution['reason'] | 'meaningful-trade-offs';
+      reason: Extract<PdfRecoveryPreferenceResolution, { action: 'ask' }>['reason'] | 'meaningful-trade-offs';
       options: PdfRecoveryRouteOption[];
       requiresPlanConfirmation: boolean;
     }
@@ -1436,7 +1436,8 @@ function listPdfParseArtifactCandidates(projectPath: string): PdfParseArtifactCa
     if (!entry.isDirectory()) continue;
     const artifactDir = path.join(artifactsRoot, entry.name);
     const metadata = readJsonFileOrUndefined<PdfParseArtifactMetadata>(path.join(artifactDir, 'metadata.json'));
-    const source = metadata?.source;
+    if (!metadata) continue;
+    const source = metadata.source;
     if (!source?.path || !source.sha256 || typeof source.fileSize !== 'number') continue;
     const artifactId = metadata.artifactId ?? entry.name;
     candidates.push({
@@ -1788,7 +1789,7 @@ export async function parsePdfWithSkill(
       status: result.status,
       jobId: result.jobId,
       diagnostics: result.diagnostics,
-      error: result.status === 'failed' || result.status === 'canceled' ? result.error : undefined,
+      error: undefined,
       conversationSummary: [
         `PDF parse status: ${result.status}`,
         `Job: ${result.jobId}`,
@@ -1799,7 +1800,7 @@ export async function parsePdfWithSkill(
 
   const source = sourceMetadata(filePath);
   ensureProjectPdfParseGitignore(projectPath);
-  if (result.status === 'failed' || result.status === 'canceled') {
+  if (result.status !== 'completed') {
     const artifactDir = writeDiagnosticArtifact(
       projectPath,
       source,

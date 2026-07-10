@@ -38,10 +38,10 @@ const {
   getAgentSkillNamesMock: vi.fn(() => ['project:parallel-skill']),
   createBuiltInToolsMock: vi.fn(() => []),
   loadRegistryToolsMock: vi.fn(() => []),
-  loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] })),
+  loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] as Array<{ name: string }> })),
   createSpanIdMock: vi.fn(() => 'span-root'),
   createChildSpanMock: vi.fn((parentSpanId: string) => ({ spanId: `${parentSpanId}-child`, parentSpanId })),
-  resolveInterruptOnMock: vi.fn(() => ({})),
+  resolveInterruptOnMock: vi.fn((_mode: string, _toolNames?: string[]) => ({} as Record<string, { allowedDecisions: string[] }>)),
   getRuntimeToolNamesMock: vi.fn((tools: Array<{ name?: string }>) =>
     tools.map((tool) => tool.name).filter(Boolean)
   ),
