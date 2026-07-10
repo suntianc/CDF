@@ -5,7 +5,9 @@ import {
   isXaiOAuthTextModel,
   type AISubscriptionEntry,
   type AISubscriptionEntryId,
+  type ReasoningEffort,
 } from '../shared/ai-subscriptions';
+import { net } from 'electron';
 import type { RuntimeProviderModelConfig } from './deepagent/llm-adapter';
 import {
   getOAuthCredential,
@@ -52,6 +54,11 @@ interface OAuthAuthenticatedFetchDeps {
   refreshStatus?: typeof prepareAISubscriptionRuntimeStatus;
   markStatus?: typeof saveAISubscriptionStatus;
 }
+
+const electronProxyFetch: typeof fetch = (input, init) => net.fetch(
+  input instanceof URL ? input.toString() : input,
+  init
+);
 
 /**
  * Legacy catalog aliases → live API model ids on the Token Plan allowlist.
@@ -197,7 +204,7 @@ export function createOAuthAuthenticatedFetch(
   entryId: OAuthSubscriptionEntryId,
   deps: OAuthAuthenticatedFetchDeps = {}
 ): typeof fetch {
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  const fetchImpl = deps.fetchImpl ?? (entryId === 'xai-oauth' ? electronProxyFetch : fetch);
   const loadCredential = deps.loadCredential ?? getOAuthCredential;
   const markCredentialTerminal = deps.markCredentialTerminal
     ?? markOAuthCredentialTerminalIfCurrent;
@@ -329,7 +336,8 @@ function resolveMiniMaxRuntimeConfig(
 function resolveCodexRuntimeConfig(
   displayName: string,
   catalogModel: string,
-  contextLimit: number | undefined
+  contextLimit: number | undefined,
+  reasoningEffort?: ReasoningEffort
 ): RuntimeProviderModelConfig {
   const credential = getOAuthCredential('codex-oauth');
   if (credential?.terminalStatus === 'expired') {
@@ -366,6 +374,9 @@ function resolveCodexRuntimeConfig(
     contextLimit,
     maxRetries: 0,
     useResponsesApi: true,
+    ...(reasoningEffort
+      ? { modelKwargs: { reasoning: { effort: reasoningEffort } } }
+      : {}),
     defaultHeaders,
     fetch: createOAuthAuthenticatedFetch('codex-oauth'),
   };
@@ -374,7 +385,8 @@ function resolveCodexRuntimeConfig(
 function resolveXaiRuntimeConfig(
   displayName: string,
   catalogModel: string,
-  contextLimit: number | undefined
+  contextLimit: number | undefined,
+  reasoningEffort?: ReasoningEffort
 ): RuntimeProviderModelConfig {
   const credential = getOAuthCredential('xai-oauth');
   if (credential?.terminalStatus === 'expired') {
@@ -410,13 +422,17 @@ function resolveXaiRuntimeConfig(
     contextLimit,
     maxRetries: 0,
     useResponsesApi: true,
+    ...(reasoningEffort
+      ? { modelKwargs: { reasoning: { effort: reasoningEffort } } }
+      : {}),
     fetch: createOAuthAuthenticatedFetch('xai-oauth'),
   };
 }
 
 export function resolveAISubscriptionRuntimeModel(
   sourceId: string | undefined,
-  selectedModel: string | undefined
+  selectedModel: string | undefined,
+  reasoningEffort?: ReasoningEffort
 ): RuntimeProviderModelConfig {
   if (!sourceId) {
     throw new AISubscriptionRuntimeError('settings.aiSubscriptions.runtimeError.sourceMissing');
@@ -461,15 +477,30 @@ export function resolveAISubscriptionRuntimeModel(
       { name: entry.displayName }
     );
   }
+  const resolvedReasoningEffort = candidate.reasoning?.supportedEfforts.includes(
+    reasoningEffort as ReasoningEffort
+  )
+    ? reasoningEffort
+    : undefined;
 
   if (entry.id === 'minimax-token-plan') {
     return resolveMiniMaxRuntimeConfig(entry.displayName, candidate.model, candidate.contextLimit);
   }
   if (entry.id === 'codex-oauth') {
-    return resolveCodexRuntimeConfig(entry.displayName, candidate.model, candidate.contextLimit);
+    return resolveCodexRuntimeConfig(
+      entry.displayName,
+      candidate.model,
+      candidate.contextLimit,
+      resolvedReasoningEffort
+    );
   }
   if (entry.id === 'xai-oauth') {
-    return resolveXaiRuntimeConfig(entry.displayName, candidate.model, candidate.contextLimit);
+    return resolveXaiRuntimeConfig(
+      entry.displayName,
+      candidate.model,
+      candidate.contextLimit,
+      resolvedReasoningEffort
+    );
   }
 
   throw new AISubscriptionRuntimeError(
@@ -481,7 +512,8 @@ export function resolveAISubscriptionRuntimeModel(
 export async function prepareAISubscriptionRuntimeModel(
   sourceId: string | undefined,
   selectedModel: string | undefined,
-  refreshStatus: typeof prepareAISubscriptionRuntimeStatus = prepareAISubscriptionRuntimeStatus
+  refreshStatus: typeof prepareAISubscriptionRuntimeStatus = prepareAISubscriptionRuntimeStatus,
+  reasoningEffort?: ReasoningEffort
 ): Promise<RuntimeProviderModelConfig> {
   if (sourceId === 'codex-oauth' || sourceId === 'xai-oauth') {
     const entries = await refreshStatus(sourceId);
@@ -493,5 +525,5 @@ export async function prepareAISubscriptionRuntimeModel(
       );
     }
   }
-  return resolveAISubscriptionRuntimeModel(sourceId, selectedModel);
+  return resolveAISubscriptionRuntimeModel(sourceId, selectedModel, reasoningEffort);
 }

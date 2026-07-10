@@ -152,13 +152,14 @@ describe('useComposerSubmissionController', () => {
     expect(result.current.composerInput.text).toBe('');
   });
 
-  it('carries a Welcome AI subscription model override into the new Conversation', async () => {
+  it('carries a Welcome AI subscription model and reasoning effort into the new Conversation', async () => {
     const sendMessage = vi.fn(async () => {});
     const dispatchCommand = vi.fn(async () => {});
     const createSession = vi.fn(async () => ({ id: 'session-2' }));
     const selectSession = vi.fn(async () => {});
     const fetchSessions = vi.fn(async () => {});
     const setSessionModelOverride = vi.fn();
+    const setSessionReasoningEffort = vi.fn();
 
     const { result } = renderHook(() => {
       const composerInput = useComposerInputController({
@@ -178,8 +179,9 @@ describe('useComposerSubmissionController', () => {
         currentProjectId: 'project-1',
         isStreaming: false,
         selectedSourceType: 'ai_subscription',
-        selectedSourceId: 'minimax-token-plan',
-        selectedModel: 'MiniMax-M2.7',
+        selectedSourceId: 'codex-oauth',
+        selectedModel: 'gpt-5.6-sol',
+        selectedReasoningEffort: 'xhigh',
         commands: [],
         resolveCommand: () => null,
         dispatchCommand,
@@ -188,12 +190,14 @@ describe('useComposerSubmissionController', () => {
         fetchSessions,
         sendMessage,
         getWelcomeModelOverride: () => ({
-          providerId: 'minimax-token-plan',
-          sourceId: 'minimax-token-plan',
+          providerId: 'codex-oauth',
+          sourceId: 'codex-oauth',
           sourceType: 'ai_subscription',
-          model: 'MiniMax-M2.7',
+          model: 'gpt-5.6-sol',
+          reasoningEffort: 'xhigh',
         }),
         setSessionModelOverride,
+        setSessionReasoningEffort,
         t: (key) => key,
       });
 
@@ -201,7 +205,7 @@ describe('useComposerSubmissionController', () => {
     });
 
     act(() => {
-      result.current.composerInput.handleTextChange('Use MiniMax subscription', 'Use MiniMax subscription'.length);
+      result.current.composerInput.handleTextChange('Use Codex subscription', 'Use Codex subscription'.length);
     });
 
     await act(async () => {
@@ -211,18 +215,21 @@ describe('useComposerSubmissionController', () => {
     expect(setSessionModelOverride).toHaveBeenNthCalledWith(
       1,
       'session-2',
-      'minimax-token-plan',
-      'MiniMax-M2.7',
+      'codex-oauth',
+      'gpt-5.6-sol',
       'ai_subscription'
     );
+    expect(setSessionReasoningEffort).toHaveBeenNthCalledWith(1, 'session-2', 'xhigh');
+    expect(setSessionReasoningEffort).toHaveBeenNthCalledWith(2, '', undefined);
     expect(sendMessage).toHaveBeenCalledWith(
       'project-1',
-      'Use MiniMax subscription',
+      'Use Codex subscription',
       {
         modelSource: 'ai_subscription',
-        sourceId: 'minimax-token-plan',
+        sourceId: 'codex-oauth',
         providerId: undefined,
-        model: 'MiniMax-M2.7',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'xhigh',
       },
       undefined,
       { imageBase64: undefined }

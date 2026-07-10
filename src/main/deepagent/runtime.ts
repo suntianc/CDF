@@ -79,7 +79,9 @@ async function resolveRuntimeProviderModelConfig(
     return {
       config: await prepareAISubscriptionRuntimeModel(
         overrides.sourceId || overrides.providerId,
-        overrides.model
+        overrides.model,
+        undefined,
+        overrides.reasoningEffort
       ),
       fallbackProvider: getProvider(agentRow.provider_id),
     };

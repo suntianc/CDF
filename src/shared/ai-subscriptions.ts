@@ -20,6 +20,21 @@ export type AISubscriptionCapabilityAvailability =
   | 'unknown'
   | 'unavailable';
 
+export type ReasoningEffort =
+  | 'none'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'ultra';
+
+export interface ModelReasoningProfile {
+  supportedEfforts: readonly ReasoningEffort[];
+  defaultEffort?: ReasoningEffort;
+  control: 'depth' | 'agent_count';
+}
+
 export type CapabilityId =
   | 'text.chat'
   | 'text.reasoning'
@@ -52,21 +67,112 @@ export const MINIMAX_TOKEN_PLAN_VIDEO_MODELS = [
 export const MINIMAX_TOKEN_PLAN_MUSIC_MODELS = ['music-2.6'] as const;
 
 export const CODEX_OAUTH_TEXT_MODELS = [
-  { model: 'gpt-5.5', label: 'GPT-5.5', contextLimit: 272_000 },
-  { model: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', contextLimit: 272_000 },
-  { model: 'gpt-5.4', label: 'GPT-5.4', contextLimit: 272_000 },
-  { model: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', contextLimit: 272_000 },
-  { model: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark', contextLimit: 128_000 },
+  {
+    model: 'gpt-5.6-sol',
+    label: 'GPT-5.6 Sol',
+    contextLimit: 372_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      defaultEffort: 'low',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'gpt-5.6-terra',
+    label: 'GPT-5.6 Terra',
+    contextLimit: 372_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      defaultEffort: 'medium',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'gpt-5.6-luna',
+    label: 'GPT-5.6 Luna',
+    contextLimit: 372_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'medium',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'gpt-5.5',
+    label: 'GPT-5.5',
+    contextLimit: 272_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'medium',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'gpt-5.4',
+    label: 'GPT-5.4',
+    contextLimit: 272_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'medium',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'gpt-5.4-mini',
+    label: 'GPT-5.4 Mini',
+    contextLimit: 272_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'medium',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'gpt-5.3-codex-spark',
+    label: 'GPT-5.3 Codex Spark',
+    contextLimit: 128_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'high',
+      control: 'depth',
+    },
+  },
 ] as const;
 
 export const XAI_OAUTH_TEXT_MODELS = [
   { model: 'grok-build-0.1', label: 'Grok Build 0.1', contextLimit: 256_000 },
   { model: 'grok-composer-2.5-fast', label: 'Grok Composer 2.5 Fast', contextLimit: 200_000 },
-  { model: 'grok-4.5', label: 'Grok 4.5', contextLimit: 500_000 },
-  { model: 'grok-4.3', label: 'Grok 4.3', contextLimit: 1_000_000 },
+  {
+    model: 'grok-4.5',
+    label: 'Grok 4.5',
+    contextLimit: 500_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high'],
+      defaultEffort: 'high',
+      control: 'depth',
+    },
+  },
+  {
+    model: 'grok-4.3',
+    label: 'Grok 4.3',
+    contextLimit: 1_000_000,
+    reasoning: {
+      supportedEfforts: ['none', 'low', 'medium', 'high'],
+      defaultEffort: 'low',
+      control: 'depth',
+    },
+  },
   { model: 'grok-4.20-0309-reasoning', label: 'Grok 4.20 Reasoning', contextLimit: 2_000_000 },
   { model: 'grok-4.20-0309-non-reasoning', label: 'Grok 4.20 Non-Reasoning', contextLimit: 2_000_000 },
-  { model: 'grok-4.20-multi-agent-0309', label: 'Grok 4.20 Multi-Agent', contextLimit: 2_000_000 },
+  {
+    model: 'grok-4.20-multi-agent-0309',
+    label: 'Grok 4.20 Multi-Agent',
+    contextLimit: 2_000_000,
+    reasoning: {
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      control: 'agent_count',
+    },
+  },
 ] as const;
 
 export function isMiniMaxTokenPlanTextModel(model: string): boolean {
@@ -116,6 +222,7 @@ export interface AISubscriptionTextModelCandidate {
   model: string;
   label: string;
   contextLimit: number;
+  reasoning?: ModelReasoningProfile;
 }
 
 export interface AISubscriptionEntry {
@@ -171,6 +278,7 @@ interface AISubscriptionDefinition {
     model: string;
     label: string;
     contextLimit: number;
+    reasoning?: ModelReasoningProfile;
   }>;
 }
 
@@ -205,7 +313,12 @@ const AI_SUBSCRIPTION_DEFINITIONS: AISubscriptionDefinition[] = [
     id: 'xai-oauth',
     displayName: 'xAI Grok OAuth',
     // Text, reasoning, and image understanding are implicit on the selected model path.
-    capabilities: [],
+    // Separately routable Imagine media capabilities remain explicit switches.
+    capabilities: [
+      { capabilityId: 'image.generate', label: 'Image generation' },
+      { capabilityId: 'image.edit', label: 'Image editing' },
+      { capabilityId: 'video.generate', label: 'Video generation' },
+    ],
     textModels: XAI_OAUTH_TEXT_MODELS.map((item) => ({ ...item })),
   },
 ];
@@ -399,6 +512,9 @@ export function buildAISubscriptionTextModelCandidates(
       model: model.model,
       label: model.label,
       contextLimit: model.contextLimit,
+      ...('reasoning' in model && model.reasoning
+        ? { reasoning: model.reasoning as ModelReasoningProfile }
+        : {}),
     }));
   });
 }

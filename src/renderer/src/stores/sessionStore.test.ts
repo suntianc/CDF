@@ -1051,6 +1051,63 @@ describe('sessionStore model overrides persistence', () => {
     });
   });
 
+  it('persists a Conversation reasoning effort alongside its model override', () => {
+    useSessionStore.getState().setSessionModelOverride(
+      'session-1',
+      'codex-oauth',
+      'gpt-5.6-sol',
+      'ai_subscription'
+    );
+
+    useSessionStore.getState().setSessionReasoningEffort('session-1', 'xhigh');
+
+    expect(useSessionStore.getState().sessionModelOverrides['session-1']).toEqual({
+      providerId: 'codex-oauth',
+      sourceId: 'codex-oauth',
+      sourceType: 'ai_subscription',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'xhigh',
+    });
+    expect(JSON.parse(localStorage.getItem('sessionModelOverrides')!))
+      .toEqual({
+        'session-1': {
+          providerId: 'codex-oauth',
+          sourceId: 'codex-oauth',
+          sourceType: 'ai_subscription',
+          model: 'gpt-5.6-sol',
+          reasoningEffort: 'xhigh',
+        },
+      });
+  });
+
+  it('keeps a reasoning effort across model changes so capability normalization can decide its validity', () => {
+    useSessionStore.setState({
+      sessionModelOverrides: {
+        'session-1': {
+          providerId: 'codex-oauth',
+          sourceId: 'codex-oauth',
+          sourceType: 'ai_subscription',
+          model: 'gpt-5.6-sol',
+          reasoningEffort: 'high',
+        },
+      },
+    });
+
+    useSessionStore.getState().setSessionModelOverride(
+      'session-1',
+      'xai-oauth',
+      'grok-4.5',
+      'ai_subscription'
+    );
+
+    expect(useSessionStore.getState().sessionModelOverrides['session-1'])
+      .toEqual(expect.objectContaining({
+        sourceId: 'xai-oauth',
+        model: 'grok-4.5',
+        reasoningEffort: 'high',
+      }));
+  });
+
   it('cleans up overrides when a session is deleted', async () => {
     window.electronAPI = {
       db: {

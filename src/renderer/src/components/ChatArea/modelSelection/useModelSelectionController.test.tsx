@@ -139,6 +139,78 @@ describe('useModelSelectionController', () => {
     );
   });
 
+  it('exposes and updates the selected Conversation reasoning effort for a configurable model', () => {
+    const setSessionModelOverride = vi.fn();
+    const setSessionReasoningEffort = vi.fn();
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4.1' }),
+    ];
+    const aiSubscriptionEntries = buildAISubscriptionEntries({
+      entries: { 'xai-oauth': { status: 'connected' } },
+    });
+
+    const { result } = renderHook(() => useModelSelectionController({
+      activeSessionId: 'session-1',
+      providers,
+      aiSubscriptionEntries,
+      sessionModelOverrides: {
+        'session-1': {
+          sourceType: 'ai_subscription',
+          sourceId: 'xai-oauth',
+          providerId: 'xai-oauth',
+          model: 'grok-4.3',
+          reasoningEffort: 'medium',
+        },
+      },
+      masterProvider: providers[0],
+      setSessionModelOverride,
+      setSessionReasoningEffort,
+    }));
+
+    expect(result.current.reasoning).toEqual({
+      supportedEfforts: ['none', 'low', 'medium', 'high'],
+      defaultEffort: 'low',
+      control: 'depth',
+    });
+    expect(result.current.selectedReasoningEffort).toBe('medium');
+
+    act(() => result.current.selectReasoningEffort('high'));
+
+    expect(setSessionReasoningEffort).toHaveBeenCalledWith('session-1', 'high');
+  });
+
+  it('returns an unsupported persisted reasoning effort to the model default', async () => {
+    const setSessionReasoningEffort = vi.fn();
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4.1' }),
+    ];
+    const aiSubscriptionEntries = buildAISubscriptionEntries({
+      entries: { 'xai-oauth': { status: 'connected' } },
+    });
+
+    renderHook(() => useModelSelectionController({
+      activeSessionId: 'session-1',
+      providers,
+      aiSubscriptionEntries,
+      sessionModelOverrides: {
+        'session-1': {
+          sourceType: 'ai_subscription',
+          sourceId: 'xai-oauth',
+          providerId: 'xai-oauth',
+          model: 'grok-4.5',
+          reasoningEffort: 'none',
+        },
+      },
+      masterProvider: providers[0],
+      setSessionModelOverride: vi.fn(),
+      setSessionReasoningEffort,
+    }));
+
+    await waitFor(() => {
+      expect(setSessionReasoningEffort).toHaveBeenCalledWith('session-1', undefined);
+    });
+  });
+
   it('corrects a stale selected model to the selected provider default', async () => {
     const setSessionModelOverride = vi.fn();
     const providers = [

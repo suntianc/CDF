@@ -20,6 +20,7 @@ import {
   SkillAttribution,
   TodoItem,
 } from '../../../shared/types';
+import type { ReasoningEffort } from '../../../shared/ai-subscriptions';
 
 export function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -165,13 +166,20 @@ interface SessionState {
   // on session switch — goal is sticky per P6 lock. ChatArea/GoalSystemBubble
   // filter by activeSessionId at render time.
   goalJudgeStatus: Map<string, GoalJudgeStatusEntry>;
-  sessionModelOverrides: Record<string, { providerId: string; sourceId?: string; sourceType?: ConversationModelSourceType; model: string }>;
+  sessionModelOverrides: Record<string, {
+    providerId: string;
+    sourceId?: string;
+    sourceType?: ConversationModelSourceType;
+    model: string;
+    reasoningEffort?: ReasoningEffort;
+  }>;
   setSessionModelOverride: (
     sessionId: string,
     sourceId: string,
     model: string,
     sourceType?: ConversationModelSourceType
   ) => void;
+  setSessionReasoningEffort: (sessionId: string, effort?: ReasoningEffort) => void;
   fetchSessions: (projectId: string) => Promise<void>;
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -251,9 +259,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sourceType: ConversationModelSourceType = 'llm_provider'
   ) => {
     set((state) => {
+      const reasoningEffort = sourceId && model
+        ? state.sessionModelOverrides[sessionId]?.reasoningEffort
+        : undefined;
       const nextOverrides = {
         ...state.sessionModelOverrides,
-        [sessionId]: { providerId: sourceId, sourceId, sourceType, model },
+        [sessionId]: {
+          providerId: sourceId,
+          sourceId,
+          sourceType,
+          model,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+        },
+      };
+      try {
+        localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
+      } catch (err) {
+        console.error('Failed to save sessionModelOverrides to localStorage:', err);
+      }
+      return { sessionModelOverrides: nextOverrides };
+    });
+  },
+
+  setSessionReasoningEffort: (sessionId: string, effort?: ReasoningEffort) => {
+    set((state) => {
+      const current = state.sessionModelOverrides[sessionId];
+      if (!current) return state;
+      const nextOverride = { ...current };
+      if (effort) {
+        nextOverride.reasoningEffort = effort;
+      } else {
+        delete nextOverride.reasoningEffort;
+      }
+      const nextOverrides = {
+        ...state.sessionModelOverrides,
+        [sessionId]: nextOverride,
       };
       try {
         localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
@@ -842,6 +882,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ? sessionModelOverride.providerId || undefined
           : undefined,
         model: sessionModelOverride.model || undefined,
+        ...(sessionModelOverride.reasoningEffort
+          ? { reasoningEffort: sessionModelOverride.reasoningEffort }
+          : {}),
         ...overrides,
       };
 

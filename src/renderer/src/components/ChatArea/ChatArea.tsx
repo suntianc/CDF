@@ -22,6 +22,7 @@ import { ConversationWelcomeSurface } from './ConversationWelcomeSurface';
 import { ConversationComposerDock } from './ConversationComposerDock';
 import { ContextButton } from '@/components/Composer/ContextButton';
 import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
+import { ReasoningEffortSelector } from './modelSelection/ReasoningEffortSelector';
 import { useModelSelectionController } from './modelSelection/useModelSelectionController';
 import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
 import { useConversationPlanDisclosure } from './useConversationPlanDisclosure';
@@ -58,6 +59,7 @@ export function ChatArea({
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const stopMessage = useSessionStore((s) => s.stopMessage);
   const setSessionModelOverride = useSessionStore((s) => s.setSessionModelOverride);
+  const setSessionReasoningEffort = useSessionStore((s) => s.setSessionReasoningEffort);
   const fetchProviders = useLLMStore((s) => s.fetchProviders);
   const fetchAISubscriptionEntries = useAISubscriptionStore((s) => s.fetchEntries);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
@@ -132,6 +134,7 @@ export function ChatArea({
     sessionModelOverrides,
     masterProvider,
     setSessionModelOverride,
+    setSessionReasoningEffort,
   });
 
   // Phase 6: registry consumer. Provides commands + fires sonner toasts.
@@ -166,6 +169,7 @@ export function ChatArea({
     selectedSourceType: modelSelection.selectedSourceType,
     selectedSourceId: modelSelection.selectedSourceId,
     selectedModel: modelSelection.selectedModel,
+    selectedReasoningEffort: modelSelection.selectedReasoningEffort,
     commands: registry.commands,
     resolveCommand: dispatcherResolve,
     dispatchCommand: dispatcherDispatch,
@@ -177,6 +181,7 @@ export function ChatArea({
     setSessionModelOverride: (sessionId, sourceId, model, sourceType) => {
       setSessionModelOverride(sessionId, sourceId, model, sourceType);
     },
+    setSessionReasoningEffort,
     t,
   });
 
@@ -227,16 +232,26 @@ export function ChatArea({
           </>
         }
         modelSelectorSlot={
-          <ModelSelectionSurface
-            variant="welcome"
-            modelGroups={modelSelection.modelGroups}
-            selectedSourceType={modelSelection.selectedSourceType}
-            selectedSourceId={modelSelection.selectedSourceId}
-            selectedModel={modelSelection.selectedModel}
-            currentModelLabel={modelSelection.currentModelLabel}
-            onSelectModel={modelSelection.selectModel}
-            onOpenSettings={onOpenSettings}
-          />
+          <>
+            <ModelSelectionSurface
+              variant="welcome"
+              modelGroups={modelSelection.modelGroups}
+              selectedSourceType={modelSelection.selectedSourceType}
+              selectedSourceId={modelSelection.selectedSourceId}
+              selectedModel={modelSelection.selectedModel}
+              currentModelLabel={modelSelection.currentModelLabel}
+              onSelectModel={modelSelection.selectModel}
+              onOpenSettings={onOpenSettings}
+            />
+            {modelSelection.reasoning && (
+              <ReasoningEffortSelector
+                variant="welcome"
+                profile={modelSelection.reasoning}
+                selectedEffort={modelSelection.selectedReasoningEffort}
+                onSelect={modelSelection.selectReasoningEffort}
+              />
+            )}
+          </>
         }
       />
 
@@ -322,16 +337,26 @@ export function ChatArea({
               </>
             }
             modelSelectorSlot={
-              <ModelSelectionSurface
-                variant="composer"
-                modelGroups={modelSelection.modelGroups}
-                selectedSourceType={modelSelection.selectedSourceType}
-                selectedSourceId={modelSelection.selectedSourceId}
-                selectedModel={modelSelection.selectedModel}
-                currentModelLabel={modelSelection.currentModelLabel}
-                onSelectModel={modelSelection.selectModel}
-                onOpenSettings={onOpenSettings}
-              />
+              <>
+                <ModelSelectionSurface
+                  variant="composer"
+                  modelGroups={modelSelection.modelGroups}
+                  selectedSourceType={modelSelection.selectedSourceType}
+                  selectedSourceId={modelSelection.selectedSourceId}
+                  selectedModel={modelSelection.selectedModel}
+                  currentModelLabel={modelSelection.currentModelLabel}
+                  onSelectModel={modelSelection.selectModel}
+                  onOpenSettings={onOpenSettings}
+                />
+                {modelSelection.reasoning && (
+                  <ReasoningEffortSelector
+                    variant="composer"
+                    profile={modelSelection.reasoning}
+                    selectedEffort={modelSelection.selectedReasoningEffort}
+                    onSelect={modelSelection.selectReasoningEffort}
+                  />
+                )}
+              </>
             }
           />
         )}

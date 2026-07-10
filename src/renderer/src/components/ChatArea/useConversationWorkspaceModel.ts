@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { AISubscriptionEntry } from '@shared/ai-subscriptions';
+import type { AISubscriptionEntry, ReasoningEffort } from '@shared/ai-subscriptions';
 import type { Agent, ConversationModelSourceType, LLMProvider, Message, Project, Session, TodoItem } from '@shared/types';
 import { useGoalJudgeStatus } from '../../hooks/useGoalJudge';
 import { useAgentStore } from '../../stores/agentStore';
@@ -53,7 +53,13 @@ interface ConversationWorkspaceModel {
   model: {
     providers: LLMProvider[];
     aiSubscriptionEntries: AISubscriptionEntry[];
-    sessionModelOverrides: Record<string, { providerId: string; sourceId?: string; sourceType?: ConversationModelSourceType; model: string }>;
+    sessionModelOverrides: Record<string, {
+      providerId: string;
+      sourceId?: string;
+      sourceType?: ConversationModelSourceType;
+      model: string;
+      reasoningEffort?: ReasoningEffort;
+    }>;
   };
 }
 

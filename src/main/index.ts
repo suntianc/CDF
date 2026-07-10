@@ -22,6 +22,7 @@ import store from './store';
 import log from './logger';
 import path from 'path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -87,17 +88,17 @@ app.whenReady().then(() => {
   log.info('App is ready');
   
   // Register cdf-file protocol handler to safely resolve absolute local paths to file URLs
-  protocol.handle('cdf-file', async (request) => {
+  protocol.handle('cdf-file', (request) => {
     try {
       const urlPath = decodeURIComponent(request.url.slice('cdf-file://'.length));
       let filePath = urlPath;
       if (process.platform === 'win32' && filePath.startsWith('/')) {
         filePath = filePath.slice(1);
       }
-      const data = await fs.promises.readFile(filePath);
-      return new Response(data);
+      const fileUrl = pathToFileURL(filePath).toString();
+      return net.fetch(fileUrl);
     } catch (error) {
-      log.error('[cdf-file] Failed to read local file:', error);
+      log.error('[cdf-file] Failed to fetch local file url:', error);
       return new Response('File not found', { status: 404 });
     }
   });

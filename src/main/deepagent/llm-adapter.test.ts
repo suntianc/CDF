@@ -43,6 +43,34 @@ describe('createLangChainModel', () => {
     expect(model.caller?.maxRetries).toBe(0);
   });
 
+  it('serializes reasoning effort into the final Responses request body', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const captureFetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ error: { message: 'stop after capture' } }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const model = createLangChainModel({
+      apiKey: 'oauth-access-token',
+      apiUrl: 'https://api.example.com/v1',
+      defaultModel: 'reasoning-model',
+      providerType: 'openai',
+      useResponsesApi: true,
+      maxRetries: 0,
+      modelKwargs: { reasoning: { effort: 'high' } },
+      fetch: captureFetch,
+    });
+
+    await expect(model.invoke('Solve this carefully')).rejects.toThrow('stop after capture');
+
+    expect(requestBody).toEqual(expect.objectContaining({
+      model: 'reasoning-model',
+      reasoning: { effort: 'high' },
+    }));
+  });
+
   it('should use ChatAnthropic for MiniMax', () => {
     const model = createLangChainModel({
       apiKey: 'test-key',

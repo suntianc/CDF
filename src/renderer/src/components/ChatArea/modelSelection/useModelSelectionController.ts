@@ -3,6 +3,8 @@ import type { LLMProvider } from '@shared/types';
 import {
   buildAISubscriptionTextModelCandidates,
   type AISubscriptionEntry,
+  type ModelReasoningProfile,
+  type ReasoningEffort,
 } from '@shared/ai-subscriptions';
 
 export interface SessionModelOverride {
@@ -10,6 +12,7 @@ export interface SessionModelOverride {
   sourceId?: string;
   providerId: string;
   model: string;
+  reasoningEffort?: ReasoningEffort;
 }
 
 export type SessionModelOverrides = Record<string, SessionModelOverride | undefined>;
@@ -22,6 +25,7 @@ export interface ModelSelectionCandidate {
   sourceName: string;
   model: string;
   label: string;
+  reasoning?: ModelReasoningProfile;
 }
 
 export interface ModelSelectionGroup {
@@ -44,6 +48,7 @@ export interface UseModelSelectionControllerOptions {
     model: string,
     sourceType?: ModelSourceType
   ) => void;
+  setSessionReasoningEffort?: (sessionId: string, effort?: ReasoningEffort) => void;
 }
 
 export function getModelCandidates(
@@ -80,6 +85,7 @@ export function buildModelSelectionGroups(
       sourceName: candidate.sourceName,
       model: candidate.model,
       label: candidate.label,
+      reasoning: candidate.reasoning,
     }));
 
   const providerGroups = providers.map((provider) => ({
@@ -117,6 +123,7 @@ export function useModelSelectionController({
   sessionModelOverrides,
   masterProvider,
   setSessionModelOverride,
+  setSessionReasoningEffort,
 }: UseModelSelectionControllerOptions) {
   const targetId = activeSessionId || '';
   const override = sessionModelOverrides[targetId] ?? null;
@@ -165,6 +172,10 @@ export function useModelSelectionController({
   const currentModelLabel = currentCandidate
     ? `${currentCandidate.sourceName} • ${currentCandidate.label}`
     : '';
+  const reasoning = currentCandidate?.reasoning;
+  const selectedReasoningEffort = reasoning?.supportedEfforts.includes(override?.reasoningEffort as ReasoningEffort)
+    ? override?.reasoningEffort
+    : undefined;
 
   useEffect(() => {
     if (!selectedSourceId || modelCandidates.length === 0) return;
@@ -201,6 +212,18 @@ export function useModelSelectionController({
     targetId,
   ]);
 
+  useEffect(() => {
+    if (!override?.reasoningEffort || !currentCandidate || !setSessionReasoningEffort) return;
+    if (reasoning?.supportedEfforts.includes(override.reasoningEffort)) return;
+    setSessionReasoningEffort(targetId, undefined);
+  }, [
+    currentCandidate,
+    override?.reasoningEffort,
+    reasoning,
+    setSessionReasoningEffort,
+    targetId,
+  ]);
+
   const selectModel = useCallback(
     (
       sourceTypeOrProviderId: ModelSourceType | string,
@@ -215,6 +238,13 @@ export function useModelSelectionController({
     [setSessionModelOverride, targetId]
   );
 
+  const selectReasoningEffort = useCallback(
+    (effort?: ReasoningEffort) => {
+      setSessionReasoningEffort?.(targetId, effort);
+    },
+    [setSessionReasoningEffort, targetId]
+  );
+
   return {
     selectedSourceType,
     selectedSourceId,
@@ -227,5 +257,8 @@ export function useModelSelectionController({
     currentCandidate,
     modelGroups,
     selectModel,
+    reasoning,
+    selectedReasoningEffort,
+    selectReasoningEffort,
   };
 }

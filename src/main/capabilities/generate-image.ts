@@ -7,11 +7,12 @@ import { MINIMAX_TOKEN_PLAN_IMAGE_MODELS } from '../../shared/ai-subscriptions';
 import { getOAuthCredential, getSubscriptionSecret } from '../ai-subscription-credentials';
 import {
   CODEX_RESPONSES_API_BASE_URL,
+  XAI_RESPONSES_API_BASE_URL,
   createOAuthAuthenticatedFetch,
 } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
 
-export type GenerateImageRouteHint = 'auto' | 'minimax-token-plan' | 'codex-oauth';
+export type GenerateImageRouteHint = 'auto' | 'minimax-token-plan' | 'codex-oauth' | 'xai-oauth';
 export type GenerateImageOperation = 'generate' | 'edit';
 
 export type GenerateImageInputRef =
@@ -37,7 +38,7 @@ export type GenerateImageResult =
   | {
       ok: true;
       model: string;
-      routeId: 'minimax-token-plan' | 'codex-oauth';
+      routeId: 'minimax-token-plan' | 'codex-oauth' | 'xai-oauth';
       operation: GenerateImageOperation;
       artifacts: GenerateImageArtifact[];
       /** Ready-to-paste markdown so the chat UI renders the image, not a bare path. */
@@ -68,9 +69,16 @@ export interface CodexImageRoute {
   fetch: typeof fetch;
 }
 
+export interface XaiImageRoute {
+  generateEnabled: boolean;
+  editEnabled: boolean;
+  fetch: typeof fetch;
+}
+
 export interface GenerateImageDeps {
   resolveTokenPlanImageRoute: () => TokenPlanImageRoute | null;
   resolveCodexImageRoute?: () => CodexImageRoute | null;
+  resolveXaiImageRoute?: () => XaiImageRoute | null;
   httpPostJson: (
     url: string,
     headers: Record<string, string>,
@@ -80,6 +88,7 @@ export interface GenerateImageDeps {
     bytes: Buffer,
     options: { extension: string }
   ) => Promise<string>;
+  downloadArtifact?: (url: string) => Promise<{ bytes: Buffer; mimeType: string }>;
   /** Load a local image file as a provider-compatible data URL. */
   readLocalImageAsDataUrl?: (filePath: string) => Promise<string>;
 }
@@ -88,6 +97,7 @@ const IMAGE_GENERATION_URL = 'https://api.minimaxi.com/v1/image_generation';
 const DEFAULT_MODEL = MINIMAX_TOKEN_PLAN_IMAGE_MODELS[0];
 const CODEX_IMAGE_MAIN_MODEL = 'gpt-5.4-mini';
 const CODEX_IMAGE_TOOL_MODEL = 'gpt-image-2';
+const XAI_IMAGE_MODEL = 'grok-imagine-image-quality';
 
 /**
  * Provider-neutral image generation entry for Agents.
@@ -119,17 +129,28 @@ export async function generateImage(
   const routeHint = input.route_hint ?? 'auto';
   const route = deps.resolveTokenPlanImageRoute();
   const codexRoute = deps.resolveCodexImageRoute?.() ?? null;
+  const xaiRoute = deps.resolveXaiImageRoute?.() ?? null;
   const tokenPlanOperationEnabled = operation === 'edit'
     ? route?.editEnabled === true
     : route?.generateEnabled === true;
   const codexOperationEnabled = operation === 'edit'
     ? codexRoute?.editEnabled === true
     : codexRoute?.generateEnabled === true;
+  const xaiOperationEnabled = operation === 'edit'
+    ? xaiRoute?.editEnabled === true
+    : xaiRoute?.generateEnabled === true;
   const shouldUseCodex = routeHint === 'codex-oauth'
     || (
       routeHint === 'auto'
       && !tokenPlanOperationEnabled
       && codexOperationEnabled
+    );
+  const shouldUseXai = routeHint === 'xai-oauth'
+    || (
+      routeHint === 'auto'
+      && !tokenPlanOperationEnabled
+      && !codexOperationEnabled
+      && xaiOperationEnabled
     );
 
   if (shouldUseCodex) {
@@ -148,6 +169,24 @@ export async function generateImage(
       };
     }
     return generateCodexImage(prompt, input, codexRoute, deps);
+  }
+
+  if (shouldUseXai) {
+    if (!xaiRoute) {
+      return {
+        ok: false,
+        error: 'xAI Grok OAuth is not connected for image generation',
+        code: 'ROUTE_UNAVAILABLE',
+      };
+    }
+    if (!xaiOperationEnabled) {
+      return {
+        ok: false,
+        error: `xAI Grok OAuth image ${operation === 'edit' ? 'editing' : 'generation'} is disabled`,
+        code: 'CAPABILITY_DISABLED',
+      };
+    }
+    return generateXaiImage(prompt, input, operation, xaiRoute, deps);
   }
 
   if (!route || !route.accessToken?.trim()) {
@@ -241,6 +280,124 @@ export async function generateImage(
   };
 }
 
+async function generateXaiImage(
+  prompt: string,
+  input: GenerateImageInput,
+  operation: GenerateImageOperation,
+  route: XaiImageRoute,
+  deps: GenerateImageDeps
+): Promise<GenerateImageResult> {
+  let inputImageUrls: string[] = [];
+  if (operation === 'edit') {
+    try {
+      inputImageUrls = await buildInputImageUrls(input.input_images ?? [], deps);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        code: 'INVALID_INPUT',
+      };
+    }
+  }
+
+  let response: Response;
+  try {
+    const body: Record<string, unknown> = {
+      model: XAI_IMAGE_MODEL,
+      prompt,
+      response_format: 'url',
+      n: clampCount(input.count),
+    };
+    if (input.aspect_ratio) body.aspect_ratio = input.aspect_ratio;
+    if (operation === 'edit') {
+      const imageReferences = inputImageUrls.map((url) => ({ type: 'image_url', url }));
+      if (imageReferences.length === 1) body.image = imageReferences[0];
+      else body.images = imageReferences;
+    }
+    const endpoint = operation === 'edit' ? 'edits' : 'generations';
+    response = await route.fetch(`${XAI_RESPONSES_API_BASE_URL}/images/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      code: 'PROVIDER_REQUEST_ERROR',
+    };
+  }
+
+  const raw = await response.text();
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: `xAI image_generation failed (${response.status}): ${providerErrorMessage(raw)}`,
+      code: 'PROVIDER_HTTP_ERROR',
+    };
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { ok: false, error: 'Invalid xAI image response', code: 'PROVIDER_RESPONSE' };
+  }
+  const urls = Array.isArray(body.data)
+    ? body.data.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const url = (item as Record<string, unknown>).url;
+      return typeof url === 'string' && url.trim() ? [url.trim()] : [];
+    })
+    : [];
+  if (urls.length === 0) {
+    return { ok: false, error: 'xAI image_generation returned no images', code: 'EMPTY_RESULT' };
+  }
+
+  const downloadArtifact = deps.downloadArtifact ?? downloadRemoteArtifact;
+  const artifacts: GenerateImageArtifact[] = [];
+  try {
+    for (const url of urls) {
+      const downloaded = await downloadArtifact(url);
+      const extension = imageExtension(downloaded.mimeType, url);
+      const filePath = await deps.writeArtifact(downloaded.bytes, { extension });
+      artifacts.push({ path: filePath, mimeType: downloaded.mimeType });
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      code: 'ARTIFACT_DOWNLOAD_ERROR',
+    };
+  }
+
+  return {
+    ok: true,
+    model: XAI_IMAGE_MODEL,
+    routeId: 'xai-oauth',
+    operation,
+    artifacts,
+    displayMarkdown: buildDisplayMarkdown(prompt, artifacts),
+  };
+}
+
+async function downloadRemoteArtifact(url: string): Promise<{ bytes: Buffer; mimeType: string }> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to download generated image (${response.status})`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length === 0) throw new Error('Downloaded generated image is empty');
+  const mimeType = response.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
+  return { bytes, mimeType };
+}
+
+function imageExtension(mimeType: string, url: string): string {
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/webp') return 'webp';
+  if (/\.png(?:$|[?#])/i.test(url)) return 'png';
+  if (/\.webp(?:$|[?#])/i.test(url)) return 'webp';
+  return 'jpg';
+}
+
 async function generateCodexImage(
   prompt: string,
   input: GenerateImageInput,
@@ -250,7 +407,7 @@ async function generateCodexImage(
   let inputImageUrls: string[] = [];
   if (input.operation === 'edit' || (input.input_images?.length ?? 0) > 0) {
     try {
-      inputImageUrls = await buildCodexInputImageUrls(input.input_images ?? [], deps);
+      inputImageUrls = await buildInputImageUrls(input.input_images ?? [], deps);
     } catch (error) {
       return {
         ok: false,
@@ -317,7 +474,7 @@ async function generateCodexImage(
   };
 }
 
-async function buildCodexInputImageUrls(
+async function buildInputImageUrls(
   inputImages: GenerateImageInputRef[],
   deps: GenerateImageDeps
 ): Promise<string[]> {
@@ -604,6 +761,26 @@ export function resolveCodexImageRoute(): CodexImageRoute | null {
   };
 }
 
+/** Resolve xAI OAuth image capabilities through the shared authenticated API transport. */
+export function resolveXaiImageRoute(): XaiImageRoute | null {
+  const credential = getOAuthCredential('xai-oauth');
+  if (!credential?.accessToken || credential.terminalStatus) return null;
+
+  const entry = getAISubscriptionEntries().find((item) => item.id === 'xai-oauth');
+  if (!entry || entry.status !== 'connected') return null;
+  const generateCapability = entry.capabilities.find(
+    (capability) => capability.capabilityId === 'image.generate'
+  );
+  const editCapability = entry.capabilities.find(
+    (capability) => capability.capabilityId === 'image.edit'
+  );
+  return {
+    generateEnabled: generateCapability?.enabled !== false,
+    editEnabled: editCapability?.enabled !== false,
+    fetch: createOAuthAuthenticatedFetch('xai-oauth'),
+  };
+}
+
 /** Persist generated image bytes under `<project>/.cdf/artifacts/images/`. */
 export async function writeImageArtifact(
   projectPath: string,
@@ -656,7 +833,9 @@ export function createGenerateImageDeps(projectPath: string): GenerateImageDeps 
   return {
     resolveTokenPlanImageRoute,
     resolveCodexImageRoute,
+    resolveXaiImageRoute,
     httpPostJson: defaultHttpPostJson,
+    downloadArtifact: downloadRemoteArtifact,
     writeArtifact: (bytes, options) => writeImageArtifact(projectPath, bytes, options),
     readLocalImageAsDataUrl,
   };
@@ -696,7 +875,8 @@ export function createGenerateImageTool(projectPath: string) {
       description:
         'Generate or edit an image. Text-to-image uses prompt only; image-to-image (edit) uses prompt plus input_images ' +
         'as source image references. ' +
-        'Image generation and editing can use connected MiniMax Token Plan (image-01) or Codex OAuth (gpt-image-2). ' +
+        'Image generation and editing can use connected MiniMax Token Plan (image-01), Codex OAuth (gpt-image-2), ' +
+        'or xAI Grok OAuth (Grok Imagine). ' +
         'Returns local artifact paths plus displayMarkdown. ' +
         GENERATE_IMAGE_DISPLAY_RULE,
       schema: z.object({
@@ -706,7 +886,7 @@ export function createGenerateImageTool(projectPath: string) {
           .optional()
           .describe('Defaults to edit when input_images is set, otherwise generate'),
         route_hint: z
-          .enum(['auto', 'minimax-token-plan', 'codex-oauth'])
+          .enum(['auto', 'minimax-token-plan', 'codex-oauth', 'xai-oauth'])
           .optional()
           .describe('Preferred capability route; defaults to auto'),
         input_images: z

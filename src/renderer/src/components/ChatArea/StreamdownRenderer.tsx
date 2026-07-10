@@ -230,16 +230,79 @@ const LiComponent = ({ children }: any) => (
   </li>
 );
 
-const AComponent = ({ children, href }: any) => (
-  <a
-    href={href}
-    className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline underline-offset-2 transition-colors"
-    target="_blank"
-    rel="noopener noreferrer"
-  >
-    {children}
-  </a>
-);
+function getSafeImageSrc(src: string): string {
+  if (!src) return '';
+  if (src.startsWith('data:')) {
+    return src;
+  }
+  if (src.startsWith('file://')) {
+    return src.replace('file://', 'cdf-file://');
+  }
+  if (src.startsWith('/')) {
+    return `cdf-file://${src}`;
+  }
+  return src;
+}
+
+const AComponent = ({ children, href }: any) => {
+  if (!href) return null;
+
+  // Check if it's an audio or video path
+  const isAudio = /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(href);
+  const isVideo = /\.(mp4|webm|mov|ogg|mkv|avi)$/i.test(href);
+
+  // Convert local path to cdf-file protocol
+  const safeSrc = getSafeImageSrc(href);
+
+  if (isAudio) {
+    return (
+      <div className="audio-player-container my-3 p-3.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[420px] shadow-sm">
+        {children && (
+          <div className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate">
+            <span className="animate-pulse">🎵</span>
+            <span>{children}</span>
+          </div>
+        )}
+        <audio
+          src={safeSrc}
+          controls
+          preload="metadata"
+          className="w-full h-9 outline-none"
+        />
+      </div>
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <div className="video-player-container my-3 p-2.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[540px] shadow-sm">
+        {children && (
+          <div className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate">
+            <span>🎬</span>
+            <span>{children}</span>
+          </div>
+        )}
+        <video
+          src={safeSrc}
+          controls
+          preload="metadata"
+          className="w-full max-h-[320px] object-contain rounded-lg bg-black/90"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={href}
+      className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline underline-offset-2 transition-colors"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {children}
+    </a>
+  );
+};
 
 const HeadingComponent = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   const Tag = `h${level}` as keyof JSX.IntrinsicElements;
@@ -342,19 +405,6 @@ function renderStreamdown(text: string, isTypewriting: boolean, densityClass: st
   );
 }
 
-function getSafeImageSrc(src: string): string {
-  if (!src) return '';
-  if (src.startsWith('data:')) {
-    return src;
-  }
-  if (src.startsWith('file://')) {
-    return src.replace('file://', 'cdf-file://');
-  }
-  if (src.startsWith('/')) {
-    return `cdf-file://${src}`;
-  }
-  return src;
-}
 
 const ImgComponent = ({ src, alt }: { src?: string; alt?: string }) => {
   const zoomImage = useContext(ImageZoomContext);
@@ -402,11 +452,11 @@ customComponents.details = DetailsComponent;
 customComponents.summary = SummaryComponent;
 customComponents.img = ImgComponent;
 
-function preprocessMarkdownImages(text: string): string {
+function preprocessMarkdownMediaAndImages(text: string): string {
   if (!text || typeof text !== 'string') return '';
   
-  // Regex to match ![alt](url) syntax
-  return text.replace(/!\[([^\]]*?)\]\(([^)]+)\)/g, (match, alt, url) => {
+  // Regex to match ![alt](url) or [text](url) syntax
+  return text.replace(/(!?)\[([^\]]*?)\]\(([^)]+)\)/g, (match, isImage, alt, url) => {
     const trimmedUrl = url.trim();
     
     // Check if the URL string ends with a quoted title (e.g. "title" or 'title')
@@ -433,14 +483,14 @@ function preprocessMarkdownImages(text: string): string {
     }
     
     const titleString = titlePart ? ` "${titlePart}"` : '';
-    return `![${alt}](${pathPart}${titleString})`;
+    return `${isImage}[${alt}](${pathPart}${titleString})`;
   });
 }
 
 export const StreamdownRenderer = memo(({ text, isTypewriting = false, density = 'default' }: StreamdownRendererProps) => {
   if (!text) return null;
 
-  const processedText = preprocessMarkdownImages(text);
+  const processedText = preprocessMarkdownMediaAndImages(text);
   const densityClass = density === 'compact' ? 'text-xs' : 'text-sm';
   
   if (containsDetailsBlock(processedText)) {

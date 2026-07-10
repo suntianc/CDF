@@ -38,7 +38,11 @@ describe('AI subscription read model', () => {
       expect.objectContaining({ capabilityId: 'image.generate', enabled: true }),
       expect.objectContaining({ capabilityId: 'image.edit', enabled: true }),
     ]);
-    expect(entries.find((entry) => entry.id === 'xai-oauth')?.capabilities).toEqual([]);
+    expect(entries.find((entry) => entry.id === 'xai-oauth')?.capabilities).toEqual([
+      expect.objectContaining({ capabilityId: 'image.generate', enabled: true }),
+      expect.objectContaining({ capabilityId: 'image.edit', enabled: true }),
+      expect.objectContaining({ capabilityId: 'video.generate', enabled: true }),
+    ]);
   });
 
   it('persists one disabled capability without mutating sibling capability routes', () => {
@@ -117,10 +121,12 @@ describe('AI subscription read model', () => {
       buildAISubscriptionTextModelCandidates(connected)
         .filter((candidate) => candidate.sourceId === 'codex-oauth')
     ).toEqual([
+      expect.objectContaining({ model: 'gpt-5.6-sol', contextLimit: 372_000 }),
+      expect.objectContaining({ model: 'gpt-5.6-terra', contextLimit: 372_000 }),
+      expect.objectContaining({ model: 'gpt-5.6-luna', contextLimit: 372_000 }),
       expect.objectContaining({ model: 'gpt-5.5', contextLimit: 272_000 }),
-      expect.objectContaining({ model: 'gpt-5.4-mini', contextLimit: 272_000 }),
       expect.objectContaining({ model: 'gpt-5.4', contextLimit: 272_000 }),
-      expect.objectContaining({ model: 'gpt-5.3-codex', contextLimit: 272_000 }),
+      expect.objectContaining({ model: 'gpt-5.4-mini', contextLimit: 272_000 }),
       expect.objectContaining({ model: 'gpt-5.3-codex-spark', contextLimit: 128_000 }),
     ]);
 
@@ -168,6 +174,99 @@ describe('AI subscription read model', () => {
     ]);
     expect(candidates.some((candidate) => candidate.model === 'grok-4-fast')).toBe(false);
     expect(candidates.some((candidate) => candidate.model === 'grok-code-fast-1')).toBe(false);
+  });
+
+  it('describes the configurable Grok 4.5 reasoning effort through the text model candidate', () => {
+    const connected = buildAISubscriptionEntries({
+      entries: { 'xai-oauth': { status: 'connected' } },
+    });
+
+    const candidate = buildAISubscriptionTextModelCandidates(connected)
+      .find((item) => item.model === 'grok-4.5');
+
+    expect(candidate?.reasoning).toEqual({
+      supportedEfforts: ['low', 'medium', 'high'],
+      defaultEffort: 'high',
+      control: 'depth',
+    });
+  });
+
+  it('allows Grok 4.3 reasoning to be disabled without changing models', () => {
+    const connected = buildAISubscriptionEntries({
+      entries: { 'xai-oauth': { status: 'connected' } },
+    });
+
+    const candidate = buildAISubscriptionTextModelCandidates(connected)
+      .find((item) => item.model === 'grok-4.3');
+
+    expect(candidate?.reasoning).toEqual({
+      supportedEfforts: ['none', 'low', 'medium', 'high'],
+      defaultEffort: 'low',
+      control: 'depth',
+    });
+  });
+
+  it('marks Grok multi-agent effort as an agent-count control', () => {
+    const connected = buildAISubscriptionEntries({
+      entries: { 'xai-oauth': { status: 'connected' } },
+    });
+
+    const candidate = buildAISubscriptionTextModelCandidates(connected)
+      .find((item) => item.model === 'grok-4.20-multi-agent-0309');
+
+    expect(candidate?.reasoning).toEqual({
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      control: 'agent_count',
+    });
+  });
+
+  it('exposes each Codex model\'s live reasoning effort range and default', () => {
+    const connected = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connected' } },
+    });
+    const candidates = buildAISubscriptionTextModelCandidates(connected)
+      .filter((item) => item.sourceId === 'codex-oauth');
+    const profiles = Object.fromEntries(
+      candidates.map((candidate) => [candidate.model, candidate.reasoning])
+    );
+
+    expect(profiles).toEqual({
+      'gpt-5.6-sol': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultEffort: 'low',
+        control: 'depth',
+      },
+      'gpt-5.6-terra': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultEffort: 'medium',
+        control: 'depth',
+      },
+      'gpt-5.6-luna': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultEffort: 'medium',
+        control: 'depth',
+      },
+      'gpt-5.5': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultEffort: 'medium',
+        control: 'depth',
+      },
+      'gpt-5.4': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultEffort: 'medium',
+        control: 'depth',
+      },
+      'gpt-5.4-mini': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultEffort: 'medium',
+        control: 'depth',
+      },
+      'gpt-5.3-codex-spark': {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultEffort: 'high',
+        control: 'depth',
+      },
+    });
   });
 
   it('preserves cached quota when a runtime-only health check omits usage data', () => {

@@ -513,6 +513,21 @@
         "ai_subscription": "AI 订阅"
       }
     },
+    "reasoningEffort": {
+      "depthLabel": "思考深度",
+      "agentCountLabel": "协作规模",
+      "default": "默认",
+      "defaultWithEffort": "默认（{{effort}}）",
+      "efforts": {
+        "none": "关闭",
+        "low": "快速",
+        "medium": "均衡",
+        "high": "深入",
+        "xhigh": "极深",
+        "max": "最大",
+        "ultra": "自主编排"
+      }
+    },
     "send": "发送",
     "sendMessage": "发送消息",
     "createProjectTitle": "创建项目",

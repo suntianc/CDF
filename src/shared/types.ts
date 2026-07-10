@@ -6,6 +6,7 @@ import type {
   AISubscriptionLoginStartResult,
   AISubscriptionLoginPollResult,
   CapabilityId,
+  ReasoningEffort,
 } from './ai-subscriptions';
 import type { SkillEffectiveVisibility, SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
 
@@ -312,6 +313,7 @@ export interface ChatRuntimeOverrides {
   sourceId?: string;
   providerId?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   /** D-09: frontmatter `allowed-tools` whitelist. Non-empty lists are enforced
    *  at runtime by the deepagent tool-call middleware. Empty/absent means all
    *  otherwise available tools remain available. */

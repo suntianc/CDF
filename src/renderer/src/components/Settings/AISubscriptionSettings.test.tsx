@@ -279,7 +279,7 @@ describe('AISubscriptionSettings', () => {
     expect((within(card).getByRole('switch', { name: /^Music generation$|^音乐生成$/ }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it('shows only Codex image generation and editing and no capability expander for Grok', async () => {
+  it('shows separately routable media switches for Codex and Grok', async () => {
     installElectronAPI(buildAISubscriptionEntries({
       entries: {
         'codex-oauth': { status: 'connected' },
@@ -297,7 +297,12 @@ describe('AISubscriptionSettings', () => {
     expect(within(codexCard).queryByRole('switch', { name: /^Quota status$|^配额状态$/ })).toBeNull();
 
     const grokCard = screen.getByRole('group', { name: 'xAI Grok OAuth' });
-    expect(within(grokCard).queryByRole('button', { name: /Expand xAI Grok OAuth|展开 xAI Grok OAuth/ })).toBeNull();
+    fireEvent.click(within(grokCard).getByRole('button', { name: /Expand xAI Grok OAuth|展开 xAI Grok OAuth/ }));
+    expect(within(grokCard).getByRole('switch', { name: /^Image generation$|^图像生成$/ })).toBeTruthy();
+    expect(within(grokCard).getByRole('switch', { name: /^Image editing$|^图像编辑$/ })).toBeTruthy();
+    expect(within(grokCard).getByRole('switch', { name: /^Video generation$|^视频生成$/ })).toBeTruthy();
+    expect(within(grokCard).queryByRole('switch', { name: /^Text chat$|^文本聊天$/ })).toBeNull();
+    expect(within(grokCard).queryByRole('switch', { name: /^Quota status$|^配额状态$/ })).toBeNull();
   });
 
   it('refreshes connection status from a connected MiniMax card', async () => {

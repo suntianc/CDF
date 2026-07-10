@@ -35,6 +35,7 @@ vi.mock('../ai-subscription-credentials', () => ({
 
 vi.mock('../ai-subscription-runtime', () => ({
   CODEX_RESPONSES_API_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+  XAI_RESPONSES_API_BASE_URL: 'https://api.x.ai/v1',
   createOAuthAuthenticatedFetch: createOAuthAuthenticatedFetchMock,
 }));
 
@@ -87,6 +88,112 @@ describe('generateImage', () => {
       Buffer.from('hello', 'utf8'),
       { extension: 'png' }
     );
+  });
+
+  it('generates a Grok OAuth image and persists the temporary result URL', async () => {
+    const writeArtifact = vi.fn().mockResolvedValue('/tmp/project/artifacts/grok-1.jpg');
+    const downloadArtifact = vi.fn().mockResolvedValue({
+      bytes: Buffer.from('jpeg-bytes'),
+      mimeType: 'image/jpeg',
+    });
+    const xaiFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{
+        url: 'https://imgen.x.ai/xai-imgen/temporary.jpeg',
+        mime_type: 'image/jpeg',
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const result = await generateImage(
+      {
+        prompt: 'a neon cat',
+        route_hint: 'xai-oauth',
+        aspect_ratio: '16:9',
+      },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => null,
+        resolveXaiImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: xaiFetch }),
+        httpPostJson: vi.fn(),
+        downloadArtifact,
+        writeArtifact,
+      }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      model: 'grok-imagine-image-quality',
+      routeId: 'xai-oauth',
+      operation: 'generate',
+      artifacts: [{ path: '/tmp/project/artifacts/grok-1.jpg', mimeType: 'image/jpeg' }],
+      displayMarkdown: '![a neon cat](/tmp/project/artifacts/grok-1.jpg)',
+    });
+    expect(xaiFetch).toHaveBeenCalledWith(
+      'https://api.x.ai/v1/images/generations',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(JSON.parse(String(xaiFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      model: 'grok-imagine-image-quality',
+      prompt: 'a neon cat',
+      response_format: 'url',
+      n: 1,
+      aspect_ratio: '16:9',
+    });
+    expect(downloadArtifact).toHaveBeenCalledWith('https://imgen.x.ai/xai-imgen/temporary.jpeg');
+    expect(writeArtifact).toHaveBeenCalledWith(
+      Buffer.from('jpeg-bytes'),
+      { extension: 'jpg' }
+    );
+  });
+
+  it('edits an image through Grok OAuth using the shared generate_image interface', async () => {
+    const xaiFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ url: 'https://imgen.x.ai/xai-imgen/edited.jpeg', mime_type: 'image/jpeg' }],
+    }), { status: 200 }));
+
+    const result = await generateImage(
+      {
+        prompt: 'add a party hat',
+        operation: 'edit',
+        route_hint: 'xai-oauth',
+        input_images: [{ kind: 'url', url: 'https://cdn.example.com/cat.png' }],
+      },
+      {
+        resolveTokenPlanImageRoute: () => null,
+        resolveCodexImageRoute: () => null,
+        resolveXaiImageRoute: () => ({ generateEnabled: true, editEnabled: true, fetch: xaiFetch }),
+        httpPostJson: vi.fn(),
+        downloadArtifact: vi.fn().mockResolvedValue({
+          bytes: Buffer.from('edited-jpeg'),
+          mimeType: 'image/jpeg',
+        }),
+        writeArtifact: vi.fn().mockResolvedValue('/tmp/project/artifacts/grok-edit.jpg'),
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      model: 'grok-imagine-image-quality',
+      routeId: 'xai-oauth',
+      operation: 'edit',
+      artifacts: [{ path: '/tmp/project/artifacts/grok-edit.jpg', mimeType: 'image/jpeg' }],
+    }));
+    expect(xaiFetch).toHaveBeenCalledWith(
+      'https://api.x.ai/v1/images/edits',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(JSON.parse(String(xaiFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      model: 'grok-imagine-image-quality',
+      prompt: 'add a party hat',
+      response_format: 'url',
+      n: 1,
+      image: {
+        type: 'image_url',
+        url: 'https://cdn.example.com/cat.png',
+      },
+    });
   });
 
   it('surfaces a Codex image policy refusal instead of reporting an empty result', async () => {
@@ -687,7 +794,8 @@ describe('createGenerateImageTool', () => {
     expect(imageTool.description).toMatch(/must (include|embed|show|display)/i);
     expect(imageTool.description).toMatch(/input_images|image-to-image|edit/i);
     expect(imageTool.description).toContain(
-      'Image generation and editing can use connected MiniMax Token Plan (image-01) or Codex OAuth (gpt-image-2).'
+      'Image generation and editing can use connected MiniMax Token Plan (image-01), Codex OAuth (gpt-image-2), ' +
+      'or xAI Grok OAuth (Grok Imagine).'
     );
   });
 });

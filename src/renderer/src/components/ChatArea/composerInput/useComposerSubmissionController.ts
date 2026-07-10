@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { CommandDispatchAction, ConversationModelSourceType, SlashCommand } from '@shared/types';
+import type { ReasoningEffort } from '@shared/ai-subscriptions';
 import type { ComposerInputController } from './useComposerInputController';
 import type { ComposerInputMode } from './composerInput';
 
@@ -22,6 +23,7 @@ export interface UseComposerSubmissionControllerOptions {
   selectedSourceType: ConversationModelSourceType;
   selectedSourceId: string;
   selectedModel: string;
+  selectedReasoningEffort?: ReasoningEffort;
   commands: ReadonlyArray<SlashCommand>;
   resolveCommand: (
     input: string,
@@ -34,17 +36,30 @@ export interface UseComposerSubmissionControllerOptions {
   sendMessage: (
     projectId: string,
     content: string,
-    overrides?: { modelSource?: ConversationModelSourceType; sourceId?: string; providerId?: string; model?: string },
+    overrides?: {
+      modelSource?: ConversationModelSourceType;
+      sourceId?: string;
+      providerId?: string;
+      model?: string;
+      reasoningEffort?: ReasoningEffort;
+    },
     targetSessionId?: string,
     options?: { imageBase64?: string[] }
   ) => Promise<void>;
-  getWelcomeModelOverride: () => { providerId: string; sourceId?: string; sourceType?: ConversationModelSourceType; model: string } | null;
+  getWelcomeModelOverride: () => {
+    providerId: string;
+    sourceId?: string;
+    sourceType?: ConversationModelSourceType;
+    model: string;
+    reasoningEffort?: ReasoningEffort;
+  } | null;
   setSessionModelOverride: (
     sessionId: string,
     sourceId: string,
     model: string,
     sourceType?: ConversationModelSourceType
   ) => void;
+  setSessionReasoningEffort?: (sessionId: string, effort?: ReasoningEffort) => void;
   t: (key: string) => string;
 }
 
@@ -56,6 +71,7 @@ export function useComposerSubmissionController({
   selectedSourceType,
   selectedSourceId,
   selectedModel,
+  selectedReasoningEffort,
   commands,
   resolveCommand,
   dispatchCommand,
@@ -65,6 +81,7 @@ export function useComposerSubmissionController({
   sendMessage,
   getWelcomeModelOverride,
   setSessionModelOverride,
+  setSessionReasoningEffort,
   t,
 }: UseComposerSubmissionControllerOptions) {
   const createConversationDraftName = useCallback(
@@ -90,6 +107,10 @@ export function useComposerSubmissionController({
           welcomeOverride.model,
           welcomeOverride.sourceType || 'llm_provider'
         );
+        if (welcomeOverride.reasoningEffort) {
+          setSessionReasoningEffort?.(conversation.id, welcomeOverride.reasoningEffort);
+          setSessionReasoningEffort?.('', undefined);
+        }
         setSessionModelOverride('', '', '', 'llm_provider');
       }
       await selectSession(conversation.id);
@@ -103,6 +124,7 @@ export function useComposerSubmissionController({
       getWelcomeModelOverride,
       selectSession,
       setSessionModelOverride,
+      setSessionReasoningEffort,
     ]
   );
 
@@ -148,6 +170,7 @@ export function useComposerSubmissionController({
           sourceId: selectedSourceId || undefined,
           providerId: selectedSourceType === 'llm_provider' ? selectedSourceId || undefined : undefined,
           model: selectedModel || undefined,
+          ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}),
         },
         undefined,
         { imageBase64: intent.attachments.length ? intent.attachments : undefined }
@@ -170,6 +193,7 @@ export function useComposerSubmissionController({
     prepareWelcomeConversation,
     resolveCommand,
     selectedModel,
+    selectedReasoningEffort,
     selectedSourceId,
     selectedSourceType,
     selectSession,

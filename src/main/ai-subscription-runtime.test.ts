@@ -3,6 +3,8 @@ import type { AISubscriptionEntry } from '../shared/ai-subscriptions';
 import type { OAuthCredential } from './ai-subscription-credentials';
 
 const {
+  electronNetFetchMock,
+  globalFetchMock,
   getEntriesMock,
   getSecretMock,
   getOAuthCredentialMock,
@@ -10,12 +12,18 @@ const {
   prepareRuntimeStatusMock,
   saveStatusMock,
 } = vi.hoisted(() => ({
+  electronNetFetchMock: vi.fn(),
+  globalFetchMock: vi.fn(),
   getEntriesMock: vi.fn(),
   getSecretMock: vi.fn(),
   getOAuthCredentialMock: vi.fn(),
   markCredentialTerminalMock: vi.fn(),
   prepareRuntimeStatusMock: vi.fn(),
   saveStatusMock: vi.fn(),
+}));
+
+vi.mock('electron', () => ({
+  net: { fetch: electronNetFetchMock },
 }));
 
 vi.mock('./ai-subscription-store', () => ({
@@ -190,6 +198,24 @@ describe('resolveAISubscriptionRuntimeModel', () => {
     });
   });
 
+  it('maps a supported Codex reasoning effort into the Responses runtime', () => {
+    getEntriesMock.mockReturnValue([connectedCodex()]);
+    getOAuthCredentialMock.mockReturnValue({
+      kind: 'oauth',
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresAt: Date.now() + 3_600_000,
+      obtainedAt: Date.now(),
+      accountId: 'account-1',
+    });
+
+    const config = resolveAISubscriptionRuntimeModel('codex-oauth', 'gpt-5.6-sol', 'ultra');
+
+    expect(config.modelKwargs).toEqual({
+      reasoning: { effort: 'ultra' },
+    });
+  });
+
   it('resolves an explicitly selected Grok model through the xAI Responses runtime', () => {
     getEntriesMock.mockReturnValue([connectedXai()]);
     getOAuthCredentialMock.mockReturnValue({
@@ -214,6 +240,44 @@ describe('resolveAISubscriptionRuntimeModel', () => {
       useResponsesApi: true,
       fetch: expect.any(Function),
     });
+  });
+
+  it('maps a supported Grok reasoning effort into the Responses runtime', () => {
+    getEntriesMock.mockReturnValue([connectedXai()]);
+    getOAuthCredentialMock.mockReturnValue({
+      kind: 'oauth',
+      accessToken: 'xai-access-token',
+      refreshToken: 'xai-refresh-token',
+      expiresAt: Date.now() + 900_000,
+      obtainedAt: Date.now(),
+      tokenEndpoint: 'https://auth.x.ai/oauth2/token',
+    });
+
+    const config = resolveAISubscriptionRuntimeModel('xai-oauth', 'grok-4.5', 'medium');
+
+    expect(config.modelKwargs).toEqual({
+      reasoning: { effort: 'medium' },
+    });
+  });
+
+  it('omits an effort that the selected Grok model does not declare', () => {
+    getEntriesMock.mockReturnValue([connectedXai()]);
+    getOAuthCredentialMock.mockReturnValue({
+      kind: 'oauth',
+      accessToken: 'xai-access-token',
+      refreshToken: 'xai-refresh-token',
+      expiresAt: Date.now() + 900_000,
+      obtainedAt: Date.now(),
+      tokenEndpoint: 'https://auth.x.ai/oauth2/token',
+    });
+
+    const config = resolveAISubscriptionRuntimeModel(
+      'xai-oauth',
+      'grok-4.20-0309-reasoning',
+      'high'
+    );
+
+    expect(config.modelKwargs).toBeUndefined();
   });
 
   it('requires an explicit model for OAuth accounts instead of silently pinning a drifting default', () => {
@@ -307,6 +371,40 @@ describe('resolveAISubscriptionRuntimeModel', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect((fetchImpl.mock.calls[0][1]?.headers as Headers).get('Authorization')).toBe('Bearer stale-access-token');
     expect((fetchImpl.mock.calls[1][1]?.headers as Headers).get('Authorization')).toBe('Bearer rotated-access-token');
+  });
+
+  it('uses Electron network transport for xAI OAuth while Codex keeps the global transport', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = globalFetchMock as typeof fetch;
+    electronNetFetchMock.mockResolvedValue(new Response('xai ok', { status: 200 }));
+    globalFetchMock.mockResolvedValue(new Response('codex ok', { status: 200 }));
+    getOAuthCredentialMock.mockImplementation((entryId: string) => ({
+      kind: 'oauth',
+      accessToken: `${entryId}-access-token`,
+      refreshToken: `${entryId}-refresh-token`,
+      obtainedAt: Date.now(),
+    }));
+
+    try {
+      const xaiFetch = createOAuthAuthenticatedFetch('xai-oauth');
+      const codexFetch = createOAuthAuthenticatedFetch('codex-oauth');
+
+      await xaiFetch('https://api.x.ai/v1/responses');
+      await codexFetch('https://chatgpt.com/backend-api/codex/responses');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(electronNetFetchMock).toHaveBeenCalledTimes(1);
+    expect(electronNetFetchMock).toHaveBeenCalledWith(
+      'https://api.x.ai/v1/responses',
+      expect.objectContaining({ headers: expect.any(Headers) })
+    );
+    expect(globalFetchMock).toHaveBeenCalledTimes(1);
+    expect(globalFetchMock).toHaveBeenCalledWith(
+      'https://chatgpt.com/backend-api/codex/responses',
+      expect.objectContaining({ headers: expect.any(Headers) })
+    );
   });
 
   it('reuses a token already rotated by a sibling request instead of consuming another refresh token', async () => {

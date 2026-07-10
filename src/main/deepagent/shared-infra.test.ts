@@ -191,6 +191,7 @@ describe('createBuiltInTools', () => {
       'knowledge_search',
       'knowledge_create',
       'generate_image',
+      'generate_video',
       'synthesize_speech',
       'generate_music',
     ]);

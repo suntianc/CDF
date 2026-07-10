@@ -513,6 +513,21 @@
         "ai_subscription": "AI subscription"
       }
     },
+    "reasoningEffort": {
+      "depthLabel": "Reasoning depth",
+      "agentCountLabel": "Collaboration scale",
+      "default": "Default",
+      "defaultWithEffort": "Default ({{effort}})",
+      "efforts": {
+        "none": "Off",
+        "low": "Fast",
+        "medium": "Balanced",
+        "high": "Deep",
+        "xhigh": "Very deep",
+        "max": "Maximum",
+        "ultra": "Autonomous"
+      }
+    },
     "send": "Send",
     "sendMessage": "Send message",
     "createProjectTitle": "Create project",
