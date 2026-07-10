@@ -148,7 +148,7 @@ export function ComposerInputSurface({
     };
     return (
       isComposingRef.current ||
-      event.isComposing ||
+      (event as unknown as { isComposing?: boolean }).isComposing ||
       nativeEvent.isComposing ||
       nativeEvent.keyCode === 229 ||
       nativeEvent.which === 229
@@ -332,7 +332,7 @@ export function ComposerInputSurface({
             onSelect={onCommandSelect}
             onInsert={onCommandInsert}
             onClose={controller.closeCommandEntry}
-            commands={commands}
+            commands={commands as SlashCommand[]}
             pathContext={pathContext}
             hasMcpWarning={commandWarnings.some((warning) => warning.type === 'mcp_health_warning')}
             mcpWarningMessage={commandWarnings.find((warning) => warning.type === 'mcp_health_warning')?.message}

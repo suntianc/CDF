@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DirectoryEntry } from '../../shared/types';
+import type { DirectoryEntry } from '@shared/types';
 
 export interface PreviewFile {
   path: string;

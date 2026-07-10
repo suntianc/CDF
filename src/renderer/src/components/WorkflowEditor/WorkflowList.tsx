@@ -38,6 +38,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   }, [currentProjectId, fetchWorkflows]);
 
   const handleDelete = async (id: string, name: string) => {
+    if (!currentProjectId) return;
     try {
       await deleteWorkflow(id, currentProjectId);
       showToast(t('workflow.list.deleteSuccess'), 'success');
@@ -70,6 +71,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       return;
     }
 
+    if (!currentProjectId) return;
     try {
       showToast(t('workflow.list.startingWorkflow'), 'info');
       await runWorkflow(workflow.id, currentProjectId, 'editor', {

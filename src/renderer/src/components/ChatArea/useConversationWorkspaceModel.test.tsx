@@ -22,11 +22,8 @@ function provider(overrides: Partial<LLMProvider> & Pick<LLMProvider, 'id' | 'na
 function agent(overrides: Partial<Agent> & Pick<Agent, 'id' | 'project_id' | 'name' | 'provider_id'>): Agent {
   return {
     description: '',
-    avatar: '',
     system_prompt: '',
-    model: 'gpt-4.1',
     is_default: 0,
-    is_active: 1,
     created_at: 1_000,
     updated_at: 1_000,
     ...overrides,
@@ -102,7 +99,7 @@ describe('useConversationWorkspaceModel', () => {
 
     useProjectStore.setState({
       currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' }],
+      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' , created_at: 0, updated_at: 0 }],
     });
     useSessionStore.setState({
       sessions: [activeSession],
@@ -139,7 +136,7 @@ describe('useConversationWorkspaceModel', () => {
 
     useProjectStore.setState({
       currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' }],
+      projects: [{ id: 'project-1', name: 'Project One', path: '/tmp/project-one', scene: 'general' , created_at: 0, updated_at: 0 }],
     });
     useAgentStore.setState({ agents: [defaultAgent, otherAgent] });
     useLLMStore.setState({ providers: [defaultProvider, otherProvider] });
@@ -208,13 +205,14 @@ describe('useConversationWorkspaceModel', () => {
   it('projects streaming timeline items with pending approval for the Conversation viewport', () => {
     const userMessage = message({ id: 'user-1', role: 'user', content: 'write a file' });
     const assistantMessage = message({ id: 'assistant-1', role: 'assistant', content: 'I need approval' });
-    const pendingApproval: AgentApprovalRequest = {
+    // 旧事件形态的 fixture（含 name/args）；共享 AgentApprovalRequest 已改为 actions 列表，
+    // 投影层不读取这些字段，仅透传，故保留运行时形态、类型桥接。
+    const pendingApproval = {
       id: 'approval-1',
-      toolCallId: 'tool-call-1',
       name: 'write_file',
       args: { file_path: '/tmp/a.ts', content: 'hello' },
       description: 'Tool execution requires approval',
-    };
+    } as unknown as AgentApprovalRequest;
 
     useSessionStore.setState({
       messages: [userMessage, assistantMessage],

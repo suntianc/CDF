@@ -146,9 +146,9 @@ describe('ChatArea.handleSend 5-line slash sniff (D-14/D-15)', () => {
   });
 
   it('Welcome Command Entry creates a Conversation before dispatching the command', async () => {
-    const createSession = vi.fn(async () => ({ id: 'session-1' }));
-    const selectSession = vi.fn(async () => {});
-    const fetchSessions = vi.fn(async () => {});
+    const createSession = vi.fn(async (_projectId: string, _name: string) => ({ id: 'session-1' }));
+    const selectSession = vi.fn(async (_sessionId: string) => {});
+    const fetchSessions = vi.fn(async (_projectId: string) => {});
     mockResolve.mockReturnValue({
       kind: 'GoalLoop',
       command: goalCommand,

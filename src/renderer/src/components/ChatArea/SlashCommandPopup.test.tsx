@@ -260,7 +260,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/context ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/context ');
     expect(screen.queryByText('/goal')).toBeNull();
   });
 
@@ -275,7 +275,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Tab' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal ');
     expect(screen.queryByText('/context')).toBeNull();
     // v1.1 polish: Tab must NOT fire the Enter-only onSelect (dispatch) path.
     expect(handleSlashSelectMock).not.toHaveBeenCalled();
@@ -292,7 +292,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal ');
     // v1.1 polish: Enter calls onInsert (not onSelect) per component behavior
     // at SlashCommandPopup.tsx:169 — (onInsert ?? onSelect)('/' + selectedValue)
     expect(handleSlashInsertMock).toHaveBeenCalledWith('/goal');
@@ -537,7 +537,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     });
-    expect(harness?.getInputVal()).toBe('/goal');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal');
     expect(screen.getAllByText('/goal').length).toBeGreaterThanOrEqual(1);
     expect(document.activeElement).toBe(textarea);
     // Regular Enter: slashRef.handleKeyDown consumes it, inserts /goal + ' '
@@ -547,7 +547,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal ');
     expect(document.querySelector('[cmdk-item]')).toBeNull();
   });
 

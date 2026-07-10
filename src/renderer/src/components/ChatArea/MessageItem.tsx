@@ -518,7 +518,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       <div className="message-row">
         {message.imageBase64 && message.imageBase64.length > 0 && (
           <div className="flex gap-1.5 flex-wrap mb-2">
-            {message.imageBase64.map((dataUrl, idx) => (
+            {message.imageBase64.map((dataUrl: string, idx: number) => (
               <img
                 key={idx}
                 src={dataUrl}

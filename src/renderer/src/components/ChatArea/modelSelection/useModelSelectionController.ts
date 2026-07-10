@@ -59,7 +59,7 @@ export function getModelCandidates(
     provider.default_model,
     ...(provider.models ?? []),
     selectedModel,
-  ].filter(Boolean)));
+  ].filter((model): model is string => Boolean(model))));
 }
 
 function llmProviderCandidates(provider: LLMProvider): ModelSelectionCandidate[] {

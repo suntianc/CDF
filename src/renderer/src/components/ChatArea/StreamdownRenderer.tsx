@@ -305,7 +305,7 @@ const AComponent = ({ children, href }: any) => {
 };
 
 const HeadingComponent = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
-  const Tag = `h${level}` as keyof JSX.IntrinsicElements;
+  const Tag = `h${level}` as keyof React.JSX.IntrinsicElements;
   const classNameByLevel = {
     1: 'text-lg font-semibold mt-3 mb-2 leading-snug text-[var(--color-text-primary)]',
     2: 'text-base font-semibold mt-3 mb-1.5 leading-snug text-[var(--color-text-primary)]',
@@ -478,7 +478,7 @@ function preprocessMarkdownMediaAndImages(text: string): string {
     if ((pathPart.startsWith('/') || pathPart.startsWith('file://')) && pathPart.includes(' ')) {
       pathPart = pathPart
         .split('/')
-        .map(seg => encodeURIComponent(decodeURIComponent(seg)))
+        .map((seg: string) => encodeURIComponent(decodeURIComponent(seg)))
         .join('/');
     }
     

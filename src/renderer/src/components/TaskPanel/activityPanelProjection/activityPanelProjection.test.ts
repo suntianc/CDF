@@ -192,6 +192,7 @@ describe('projectActivityPanel', () => {
         pendingWorkflowApproval: {
           id: 'workflow-approval-1',
           executionId: 'execution-1',
+          nodeId: 'node-1',
           actions: [
             action({ name: 'write_file' }),
             action({ name: 'delete_file' }),

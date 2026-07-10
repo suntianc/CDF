@@ -18,7 +18,7 @@ import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
 
-import { Workflow } from '../shared/types';
+import { Workflow } from '@shared/types';
 import { PanelLeft, PanelRight } from 'lucide-react';
 import { useFileStore } from './stores/fileStore';
 import { Toaster } from 'sonner';

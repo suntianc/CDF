@@ -703,9 +703,9 @@ describe('sessionStore selectSession activity errors', () => {
   it('does not let a slow activity fetch overwrite a newer active session', async () => {
     window.electronAPI.db.getAgentRuns = vi.fn(async (sessionId: string) => [
       { id: `${sessionId}-run`, status: 'completed', started_at: Date.now() },
-    ]);
-    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    ]) as unknown as typeof window.electronAPI.db.getAgentRuns;
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
 
     useSessionStore.setState({ activeSessionId: 'session-b' } as any);
     await useSessionStore.getState().fetchAgentActivity('session-a');
@@ -725,9 +725,9 @@ describe('sessionStore selectSession activity errors', () => {
     let resolveRuns: ((runs: any[]) => void) | undefined;
     window.electronAPI.db.getAgentRuns = vi.fn(() => new Promise((resolve) => {
       resolveRuns = resolve;
-    }));
-    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    })) as unknown as typeof window.electronAPI.db.getAgentRuns;
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
 
     useSessionStore.setState({ activeSessionId: 'session-1' } as any);
     const first = useSessionStore.getState().fetchAgentActivity('session-1');
@@ -752,7 +752,7 @@ describe('sessionStore selectSession activity errors', () => {
         ended_at: 200,
         aborted: 0,
       },
-    ]);
+    ]) as unknown as typeof window.electronAPI.db.getAgentRuns;
     window.electronAPI.db.getAgentToolCalls = vi.fn(async () => [
       {
         id: 'tool-1',
@@ -766,8 +766,8 @@ describe('sessionStore selectSession activity errors', () => {
         ended_at: 180,
         approval_status: null,
       },
-    ]);
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    ]) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
 
     useSessionStore.setState({
       activeSessionId: 'session-1',
@@ -817,7 +817,7 @@ describe('sessionStore selectSession activity errors', () => {
         ended_at: 200,
         aborted: 0,
       },
-    ]);
+    ]) as unknown as typeof window.electronAPI.db.getAgentRuns;
     window.electronAPI.db.getAgentToolCalls = vi.fn(async (runId: string) => {
       if (runId === 'run-old') {
         return [
@@ -836,8 +836,8 @@ describe('sessionStore selectSession activity errors', () => {
         ];
       }
       return [];
-    });
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    }) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
 
     useSessionStore.setState({
       activeSessionId: 'session-1',
@@ -874,8 +874,8 @@ describe('sessionStore selectSession activity errors', () => {
         return new Promise((resolve) => { resolveA = resolve; });
       }
       return Promise.resolve([{ id: 'message-b', session_id: 'session-b', role: 'user', content: 'B' }]);
-    });
-    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+    }) as unknown as typeof window.electronAPI.db.getMessages;
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentRuns;
 
     const selectA = useSessionStore.getState().selectSession('session-a');
     await useSessionStore.getState().selectSession('session-b');
@@ -888,7 +888,7 @@ describe('sessionStore selectSession activity errors', () => {
     window.electronAPI.db.getMessages = vi.fn((sessionId: string) => {
       if (sessionId === 'session-c') return Promise.reject(new Error('stale message failure'));
       return Promise.resolve([]);
-    });
+    }) as unknown as typeof window.electronAPI.db.getMessages;
     const selectC = useSessionStore.getState().selectSession('session-c');
     await useSessionStore.getState().selectSession('session-d');
     await selectC;
@@ -904,8 +904,8 @@ describe('sessionStore selectSession activity errors', () => {
         return new Promise((resolve) => { resolveFirst = resolve; });
       }
       return Promise.resolve([{ id: 'message-new', session_id: 'session-same', role: 'user', content: 'new' }]);
-    });
-    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+    }) as unknown as typeof window.electronAPI.db.getMessages;
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentRuns;
 
     const first = useSessionStore.getState().selectSession('session-same');
     await useSessionStore.getState().selectSession('session-same');
@@ -918,12 +918,12 @@ describe('sessionStore selectSession activity errors', () => {
 
   it('ignores older activity results for the same session id', async () => {
     const resolvers: Array<(runs: any[]) => void> = [];
-    window.electronAPI.db.getMessages = vi.fn(async () => []);
+    window.electronAPI.db.getMessages = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getMessages;
     window.electronAPI.db.getAgentRuns = vi.fn(() => new Promise((resolve) => {
       resolvers.push(resolve);
-    }));
-    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    })) as unknown as typeof window.electronAPI.db.getAgentRuns;
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
 
     const first = useSessionStore.getState().selectSession('session-same');
     await Promise.resolve();
@@ -943,8 +943,8 @@ describe('sessionStore selectSession activity errors', () => {
 
   it('does not leave a failed uncached session active with empty messages', async () => {
     const existingMessages = [{ id: 'old-message', session_id: 'session-old', role: 'user', content: 'old' }];
-    window.electronAPI.db.getMessages = vi.fn(async () => { throw new Error('message db failed'); });
-    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
+    window.electronAPI.db.getMessages = vi.fn(async () => { throw new Error('message db failed'); }) as unknown as typeof window.electronAPI.db.getMessages;
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentRuns;
 
     useSessionStore.setState({
       activeSessionId: 'session-old',
@@ -962,12 +962,12 @@ describe('sessionStore selectSession activity errors', () => {
   });
 
   it('still attempts to refresh activity when message loading fails', async () => {
-    window.electronAPI.db.getMessages = vi.fn(async () => { throw new Error('message db failed'); });
+    window.electronAPI.db.getMessages = vi.fn(async () => { throw new Error('message db failed'); }) as unknown as typeof window.electronAPI.db.getMessages;
     window.electronAPI.db.getAgentRuns = vi.fn(async () => [
       { id: 'session-current-run', status: 'completed', started_at: Date.now() },
-    ]);
-    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    ]) as unknown as typeof window.electronAPI.db.getAgentRuns;
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
 
     useSessionStore.setState({ activeSessionId: 'session-current', agentRuns: [], error: null } as any);
 
@@ -982,21 +982,21 @@ describe('sessionStore selectSession activity errors', () => {
     let chunkListener: ((event: unknown, data: any) => void) | null = null;
     window.electronAPI.db.getMessages = vi.fn(() => new Promise((resolve) => {
       resolveMessages = resolve;
-    }));
-    window.electronAPI.db.saveMessage = vi.fn(async (message) => message);
-    window.electronAPI.db.getAgentRuns = vi.fn(async () => []);
-    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []);
-    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined);
+    })) as unknown as typeof window.electronAPI.db.getMessages;
+    window.electronAPI.db.saveMessage = vi.fn(async (message) => message) as unknown as typeof window.electronAPI.db.saveMessage;
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentRuns;
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
     window.electronAPI.llm.chat = vi.fn(async () => {
       chunkListener?.(null, { type: 'message_chunk', text: 'new reply' });
       chunkListener?.(null, { type: 'message_done' });
-    });
+    }) as unknown as typeof window.electronAPI.llm.chat;
     window.electronAPI.llm.onChunk = vi.fn((_requestId, callback) => {
       chunkListener = callback;
       return () => {
         chunkListener = null;
       };
-    });
+    }) as unknown as typeof window.electronAPI.llm.onChunk;
 
     useSessionStore.setState({
       sessions: [{ id: 'session-loading', project_id: 'project-1', name: 'Loading', created_at: Date.now(), updated_at: Date.now() }],

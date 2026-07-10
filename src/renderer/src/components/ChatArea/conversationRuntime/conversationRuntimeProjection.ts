@@ -284,30 +284,33 @@ export function projectConversationRuntime(
     return projectParallelTaskStep(state, event.event, deps);
   }
 
-  if (event.event.type === 'todos_update') {
+  // const 别名使判别收窄能穿透闭包与别名条件（event.event 属性路径做不到）
+  const streamEvent = event.event;
+
+  if (streamEvent.type === 'todos_update') {
     return {
-      state: { ...state, todos: event.event.todos },
+      state: { ...state, todos: streamEvent.todos },
       effects: [],
     };
   }
 
-  if (event.event.type === 'run_started') {
+  if (streamEvent.type === 'run_started') {
     return {
       state: {
         ...state,
-        activeRunId: event.event.runId,
+        activeRunId: streamEvent.runId,
         agentRuns: [
           {
-            id: event.event.runId,
+            id: streamEvent.runId,
             session_id: state.sessionId,
-            agent_id: event.event.agentId,
+            agent_id: streamEvent.agentId,
             request_id: state.streamingMessageId || '',
-            status: event.event.status,
+            status: streamEvent.status,
             started_at: deps.now(),
             ended_at: null,
             aborted: 0,
           },
-          ...state.agentRuns.filter((run) => run.id !== event.event.runId),
+          ...state.agentRuns.filter((run) => run.id !== streamEvent.runId),
         ],
         agentToolCalls: [],
       },
@@ -315,17 +318,17 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'run_updated') {
-    const terminal = ['completed', 'failed', 'aborted'].includes(event.event.status);
+  if (streamEvent.type === 'run_updated') {
+    const terminal = ['completed', 'failed', 'aborted'].includes(streamEvent.status);
     return {
       state: {
         ...state,
         agentRuns: state.agentRuns.map((run) => (
-          run.id === event.event.runId
+          run.id === streamEvent.runId
             ? {
                 ...run,
-                status: event.event.status,
-                error: event.event.error || run.error || null,
+                status: streamEvent.status,
+                error: streamEvent.error || run.error || null,
                 ended_at: terminal ? deps.now() : run.ended_at,
               }
             : run
@@ -335,14 +338,14 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'skill_attribution') {
+  if (streamEvent.type === 'skill_attribution') {
     const message: Message = {
       id: deps.createId(),
       session_id: state.sessionId,
       role: 'system',
       content: JSON.stringify({
         type: 'skill_attribution',
-        attributions: event.event.attributions,
+        attributions: streamEvent.attributions,
       }),
       created_at: deps.now(),
       tokens: 0,
@@ -356,8 +359,8 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'message_chunk' && event.event.text) {
-    const accumulatedContent = state.accumulatedContent + event.event.text;
+  if (streamEvent.type === 'message_chunk' && streamEvent.text) {
+    const accumulatedContent = state.accumulatedContent + streamEvent.text;
     const hasCurrentAssistant = state.messages.some((message) => message.id === state.currentAssistantMsgId);
     const currentAssistantMessage: Message = {
       id: state.currentAssistantMsgId,
@@ -380,7 +383,7 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'tool_start') {
+  if (streamEvent.type === 'tool_start') {
     const effects: ConversationRuntimeProjectionEffect[] = [{ type: 'openActivityPanel' }];
     const messages = [...state.messages];
 
@@ -397,20 +400,20 @@ export function projectConversationRuntime(
       });
     }
 
-    const toolMessageId = event.event.id || deps.createId();
+    const toolMessageId = streamEvent.id || deps.createId();
     const pendingToolMessages = { ...state.pendingToolMessages };
-    if (!event.event.id) {
-      pendingToolMessages[event.event.name] = [
-        ...(pendingToolMessages[event.event.name] ?? []),
+    if (!streamEvent.id) {
+      pendingToolMessages[streamEvent.name] = [
+        ...(pendingToolMessages[streamEvent.name] ?? []),
         toolMessageId,
       ];
     }
 
     const toolContent = JSON.stringify({
       type: 'tool',
-      name: event.event.name,
+      name: streamEvent.name,
       status: 'running',
-      input: event.event.input,
+      input: streamEvent.input,
     });
     const toolMessage: Message = {
       id: toolMessageId,
@@ -426,14 +429,14 @@ export function projectConversationRuntime(
       ? messages.map((message) => message.id === toolMessageId ? { ...message, content: toolContent } : message)
       : [...messages, toolMessage];
 
-    const agentToolCalls = event.event.id && !state.agentToolCalls.some((toolCall) => toolCall.id === event.event.id)
+    const agentToolCalls = streamEvent.id && !state.agentToolCalls.some((toolCall) => toolCall.id === streamEvent.id)
       ? [
           ...state.agentToolCalls,
           {
-            id: event.event.id,
+            id: streamEvent.id,
             run_id: state.activeRunId || '',
-            tool_name: event.event.name,
-            input: JSON.stringify(event.event.input ?? null),
+            tool_name: streamEvent.name,
+            input: JSON.stringify(streamEvent.input ?? null),
             output: null,
             status: 'running' as const,
             error: null,
@@ -444,7 +447,7 @@ export function projectConversationRuntime(
         ]
       : state.agentToolCalls.map((toolCall) => (
           toolCall.id === toolMessageId
-            ? { ...toolCall, status: 'running' as const, input: JSON.stringify(event.event.input ?? null) }
+            ? { ...toolCall, status: 'running' as const, input: JSON.stringify(streamEvent.input ?? null) }
             : toolCall
         ));
 
@@ -468,30 +471,30 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'approval_required') {
+  if (streamEvent.type === 'approval_required') {
     return {
-      state: { ...state, pendingApproval: event.event.approval },
+      state: { ...state, pendingApproval: streamEvent.approval },
       effects: [],
     };
   }
 
-  if (event.event.type === 'approval_resolved') {
+  if (streamEvent.type === 'approval_resolved') {
     return {
       state: { ...state, pendingApproval: null },
       effects: [],
     };
   }
 
-  if (event.event.type === 'delegated_task_start') {
+  if (streamEvent.type === 'delegated_task_start') {
     const existingTask = state.delegatedTasks.find((task) => (
-      task.taskId === event.event.taskId ||
-      (task.status === 'running' && task.agentSlug === event.event.agentSlug)
+      task.taskId === streamEvent.taskId ||
+      (task.status === 'running' && task.agentSlug === streamEvent.agentSlug)
     ));
     const nextTask: DelegatedTaskProjection = {
-      taskId: event.event.taskId,
-      agentSlug: event.event.agentSlug,
-      agentName: event.event.agentName,
-      goal: event.event.goal,
+      taskId: streamEvent.taskId,
+      agentSlug: streamEvent.agentSlug,
+      agentName: streamEvent.agentName,
+      goal: streamEvent.goal,
       status: 'running',
       chunks: [],
       steps: [],
@@ -512,13 +515,13 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'delegated_task_chunk') {
+  if (streamEvent.type === 'delegated_task_chunk') {
     return {
       state: {
         ...state,
         delegatedTasks: state.delegatedTasks.map((task) => (
-          task.taskId === event.event.taskId
-            ? { ...task, chunks: [...task.chunks, event.event.text] }
+          task.taskId === streamEvent.taskId
+            ? { ...task, chunks: [...task.chunks, streamEvent.text] }
             : task
         )),
       },
@@ -526,13 +529,13 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'delegated_task_step') {
+  if (streamEvent.type === 'delegated_task_step') {
     return {
       state: {
         ...state,
         delegatedTasks: state.delegatedTasks.map((task) => (
-          task.taskId === event.event.taskId
-            ? { ...task, steps: [...task.steps, event.event.step] }
+          task.taskId === streamEvent.taskId
+            ? { ...task, steps: [...task.steps, streamEvent.step] }
             : task
         )),
       },
@@ -540,17 +543,17 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'delegated_task_end') {
+  if (streamEvent.type === 'delegated_task_end') {
     return {
       state: {
         ...state,
         delegatedTasks: state.delegatedTasks.map((task) => (
-          task.taskId === event.event.taskId
+          task.taskId === streamEvent.taskId
             ? {
                 ...task,
-                status: event.event.status,
-                result: event.event.result,
-                errorCode: event.event.errorCode,
+                status: streamEvent.status,
+                result: streamEvent.result,
+                errorCode: streamEvent.errorCode,
                 completedAt: deps.now(),
               }
             : task
@@ -560,26 +563,26 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'tool_end' || event.event.type === 'tool_error') {
+  if (streamEvent.type === 'tool_end' || streamEvent.type === 'tool_error') {
     const pendingToolMessages = { ...state.pendingToolMessages };
-    let toolMessageId = event.event.id;
+    let toolMessageId = streamEvent.id;
     if (!toolMessageId) {
-      const queue = [...(pendingToolMessages[event.event.name] ?? [])];
+      const queue = [...(pendingToolMessages[streamEvent.name] ?? [])];
       toolMessageId = queue.shift();
-      pendingToolMessages[event.event.name] = queue;
+      pendingToolMessages[streamEvent.name] = queue;
     }
     if (!toolMessageId) {
       return { state: { ...state, pendingToolMessages }, effects: [] };
     }
 
-    const isEnd = event.event.type === 'tool_end';
+    const isEnd = streamEvent.type === 'tool_end';
     let parallelBatches = state.parallelBatches;
     let todos = state.todos;
-    if (isEnd && event.event.name === 'parallel_tasks') {
+    if (isEnd && streamEvent.name === 'parallel_tasks') {
       try {
-        const raw = typeof event.event.output === 'string'
-          ? event.event.output
-          : JSON.stringify(event.event.output ?? '{}');
+        const raw = typeof streamEvent.output === 'string'
+          ? streamEvent.output
+          : JSON.stringify(streamEvent.output ?? '{}');
         const parsed = JSON.parse(raw) as { batchId?: string; results?: Array<{ name: string; status: 'success' | 'failure' }> };
         if (parsed.batchId && Array.isArray(parsed.results)) {
           parallelBatches = state.parallelBatches.map((batch) => (
@@ -598,9 +601,9 @@ export function projectConversationRuntime(
         parallelBatches = state.parallelBatches;
       }
     }
-    if (isEnd && event.event.name === 'write_todos') {
+    if (isEnd && streamEvent.name === 'write_todos') {
       try {
-        const parsedTodos = parseTodosFromToolOutput(event.event.output);
+        const parsedTodos = parseTodosFromToolOutput(streamEvent.output);
         if (parsedTodos) {
           todos = parsedTodos;
         }
@@ -609,19 +612,19 @@ export function projectConversationRuntime(
       }
     }
     const currentMessage = state.messages.find((message) => message.id === toolMessageId);
-    let parsedContent: Record<string, unknown> = { type: 'tool', name: event.event.name };
+    let parsedContent: Record<string, unknown> = { type: 'tool', name: streamEvent.name };
     if (currentMessage) {
       try {
         parsedContent = JSON.parse(currentMessage.content);
       } catch {
-        parsedContent = { type: 'tool', name: event.event.name };
+        parsedContent = { type: 'tool', name: streamEvent.name };
       }
     }
     const nextContent = JSON.stringify({
       ...parsedContent,
       status: isEnd ? 'success' : 'error',
-      output: isEnd ? event.event.output : undefined,
-      error: !isEnd ? event.event.error : undefined,
+      output: isEnd ? streamEvent.output : undefined,
+      error: !isEnd ? streamEvent.error : undefined,
     });
     const messages = state.messages.map((message) => (
       message.id === toolMessageId ? { ...message, content: nextContent } : message
@@ -631,8 +634,8 @@ export function projectConversationRuntime(
         ? {
             ...toolCall,
             status: isEnd ? 'success' as const : 'error' as const,
-            output: isEnd ? JSON.stringify(event.event.output ?? null) : toolCall.output,
-            error: !isEnd ? event.event.error : null,
+            output: isEnd ? JSON.stringify(streamEvent.output ?? null) : toolCall.output,
+            error: !isEnd ? streamEvent.error : null,
             ended_at: deps.now(),
           }
         : toolCall
@@ -667,7 +670,7 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'message_done') {
+  if (streamEvent.type === 'message_done') {
     const effects: ConversationRuntimeProjectionEffect[] = [];
     let messages = state.messages;
 
@@ -704,7 +707,7 @@ export function projectConversationRuntime(
     };
   }
 
-  if (event.event.type === 'runtime_error') {
+  if (streamEvent.type === 'runtime_error') {
     const transientMessageIds = new Set([
       state.streamingMessageId,
       state.currentAssistantMsgId,
@@ -729,13 +732,13 @@ export function projectConversationRuntime(
         { type: 'cleanupStream' },
         {
           type: 'setRetryableError',
-          message: event.event.errorMessageKey || event.event.error,
-          messageParams: event.event.errorMessageParams,
+          message: streamEvent.errorMessageKey || streamEvent.error,
+          messageParams: streamEvent.errorMessageParams,
         },
         {
           type: 'rejectStream',
-          error: event.event.errorMessageKey || event.event.error,
-          messageParams: event.event.errorMessageParams,
+          error: streamEvent.errorMessageKey || streamEvent.error,
+          messageParams: streamEvent.errorMessageParams,
         },
       ],
     };

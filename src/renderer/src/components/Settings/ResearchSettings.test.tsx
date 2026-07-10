@@ -23,7 +23,7 @@ const makeSettings = (
       key,
       configured: Boolean(entry),
       value: entry?.value ?? '',
-      source: entry?.source ?? (entry ? 'user_config' : 'missing'),
+      source: (entry?.source ?? (entry ? 'user_config' : 'missing')) as import('@shared/types').PaperSearchConfigSource,
       secret: isSecret(key),
     };
   });

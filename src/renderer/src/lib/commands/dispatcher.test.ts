@@ -157,7 +157,7 @@ describe('dispatcher.resolve', () => {
         '用户参数：prod',
       ].join('\n'),
     });
-    expect(plan?.prompt).not.toContain('/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+    expect((plan as { prompt?: string } | undefined)?.prompt).not.toContain('/repo/apps/web/.cdf/skills/deploy/SKILL.md');
   });
 
   it('resolves a root Skill command to a matching nested Skill when args mention that nested path', () => {

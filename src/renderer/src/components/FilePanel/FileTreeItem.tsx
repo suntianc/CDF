@@ -1,5 +1,5 @@
 import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-react';
-import type { DirectoryEntry } from '../../../shared/types';
+import type { DirectoryEntry } from '@shared/types';
 import { FileTypeIcon } from './FileTypeIcon';
 
 interface FileTreeItemProps {

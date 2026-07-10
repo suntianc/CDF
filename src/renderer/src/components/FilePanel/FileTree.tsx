@@ -7,7 +7,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { FileTreeItem } from './FileTreeItem';
 import { FileTreeContextMenu, type ContextMenuAction } from './FileTreeContextMenu';
 import { InlineInput } from './InlineInput';
-import type { DirectoryEntry } from '../../../shared/types';
+import type { DirectoryEntry } from '@shared/types';
 import {
   Dialog,
   DialogContent,

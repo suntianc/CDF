@@ -42,7 +42,7 @@ export function useConversationPlanDisclosure({
   useEffect(() => {
     const previousSessionId = previousSessionIdRef.current;
     const stayedInSameSession = previousSessionId === activeSessionId;
-    const planStartedInCurrentSession = Boolean(todoPlanKey && stayedInSameSession && !previousHasActivePlanRef.current);
+    const planStartedInCurrentSession = todoPlanKey !== null && stayedInSameSession && !previousHasActivePlanRef.current;
 
     if (planStartedInCurrentSession) {
       setExpandedByPlan((prev) => (
