@@ -3,6 +3,11 @@
 // 参数保持位置元组形态（与线上 invoke 形态一致），以 handler 实际消费为真。
 // 纯类型层契约：不做运行时校验，运行时行为不变。
 import type {
+  Agent,
+  AgentRun,
+  AgentSaveInput,
+  AgentSaveResult,
+  AgentToolCall,
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntrySummary,
@@ -10,12 +15,25 @@ import type {
   LLMProvider,
   LLMProviderSaveInput,
   LLMProviderSaveResult,
+  MCPServer,
+  MCPServerSaveInput,
+  MCPServerSaveResult,
   Message,
   MessageSaveInput,
   Project,
   ProjectScene,
+  SearchProvider,
+  SearchProviderSaveInput,
+  SearchProviderSaveResult,
   Session,
+  Skill,
+  SkillSaveInput,
+  Workflow,
+  WorkflowExecution,
+  WorkflowNodeRun,
+  WorkflowSaveInput,
 } from './types';
+import type { SkillOverrideState } from './skill-overrides';
 
 export interface IpcInvokeContract {
   // ===== db：Projects / Sessions / Messages / LLM Providers =====
@@ -44,6 +62,57 @@ export interface IpcInvokeContract {
   'db:deleteProvider': { args: [id: string]; result: void };
   'db:setActiveProvider': { args: [id: string]; result: void };
   'db:selectDirectory': { args: []; result: string | null };
+  // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
+  'db:getAgents': { args: [projectId: string]; result: Agent[] };
+  'db:saveAgent': { args: [agent: AgentSaveInput]; result: AgentSaveResult };
+  'db:deleteAgent': { args: [id: string]; result: void };
+  'db:getSkills': { args: [projectId: string]; result: Skill[] };
+  'db:getProjectSkillOverrides': {
+    args: [projectId: string];
+    result: Record<string, SkillOverrideState>;
+  };
+  'db:setProjectSkillOverride': {
+    args: [projectId: string, skillName: string, visibility: SkillOverrideState];
+    result: Record<string, SkillOverrideState>;
+  };
+  'db:saveSkill': { args: [projectId: string, skill: SkillSaveInput]; result: Skill };
+  'db:deleteSkill': { args: [projectId: string, id: string]; result: void };
+  'db:importSkillDirectory': { args: [sourceDir: string]; result: Skill };
+  // 物理 Skill 文件系统下无版本表；参数保留线上形态，handler 忽略并恒返回空数组。
+  'db:getSkillVersions': { args: [skillId: string]; result: never[] };
+  'db:getAgentRuns': { args: [sessionId: string]; result: AgentRun[] };
+  'db:getAgentToolCalls': { args: [runId: string]; result: AgentToolCall[] };
+  'db:getLatestTodos': { args: [sessionId: string]; result: AgentToolCall | undefined };
+  'db:getMcpServers': { args: []; result: MCPServer[] };
+  'db:saveMcpServer': { args: [server: MCPServerSaveInput]; result: MCPServerSaveResult };
+  'db:deleteMcpServer': { args: [id: string]; result: void };
+  'db:toggleMcpConnection': { args: [id: string, connected: boolean]; result: void };
+  'db:checkMcpHealth': { args: [id: string]; result: { ok: boolean; message?: string } };
+  'db:selectFile': {
+    args: [];
+    result: { name: string; script_type: 'bash' | 'python' | 'javascript'; content: string } | null;
+  };
+  'db:getToolConfigs': { args: []; result: SearchProvider[] };
+  'db:saveToolConfig': {
+    args: [config: SearchProviderSaveInput];
+    result: SearchProviderSaveResult;
+  };
+  'db:deleteToolConfig': { args: [id: string]; result: void };
+  'db:getWorkflows': { args: [projectId: string]; result: Workflow[] };
+  'db:getWorkflow': { args: [id: string]; result: Workflow | undefined };
+  'db:saveWorkflow': { args: [workflow: WorkflowSaveInput]; result: Workflow };
+  'db:deleteWorkflow': { args: [id: string]; result: void };
+  'db:getWorkflowExecutions': { args: [workflowId: string]; result: WorkflowExecution[] };
+  'db:getWorkflowExecution': { args: [id: string]; result: WorkflowExecution | undefined };
+  'db:getWorkflowNodeRuns': { args: [executionId: string]; result: WorkflowNodeRun[] };
+  'db:openFile': {
+    args: [filePath: string, projectId?: string];
+    result: { success: boolean; error?: string };
+  };
+  'db:revealFile': {
+    args: [filePath: string, projectId?: string];
+    result: { success: boolean; error?: string; warning?: string };
+  };
   // ===== Knowledge Base / Paper Library =====
   'knowledge:list': {
     args: [projectId: string, options?: KnowledgeEntrySearchOptions];
@@ -98,6 +167,37 @@ export const IPC_INVOKE_CHANNELS = [
   'db:deleteProvider',
   'db:setActiveProvider',
   'db:selectDirectory',
+  'db:getAgents',
+  'db:saveAgent',
+  'db:deleteAgent',
+  'db:getSkills',
+  'db:getProjectSkillOverrides',
+  'db:setProjectSkillOverride',
+  'db:saveSkill',
+  'db:deleteSkill',
+  'db:importSkillDirectory',
+  'db:getSkillVersions',
+  'db:getAgentRuns',
+  'db:getAgentToolCalls',
+  'db:getLatestTodos',
+  'db:getMcpServers',
+  'db:saveMcpServer',
+  'db:deleteMcpServer',
+  'db:toggleMcpConnection',
+  'db:checkMcpHealth',
+  'db:selectFile',
+  'db:getToolConfigs',
+  'db:saveToolConfig',
+  'db:deleteToolConfig',
+  'db:getWorkflows',
+  'db:getWorkflow',
+  'db:saveWorkflow',
+  'db:deleteWorkflow',
+  'db:getWorkflowExecutions',
+  'db:getWorkflowExecution',
+  'db:getWorkflowNodeRuns',
+  'db:openFile',
+  'db:revealFile',
   'knowledge:list',
   'knowledge:search',
   'knowledge:create',

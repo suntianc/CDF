@@ -30,12 +30,15 @@ import { parseSkillOverrideState } from '../shared/skill-overrides';
 import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import type {
+  AgentRun,
+  AgentToolCall,
   LLMProvider,
   MCPServer,
   PaperSearchConfigKey,
   PaperSearchConfigSettings,
   ProjectScene,
   Session,
+  Skill,
 } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
 import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
@@ -592,7 +595,7 @@ export function registerIpcHandlers() {
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('db:selectFile', async () => {
+  typedHandle('db:selectFile', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [
@@ -618,7 +621,7 @@ export function registerIpcHandlers() {
 
   // ===== Phase 3: Agent Library IPC Handlers =====
 
-  ipcMain.handle('db:getAgents', (_, projectId: string) => {
+  typedHandle('db:getAgents', (_, projectId) => {
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
     return agents.map(a => {
       const mcpExclusions = db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(a.id) as any[];
@@ -632,7 +635,7 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:saveAgent', (_, agent: any) => {
+  typedHandle('db:saveAgent', (_, agent) => {
     const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerExclusionIds, skillNames } = agent;
     const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
     if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
@@ -710,24 +713,25 @@ export function registerIpcHandlers() {
     };
   });
 
-  ipcMain.handle('db:deleteAgent', (_, id: string) => {
+  typedHandle('db:deleteAgent', (_, id) => {
     db.prepare('DELETE FROM agents WHERE id = ?').run(id);
   });
 
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
 
-  ipcMain.handle('db:getSkills', (_, projectId: string) => {
+  typedHandle('db:getSkills', (_, projectId) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       return [];
     }
     const userOverrides = readUserSkillOverrides((key) => store.get(key));
+    // 主进程内部视图类型（PhysicalSkillView）宽于共享 Skill（string vs 字面量联合）
     return listResolvedSkillViews(project.path, {
       userOverrides: userOverrides.overrides,
-    });
+    }) as Skill[];
   });
 
-  ipcMain.handle('db:getProjectSkillOverrides', (_, projectId: string) => {
+  typedHandle('db:getProjectSkillOverrides', (_, projectId) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       return {};
@@ -735,7 +739,7 @@ export function registerIpcHandlers() {
     return resolveSkillSourcePlan(project.path).config.overrides;
   });
 
-  ipcMain.handle('db:setProjectSkillOverride', (_, projectId: string, skillName: string, rawVisibility: unknown) => {
+  typedHandle('db:setProjectSkillOverride', (_, projectId, skillName, rawVisibility) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       throw new Error('Project not found');
@@ -747,17 +751,17 @@ export function registerIpcHandlers() {
     return updateProjectSkillOverride(project.path, skillName, visibility).overrides;
   });
 
-  ipcMain.handle('db:saveSkill', (_, projectId: string, skill: any) => {
+  typedHandle('db:saveSkill', (_, projectId, skill) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       throw new Error('Project not found');
     }
 
     const scope = skill.scope === 'global' ? 'global' : 'project';
-    return savePhysicalSkill(project.path, scope, skill);
+    return savePhysicalSkill(project.path, scope, skill) as Skill;
   });
 
-  ipcMain.handle('db:deleteSkill', (_, projectId: string, id: string) => {
+  typedHandle('db:deleteSkill', (_, projectId, id) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       throw new Error('Project not found');
@@ -768,35 +772,35 @@ export function registerIpcHandlers() {
     deletePhysicalSkill(project.path, scopePrefix, skillName);
   });
 
-  ipcMain.handle('db:importSkillDirectory', (_, sourceDir: string) => {
-    return importPhysicalSkillDirectory(sourceDir);
+  typedHandle('db:importSkillDirectory', (_, sourceDir) => {
+    return importPhysicalSkillDirectory(sourceDir) as Skill;
   });
 
-  ipcMain.handle('db:getSkillVersions', () => {
+  typedHandle('db:getSkillVersions', () => {
     // 物理文件系统下不另行留存数据库版本表，返回空数组保持向前兼容
     return [];
   });
 
-  ipcMain.handle('db:getAgentRuns', (_, sessionId: string) => {
-    return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId);
+  typedHandle('db:getAgentRuns', (_, sessionId) => {
+    return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
   });
 
-  ipcMain.handle('db:getAgentToolCalls', (_, runId: string) => {
-    return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId);
+  typedHandle('db:getAgentToolCalls', (_, runId) => {
+    return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
   });
 
-  ipcMain.handle('db:getLatestTodos', (_, sessionId: string) => {
+  typedHandle('db:getLatestTodos', (_, sessionId) => {
     return db.prepare(`
       SELECT atc.* FROM agent_tool_calls atc
       JOIN agent_runs ar ON atc.run_id = ar.id
       WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
       ORDER BY atc.started_at DESC LIMIT 1
-    `).get(sessionId);
+    `).get(sessionId) as AgentToolCall | undefined;
   });
 
   // ===== Phase 3: MCP Server IPC Handlers =====
 
-  ipcMain.handle('db:getMcpServers', () => {
+  typedHandle('db:getMcpServers', () => {
     const servers = db.prepare('SELECT * FROM mcp_servers ORDER BY updated_at DESC').all() as any[];
     return servers.map(s => ({
       ...s,
@@ -805,7 +809,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:saveMcpServer', (_, server: any) => {
+  typedHandle('db:saveMcpServer', (_, server) => {
     const { id, name, server_type, config } = server;
     const now = Date.now();
     const configStr = config ? JSON.stringify(config) : null;
@@ -825,11 +829,11 @@ export function registerIpcHandlers() {
     return { id, name, server_type, config, is_connected: false };
   });
 
-  ipcMain.handle('db:deleteMcpServer', (_, id: string) => {
+  typedHandle('db:deleteMcpServer', (_, id) => {
     db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
   });
 
-  ipcMain.handle('db:toggleMcpConnection', async (_, id: string, connected: boolean) => {
+  typedHandle('db:toggleMcpConnection', async (_, id, connected) => {
     db.prepare('UPDATE mcp_servers SET is_connected = ?, updated_at = ? WHERE id = ?').run(connected ? 1 : 0, Date.now(), id);
     // 断开时清理实际连接
     if (!connected) {
@@ -839,7 +843,7 @@ export function registerIpcHandlers() {
 
   // ===== Phase 4: Tool Configs IPC Handlers =====
 
-  ipcMain.handle('db:getToolConfigs', () => {
+  typedHandle('db:getToolConfigs', () => {
     const configs = db.prepare('SELECT * FROM tool_configs ORDER BY updated_at DESC').all() as any[];
     return configs.map(c => ({
       ...c,
@@ -851,7 +855,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:saveToolConfig', (_, config: any) => {
+  typedHandle('db:saveToolConfig', (_, config) => {
     const { id, tool_type, name, api_key, config: configData, is_enabled, is_default } = config;
     const now = Date.now();
 
@@ -886,7 +890,7 @@ export function registerIpcHandlers() {
     };
   });
 
-  ipcMain.handle('db:deleteToolConfig', (_, id: string) => {
+  typedHandle('db:deleteToolConfig', (_, id) => {
     db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
   });
 
@@ -905,7 +909,7 @@ export function registerIpcHandlers() {
     return unsetPaperSearchConfigValue(key);
   });
 
-  ipcMain.handle('db:checkMcpHealth', async (_, id: string) => {
+  typedHandle('db:checkMcpHealth', async (_, id) => {
     const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as any;
     if (!server) {
       return { ok: false, message: 'MCP server not found' };
@@ -936,7 +940,7 @@ export function registerIpcHandlers() {
 
   // ===== Phase 4: Workflow CRUD IPC Handlers =====
 
-  ipcMain.handle('db:getWorkflows', (_, projectId: string) => {
+  typedHandle('db:getWorkflows', (_, projectId) => {
     const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
     return rows.map(r => ({
       ...r,
@@ -944,7 +948,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:getWorkflow', (_, id: string) => {
+  typedHandle('db:getWorkflow', (_, id) => {
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
     if (!row) return undefined;
     return {
@@ -953,7 +957,7 @@ export function registerIpcHandlers() {
     };
   });
 
-  ipcMain.handle('db:saveWorkflow', (_, workflow: any) => {
+  typedHandle('db:saveWorkflow', (_, workflow) => {
     const { id, project_id, name, description, graph_data, status } = workflow;
     const now = Date.now();
     const graphDataStr = graph_data ? JSON.stringify(graph_data) : '{"nodes":[],"edges":[]}';
@@ -974,11 +978,11 @@ export function registerIpcHandlers() {
     return { id, project_id, name, description, graph_data: graph_data || { nodes: [], edges: [] }, status: status || 'draft', created_at: now, updated_at: now };
   });
 
-  ipcMain.handle('db:deleteWorkflow', (_, id: string) => {
+  typedHandle('db:deleteWorkflow', (_, id) => {
     db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
   });
 
-  ipcMain.handle('db:getWorkflowExecutions', (_, workflowId: string) => {
+  typedHandle('db:getWorkflowExecutions', (_, workflowId) => {
     const rows = db.prepare('SELECT * FROM workflow_executions WHERE workflow_id = ? ORDER BY started_at DESC').all(workflowId) as any[];
     return rows.map(r => ({
       ...r,
@@ -987,7 +991,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:getWorkflowExecution', (_, id: string) => {
+  typedHandle('db:getWorkflowExecution', (_, id) => {
     const row = db.prepare('SELECT * FROM workflow_executions WHERE id = ?').get(id) as any;
     if (!row) return undefined;
     return {
@@ -997,7 +1001,7 @@ export function registerIpcHandlers() {
     };
   });
 
-  ipcMain.handle('db:getWorkflowNodeRuns', (_, executionId: string) => {
+  typedHandle('db:getWorkflowNodeRuns', (_, executionId) => {
     const rows = db.prepare('SELECT * FROM workflow_node_runs WHERE execution_id = ? ORDER BY started_at').all(executionId) as any[];
     return rows.map(r => ({
       ...r,
@@ -1009,7 +1013,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:openFile', async (_, filePath: string, projectId?: string) => {
+  typedHandle('db:openFile', async (_, filePath, projectId) => {
     const { shell } = require('electron');
     const fs = require('fs');
     const path = require('path');
@@ -1030,7 +1034,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('db:revealFile', async (_, filePath: string, projectId?: string) => {
+  typedHandle('db:revealFile', async (_, filePath, projectId) => {
     const { shell } = require('electron');
     const fs = require('fs');
     const path = require('path');

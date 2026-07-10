@@ -124,6 +124,43 @@ export interface Agent {
   updated_at: number;
 }
 
+// IPC 保存入参：以 db:saveAgent handler 实际消费的字段为真（slug 与时间戳由主进程生成）。
+export interface AgentSaveInput {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string | null;
+  provider_id?: string | null;
+  system_prompt?: string | null;
+  config?: Record<string, unknown> | null;
+  is_default?: number | boolean;
+  mcpServerExclusionIds?: string[];
+  skillNames?: string[];
+}
+
+// db:saveAgent 的真实返回：入参回显 + 归一化的 is_default/关联数组（handler 为真）。
+export interface AgentSaveResult {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string | null;
+  provider_id?: string | null;
+  system_prompt?: string | null;
+  config?: Record<string, unknown> | null;
+  is_default: number;
+  mcpServerExclusionIds: string[];
+  skillNames: string[];
+}
+
+// IPC 保存入参：以 db:saveSkill handler 实际消费的字段为真（写入物理 Skill 文件）。
+export interface SkillSaveInput {
+  name: string;
+  description?: string;
+  script_type?: string;
+  script_content?: string;
+  scope?: 'project' | 'global';
+}
+
 export interface Skill {
   id: string;
   name: string;
@@ -184,6 +221,46 @@ export interface MCPServer {
 }
 
 export type SearchProviderType = 'tavily' | 'anysearch';
+
+// IPC 保存入参：以 db:saveMcpServer handler 实际消费的字段为真。
+export interface MCPServerSaveInput {
+  id: string;
+  name: string;
+  server_type: MCPServer['server_type'];
+  config?: Record<string, unknown> | null;
+}
+
+// db:saveMcpServer 的真实返回：新建/更新后连接状态一律回报 false（handler 为真）。
+export interface MCPServerSaveResult {
+  id: string;
+  name: string;
+  server_type: MCPServer['server_type'];
+  config?: Record<string, unknown> | null;
+  is_connected: boolean;
+}
+
+// IPC 保存入参：以 db:saveToolConfig handler 实际消费的字段为真。
+// api_key 传 '••••••••' 表示保留已存密钥。
+export interface SearchProviderSaveInput {
+  id: string;
+  tool_type: SearchProviderType;
+  name: string;
+  api_key?: string;
+  config?: Record<string, unknown> | null;
+  is_enabled?: number | boolean;
+  is_default?: number | boolean;
+}
+
+// db:saveToolConfig 的真实返回：不含时间戳与 api_key（handler 为真）。
+export interface SearchProviderSaveResult {
+  id: string;
+  tool_type: SearchProviderType;
+  name: string;
+  config?: Record<string, unknown> | null;
+  is_enabled: boolean;
+  is_default: boolean;
+  hasKey: boolean;
+}
 
 export interface SearchProvider {
   id: string;
@@ -594,6 +671,16 @@ export interface Workflow {
   status: 'draft' | 'active';
   created_at: number;
   updated_at: number;
+}
+
+// IPC 保存入参：以 db:saveWorkflow handler 实际消费的字段为真（时间戳由主进程生成）。
+export interface WorkflowSaveInput {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string;
+  graph_data?: WorkflowDefinition | null;
+  status?: Workflow['status'];
 }
 
 export type WorkflowExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
