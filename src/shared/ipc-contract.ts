@@ -128,8 +128,6 @@ export interface IpcInvokeContract {
   'db:saveSkill': { args: [projectId: string, skill: SkillSaveInput]; result: Skill };
   'db:deleteSkill': { args: [projectId: string, id: string]; result: void };
   'db:importSkillDirectory': { args: [sourceDir: string]; result: Skill };
-  // 物理 Skill 文件系统下无版本表；参数保留线上形态，handler 忽略并恒返回空数组。
-  'db:getSkillVersions': { args: [skillId: string]; result: never[] };
   'db:getAgentRuns': { args: [sessionId: string]; result: AgentRun[] };
   'db:getAgentToolCalls': { args: [runId: string]; result: AgentToolCall[] };
   'db:getLatestTodos': { args: [sessionId: string]; result: AgentToolCall | undefined };
@@ -353,7 +351,6 @@ export const IPC_INVOKE_CHANNELS = [
   'db:saveSkill',
   'db:deleteSkill',
   'db:importSkillDirectory',
-  'db:getSkillVersions',
   'db:getAgentRuns',
   'db:getAgentToolCalls',
   'db:getLatestTodos',

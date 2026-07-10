@@ -88,7 +88,6 @@ const api = {
     saveSkill: (projectId: string, skill: SkillSaveInput) => typedInvoke('db:saveSkill', projectId, skill),
     deleteSkill: (projectId: string, id: string) => typedInvoke('db:deleteSkill', projectId, id),
     importSkillDirectory: (sourceDir: string) => typedInvoke('db:importSkillDirectory', sourceDir),
-    getSkillVersions: (skillId: string) => typedInvoke('db:getSkillVersions', skillId),
     getAgentRuns: (sessionId: string) => typedInvoke('db:getAgentRuns', sessionId),
     getAgentToolCalls: (runId: string) => typedInvoke('db:getAgentToolCalls', runId),
     getLatestTodos: (sessionId: string) => typedInvoke('db:getLatestTodos', sessionId),

@@ -776,11 +776,6 @@ export function registerIpcHandlers() {
     return importPhysicalSkillDirectory(sourceDir) as Skill;
   });
 
-  typedHandle('db:getSkillVersions', () => {
-    // 物理文件系统下不另行留存数据库版本表，返回空数组保持向前兼容
-    return [];
-  });
-
   typedHandle('db:getAgentRuns', (_, sessionId) => {
     return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
   });
