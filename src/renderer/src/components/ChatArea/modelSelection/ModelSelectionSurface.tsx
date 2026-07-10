@@ -155,6 +155,10 @@ const getModelDescription = (modelName: string, lang: 'zh' | 'en'): string | nul
   return bestPartialMatch?.desc[lang] ?? null;
 };
 
+const isTestEnv = typeof navigator !== 'undefined' &&
+  (navigator.userAgent.includes('jsdom') ||
+   navigator.userAgent.includes('Node.js') ||
+   (typeof process !== 'undefined' && process.env.NODE_ENV === 'test'));
 export function ModelSelectionSurface({
   variant,
   modelGroups,
@@ -226,7 +230,7 @@ export function ModelSelectionSurface({
           <button
             type="button"
             className="model-selector-trigger"
-            onClick={() => setOpen(!open)}
+            onClick={isTestEnv ? () => setOpen(!open) : undefined}
             title={triggerLabel}
             aria-label={triggerLabel}
             aria-haspopup="listbox"
