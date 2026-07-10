@@ -1063,7 +1063,7 @@ export function registerIpcHandlers() {
   });
 
   // ===== File Management IPC Handlers =====
-  ipcMain.handle('fs:readDirectory', async (_, rootPath: string, dirPath: string, showHidden?: boolean) => {
+  typedHandle('fs:readDirectory', async (_, rootPath, dirPath, showHidden) => {
     try {
       ensureFileWatcher(rootPath);
       return { ok: true, data: await readDirectory(rootPath, dirPath, showHidden) };
@@ -1072,7 +1072,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:readFile', async (_, rootPath: string, filePath: string) => {
+  typedHandle('fs:readFile', async (_, rootPath, filePath) => {
     try {
       return { ok: true, data: await readFile(rootPath, filePath) };
     } catch (err: any) {
@@ -1080,7 +1080,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:getFileInfo', async (_, rootPath: string, filePath: string) => {
+  typedHandle('fs:getFileInfo', async (_, rootPath, filePath) => {
     try {
       return { ok: true, data: await getFileInfo(rootPath, filePath) };
     } catch (err: any) {
@@ -1088,7 +1088,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:writeFile', async (_, rootPath: string, filePath: string, content: string) => {
+  typedHandle('fs:writeFile', async (_, rootPath, filePath, content) => {
     try {
       await writeFile(rootPath, filePath, content);
       return { ok: true };
@@ -1097,7 +1097,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:createFile', async (_, rootPath: string, filePath: string) => {
+  typedHandle('fs:createFile', async (_, rootPath, filePath) => {
     try {
       await createFile(rootPath, filePath);
       return { ok: true };
@@ -1106,7 +1106,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:createDirectory', async (_, rootPath: string, dirPath: string) => {
+  typedHandle('fs:createDirectory', async (_, rootPath, dirPath) => {
     try {
       await createDirectory(rootPath, dirPath);
       return { ok: true };
@@ -1115,7 +1115,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:renameEntry', async (_, rootPath: string, oldPath: string, newName: string) => {
+  typedHandle('fs:renameEntry', async (_, rootPath, oldPath, newName) => {
     try {
       await renameEntry(rootPath, oldPath, newName);
       return { ok: true };
@@ -1124,7 +1124,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:trashEntry', async (_, rootPath: string, targetPath: string) => {
+  typedHandle('fs:trashEntry', async (_, rootPath, targetPath) => {
     try {
       await trashEntry(rootPath, targetPath);
       return { ok: true };
@@ -1133,12 +1133,12 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:showItemInFolder', (_, filePath: string) => {
+  typedHandle('fs:showItemInFolder', (_, filePath) => {
     shell.showItemInFolder(filePath);
     return { ok: true };
   });
 
-  ipcMain.handle('fs:watchDirectory', (_, rootPath: string, dirPath: string) => {
+  typedHandle('fs:watchDirectory', (_, rootPath, dirPath) => {
     try {
       resolveProjectFile(rootPath, dirPath);
       watchDirectory(dirPath);
@@ -1148,7 +1148,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('fs:unwatchDirectory', (_, dirPath: string) => {
+  typedHandle('fs:unwatchDirectory', (_, dirPath) => {
     unwatchDirectory(dirPath);
     return { ok: true };
   });
@@ -1165,7 +1165,7 @@ export function registerIpcHandlers() {
   registerKnowledgeBaseHandlers();
 
   // ===== Phase 6 Plan 02: Slash Command Registry IPC (D-15 O(1) memory read) =====
-  ipcMain.handle('commands:list', async (_evt, projectId: string, agentId: string) => {
+  typedHandle('commands:list', async (_evt, projectId, agentId) => {
     try {
       const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
       if (!project) {
@@ -1187,7 +1187,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('commands:readProjectCommands', async (_evt, projectId: string) => {
+  typedHandle('commands:readProjectCommands', async (_evt, projectId) => {
     try {
       const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
       if (!project) {
@@ -1204,7 +1204,7 @@ export function registerIpcHandlers() {
   // ===== Phase 08.2 Plan 01: commands:readBody — lazy body load (D-06, ASVS V5.1.3) =====
   // Renderer calls this on dispatch for any SlashCommand with bodyPath. The body
   // is the .md file content (post-frontmatter). Path-traversal guarded.
-  ipcMain.handle('commands:readBody', async (_evt, bodyPath: string) => {
+  typedHandle('commands:readBody', async (_evt, bodyPath) => {
     try {
       // ASVS V5.1.3 input validation — defensive checks, never throw
       if (typeof bodyPath !== 'string' || bodyPath.length === 0 || bodyPath.length > 1024) {
@@ -1252,7 +1252,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('commands:readSkillBody', async (_evt, projectId: string, agentId: string | null | undefined, skillPath: string) => {
+  typedHandle('commands:readSkillBody', async (_evt, projectId, agentId, skillPath) => {
     try {
       if (
         typeof projectId !== 'string' ||

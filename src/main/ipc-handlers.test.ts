@@ -190,6 +190,22 @@ const MIGRATED_IPC_HANDLER_CHANNELS = [
   'llm:fetchProviderModels',
   'llm:fetchOllamaModels',
   'deepagents:createAgent',
+  // fs + commands 域（#120）
+  'fs:readDirectory',
+  'fs:readFile',
+  'fs:getFileInfo',
+  'fs:writeFile',
+  'fs:createFile',
+  'fs:createDirectory',
+  'fs:renameEntry',
+  'fs:trashEntry',
+  'fs:showItemInFolder',
+  'fs:watchDirectory',
+  'fs:unwatchDirectory',
+  'commands:list',
+  'commands:readProjectCommands',
+  'commands:readBody',
+  'commands:readSkillBody',
 ] as const;
 
 describe('IPC handlers', () => {

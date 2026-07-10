@@ -174,47 +174,47 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ===== File Management =====
   fs: {
     readDirectory: (rootPath: string, dirPath: string, showHidden?: boolean) =>
-      ipcRenderer.invoke('fs:readDirectory', rootPath, dirPath, showHidden),
+      typedInvoke('fs:readDirectory', rootPath, dirPath, showHidden),
     readFile: (rootPath: string, filePath: string) =>
-      ipcRenderer.invoke('fs:readFile', rootPath, filePath),
+      typedInvoke('fs:readFile', rootPath, filePath),
     getFileInfo: (rootPath: string, filePath: string) =>
-      ipcRenderer.invoke('fs:getFileInfo', rootPath, filePath),
-    onDirectoryChange: (callback: (event: any, data: { type: string; path: string }) => void) => {
-      const listener = (event: any, data: { type: string; path: string }) => callback(event, data);
+      typedInvoke('fs:getFileInfo', rootPath, filePath),
+    onDirectoryChange: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'fs:directoryChange'>) => void) => {
+      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'fs:directoryChange'>) => callback(event, data);
       ipcRenderer.on('fs:directoryChange', listener);
       return () => { ipcRenderer.removeListener('fs:directoryChange', listener); };
     },
     writeFile: (rootPath: string, filePath: string, content: string) =>
-      ipcRenderer.invoke('fs:writeFile', rootPath, filePath, content),
+      typedInvoke('fs:writeFile', rootPath, filePath, content),
     createFile: (rootPath: string, filePath: string) =>
-      ipcRenderer.invoke('fs:createFile', rootPath, filePath),
+      typedInvoke('fs:createFile', rootPath, filePath),
     createDirectory: (rootPath: string, dirPath: string) =>
-      ipcRenderer.invoke('fs:createDirectory', rootPath, dirPath),
+      typedInvoke('fs:createDirectory', rootPath, dirPath),
     renameEntry: (rootPath: string, oldPath: string, newName: string) =>
-      ipcRenderer.invoke('fs:renameEntry', rootPath, oldPath, newName),
+      typedInvoke('fs:renameEntry', rootPath, oldPath, newName),
     trashEntry: (rootPath: string, targetPath: string) =>
-      ipcRenderer.invoke('fs:trashEntry', rootPath, targetPath),
+      typedInvoke('fs:trashEntry', rootPath, targetPath),
     showItemInFolder: (filePath: string) =>
-      ipcRenderer.invoke('fs:showItemInFolder', filePath),
+      typedInvoke('fs:showItemInFolder', filePath),
     watchDirectory: (rootPath: string, dirPath: string) =>
-      ipcRenderer.invoke('fs:watchDirectory', rootPath, dirPath),
+      typedInvoke('fs:watchDirectory', rootPath, dirPath),
     unwatchDirectory: (dirPath: string) =>
-      ipcRenderer.invoke('fs:unwatchDirectory', dirPath),
+      typedInvoke('fs:unwatchDirectory', dirPath),
   },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {
     list: (projectId: string, agentId: string) =>
-      ipcRenderer.invoke('commands:list', projectId, agentId),
+      typedInvoke('commands:list', projectId, agentId),
     readProjectCommands: (projectId: string) =>
-      ipcRenderer.invoke('commands:readProjectCommands', projectId),
+      typedInvoke('commands:readProjectCommands', projectId),
     // 08.2 D-06: lazy body load on dispatch. Returns body + mtime; defensive
     // empty values on path-traversal/missing-file/IO failure.
-    readBody: (bodyPath: string): Promise<{ body: string; mtimeMs: number }> =>
-      ipcRenderer.invoke('commands:readBody', bodyPath),
-    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string): Promise<{ body: string; mtimeMs: number }> =>
-      ipcRenderer.invoke('commands:readSkillBody', projectId, agentId, skillPath),
-    onChanged: (callback: (event: any, data: { source: string }) => void) => {
-      const listener = (event: any, data: { source: string }) => callback(event, data);
+    readBody: (bodyPath: string) =>
+      typedInvoke('commands:readBody', bodyPath),
+    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string) =>
+      typedInvoke('commands:readSkillBody', projectId, agentId, skillPath),
+    onChanged: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => void) => {
+      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => callback(event, data);
       ipcRenderer.on('commands:changed', listener);
       return () => {
         ipcRenderer.removeListener('commands:changed', listener);
@@ -223,8 +223,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Phase 8 — D-16: chokidar fallback notification. Fired once per session
     // when chokidar.watch() fails (EPERM/ENOENT/EBUSY). Renderer shows a
     // user-visible toast and re-fetches the (now static) command list.
-    onFallback: (callback: (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => void) => {
-      const listener = (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => callback(event, data);
+    onFallback: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:fallback'>) => void) => {
+      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:fallback'>) => callback(event, data);
       ipcRenderer.on('commands:fallback', listener);
       return () => {
         ipcRenderer.removeListener('commands:fallback', listener);

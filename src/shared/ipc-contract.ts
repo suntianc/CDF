@@ -13,6 +13,12 @@ import type {
   JudgePayload,
   LLMStreamEvent,
   ParallelTaskStepEvent,
+  BinaryFileInfo,
+  DirectoryEntry,
+  FileContent,
+  FileError,
+  FileInfo,
+  SlashCommand,
   ApprovalMode,
   WorkflowApprovalResolution,
   WorkflowExportResult,
@@ -44,6 +50,11 @@ import type {
   WorkflowSaveInput,
 } from './types';
 import type { SkillOverrideState } from './skill-overrides';
+import type { CommandConflictError } from './types';
+
+// fs 域 handler 的统一返回形态：成功回执 / 带数据成功 / 失败带 FileError。
+type FsAck = { ok: true } | { ok: false; error: FileError };
+type FsData<T> = { ok: true; data: T } | { ok: false; error: FileError };
 
 export interface IpcInvokeContract {
   // ===== db：Projects / Sessions / Messages / LLM Providers =====
@@ -189,6 +200,42 @@ export interface IpcInvokeContract {
   'workflow:listExecutions': { args: [workflowId: string]; result: WorkflowExecution[] };
   'workflow:deleteExecution': { args: [executionId: string]; result: void };
   'workflow:exportExecution': { args: [executionId: string]; result: WorkflowExportResult };
+  // ===== 文件管理 =====
+  'fs:readDirectory': {
+    args: [rootPath: string, dirPath: string, showHidden?: boolean];
+    result: FsData<DirectoryEntry[]>;
+  };
+  'fs:readFile': {
+    args: [rootPath: string, filePath: string];
+    result: FsData<FileContent | BinaryFileInfo>;
+  };
+  'fs:getFileInfo': { args: [rootPath: string, filePath: string]; result: FsData<FileInfo> };
+  'fs:writeFile': { args: [rootPath: string, filePath: string, content: string]; result: FsAck };
+  'fs:createFile': { args: [rootPath: string, filePath: string]; result: FsAck };
+  'fs:createDirectory': { args: [rootPath: string, dirPath: string]; result: FsAck };
+  'fs:renameEntry': { args: [rootPath: string, oldPath: string, newName: string]; result: FsAck };
+  'fs:trashEntry': { args: [rootPath: string, targetPath: string]; result: FsAck };
+  'fs:showItemInFolder': { args: [filePath: string]; result: { ok: true } };
+  'fs:watchDirectory': { args: [rootPath: string, dirPath: string]; result: FsAck };
+  'fs:unwatchDirectory': { args: [dirPath: string]; result: { ok: true } };
+  // ===== Slash Command Registry 桥 =====
+  'commands:list': {
+    args: [projectId: string, agentId: string];
+    result: {
+      commands: SlashCommand[];
+      conflicts: CommandConflictError[];
+      warnings: Array<{ type: 'mcp_health_warning'; message: string }>;
+    };
+  };
+  'commands:readProjectCommands': {
+    args: [projectId: string];
+    result: { commands: SlashCommand[] };
+  };
+  'commands:readBody': { args: [bodyPath: string]; result: { body: string; mtimeMs: number } };
+  'commands:readSkillBody': {
+    args: [projectId: string, agentId: string | null | undefined, skillPath: string];
+    result: { body: string; mtimeMs: number };
+  };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract;
@@ -267,6 +314,21 @@ export const IPC_INVOKE_CHANNELS = [
   'workflow:listExecutions',
   'workflow:deleteExecution',
   'workflow:exportExecution',
+  'fs:readDirectory',
+  'fs:readFile',
+  'fs:getFileInfo',
+  'fs:writeFile',
+  'fs:createFile',
+  'fs:createDirectory',
+  'fs:renameEntry',
+  'fs:trashEntry',
+  'fs:showItemInFolder',
+  'fs:watchDirectory',
+  'fs:unwatchDirectory',
+  'commands:list',
+  'commands:readProjectCommands',
+  'commands:readBody',
+  'commands:readSkillBody',
 ] as const satisfies readonly IpcInvokeChannel[];
 
 type AssertNever<T extends never> = T;
@@ -275,13 +337,15 @@ type MissingInvokeChannels = Exclude<IpcInvokeChannel, (typeof IPC_INVOKE_CHANNE
 export type _AllInvokeChannelsListed = AssertNever<MissingInvokeChannels>;
 
 // ===== 静态事件通道（main → renderer）：channel 名 → payload =====
-// 各域迁移时填充（fs / commands）。
 export interface IpcEventContract {
   'workflow:execution-started': {
     executionId: string;
     workflowId: string;
     triggerSource: WorkflowTriggerSource;
   };
+  'fs:directoryChange': { type: string; path: string };
+  'commands:changed': { source: string };
+  'commands:fallback': { scope: 'system' | 'project'; dir: string; error: string };
 }
 
 export type IpcEventChannel = keyof IpcEventContract;
