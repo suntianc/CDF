@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcRendererEvent } from 'electron';
 import { typedInvoke } from './typed-ipc';
-import { llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
+import { llmChunkChannel, parallelTaskStepChannel, workflowEventChannel } from '../shared/ipc-contract';
+import type { IpcEventPayload } from '../shared/ipc-contract';
 import type {
   AgentApprovalResolution,
   AgentSaveInput,
@@ -20,6 +21,10 @@ import type {
   SearchProviderSaveInput,
   SkillSaveInput,
   WorkflowSaveInput,
+  ApprovalMode,
+  WorkflowApprovalResolution,
+  WorkflowStreamEvent,
+  WorkflowTriggerSource,
 } from '../shared/types';
 import type { SkillOverrideState } from '../shared/skill-overrides';
 
@@ -136,15 +141,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   workflow: {
-    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>, approvalMode?: string) =>
-      ipcRenderer.invoke('workflow:run', workflowId, projectId, triggerSource, input, approvalMode),
+    runWorkflow: (workflowId: string, projectId: string, triggerSource: WorkflowTriggerSource, input?: Record<string, unknown>, approvalMode?: ApprovalMode) =>
+      typedInvoke('workflow:run', workflowId, projectId, triggerSource, input, approvalMode),
     stopWorkflow: (executionId: string) =>
-      ipcRenderer.invoke('workflow:stop', executionId),
+      typedInvoke('workflow:stop', executionId),
     getWorkflowEvents: (executionId: string) =>
-      ipcRenderer.invoke('workflow:getEvents', executionId),
-    onWorkflowEvent: (executionId: string, callback: (event: any, data: any) => void) => {
-      const channel = `workflow:event-${executionId}`;
-      const listener = (event: any, data: any) => callback(event, data);
+      typedInvoke('workflow:getEvents', executionId),
+    onWorkflowEvent: (executionId: string, callback: (event: IpcRendererEvent, data: WorkflowStreamEvent) => void) => {
+      const channel = workflowEventChannel(executionId);
+      const listener = (event: IpcRendererEvent, data: WorkflowStreamEvent) => callback(event, data);
       ipcRenderer.on(channel, listener);
       return () => {
         ipcRenderer.removeListener(channel, listener);
@@ -152,16 +157,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // 历史执行记录
     listExecutions: (workflowId: string) =>
-      ipcRenderer.invoke('workflow:listExecutions', workflowId),
+      typedInvoke('workflow:listExecutions', workflowId),
     deleteExecution: (executionId: string) =>
-      ipcRenderer.invoke('workflow:deleteExecution', executionId),
+      typedInvoke('workflow:deleteExecution', executionId),
     exportExecution: (executionId: string) =>
-      ipcRenderer.invoke('workflow:exportExecution', executionId),
+      typedInvoke('workflow:exportExecution', executionId),
     // Phase 14: HITL 审批
-    resolveApproval: (executionId: string, approvalId: string, resolution: any) =>
-      ipcRenderer.invoke('workflow:approve', executionId, approvalId, resolution),
-    onExecutionStarted: (callback: (data: { executionId: string; workflowId: string; triggerSource: string }) => void) => {
-      const listener = (_event: any, data: any) => callback(data);
+    resolveApproval: (executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) =>
+      typedInvoke('workflow:approve', executionId, approvalId, resolution),
+    onExecutionStarted: (callback: (data: IpcEventPayload<'workflow:execution-started'>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: IpcEventPayload<'workflow:execution-started'>) => callback(data);
       ipcRenderer.on('workflow:execution-started', listener);
       return () => { ipcRenderer.removeListener('workflow:execution-started', listener); };
     },

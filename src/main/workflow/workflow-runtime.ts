@@ -67,7 +67,7 @@ function pushWorkflowEvent(executionId: string, event: WorkflowStreamEvent) {
   const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
     if (!win.isDestroyed() && win.webContents) {
-      win.webContents.send(`workflow:event-${executionId}`, event);
+      win.webContents.send(workflowEventChannel(executionId), event);
     }
   }
 }
@@ -583,27 +583,27 @@ export function stopWorkflow(executionId: string): void {
  * 注册工作流相关的 IPC handlers
  */
 export function registerWorkflowIpcHandlers(): void {
-  ipcMain.handle('workflow:run', async (_, workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>, approvalMode?: string) => {
+  typedHandle('workflow:run', async (_, workflowId, projectId, triggerSource, input, approvalMode) => {
     const executionId = await runWorkflow({
       workflowId,
       projectId,
-      triggerSource: triggerSource as 'editor' | 'chat' | 'schedule',
+      triggerSource,
       input,
-      approvalMode: (approvalMode as ApprovalMode) || undefined,
+      approvalMode: approvalMode || undefined,
     });
     return executionId;
   });
 
-  ipcMain.handle('workflow:stop', async (_, executionId: string) => {
+  typedHandle('workflow:stop', async (_, executionId) => {
     stopWorkflow(executionId);
   });
 
-  ipcMain.handle('workflow:getEvents', (_, executionId: string) => {
+  typedHandle('workflow:getEvents', (_, executionId) => {
     return eventBuffers.get(executionId) || [];
   });
 
   // Phase 14: HITL 审批 resolve
-  ipcMain.handle('workflow:approve', async (_, executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) => {
+  typedHandle('workflow:approve', async (_, executionId, approvalId, resolution) => {
     const key = `${executionId}:${approvalId}`;
     const resolve = pendingWorkflowApprovals.get(key);
     if (resolve) {
@@ -615,17 +615,17 @@ export function registerWorkflowIpcHandlers(): void {
   });
 
   // 历史执行记录：列表 / 删除 / 导出
-  ipcMain.handle('workflow:listExecutions', (_, workflowId: string) => {
+  typedHandle('workflow:listExecutions', (_, workflowId) => {
     return listExecutionsByWorkflow(workflowId);
   });
-  ipcMain.handle('workflow:deleteExecution', (_, executionId: string) => {
+  typedHandle('workflow:deleteExecution', (_, executionId) => {
     deleteExecution(executionId);
   });
-  ipcMain.handle('workflow:exportExecution', async (_, executionId: string) => {
+  typedHandle('workflow:exportExecution', async (_, executionId) => {
     return exportExecutionToFile(executionId);
   });
 }
 
-// 需要导入 ipcMain
-import { ipcMain } from 'electron';
+import { typedHandle } from '../typed-ipc';
+import { workflowEventChannel } from '../../shared/ipc-contract';
 import { listExecutionsByWorkflow, deleteExecution, exportExecutionToFile } from './log-exporter';

@@ -13,6 +13,11 @@ import type {
   JudgePayload,
   LLMStreamEvent,
   ParallelTaskStepEvent,
+  ApprovalMode,
+  WorkflowApprovalResolution,
+  WorkflowExportResult,
+  WorkflowStreamEvent,
+  WorkflowTriggerSource,
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntrySummary,
@@ -164,6 +169,26 @@ export interface IpcInvokeContract {
     args: [config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }];
     result: { agentId: string };
   };
+  // ===== workflow 运行时 =====
+  'workflow:run': {
+    args: [
+      workflowId: string,
+      projectId: string,
+      triggerSource: WorkflowTriggerSource,
+      input?: Record<string, unknown>,
+      approvalMode?: ApprovalMode,
+    ];
+    result: string;
+  };
+  'workflow:stop': { args: [executionId: string]; result: void };
+  'workflow:getEvents': { args: [executionId: string]; result: WorkflowStreamEvent[] };
+  'workflow:approve': {
+    args: [executionId: string, approvalId: string, resolution: WorkflowApprovalResolution];
+    result: void;
+  };
+  'workflow:listExecutions': { args: [workflowId: string]; result: WorkflowExecution[] };
+  'workflow:deleteExecution': { args: [executionId: string]; result: void };
+  'workflow:exportExecution': { args: [executionId: string]; result: WorkflowExportResult };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract;
@@ -235,6 +260,13 @@ export const IPC_INVOKE_CHANNELS = [
   'llm:fetchProviderModels',
   'llm:fetchOllamaModels',
   'deepagents:createAgent',
+  'workflow:run',
+  'workflow:stop',
+  'workflow:getEvents',
+  'workflow:approve',
+  'workflow:listExecutions',
+  'workflow:deleteExecution',
+  'workflow:exportExecution',
 ] as const satisfies readonly IpcInvokeChannel[];
 
 type AssertNever<T extends never> = T;
@@ -243,8 +275,14 @@ type MissingInvokeChannels = Exclude<IpcInvokeChannel, (typeof IPC_INVOKE_CHANNE
 export type _AllInvokeChannelsListed = AssertNever<MissingInvokeChannels>;
 
 // ===== 静态事件通道（main → renderer）：channel 名 → payload =====
-// 各域迁移时填充（fs / commands / workflow）。
-export interface IpcEventContract {}
+// 各域迁移时填充（fs / commands）。
+export interface IpcEventContract {
+  'workflow:execution-started': {
+    executionId: string;
+    workflowId: string;
+    triggerSource: WorkflowTriggerSource;
+  };
+}
 
 export type IpcEventChannel = keyof IpcEventContract;
 export type IpcEventPayload<C extends IpcEventChannel> = IpcEventContract[C];
@@ -264,3 +302,6 @@ export const llmChunkChannel = dynamicIpcChannel<LLMStreamEvent>('llm:chunk-');
 
 // 并行任务步进：主进程发送侧与 preload 监听侧共用（按 sessionId 拼名）。
 export const parallelTaskStepChannel = dynamicIpcChannel<ParallelTaskStepEvent>('agent:parallel-task-step-');
+
+// workflow 执行事件：主进程发送侧与 preload 监听侧共用（按 executionId 拼名）。
+export const workflowEventChannel = dynamicIpcChannel<WorkflowStreamEvent>('workflow:event-');

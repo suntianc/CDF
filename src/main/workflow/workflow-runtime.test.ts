@@ -117,4 +117,20 @@ describe('GraphInterrupt approval flow', () => {
     expect(registeredChannels).toContain('workflow:deleteExecution');
     expect(registeredChannels).toContain('workflow:exportExecution');
   });
+
+  it('registers exactly the workflow-domain channels declared in the IPC contract', async () => {
+    const { IPC_INVOKE_CHANNELS, workflowEventChannel } = await import('../../shared/ipc-contract');
+    const registeredChannels: string[] = [];
+    ipcMainHandleMock.mockImplementation((channel: string) => {
+      registeredChannels.push(channel);
+    });
+
+    const { registerWorkflowIpcHandlers } = await import('./workflow-runtime');
+    registerWorkflowIpcHandlers();
+
+    const declared = IPC_INVOKE_CHANNELS.filter((c: string) => c.startsWith('workflow:')).slice().sort();
+    expect(registeredChannels.slice().sort()).toEqual(declared);
+    expect(declared.length).toBeGreaterThan(0);
+    expect(workflowEventChannel('exec-1')).toBe('workflow:event-exec-1');
+  });
 });

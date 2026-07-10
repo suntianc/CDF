@@ -706,6 +706,17 @@ export interface WorkflowSaveInput {
 
 export type WorkflowExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
 
+// workflow:run 的触发来源（handler 为真：runWorkflow 消费的三种入口）。
+export type WorkflowTriggerSource = 'editor' | 'chat' | 'schedule';
+
+// workflow:exportExecution 的真实返回（原 log-exporter.ts 定义镜像至 shared）。
+export interface WorkflowExportResult {
+  saved: boolean;
+  path?: string;
+  canceled?: boolean;
+  error?: string;
+}
+
 export interface WorkflowExecution {
   id: string;
   workflow_id: string;
