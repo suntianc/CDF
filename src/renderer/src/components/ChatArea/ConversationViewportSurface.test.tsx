@@ -197,43 +197,6 @@ describe('ConversationViewportSurface', () => {
     expect(onBackFromParallelWorker).toHaveBeenCalledTimes(1);
   });
 
-  it('renders a Background Capability Job delivery in its own labelled region', () => {
-    const event = message({
-      id: 'capability-job:job-1:terminal',
-      role: 'assistant',
-      content: JSON.stringify({
-        type: 'capability_job_event',
-        eventId: 'capability-job:job-1:terminal',
-        jobId: 'job-1',
-        projectId: 'project-1',
-        sessionId: 'session-1',
-        status: 'completed',
-        artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
-        error: null,
-      }),
-    });
-    const continuation = message({
-      id: 'background-continuation-output:batch-1',
-      role: 'assistant',
-      content: 'The video is ready.',
-    });
-
-    renderSurface({
-      timelineItems: [{
-        type: 'background_job_turn',
-        id: event.id,
-        items: [
-          { type: 'message', id: event.id, message: event },
-          { type: 'message', id: continuation.id, message: continuation },
-        ],
-      }],
-    });
-
-    const delivery = screen.getByRole('region', { name: 'chat.backgroundJobUpdate' });
-    expect(delivery.textContent).toContain('/project/video.mp4');
-    expect(delivery.textContent).toContain('The video is ready.');
-  });
-
   it('shows a typing indicator while streaming an empty assistant placeholder', () => {
     renderSurface({
       isStreaming: true,

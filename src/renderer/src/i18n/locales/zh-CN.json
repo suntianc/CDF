@@ -570,7 +570,6 @@
   },
   "chat": {
     "processedDuration": "已处理（用时 {{duration}}）",
-    "backgroundJobUpdate": "后台任务更新",
     "awaitingApproval": "正在等待审批：",
     "pendingExecute": "等待执行 {{name}}",
     "goApproveNow": "立即去审批",

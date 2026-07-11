@@ -570,7 +570,6 @@
   },
   "chat": {
     "processedDuration": "Processed (took {{duration}})",
-    "backgroundJobUpdate": "Background job update",
     "awaitingApproval": "Waiting for approval:",
     "pendingExecute": "Waiting to execute {{name}}",
     "goApproveNow": "Approve now",

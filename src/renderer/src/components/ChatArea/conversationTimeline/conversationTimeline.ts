@@ -1,4 +1,3 @@
-import { CapabilityJobTimelineEventSchema } from '@shared/capability-jobs';
 import type { AgentApprovalRequest, Message } from '@shared/types';
 
 export type ConversationTimelineMessageItem = {
@@ -11,11 +10,6 @@ export type ConversationTimelineToolGroupItem = {
   type: 'tool_group';
   id: string;
   tools: Message[];
-};
-export type ConversationTimelineBackgroundJobTurnItem = {
-  type: 'background_job_turn';
-  id: string;
-  items: ConversationTimelineMessageItem[];
 };
 
 export type ConversationTimelineFoldedBlockItem = {
@@ -34,7 +28,6 @@ export type ConversationTimelinePendingApprovalItem = {
 export type ConversationTimelineItem =
   | ConversationTimelineMessageItem
   | ConversationTimelineToolGroupItem
-  | ConversationTimelineBackgroundJobTurnItem
   | ConversationTimelineFoldedBlockItem
   | ConversationTimelinePendingApprovalItem;
 
@@ -43,7 +36,7 @@ export function projectConversationTimeline(input: {
   isStreaming: boolean;
   pendingApproval: AgentApprovalRequest | null;
 }): ConversationTimelineItem[] {
-  const groupedItems = groupBackgroundJobTurns(groupToolMessages(input.messages));
+  const groupedItems = groupToolMessages(input.messages);
   const turns = splitIntoTurns(groupedItems);
   const timelineItems: ConversationTimelineItem[] = [];
 
@@ -52,23 +45,13 @@ export function projectConversationTimeline(input: {
       timelineItems.push(turn.userItem);
     }
 
-    if (turn.responseItems.length === 1 && turn.responseItems[0].type === 'background_job_turn') {
-      timelineItems.push(turn.responseItems[0]);
-      return;
-    }
     const isLastTurn = turnIndex === turns.length - 1;
     if (isLastTurn && input.isStreaming) {
       timelineItems.push(...turn.responseItems);
       return;
     }
 
-    timelineItems.push(...foldResponseItems(
-      turn.responseItems.filter(
-        (item): item is ConversationTimelineMessageItem | ConversationTimelineToolGroupItem =>
-          item.type !== 'background_job_turn',
-      ),
-      turnIndex,
-    ));
+    timelineItems.push(...foldResponseItems(turn.responseItems, turnIndex));
   });
 
   if (input.isStreaming && input.pendingApproval) {
@@ -120,74 +103,20 @@ function groupToolMessages(messages: Message[]): Array<ConversationTimelineMessa
   return items;
 }
 
-type ConversationTimelineResponseItem =
-  | ConversationTimelineMessageItem
-  | ConversationTimelineToolGroupItem
-  | ConversationTimelineBackgroundJobTurnItem;
-
-function isCapabilityJobEventItem(
-  item: ConversationTimelineMessageItem | ConversationTimelineToolGroupItem,
-): boolean {
-  if (item.type !== 'message' || item.message.role !== 'assistant') return false;
-  try {
-    return CapabilityJobTimelineEventSchema.safeParse(JSON.parse(item.message.content)).success;
-  } catch {
-    return false;
-  }
-}
-
-function groupBackgroundJobTurns(
-  items: Array<ConversationTimelineMessageItem | ConversationTimelineToolGroupItem>,
-): ConversationTimelineResponseItem[] {
-  const result: ConversationTimelineResponseItem[] = [];
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    if (!isCapabilityJobEventItem(item)) {
-      result.push(item);
-      continue;
-    }
-    if (item.type !== 'message') continue;
-    const backgroundItems = [item];
-    while (index + 1 < items.length) {
-      const next = items[index + 1];
-      if (
-        !isCapabilityJobEventItem(next)
-        && !(next.type === 'message' && next.message.id.startsWith('background-continuation-output:'))
-      ) {
-        break;
-      }
-      backgroundItems.push(next as ConversationTimelineMessageItem);
-      index += 1;
-    }
-    result.push({
-      type: 'background_job_turn',
-      id: item.id,
-      items: backgroundItems,
-    });
-  }
-  return result;
-}
-
-function splitIntoTurns(items: ConversationTimelineResponseItem[]): Array<{
+function splitIntoTurns(items: Array<ConversationTimelineMessageItem | ConversationTimelineToolGroupItem>): Array<{
   userItem: ConversationTimelineMessageItem | null;
-  responseItems: ConversationTimelineResponseItem[];
+  responseItems: Array<ConversationTimelineMessageItem | ConversationTimelineToolGroupItem>;
 }> {
   const turns: Array<{
     userItem: ConversationTimelineMessageItem | null;
-    responseItems: ConversationTimelineResponseItem[];
+    responseItems: Array<ConversationTimelineMessageItem | ConversationTimelineToolGroupItem>;
   }> = [];
   let currentTurn: {
     userItem: ConversationTimelineMessageItem | null;
-    responseItems: ConversationTimelineResponseItem[];
+    responseItems: Array<ConversationTimelineMessageItem | ConversationTimelineToolGroupItem>;
   } = { userItem: null, responseItems: [] };
 
   items.forEach((item) => {
-    if (item.type === 'background_job_turn') {
-      if (currentTurn.userItem || currentTurn.responseItems.length > 0) turns.push(currentTurn);
-      turns.push({ userItem: null, responseItems: [item] });
-      currentTurn = { userItem: null, responseItems: [] };
-      return;
-    }
     if (item.type === 'message' && item.message.role === 'user') {
       if (currentTurn.userItem || currentTurn.responseItems.length > 0) {
         turns.push(currentTurn);

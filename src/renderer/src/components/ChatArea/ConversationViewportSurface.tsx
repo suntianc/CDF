@@ -9,10 +9,7 @@ import { ToolGroupCard, translateToolAction } from './ToolMessageCard';
 import { MessageItem, formatHMSTime } from './MessageItem';
 import { GoalSystemBubble } from './GoalSystemBubble';
 import { SubagentView } from './SubagentView';
-import type {
-  ConversationTimelineBackgroundJobTurnItem,
-  ConversationTimelineItem,
-} from './conversationTimeline/conversationTimeline';
+import type { ConversationTimelineItem } from './conversationTimeline/conversationTimeline';
 
 type ConversationViewportSurfaceProps = {
   activeSessionId: string | null;
@@ -69,28 +66,6 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
         </div>
       )}
     </div>
-  );
-};
-
-const BackgroundJobTurn = ({ items }: { items: ConversationTimelineBackgroundJobTurnItem['items'] }) => {
-  const { t } = useTranslation();
-  return (
-    <section
-      aria-label={t('chat.backgroundJobUpdate')}
-      className="my-3 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] border-l-2 border-l-[var(--color-accent)] bg-[var(--color-bg-surface)] px-3 py-2"
-    >
-      <p className="mb-1 text-[11px] font-semibold text-[var(--color-text-muted)]">
-        {t('chat.backgroundJobUpdate')}
-      </p>
-      {items.map((item) => (
-        <MessageItem
-          key={item.id}
-          message={item.message}
-          isLast={false}
-          isStreaming={false}
-        />
-      ))}
-    </section>
   );
 };
 
@@ -216,9 +191,6 @@ export function ConversationViewportSurface({
                 onOpenTaskPanel={onOpenTaskPanel}
               />
             );
-          }
-          if (item.type === 'background_job_turn') {
-            return <BackgroundJobTurn key={item.id} items={item.items} />;
           }
           if (item.type === 'folded_block') {
             return (
