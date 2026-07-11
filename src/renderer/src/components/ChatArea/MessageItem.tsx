@@ -35,18 +35,18 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
 
   const statusConfig = {
     completed: {
-      borderColor: 'border-l-[var(--color-success)]',
-      icon: <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] shrink-0" />,
+      borderColor: 'var(--color-success)',
+      icon: <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] shrink-0" style={{ color: 'var(--color-success)' }} />,
       labelKey: 'conversation.capabilityJob.completed'
     },
     failed: {
-      borderColor: 'border-l-[var(--color-danger)]',
-      icon: <XCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0" />,
+      borderColor: 'var(--color-danger)',
+      icon: <XCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0" style={{ color: 'var(--color-danger)' }} />,
       labelKey: 'conversation.capabilityJob.failed'
     },
     canceled: {
-      borderColor: 'border-l-[var(--color-text-muted)]',
-      icon: <AlertCircle className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />,
+      borderColor: 'var(--color-text-muted)',
+      icon: <AlertCircle className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" style={{ color: 'var(--color-text-muted)' }} />,
       labelKey: 'conversation.capabilityJob.canceled'
     }
   };
@@ -57,63 +57,125 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
   const config = statusConfig[status];
 
   return (
-    <div className={`overflow-hidden pl-3 pr-3 py-2.5 rounded-lg border border-[var(--color-border)] ${config.borderColor} border-l-[3.5px] bg-[var(--color-bg-sidebar)]/35 hover:bg-[var(--color-bg-sidebar)]/60 transition-colors max-w-[420px] w-full my-2 select-text flex flex-col gap-2`}>
-      {/* Header 行 */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 min-w-0">
-          {config.icon}
-          <span className="shrink-0 text-xs font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
-            {t(config.labelKey)}
-          </span>
-          {info.provider && info.mode && (
-            <span className="truncate text-[11px] text-[var(--color-text-muted)]">
-              {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
+    <div
+      className="message assistant"
+      style={{
+        maxWidth: '80%',
+        alignSelf: 'flex-start',
+        textAlign: 'left',
+        marginRight: 'auto',
+        padding: '8px 0',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+    >
+      <div className="message-row" style={{ width: '100%', minWidth: 0 }}>
+        <div
+          className="select-text"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid var(--color-border)',
+            borderLeft: `3.5px solid ${config.borderColor}`,
+            backgroundColor: 'var(--color-bg-sidebar)',
+            opacity: 0.9,
+            maxWidth: '420px',
+            width: '100%',
+            boxSizing: 'border-box',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Header 行 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+              {config.icon}
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
+                {t(config.labelKey)}
+              </span>
+              {info.provider && info.mode && (
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', opacity: 0.6, flexShrink: 0 }}>
+              #{info.jobId.slice(0, 8)}
             </span>
+          </div>
+
+          {/* Artifacts 列表 */}
+          {info.artifacts.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {info.artifacts.map((artifact) => {
+                const basename = getBasename(artifact.path);
+                return (
+                  <div
+                    key={artifact.path}
+                    onClick={() => handleRevealFile(artifact.path)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      border: '1px solid var(--color-border)',
+                      cursor: 'pointer',
+                    }}
+                    title={artifact.path}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, fontSize: '11px', color: 'var(--color-text-primary)', flex: 1 }}>
+                      <FileVideo className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" style={{ color: 'var(--color-accent)' }} />
+                      <span className="font-mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {basename}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '2px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--color-text-muted)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      title={t('chat.revealInFolder') || '在文件夹中显示'}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Error 消息 */}
+          {info.error && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'start',
+              gap: '6px',
+              padding: '6px 8px',
+              borderRadius: '4px',
+              backgroundColor: 'var(--color-danger-dim)',
+              border: '1px solid var(--color-danger)',
+              fontSize: '11px',
+              color: 'var(--color-danger)',
+              wordBreak: 'break-all'
+            }}>
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ marginTop: '2px' }} />
+              <span>{info.error}</span>
+            </div>
           )}
         </div>
-        <span className="shrink-0 font-mono text-[9px] text-[var(--color-text-muted)]/60 hover:text-[var(--color-text-muted)] transition-colors select-all" title={info.jobId}>
-          #{info.jobId.slice(0, 8)}
-        </span>
       </div>
-
-      {/* Artifacts 列表 */}
-      {info.artifacts.length > 0 && (
-        <div className="space-y-1.5">
-          {info.artifacts.map((artifact) => {
-            const basename = getBasename(artifact.path);
-            return (
-              <div
-                key={artifact.path}
-                onClick={() => handleRevealFile(artifact.path)}
-                className="flex items-center justify-between gap-3 px-2.5 py-2 rounded-md bg-[var(--color-bg-surface)] border border-[var(--color-border)]/75 hover:border-[var(--color-border-strong)] transition-all group/artifact cursor-pointer"
-                title={artifact.path}
-              >
-                <div className="flex items-center gap-2 min-w-0 text-[11.5px] text-[var(--color-text-primary)]">
-                  <FileVideo className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" />
-                  <span className="truncate font-mono">
-                    {basename}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="shrink-0 p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-70 group-hover/artifact:opacity-100"
-                  title={t('chat.revealInFolder') || '在文件夹中显示'}
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Error 消息 */}
-      {info.error && (
-        <div className="flex items-start gap-1.5 px-2.5 py-1.5 rounded bg-[var(--color-danger-dim)]/50 border border-[var(--color-danger)]/15 text-[11px] text-[var(--color-danger)] leading-relaxed">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span className="break-all">{info.error}</span>
-        </div>
-      )}
     </div>
   );
 }
