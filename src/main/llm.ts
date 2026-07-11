@@ -39,64 +39,13 @@ export type { ChatPayload, JudgePayload } from '../shared/types';
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
-const THINK_OPEN_TAG = '<think>';
-const THINK_CLOSE_TAG = '</think>';
 
-function getPotentialThinkTagSuffixLength(text: string): number {
-  const tags = [THINK_OPEN_TAG, THINK_CLOSE_TAG];
-  const maxLength = Math.min(Math.max(...tags.map((tag) => tag.length - 1)), text.length);
-  for (let length = maxLength; length > 0; length--) {
-    const suffix = text.slice(-length);
-    if (tags.some((tag) => tag.startsWith(suffix))) {
-      return length;
-    }
-  }
-  return 0;
-}
-
-class VisibleTextThinkTagFilter {
-  private buffer = '';
-  private rawThinkDepth = 0;
-
-  push(text: string): string {
-    this.buffer += text;
-    let output = '';
-
-    while (this.buffer.length > 0) {
-      const openIdx = this.buffer.indexOf(THINK_OPEN_TAG);
-      const closeIdx = this.buffer.indexOf(THINK_CLOSE_TAG);
-      const nextIdx = [openIdx, closeIdx].filter((idx) => idx >= 0).sort((a, b) => a - b)[0];
-
-      if (nextIdx === undefined) {
-        const pendingLength = getPotentialThinkTagSuffixLength(this.buffer);
-        output += pendingLength > 0 ? this.buffer.slice(0, -pendingLength) : this.buffer;
-        this.buffer = pendingLength > 0 ? this.buffer.slice(-pendingLength) : '';
-        break;
-      }
-
-      output += this.buffer.slice(0, nextIdx);
-      if (nextIdx === openIdx) {
-        output += THINK_OPEN_TAG;
-        this.rawThinkDepth += 1;
-        this.buffer = this.buffer.slice(nextIdx + THINK_OPEN_TAG.length);
-      } else {
-        if (this.rawThinkDepth > 0) {
-          output += THINK_CLOSE_TAG;
-          this.rawThinkDepth -= 1;
-        }
-        this.buffer = this.buffer.slice(nextIdx + THINK_CLOSE_TAG.length);
-      }
-    }
-
-    return output;
-  }
-
-  flush(): string {
-    const text = this.buffer;
-    this.buffer = '';
-    return text;
-  }
-}
+// think-tag 常量与可见文本过滤器已迁入 Runtime Stream Projection 纯核心。
+import {
+  THINK_OPEN_TAG,
+  THINK_CLOSE_TAG,
+  VisibleTextThinkTagFilter,
+} from './runtime-stream-projection';
 
 function isInterruptError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
