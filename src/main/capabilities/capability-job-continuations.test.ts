@@ -52,6 +52,9 @@ function job(id: string, sessionId = 'session-1'): CapabilityJobSnapshot {
     statusMessage: 'artifact_durable',
     createdAt: 1,
     updatedAt: 2,
+    terminalAt: 2,
+    detailsPruned: false,
+    prunedAt: null,
     continuationStatus: null,
     continuationError: null,
   };

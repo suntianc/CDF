@@ -187,10 +187,12 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
   const visibleJobs = jobsProjectId === projectId ? jobs : [];
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(false);
 
   useEffect(() => {
     setJobsProjectId(projectId);
     setJobs([]);
+    setJobsLoading(Boolean(isOpen && projectId));
     if (!isOpen || !projectId) return;
     let active = true;
     const unsubscribe = window.electronAPI.capabilityJobs.onChanged((event) => {
@@ -213,7 +215,10 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
             .sort((left, right) => right.createdAt - left.createdAt);
         });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setJobsLoading(false);
+      });
     return () => {
       active = false;
       unsubscribe();
@@ -254,7 +259,9 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
       {commandError && (
         <p role="alert" className="text-xs text-[var(--color-danger)]">{t(commandError)}</p>
       )}
-      {visibleJobs.length === 0 ? (
+      {jobsLoading ? (
+        <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsLoading')}</p>
+      ) : visibleJobs.length === 0 ? (
         <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsEmpty')}</p>
       ) : visibleJobs.map((job) => (
         <div key={job.id} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] p-2">
@@ -293,6 +300,11 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
                 </p>
               )}
             </div>
+          )}
+          {job.detailsPruned && (
+            <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">
+              {t('taskPanel.jobDetailsPruned')}
+            </p>
           )}
           {job.statusMessage && (
             <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">

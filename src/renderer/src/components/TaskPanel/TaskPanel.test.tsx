@@ -69,6 +69,31 @@ afterEach(() => {
 });
 
 describe('TaskPanel', () => {
+  it('shows loading before an empty background Job list resolves', async () => {
+    let resolveList!: (jobs: []) => void;
+    listCapabilityJobs.mockReturnValue(new Promise((resolve) => {
+      resolveList = resolve;
+    }));
+    const { getByText, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    expect(getByText('taskPanel.backgroundJobsLoading')).toBeTruthy();
+    expect(queryByText('taskPanel.backgroundJobsEmpty')).toBeNull();
+
+    resolveList([]);
+    await waitFor(() => expect(getByText('taskPanel.backgroundJobsEmpty')).toBeTruthy());
+    expect(queryByText('taskPanel.backgroundJobsLoading')).toBeNull();
+  });
+
+  it('refreshes activity for the newly selected Conversation', async () => {
+    const { rerender } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+    await waitFor(() => expect(fetchAgentActivity).toHaveBeenCalledWith('session-1'));
+
+    sessionState = { ...sessionState, activeSessionId: 'session-2' };
+    rerender(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(fetchAgentActivity).toHaveBeenCalledWith('session-2'));
+  });
+
   it('refreshes activity each time the panel is reopened for the same session', async () => {
     const { rerender } = render(
       <TaskPanel isOpen onClose={vi.fn()} />
@@ -149,6 +174,9 @@ describe('TaskPanel', () => {
       continuationError: null,
       createdAt: 1,
       updatedAt: 1,
+      terminalAt: null,
+      detailsPruned: false,
+      prunedAt: null,
     }]);
     const { getByText, getByRole } = render(<TaskPanel isOpen onClose={vi.fn()} />);
 
@@ -175,6 +203,9 @@ describe('TaskPanel', () => {
         continuationError: null,
         createdAt: 1,
         updatedAt: 2,
+        terminalAt: 2,
+        detailsPruned: false,
+        prunedAt: null,
       },
     }));
     expect(getByText('taskPanel.jobStatus.completed')).toBeTruthy();
@@ -211,6 +242,9 @@ describe('TaskPanel', () => {
       continuationError: null,
       createdAt: 1,
       updatedAt: 1,
+      terminalAt: null,
+      detailsPruned: false,
+      prunedAt: null,
     }]);
 
     const { getByText, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
@@ -239,6 +273,9 @@ describe('TaskPanel', () => {
       continuationError: null,
       createdAt: 1,
       updatedAt: 1,
+      terminalAt: null,
+      detailsPruned: false,
+      prunedAt: null,
     }]);
     commandCapabilityJob.mockResolvedValue({ ok: true, job: {
       id: 'job-new',
@@ -257,6 +294,9 @@ describe('TaskPanel', () => {
       continuationError: null,
       createdAt: 2,
       updatedAt: 2,
+      terminalAt: null,
+      detailsPruned: false,
+      prunedAt: null,
     } });
     const { getByText, getByRole } = render(<TaskPanel isOpen onClose={vi.fn()} />);
 
@@ -286,6 +326,9 @@ describe('TaskPanel', () => {
       continuationError: null,
       createdAt: 1,
       updatedAt: 1,
+      terminalAt: null,
+      detailsPruned: false,
+      prunedAt: null,
     }]);
     const { getByText, getByRole, queryByRole } = render(
       <TaskPanel isOpen onClose={vi.fn()} />
@@ -301,6 +344,36 @@ describe('TaskPanel', () => {
 });
 
 describe('TaskPanel — Activity Trail', () => {
+  it('keeps a pruned Job understandable and links its retained artifact', async () => {
+    listCapabilityJobs.mockResolvedValue([{
+      id: 'job-tombstone',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'completed',
+      provider: 'xai-oauth',
+      connectionId: 'xai-oauth',
+      queuePosition: null,
+      relatedJobId: null,
+      availableActions: [],
+      artifacts: [{ path: '/project/.cdf/artifacts/videos/paid.mp4', mimeType: 'video/mp4' }],
+      error: null,
+      statusMessage: null,
+      continuationStatus: 'consumed',
+      continuationError: null,
+      createdAt: 1,
+      updatedAt: 2,
+      terminalAt: 2,
+      detailsPruned: true,
+      prunedAt: 3,
+    }]);
+
+    const { getByText, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getByText('taskPanel.jobDetailsPruned')).toBeTruthy());
+    expect(getByText('/project/.cdf/artifacts/videos/paid.mp4')).toBeTruthy();
+    expect(queryByText('taskPanel.videoModeValue.text')).toBeNull();
+  });
+
   it('D-05: newest task (higher startedAt) appears before older task in DOM', () => {
     sessionState = {
       ...sessionState,

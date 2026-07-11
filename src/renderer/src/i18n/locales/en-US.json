@@ -179,7 +179,9 @@
     "subagentCallIntercepted": "Sub-agent tool call intercepted",
     "backgroundJobsTitle": "Background jobs",
     "backgroundJobsEmpty": "No background jobs in this project.",
+    "backgroundJobsLoading": "Loading background jobs…",
     "videoGeneration": "Video generation",
+    "jobDetailsPruned": "Request details and input snapshots expired after 30 days. The Job identity and local artifact are retained.",
     "queuePosition": "Queue #{{position}}",
     "jobRoute": {
       "xai-oauth": "xAI Grok OAuth",

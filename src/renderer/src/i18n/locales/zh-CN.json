@@ -179,7 +179,9 @@
     "subagentCallIntercepted": "子 Agent 工具调用被拦截",
     "backgroundJobsTitle": "后台任务",
     "backgroundJobsEmpty": "当前项目暂无后台任务。",
+    "backgroundJobsLoading": "正在加载后台任务…",
     "videoGeneration": "视频生成",
+    "jobDetailsPruned": "请求详情和输入快照已在 30 天后清理；任务身份与本地 artifact 仍保留。",
     "queuePosition": "队列第 {{position}} 位",
     "jobRoute": {
       "xai-oauth": "xAI Grok OAuth",

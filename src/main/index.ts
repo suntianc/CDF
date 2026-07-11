@@ -5,6 +5,7 @@ import {
   backgroundCapabilityContinuations,
   backgroundCapabilityJobs,
   configureCapabilityJobContinuationRunner,
+  startBackgroundCapabilityJobMaintenance,
 } from './capabilities/background-capability-runtime';
 import { runLLMChat, setConversationIdleListener } from './llm';
 
@@ -168,6 +169,7 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   backgroundCapabilityJobs.resumePending();
   backgroundCapabilityContinuations.resumePending();
+  startBackgroundCapabilityJobMaintenance();
 
   // Phase 6 Plan 02: start system-scoped chokidar watcher for `~/.cdf/commands/*.md`.
   // P6.6: os.homedir() is now ready since we are inside app.whenReady.

@@ -97,6 +97,9 @@ export interface CapabilityJobSnapshot {
   error: string | null;
   createdAt: number;
   updatedAt: number;
+  terminalAt: number | null;
+  detailsPruned: boolean;
+  prunedAt: number | null;
   statusMessage: CapabilityJobStatusMessage | null;
   continuationStatus: CapabilityJobContinuationStatus | null;
   continuationError: string | null;

@@ -25,6 +25,9 @@ const snapshot = {
   continuationError: null,
   createdAt: 1,
   updatedAt: 2,
+  terminalAt: null,
+  detailsPruned: false,
+  prunedAt: null,
 };
 
 describe('manage_background_jobs', () => {

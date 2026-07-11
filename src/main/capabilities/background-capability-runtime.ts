@@ -5,6 +5,7 @@ import { getOAuthCredential, getSubscriptionSecret } from '../ai-subscription-cr
 import { createOAuthAuthenticatedFetch } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
 import db from '../database';
+import log from '../logger';
 import {
   BackgroundCapabilityJobService,
   createMiniMaxAuthenticatedFetch,
@@ -17,6 +18,7 @@ import { decodeVideoInputImage } from './video-input-snapshot';
 
 let service: BackgroundCapabilityJobService | null = null;
 let continuationCoordinator: CapabilityJobContinuationCoordinator | null = null;
+let retentionMaintenanceTimer: NodeJS.Timeout | null = null;
 let continuationRunner = async (_batch: CapabilityJobContinuationBatch): Promise<void> => {
   throw new Error('Background Job continuation runner is not configured');
 };
@@ -189,6 +191,18 @@ export function configureCapabilityJobContinuationRunner(
   continuationRunner = runner;
 }
 
+export function startBackgroundCapabilityJobMaintenance(): void {
+  if (retentionMaintenanceTimer) return;
+  const cleanup = () => {
+    void getBackgroundCapabilityJobService().cleanupExpired().catch((error: unknown) => {
+      log.warn('[capability-jobs] Retention maintenance failed:', error);
+    });
+  };
+  cleanup();
+  retentionMaintenanceTimer = setInterval(cleanup, 24 * 60 * 60 * 1_000);
+  retentionMaintenanceTimer.unref();
+}
+
 export const backgroundCapabilityContinuations = {
   notifyConversationIdle: (sessionId: string) =>
     getContinuationCoordinator().notifyConversationIdle(sessionId),
@@ -213,4 +227,5 @@ export const backgroundCapabilityJobs = {
   resubmit: (...args: Parameters<BackgroundCapabilityJobService['resubmit']>) =>
     getBackgroundCapabilityJobService().resubmit(...args),
   resumePending: () => getBackgroundCapabilityJobService().resumePending(),
+  cleanupExpired: () => getBackgroundCapabilityJobService().cleanupExpired(),
 };

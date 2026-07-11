@@ -29,6 +29,8 @@ import {
 const MINIMAX_API_BASE_URL = 'https://api.minimaxi.com/v1';
 const MINIMAX_VIDEO_MODEL = 'MiniMax-Hailuo-2.3';
 const MAX_MINIMAX_FIRST_FRAME_BYTES = 20 * 1024 * 1024;
+export const CAPABILITY_JOB_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const TERMINAL_JOB_STATUSES: CapabilityJobStatus[] = ['completed', 'failed', 'canceled'];
 const XaiCreateResponseSchema = z.object({ request_id: z.string().trim().min(1) });
 const XaiPollResponseSchema = z.object({
   status: z.string(),
@@ -71,6 +73,9 @@ interface CapabilityJobRow {
   submission_attempted: number;
   created_at: number;
   updated_at: number;
+  terminal_at: number | null;
+  details_pruned: number;
+  pruned_at: number | null;
 }
 
 
@@ -120,6 +125,7 @@ export interface CapabilityJobServiceDeps extends VideoInputSnapshotDeps {
   retryDelaysMs?: number[];
   schedule?: (task: () => void) => void;
   submissionTimeoutMs?: number;
+  removeInputSnapshot?: (projectPath: string, jobId: string) => Promise<void>;
 }
 
 const ACTIVE_SLOT_STATUSES: CapabilityJobStatus[] = [
@@ -150,7 +156,10 @@ export function initializeCapabilityJobSchema(db: Database.Database): void {
       status_message TEXT,
       submission_attempted INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      terminal_at INTEGER,
+      details_pruned INTEGER NOT NULL DEFAULT 0,
+      pruned_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_capability_jobs_project_created
       ON capability_jobs(project_id, created_at DESC);
@@ -164,12 +173,20 @@ export function initializeCapabilityJobSchema(db: Database.Database): void {
     related_job_id: 'ALTER TABLE capability_jobs ADD COLUMN related_job_id TEXT',
     status_message: 'ALTER TABLE capability_jobs ADD COLUMN status_message TEXT',
     submission_attempted: 'ALTER TABLE capability_jobs ADD COLUMN submission_attempted INTEGER NOT NULL DEFAULT 0',
+    terminal_at: 'ALTER TABLE capability_jobs ADD COLUMN terminal_at INTEGER',
+    details_pruned: 'ALTER TABLE capability_jobs ADD COLUMN details_pruned INTEGER NOT NULL DEFAULT 0',
+    pruned_at: 'ALTER TABLE capability_jobs ADD COLUMN pruned_at INTEGER',
   };
   for (const [column, sql] of Object.entries(migrations)) {
     if (!columns.some((entry) => entry.name === column)) db.exec(sql);
   }
+  db.prepare(`UPDATE capability_jobs
+    SET terminal_at = updated_at
+    WHERE terminal_at IS NULL AND status IN ('completed', 'failed', 'canceled')`).run();
   db.exec(`CREATE INDEX IF NOT EXISTS idx_capability_jobs_connection_queue
     ON capability_jobs(connection_id, status, created_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_capability_jobs_retention
+    ON capability_jobs(terminal_at, details_pruned)`);
 }
 
 export class BackgroundCapabilityJobService {
@@ -288,6 +305,33 @@ export class BackgroundCapabilityJobService {
     return row ? this.toSnapshot(row) : null;
   }
 
+  async cleanupExpired(): Promise<void> {
+    const now = (this.deps.now ?? Date.now)();
+    const cutoff = now - CAPABILITY_JOB_RETENTION_MS;
+    const rows = this.db.prepare(`SELECT id, project_path, details_pruned
+      FROM capability_jobs
+      WHERE terminal_at IS NOT NULL AND terminal_at <= ?`).all(cutoff) as Array<{
+        id: string;
+        project_path: string;
+        details_pruned: number;
+      }>;
+    const prune = this.db.prepare(`UPDATE capability_jobs
+      SET input = '{}', provider_task_id = NULL, error = NULL, status_message = NULL,
+          submission_attempted = 0, details_pruned = 1, pruned_at = ?
+      WHERE id = ? AND details_pruned = 0 AND terminal_at IS NOT NULL AND terminal_at <= ?`);
+    const removeInputSnapshot = this.deps.removeInputSnapshot
+      ?? ((projectPath: string, jobId: string) =>
+        fs.rm(videoInputSnapshotDir(projectPath, jobId), { recursive: true, force: true }));
+    for (const row of rows) {
+      if (!row.details_pruned && prune.run(now, row.id, cutoff).changes === 1) this.emit(row.id);
+      try {
+        await removeInputSnapshot(row.project_path, row.id);
+      } catch {
+        // The row is already a durable tombstone; a later maintenance pass retries file removal.
+      }
+    }
+  }
+
   cancel(projectId: string, jobId: string): CapabilityJobCommandResult {
     const row = this.findProjectRow(projectId, jobId);
     if (!row || (row.status !== 'queued' && !(row.status === 'blocked' && !row.provider_task_id))) {
@@ -322,6 +366,13 @@ export class BackgroundCapabilityJobService {
     const source = this.findProjectRow(projectId, jobId);
     if (!source || source.status !== 'submission_unknown') {
       return { ok: false, error: 'Only an unknown submission can be explicitly resubmitted', code: 'INVALID_STATE' };
+    }
+    if (source.details_pruned) {
+      return {
+        ok: false,
+        error: 'The retained input snapshot was cleaned up; provide the first-frame image again',
+        code: 'INPUT_SNAPSHOT_REQUIRED',
+      };
     }
     const id = crypto.randomUUID();
     const now = (this.deps.now ?? Date.now)();
@@ -786,9 +837,12 @@ export class BackgroundCapabilityJobService {
     statusMessage: CapabilityJobStatusMessage | null
   ): void {
     const now = (this.deps.now ?? Date.now)();
+    const terminalAt = TERMINAL_JOB_STATUSES.includes(status) ? now : null;
     this.db.prepare(`UPDATE capability_jobs
-      SET status = ?, error = ?, status_message = ?, updated_at = ? WHERE id = ?`)
-      .run(status, error, statusMessage, now, id);
+      SET status = ?, error = ?, status_message = ?, updated_at = ?,
+          terminal_at = CASE WHEN ? IS NULL THEN terminal_at ELSE COALESCE(terminal_at, ?) END
+      WHERE id = ?`)
+      .run(status, error, statusMessage, now, terminalAt, terminalAt, id);
     this.emit(id);
   }
 
@@ -796,8 +850,10 @@ export class BackgroundCapabilityJobService {
     const now = (this.deps.now ?? Date.now)();
     this.db.prepare(`UPDATE capability_jobs
       SET status = 'completed', artifacts = ?, error = NULL,
-          status_message = 'artifact_durable', updated_at = ? WHERE id = ?`)
-      .run(JSON.stringify(artifacts), now, id);
+          status_message = 'artifact_durable', updated_at = ?,
+          terminal_at = COALESCE(terminal_at, ?)
+      WHERE id = ?`)
+      .run(JSON.stringify(artifacts), now, now, id);
     this.recordTerminal(id);
     this.emit(id);
   }
@@ -805,8 +861,10 @@ export class BackgroundCapabilityJobService {
   private fail(id: string, error: string): void {
     const now = (this.deps.now ?? Date.now)();
     this.db.prepare(`UPDATE capability_jobs
-      SET status = 'failed', error = ?, status_message = 'job_failed', updated_at = ? WHERE id = ?`)
-      .run(error, now, id);
+      SET status = 'failed', error = ?, status_message = 'job_failed', updated_at = ?,
+          terminal_at = COALESCE(terminal_at, ?)
+      WHERE id = ?`)
+      .run(error, now, now, id);
     this.recordTerminal(id);
     this.emit(id);
   }
@@ -856,6 +914,9 @@ export class BackgroundCapabilityJobService {
       statusMessage: row.status_message,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      terminalAt: row.terminal_at,
+      detailsPruned: Boolean(row.details_pruned),
+      prunedAt: row.pruned_at,
       continuationStatus: continuation?.status ?? null,
       continuationError: continuation?.error ?? null,
     };
