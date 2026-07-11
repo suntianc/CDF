@@ -360,13 +360,11 @@ export function registerIpcHandlers() {
     },
   });
 
-  typedCrud({
-    channel: 'db:renameProject',
-    write: (id, name) => {
-      const now = Date.now();
-      db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
-      return { id, name, updated_at: now };
-    },
+  // 写后合成返回行（write-then-return），按 ADR-0052 排除清单保留手写。
+  typedHandle('db:renameProject', (_, id, name) => {
+    const now = Date.now();
+    db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
+    return { id, name, updated_at: now };
   });
 
   // Database handlers: Sessions

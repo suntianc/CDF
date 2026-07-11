@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { ipcHandleMock, runMock, runArgsMock } = vi.hoisted(() => {
+const { ipcHandleMock } = vi.hoisted(() => {
   return {
     ipcHandleMock: vi.fn(),
-    runMock: vi.fn(),
-    runArgsMock: vi.fn(),
   };
 });
 
@@ -16,24 +14,15 @@ vi.mock('electron', () => ({
 
 import { typedCrud } from './typed-crud';
 
-const noop = () => {};
-const noopResult = () => undefined;
-
-const fakeDb = {
-  prepare: vi.fn(() => ({
-    run: runMock,
-  })),
-};
-
 describe('typedCrud', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('registers the channel via ipcMain.handle with the contract args/result types', () => {
+  it('registers the channel via ipcMain.handle', () => {
     typedCrud({
       channel: 'db:deleteSession',
-      remove: noop,
+      remove: () => {},
     });
 
     expect(ipcHandleMock).toHaveBeenCalledTimes(1);
@@ -42,7 +31,7 @@ describe('typedCrud', () => {
     expect(typeof handler).toBe('function');
   });
 
-  it('dispatches remove handler with the runtime args from the IPC event', async () => {
+  it('dispatches the remove callback with the runtime args from the IPC event', async () => {
     const remove = vi.fn();
     typedCrud({
       channel: 'db:deleteSession',
@@ -55,49 +44,20 @@ describe('typedCrud', () => {
     expect(remove).toHaveBeenCalledWith('session-1');
   });
 
-  it('does not invoke the db directly (db is only available to the user-supplied fn)', async () => {
+  it('dispatches the read callback and surfaces its return value', async () => {
+    const rows = [{ id: 'run-1' }];
     typedCrud({
-      channel: 'db:deleteSession',
-      remove: vi.fn(),
+      channel: 'db:getAgentRuns',
+      read: () => rows as never,
     });
+
     const handler = ipcHandleMock.mock.calls[0][1];
-    await handler({}, 'session-1');
-    expect(fakeDb.prepare).not.toHaveBeenCalled();
-    expect(runMock).not.toHaveBeenCalled();
-  });
-
-  it('omits unused operation keys (read / write) without registering extra handlers', () => {
-    typedCrud({
-      channel: 'db:deleteSession',
-      remove: noop,
-    });
-    expect(ipcHandleMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('skips remove when the operation is undefined', () => {
-    const crud = typedCrud({
-      channel: 'db:deleteSession',
-      remove: undefined,
-    });
-    // typedCrud 返回 void；未提供任何操作时仍以 no-op 注册 channel，
-    // 以满足契约完整性测试。
-    expect(crud).toBeUndefined();
-    expect(ipcHandleMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('passes the same db handle the user supplied to read/write/remove', async () => {
-    const remove = vi.fn();
-    const localDb = { prepare: vi.fn(() => ({ run: runMock })) };
-    typedCrud({
-      channel: 'db:deleteSession',
-      remove,
-    });
-    const handler = ipcHandleMock.mock.calls[0][1];
-    await handler({}, 'session-9');
-    expect(remove).toHaveBeenCalledWith('session-9');
+    const result = await handler({}, 'session-1');
+    expect(result).toBe(rows);
   });
 
   it('write callback returns its value to the IPC handler', async () => {
+    // channel 选择只为契约类型：write 需要一个「有返回值」的通道形态。
     typedCrud({
       channel: 'db:renameProject',
       write: (id, name) => ({ id, name, updated_at: 1234 }),
@@ -107,11 +67,23 @@ describe('typedCrud', () => {
     expect(result).toEqual({ id: 'proj-1', name: 'new-name', updated_at: 1234 });
   });
 
-  it('compile-time: channel must be a valid invoke channel', () => {
-    // This test is satisfied by the type system; runtime assertion here would require
-    // crossing the typecheck layer. Kept as a marker so future readers see the seam.
-    expect(typeof noop).toBe('function');
-    expect(typeof noopResult).toBe('function');
-    expect(runArgsMock).toBeDefined();
+  it('throws at registration when no operation is provided', () => {
+    expect(() =>
+      typedCrud({
+        channel: 'db:deleteSession',
+      }),
+    ).toThrow(/exactly one of read\/write\/remove, got 0/);
+    expect(ipcHandleMock).not.toHaveBeenCalled();
+  });
+
+  it('throws at registration when more than one operation is provided', () => {
+    expect(() =>
+      typedCrud({
+        channel: 'db:deleteSession',
+        read: (() => undefined) as never,
+        remove: () => {},
+      }),
+    ).toThrow(/exactly one of read\/write\/remove, got 2/);
+    expect(ipcHandleMock).not.toHaveBeenCalled();
   });
 });
