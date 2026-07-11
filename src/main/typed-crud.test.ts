@@ -97,6 +97,16 @@ describe('typedCrud', () => {
     expect(remove).toHaveBeenCalledWith('session-9');
   });
 
+  it('write callback returns its value to the IPC handler', async () => {
+    typedCrud({
+      channel: 'db:renameProject',
+      write: (id, name) => ({ id, name, updated_at: 1234 }),
+    });
+    const handler = ipcHandleMock.mock.calls[0][1];
+    const result = await handler({}, 'proj-1', 'new-name');
+    expect(result).toEqual({ id: 'proj-1', name: 'new-name', updated_at: 1234 });
+  });
+
   it('compile-time: channel must be a valid invoke channel', () => {
     // This test is satisfied by the type system; runtime assertion here would require
     // crossing the typecheck layer. Kept as a marker so future readers see the seam.

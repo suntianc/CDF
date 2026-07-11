@@ -360,10 +360,13 @@ export function registerIpcHandlers() {
     },
   });
 
-  typedHandle('db:renameProject', (_, id, name) => {
-    const now = Date.now();
-    db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
-    return { id, name, updated_at: now };
+  typedCrud({
+    channel: 'db:renameProject',
+    write: (id, name) => {
+      const now = Date.now();
+      db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
+      return { id, name, updated_at: now };
+    },
   });
 
   // Database handlers: Sessions
@@ -438,8 +441,11 @@ export function registerIpcHandlers() {
     return { id, session_id, role, content, created_at: now, tokens, imageBase64 };
   });
 
-  typedHandle('db:updateMessageThinkDuration', (_, id, seconds) => {
-    db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
+  typedCrud({
+    channel: 'db:updateMessageThinkDuration',
+    write: (id, seconds) => {
+      db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
+    },
   });
 
   typedCrud({
@@ -729,8 +735,11 @@ export function registerIpcHandlers() {
     };
   });
 
-  typedHandle('db:deleteAgent', (_, id) => {
-    db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteAgent',
+    remove: (id) => {
+      db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+    },
   });
 
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
@@ -849,8 +858,11 @@ export function registerIpcHandlers() {
     return { id, name, server_type, config, is_connected: false };
   });
 
-  typedHandle('db:deleteMcpServer', (_, id) => {
-    db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteMcpServer',
+    remove: (id) => {
+      db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:toggleMcpConnection', async (_, id, connected) => {
@@ -910,8 +922,11 @@ export function registerIpcHandlers() {
     };
   });
 
-  typedHandle('db:deleteToolConfig', (_, id) => {
-    db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteToolConfig',
+    remove: (id) => {
+      db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('paper-search:getSettings', () => getSyncedPaperSearchSettings());
@@ -949,12 +964,10 @@ export function registerIpcHandlers() {
 
   // ===== Phase 3 & Phase 4: deepagents Runtime IPC Handlers =====
 
-  // Store for deepagent instances (managed per session)
-  const agentInstances = new Map<string, any>();
-
+  // dead seam removed (was `agentInstances` Map, only ever written, never read).
+  // The deepagents:createAgent channel is the only one that referenced it.
   typedHandle('deepagents:createAgent', async (_, config) => {
     const agentId = crypto.randomUUID();
-    agentInstances.set(agentId, { config });
     return { agentId };
   });
 
@@ -998,8 +1011,11 @@ export function registerIpcHandlers() {
     return { id, project_id, name, description, graph_data: graph_data || { nodes: [], edges: [] }, status: status || 'draft', created_at: now, updated_at: now };
   });
 
-  typedHandle('db:deleteWorkflow', (_, id) => {
-    db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteWorkflow',
+    remove: (id) => {
+      db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:getWorkflowExecutions', (_, workflowId) => {
