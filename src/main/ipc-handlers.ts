@@ -367,10 +367,13 @@ export function registerIpcHandlers() {
   });
 
   // Database handlers: Sessions
-  typedHandle('db:getSessions', (_, projectId) => {
-    return db
-      .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
-      .all(projectId) as Session[];
+  typedCrud({
+    channel: 'db:getSessions',
+    read: (projectId) => {
+      return db
+        .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
+        .all(projectId) as Session[];
+    },
   });
 
   typedHandle('db:createSession', (_, projectId, name, parentSessionId, summary, agentId) => {
@@ -789,21 +792,30 @@ export function registerIpcHandlers() {
     return importPhysicalSkillDirectory(sourceDir) as Skill;
   });
 
-  typedHandle('db:getAgentRuns', (_, sessionId) => {
-    return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
+  typedCrud({
+    channel: 'db:getAgentRuns',
+    read: (sessionId) => {
+      return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
+    },
   });
 
-  typedHandle('db:getAgentToolCalls', (_, runId) => {
-    return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
+  typedCrud({
+    channel: 'db:getAgentToolCalls',
+    read: (runId) => {
+      return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
+    },
   });
 
-  typedHandle('db:getLatestTodos', (_, sessionId) => {
-    return db.prepare(`
-      SELECT atc.* FROM agent_tool_calls atc
-      JOIN agent_runs ar ON atc.run_id = ar.id
-      WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
-      ORDER BY atc.started_at DESC LIMIT 1
-    `).get(sessionId) as AgentToolCall | undefined;
+  typedCrud({
+    channel: 'db:getLatestTodos',
+    read: (sessionId) => {
+      return db.prepare(`
+        SELECT atc.* FROM agent_tool_calls atc
+        JOIN agent_runs ar ON atc.run_id = ar.id
+        WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
+        ORDER BY atc.started_at DESC LIMIT 1
+      `).get(sessionId) as AgentToolCall | undefined;
+    },
   });
 
   // ===== Phase 3: MCP Server IPC Handlers =====
