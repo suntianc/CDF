@@ -766,7 +766,8 @@ describe('ModelSelectionSurface', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Reasoning depth/ }));
 
     const reasoningSub = screen.getAllByRole('menu')[1];
-    expect(reasoningSub.className).toContain('w-32');
-    expect(reasoningSub.className).not.toContain('w-[180px]');
+    const classTokens = reasoningSub.className.split(/\s+/);
+    expect(classTokens).toContain('w-32');
+    expect(classTokens).not.toContain('w-[180px]');
   });
 });
