@@ -168,4 +168,32 @@ describe('ProjectTree Scene project creation', () => {
     expect(screen.queryByTitle('general')).toBeNull();
     expect(screen.queryByTitle('archival')).toBeNull();
   });
+
+  it('expands a project without selecting it', async () => {
+    useProjectStore.setState({ currentProjectId: 'default-project' });
+    dbApi.getProjects.mockResolvedValue([
+      {
+        id: 'default-project',
+        name: 'Default',
+        path: '/tmp/default-project',
+        scene: 'general',
+        created_at: 1,
+        updated_at: 1,
+      },
+      {
+        id: 'project-general',
+        name: 'General Project',
+        path: '/tmp/general-project',
+        scene: 'general',
+        created_at: 2,
+        updated_at: 2,
+      },
+    ]);
+
+    render(<ProjectTree />);
+
+    fireEvent.click(await screen.findByText('General Project'));
+
+    expect(useProjectStore.getState().currentProjectId).toBe('default-project');
+  });
 });

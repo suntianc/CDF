@@ -87,7 +87,6 @@
 .sidebarMenuBtn.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
-  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .sidebarMenuBtn svg {
@@ -321,7 +320,6 @@
 .settingsMenuItem.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
-  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .settingsMenuItem svg {

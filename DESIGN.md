@@ -115,8 +115,8 @@ Project Ledger 有两个互斥模式，禁止混排：
 - Project 名称 13px/600；Conversation 名称 12px/450。
 - 展开箭头与选择操作分离。
 - Project 的 More 按钮始终占位，默认使用 tertiary ink；hover/focus 提高对比，禁止 `opacity: 0`。
-- 当前 Project 使用 Ledger Edge + `surface-selected`。
-- 当前 Conversation 使用更浅的 selected surface，不重复 Ledger Edge。
+- Project 行只负责展开、收起和项目操作，不承载选中态，也不因其下 Conversation 被选中而联动高亮。
+- 当前 Conversation 与左侧导航选中项仅使用单一 selected surface + primary ink；禁止再叠加左侧 Ledger Edge 或其他深色边条。
 - 运行中的 Conversation 显示 6px 状态点和可访问文本；等待审批显示琥珀标记。
 - 删除进入 More 菜单，不在每一行 hover 时突然出现。
 
@@ -601,8 +601,8 @@ Writing 与 Experiments 未实现时显示明确的 Coming later 状态，但不
 
 ### 10.1 Agents
 
-- 使用响应式紧凑卡片网格；卡片保持短而完整，基础最小高度约 220px，由内容决定最终高度。
-- 卡片显示 Agent、模型、Skill preload 数和 MCP exclusion 数，操作区固定在底部。
+- 使用响应式紧凑卡片网格；卡片基础最小高度约 220px，同一网格行内拉伸到等高，操作区固定在底部，避免内容差异造成锯齿形排布。
+- 卡片显示 Agent、模型、Skill preload 数和 MCP exclusion 数。
 - 搜索和 Create Agent 保持在页面 topbar；结果数在网格头。
 - description 最多两行截断，编辑表单中完整显示。
 - Agent 编辑表单按 Identity、Model、Skills、MCP exclusions 分段。
@@ -626,8 +626,8 @@ MCP：
 
 ### 10.3 Workflows 列表
 
-- 使用响应式紧凑卡片网格，不使用横贯页面的列表行，也不强制严格正方形高度。
-- 卡片显示名称、状态、节点数、最近更新和操作区。
+- 使用响应式紧凑卡片网格，不使用横贯页面的列表行，也不强制严格正方形；同一网格行内卡片等高，操作区固定在底部。
+- 卡片显示名称、状态、节点数和最近更新时间。
 - 点击卡片进入编辑；Run 是独立按钮；Enable Toggle 不触发卡片导航。
 - Empty State 提供 Create Workflow。
 - 删除通过统一 Dialog，不使用本地 modal overlay。

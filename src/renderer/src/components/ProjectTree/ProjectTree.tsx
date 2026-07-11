@@ -12,10 +12,9 @@ import { normalizeProjectScene } from '@/scenes/sceneRouting';
 
 interface ProjectFolderProps {
   project: Project;
-  isActive: boolean;
 }
 
-function ProjectFolder({ project, isActive }: ProjectFolderProps) {
+function ProjectFolder({ project }: ProjectFolderProps) {
   const { t } = useTranslation();
   const projectScene = normalizeProjectScene(project.scene);
   const isSceneProject = projectScene !== 'general';
@@ -24,9 +23,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
   const projectIconClassName = `w-4 h-4 shrink-0 transition-colors ${
     projectScene === 'research'
       ? 'text-[color-mix(in_srgb,var(--color-info)_72%,white)] group-hover:text-[color-mix(in_srgb,var(--color-info)_86%,white)]'
-      : isActive
-        ? 'text-[var(--color-text-primary)]'
-        : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]'
+      : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]'
   }`;
   const [expanded, setExpanded] = useState(true);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -87,7 +84,6 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
 
   const handleProjectClick = () => {
     if (isEditing) return;
-    setCurrentProject(project.id);
     setExpanded(!expanded);
   };
 
@@ -112,9 +108,8 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
       {/* Project Folder Item */}
       <div
         className={`
-          group flex min-h-8 items-center justify-between px-3 py-1.5 rounded-[var(--radius-sm)] cursor-pointer transition-[background-color,color,box-shadow] border border-transparent min-w-0
-          hover:bg-[var(--color-bg-hover)]
-          ${isActive ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)] font-semibold shadow-[inset_3px_0_0_var(--color-accent)]' : 'text-[var(--color-text-secondary)]'}
+          group flex min-h-8 items-center justify-between px-3 py-1.5 rounded-[var(--radius-sm)] cursor-pointer transition-[background-color,color] border border-transparent min-w-0
+          text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]
         `}
         onClick={handleProjectClick}
       >
@@ -392,7 +387,6 @@ export function ProjectTree() {
               <ProjectFolder
                 key={project.id}
                 project={project}
-                isActive={currentProjectId === project.id}
               />
             ))}
 
@@ -447,7 +441,7 @@ export function ProjectTree() {
                   group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-[background-color,border-color,color] duration-150 border min-w-0 focus-within:ring-2 focus-within:ring-[var(--color-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--color-bg-sidebar)]
                   ${
                     activeSessionId === session.id
-                      ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium'
+                      ? 'bg-[var(--color-bg-active)] border-transparent text-[var(--color-text-primary)] font-medium'
                       : 'bg-transparent border-transparent hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                   }
                 `}
