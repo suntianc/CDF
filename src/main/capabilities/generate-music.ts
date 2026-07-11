@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { MINIMAX_TOKEN_PLAN_MUSIC_MODELS } from '../../shared/ai-subscriptions';
 import { getSubscriptionSecret } from '../ai-subscription-credentials';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
+import { resolveCapabilityRoute } from './capability-route';
 
 export type MusicModel = (typeof MINIMAX_TOKEN_PLAN_MUSIC_MODELS)[number];
 
@@ -90,19 +91,21 @@ export async function generateMusic(
   }
 
   const route = deps.resolveTokenPlanMusicRoute();
-  if (!route?.accessToken?.trim()) {
-    return {
-      ok: false,
-      error: 'MiniMax Token Plan is not connected for music generation',
-      code: 'ROUTE_UNAVAILABLE',
-    };
+  const notConnected = 'MiniMax Token Plan is not connected for music generation';
+  const resolution = resolveCapabilityRoute<'minimax-token-plan'>('auto', [
+    {
+      id: 'minimax-token-plan',
+      connected: Boolean(route?.accessToken?.trim()),
+      operationEnabled: route?.enabled === true,
+      unavailableError: notConnected,
+      disabledError: 'MiniMax Token Plan music generation is disabled',
+    },
+  ]);
+  if (!resolution.ok) {
+    return { ok: false, error: resolution.error, code: resolution.code };
   }
-  if (!route.enabled) {
-    return {
-      ok: false,
-      error: 'MiniMax Token Plan music generation is disabled',
-      code: 'CAPABILITY_DISABLED',
-    };
+  if (!route) {
+    return { ok: false, error: notConnected, code: 'ROUTE_UNAVAILABLE' };
   }
 
   const body: Record<string, unknown> = {

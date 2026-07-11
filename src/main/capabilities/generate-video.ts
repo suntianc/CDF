@@ -10,6 +10,7 @@ import {
   createOAuthAuthenticatedFetch,
 } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
+import { resolveCapabilityRoute } from './capability-route';
 
 export type GenerateVideoRouteHint = 'auto' | 'xai-oauth';
 
@@ -61,24 +62,23 @@ export async function generateVideo(
 ): Promise<GenerateVideoResult> {
   const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
   if (!prompt) return { ok: false, error: 'prompt is required', code: 'INVALID_INPUT' };
-  if (input.route_hint && input.route_hint !== 'auto' && input.route_hint !== 'xai-oauth') {
-    return { ok: false, error: `Unsupported video route: ${input.route_hint}`, code: 'ROUTE_UNAVAILABLE' };
-  }
 
   const route = deps.resolveXaiVideoRoute();
-  if (!route) {
-    return {
-      ok: false,
-      error: 'xAI Grok OAuth is not connected for video generation',
-      code: 'ROUTE_UNAVAILABLE',
-    };
+  const notConnected = 'xAI Grok OAuth is not connected for video generation';
+  const resolution = resolveCapabilityRoute<'xai-oauth'>(input.route_hint ?? 'auto', [
+    {
+      id: 'xai-oauth',
+      connected: route !== null,
+      operationEnabled: route?.enabled === true,
+      unavailableError: notConnected,
+      disabledError: 'xAI Grok OAuth video generation is disabled',
+    },
+  ]);
+  if (!resolution.ok) {
+    return { ok: false, error: resolution.error, code: resolution.code };
   }
-  if (!route.enabled) {
-    return {
-      ok: false,
-      error: 'xAI Grok OAuth video generation is disabled',
-      code: 'CAPABILITY_DISABLED',
-    };
+  if (!route) {
+    return { ok: false, error: notConnected, code: 'ROUTE_UNAVAILABLE' };
   }
 
   const requestBody: Record<string, unknown> = {
