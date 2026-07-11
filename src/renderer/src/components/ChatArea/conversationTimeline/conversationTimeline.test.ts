@@ -410,4 +410,52 @@ describe('projectConversationTimeline', () => {
       { type: 'message', id: 'user-1', message: userMessage },
     ]);
   });
+  it('projects a completed Background Capability Job as a separate system delivery turn', () => {
+    const userMessage = message({ id: 'user-1', role: 'user', content: 'continue our discussion' });
+    const conversationalReply = message({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Here is the answer to your question.',
+      created_at: 2_000,
+    });
+    const completionEvent = message({
+      id: 'capability-job:job-1:terminal',
+      role: 'assistant',
+      content: JSON.stringify({
+        type: 'capability_job_event',
+        eventId: 'capability-job:job-1:terminal',
+        jobId: 'job-1',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        status: 'completed',
+        artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
+        error: null,
+      }),
+      created_at: 3_000,
+    });
+    const continuationReply = message({
+      id: 'background-continuation-output:batch-1',
+      role: 'assistant',
+      content: 'The background video is ready.',
+      created_at: 4_000,
+    });
+
+    expect(projectConversationTimeline({
+      messages: [userMessage, conversationalReply, completionEvent, continuationReply],
+      isStreaming: false,
+      pendingApproval: null,
+    })).toEqual([
+      { type: 'message', id: userMessage.id, message: userMessage },
+      { type: 'message', id: conversationalReply.id, message: conversationalReply },
+      {
+        type: 'background_job_turn',
+        id: completionEvent.id,
+        items: [
+          { type: 'message', id: completionEvent.id, message: completionEvent },
+          { type: 'message', id: continuationReply.id, message: continuationReply },
+        ],
+      },
+    ]);
+  });
+
 });

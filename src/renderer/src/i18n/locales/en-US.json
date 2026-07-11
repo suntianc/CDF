@@ -182,6 +182,7 @@
     "backgroundJobsLoading": "Loading background jobs…",
     "videoGeneration": "Video generation",
     "jobDetailsPruned": "Request details and input snapshots expired after 30 days. The Job identity and local artifact are retained.",
+    "jobToggle": "Toggle video generation job details",
     "queuePosition": "Queue #{{position}}",
     "jobRoute": {
       "xai-oauth": "xAI Grok OAuth",
@@ -569,6 +570,7 @@
   },
   "chat": {
     "processedDuration": "Processed (took {{duration}})",
+    "backgroundJobUpdate": "Background job update",
     "awaitingApproval": "Waiting for approval:",
     "pendingExecute": "Waiting to execute {{name}}",
     "goApproveNow": "Approve now",

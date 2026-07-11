@@ -177,6 +177,12 @@ function firstFrameSummary(job: CapabilityJobSnapshot): string | null {
   ].join(' · ');
 }
 
+const TERMINAL_CAPABILITY_JOB_STATUSES = new Set<CapabilityJobSnapshot['status']>([
+  'completed',
+  'failed',
+  'canceled',
+]);
+
 function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
   const { t } = useTranslation();
   const projectId = useProjectStore((state) => state.currentProjectId);
@@ -188,6 +194,7 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setJobsProjectId(projectId);
@@ -201,10 +208,24 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
         event.job,
         ...current.filter((job) => job.id !== event.job.id),
       ].sort((left, right) => right.createdAt - left.createdAt));
+      setExpandedJobIds((current) => {
+        const next = new Set(current);
+        if (TERMINAL_CAPABILITY_JOB_STATUSES.has(event.job.status)) next.delete(event.job.id);
+        else next.add(event.job.id);
+        return next;
+      });
     });
     window.electronAPI.capabilityJobs.list(projectId)
       .then((snapshots) => {
         if (!active) return;
+        setExpandedJobIds((current) => {
+          const next = new Set(current);
+          for (const job of snapshots) {
+            if (TERMINAL_CAPABILITY_JOB_STATUSES.has(job.status)) next.delete(job.id);
+            else next.add(job.id);
+          }
+          return next;
+        });
         setJobs((current) => {
           const latestById = new Map(snapshots.map((job) => [job.id, job]));
           for (const job of current) {
@@ -237,6 +258,12 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
           setCommandError(`taskPanel.commandError.${result.code}`);
           return;
         }
+        setExpandedJobIds((current) => {
+          const next = new Set(current);
+          if (TERMINAL_CAPABILITY_JOB_STATUSES.has(result.job.status)) next.delete(result.job.id);
+          else next.add(result.job.id);
+          return next;
+        });
         setJobs((current) => [
           result.job,
           ...current.filter((job) => job.id !== result.job.id),
@@ -263,11 +290,38 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
         <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsLoading')}</p>
       ) : visibleJobs.length === 0 ? (
         <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsEmpty')}</p>
-      ) : visibleJobs.map((job) => (
+      ) : (
+        <div
+          role="region"
+          aria-label={t('taskPanel.backgroundJobsTitle')}
+          tabIndex={0}
+          style={{ maxHeight: '18rem', overflowY: 'auto' }}
+          className="space-y-2 overscroll-contain pr-1 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+        >
+          {visibleJobs.map((job) => (
         <div key={job.id} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] p-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-xs font-medium text-[var(--color-text-primary)]">
-              {t('taskPanel.videoGeneration')}
+          <button
+            type="button"
+            aria-label={t('taskPanel.jobToggle')}
+            aria-expanded={expandedJobIds.has(job.id)}
+            onClick={() => setExpandedJobIds((current) => {
+              const next = new Set(current);
+              if (next.has(job.id)) next.delete(job.id);
+              else next.add(job.id);
+              return next;
+            })}
+            className="flex w-full items-center justify-between gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ChevronRight
+                className={`h-3 w-3 shrink-0 text-[var(--color-text-muted)] transition-transform ${
+                  expandedJobIds.has(job.id) ? 'rotate-90' : ''
+                }`}
+                aria-hidden="true"
+              />
+              <span className="truncate text-xs font-medium text-[var(--color-text-primary)]">
+                {t('taskPanel.videoGeneration')}
+              </span>
             </span>
             <span className={`shrink-0 text-xs ${
               job.status === 'failed'
@@ -278,7 +332,9 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
             }`}>
               {t(`taskPanel.jobStatus.${job.status}`)}
             </span>
-          </div>
+          </button>
+          {expandedJobIds.has(job.id) && (
+            <div>
           <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-muted)]">
             <span className="font-mono">{t(`taskPanel.jobRoute.${job.connectionId}`)}</span>
             {job.queuePosition !== null && (
@@ -354,8 +410,12 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
               })}
             </div>
           )}
+            </div>
+          )}
         </div>
-      ))}
+          ))}
+        </div>
+      )}
     </section>
   );
 }

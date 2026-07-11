@@ -182,6 +182,7 @@
     "backgroundJobsLoading": "正在加载后台任务…",
     "videoGeneration": "视频生成",
     "jobDetailsPruned": "请求详情和输入快照已在 30 天后清理；任务身份与本地 artifact 仍保留。",
+    "jobToggle": "展开或折叠视频生成任务详情",
     "queuePosition": "队列第 {{position}} 位",
     "jobRoute": {
       "xai-oauth": "xAI Grok OAuth",
@@ -569,6 +570,7 @@
   },
   "chat": {
     "processedDuration": "已处理（用时 {{duration}}）",
+    "backgroundJobUpdate": "后台任务更新",
     "awaitingApproval": "正在等待审批：",
     "pendingExecute": "等待执行 {{name}}",
     "goApproveNow": "立即去审批",

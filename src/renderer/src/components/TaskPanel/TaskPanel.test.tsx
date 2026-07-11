@@ -178,9 +178,13 @@ describe('TaskPanel', () => {
       detailsPruned: false,
       prunedAt: null,
     }]);
-    const { getByText, getByRole } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+    const { getByText, getByRole, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(getByText('taskPanel.jobStatus.queued')).toBeTruthy());
+    expect(getByRole('button', { name: 'taskPanel.jobToggle' }).getAttribute('aria-expanded')).toBe('true');
+    const jobList = getByRole('region', { name: 'taskPanel.backgroundJobsTitle' });
+    expect((jobList as HTMLElement).style.maxHeight).toBe('18rem');
+    expect((jobList as HTMLElement).style.overflowY).toBe('auto');
     commandCapabilityJob.mockRejectedValueOnce(new Error('IPC unavailable'));
     fireEvent.click(getByRole('button', { name: 'taskPanel.jobAction.cancel' }));
     await waitFor(() => expect(getByRole('alert').textContent).toBe('taskPanel.commandError.generic'));
@@ -209,6 +213,11 @@ describe('TaskPanel', () => {
       },
     }));
     expect(getByText('taskPanel.jobStatus.completed')).toBeTruthy();
+    expect(queryByText('/project/video.mp4')).toBeNull();
+    expect(queryByText('taskPanel.continuationStatus.consumed')).toBeNull();
+    const completedToggle = getByRole('button', { name: 'taskPanel.jobToggle' });
+    expect(completedToggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(completedToggle);
     expect(getByText('/project/video.mp4')).toBeTruthy();
     expect(getByText('taskPanel.continuationStatus.consumed')).toBeTruthy();
   });
@@ -367,9 +376,13 @@ describe('TaskPanel — Activity Trail', () => {
       prunedAt: 3,
     }]);
 
-    const { getByText, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+    const { getByText, getByRole, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
 
-    await waitFor(() => expect(getByText('taskPanel.jobDetailsPruned')).toBeTruthy());
+    await waitFor(() => expect(getByText('taskPanel.jobStatus.completed')).toBeTruthy());
+    expect(queryByText('taskPanel.jobDetailsPruned')).toBeNull();
+    expect(queryByText('/project/.cdf/artifacts/videos/paid.mp4')).toBeNull();
+    fireEvent.click(getByRole('button', { name: 'taskPanel.jobToggle' }));
+    expect(getByText('taskPanel.jobDetailsPruned')).toBeTruthy();
     expect(getByText('/project/.cdf/artifacts/videos/paid.mp4')).toBeTruthy();
     expect(queryByText('taskPanel.videoModeValue.text')).toBeNull();
   });
