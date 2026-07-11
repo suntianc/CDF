@@ -35,17 +35,14 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
 
   const statusConfig = {
     completed: {
-      borderColor: 'var(--color-success)',
       icon: <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] shrink-0" style={{ color: 'var(--color-success)' }} />,
       labelKey: 'conversation.capabilityJob.completed'
     },
     failed: {
-      borderColor: 'var(--color-danger)',
       icon: <XCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0" style={{ color: 'var(--color-danger)' }} />,
       labelKey: 'conversation.capabilityJob.failed'
     },
     canceled: {
-      borderColor: 'var(--color-text-muted)',
       icon: <AlertCircle className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" style={{ color: 'var(--color-text-muted)' }} />,
       labelKey: 'conversation.capabilityJob.canceled'
     }
@@ -79,7 +76,6 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
             padding: '10px 12px',
             borderRadius: '8px',
             border: '1px solid var(--color-border)',
-            borderLeft: `3.5px solid ${config.borderColor}`,
             backgroundColor: 'var(--color-bg-sidebar)',
             opacity: 0.9,
             maxWidth: '420px',
