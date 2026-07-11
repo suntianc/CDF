@@ -217,7 +217,7 @@ const AComponent = ({ children, href }: any) => {
           src={safeSrc}
           controls
           preload="metadata"
-          className="w-full rounded-lg border border-[var(--color-border)]/55 bg-black/95 shadow-sm block focus-visible:outline-none"
+          className="w-full rounded-lg bg-black/95 shadow-sm block focus-visible:outline-none"
           style={{ maxHeight: '320px', objectFit: 'contain' }}
         />
       </span>
