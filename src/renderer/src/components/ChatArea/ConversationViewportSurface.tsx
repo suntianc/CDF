@@ -1,7 +1,7 @@
 import type { RefObject, UIEventHandler } from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, Loader2, X } from 'lucide-react';
+import { AlertCircle, ShieldAlert, X } from 'lucide-react';
 import type { AgentApprovalRequest, Message } from '@shared/types';
 import type { DelegatedTask, ParallelWorker, SessionError } from '../../stores/sessionStore';
 import { ToolGroupCard, translateToolAction } from './ToolMessageCard';
@@ -75,15 +75,15 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApp
 
   return (
     <div className="w-full py-1 select-none animate-slide-down">
-      <div className="flex flex-col">
+      <div className="flex flex-col rounded-[var(--radius-md)] border border-[var(--color-warning)]/25 bg-[var(--color-warning-dim)] shadow-[inset_3px_0_0_var(--color-warning)]">
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
           aria-expanded={expanded}
-          className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-warning)] hover:opacity-85 transition-colors py-1 w-fit font-medium"
+          className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-xs font-medium text-[var(--color-warning)] transition-colors hover:bg-[var(--color-warning)]/5 focus-visible:outline-2 focus-visible:outline-[var(--color-warning)]"
         >
           <span aria-hidden="true" className="flex items-center justify-center shrink-0">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-warning)]" />
+            <ShieldAlert className="w-3.5 h-3.5 text-[var(--color-warning)]" />
           </span>
 
           <span className="font-semibold tracking-wide">
@@ -96,7 +96,7 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApp
         </button>
 
         {expanded && (
-          <div className="mt-1.5 pl-4 pb-2 flex flex-col gap-3 border-l border-[var(--color-warning)]/20 ml-1.5 animate-slide-down">
+          <div className="px-4 pb-3 flex flex-col gap-3 animate-slide-down">
             {actions.map((action: any, idx: number) => (
               <div key={idx} className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-[var(--color-warning)]">
@@ -111,7 +111,7 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApp
             ))}
             <button
               onClick={onOpenTaskPanel}
-              className="mt-1 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-[var(--color-text-inverse)] rounded-lg text-xs font-semibold w-fit transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+              className="mt-1 min-h-8 px-3 py-1.5 bg-[var(--color-warning)] hover:bg-[var(--color-warning)]/90 text-[var(--color-text-inverse)] rounded-[var(--radius-sm)] text-xs font-semibold w-fit transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <span>{t('chat.goApproveNow')}</span>
               <span>➔</span>

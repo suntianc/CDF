@@ -7,107 +7,109 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  /* Dark theme (default) — DESIGN.md §2.2
-     Token names stay as `--accent / --bg-*`; values realigned to DESIGN.md.
-     Renaming to accent-magenta/surface-raised etc. is deferred to Phase 7. */
-  --bg-app: oklch(0.145 0.008 293);        /* canvas */
-  --bg-sidebar: oklch(0.210 0.008 293);    /* surface-soft */
-  --bg-surface: oklch(0.245 0.008 293);    /* surface-raised */
-  --bg-sunken: oklch(0.175 0.008 293);     /* surface-sunken */
-  --bg-hover: oklch(0.85 0.005 293 / 0.06);
-  --bg-active: oklch(0.85 0.005 293 / 0.10);
-  --border: oklch(0.85 0.005 293 / 0.08);  /* trace-line */
-  --border-strong: oklch(0.85 0.005 293 / 0.15);
-  --text-primary: oklch(0.955 0.005 293);  /* ink-primary */
-  --text-secondary: oklch(0.835 0.008 293);
-  --text-muted: oklch(0.835 0.008 293 / 0.36);
-  --text-inverse: oklch(0.145 0.008 293);  /* ink-inverse */
-  --text-inverse-soft: oklch(0.145 0.008 293 / 0.15); /* ink-inverse-soft */
-  --bg-inverse-canvas: oklch(0.955 0.005 293);   /* inverse-canvas */
-  --accent: oklch(0.541 0.247 293);        /* Intelligence Violet (Dark single-shot) */
-  --accent-hover: oklch(0.606 0.219 293);
-  --accent-dim: oklch(0.541 0.247 293 / 0.12);
-  --accent-glow: oklch(0.541 0.247 293 / 0.08);
-  --success: oklch(0.723 0.192 150);
-  --success-dim: oklch(0.723 0.192 150 / 0.12);
-  --danger: oklch(0.637 0.208 25);
-  --danger-dim: oklch(0.637 0.208 25 / 0.12);
-  --warning: oklch(0.769 0.165 70);
-  --warning-dim: oklch(0.769 0.165 70 / 0.12);
-  --info: oklch(0.623 0.188 260);
-  --info-dim: oklch(0.623 0.188 260 / 0.12);
-  --overlay-scrim: oklch(0 0 0 / 0.80);
+  /* Carbon Desk — dark theme defaults. */
+  --bg-app: oklch(0.150 0.010 55);
+  --bg-sidebar: oklch(0.176 0.012 55);
+  --bg-surface: oklch(0.205 0.013 55);
+  --bg-sunken: oklch(0.128 0.009 55);
+  --bg-hover: oklch(0.930 0.012 78 / 0.055);
+  --bg-active: oklch(0.690 0.145 31 / 0.145);
+  --border: oklch(0.930 0.012 78 / 0.070);
+  --border-strong: oklch(0.930 0.012 78 / 0.145);
+  --text-primary: oklch(0.930 0.012 78);
+  --text-secondary: oklch(0.780 0.014 78);
+  --text-muted: oklch(0.620 0.014 78);
+  --text-disabled: oklch(0.465 0.012 78);
+  --text-inverse: oklch(0.150 0.010 55);
+  --text-inverse-soft: oklch(0.150 0.010 55 / 0.15);
+  --bg-inverse-canvas: oklch(0.930 0.012 78);
+  --accent: oklch(0.690 0.165 31);
+  --accent-hover: oklch(0.745 0.145 31);
+  --accent-dim: oklch(0.690 0.165 31 / 0.145);
+  --accent-glow: transparent;
+  --success: oklch(0.720 0.140 145);
+  --success-dim: oklch(0.720 0.140 145 / 0.12);
+  --danger: oklch(0.680 0.180 24);
+  --danger-dim: oklch(0.680 0.180 24 / 0.12);
+  --warning: oklch(0.780 0.140 76);
+  --warning-dim: oklch(0.780 0.140 76 / 0.12);
+  --info: oklch(0.720 0.120 250);
+  --info-dim: oklch(0.720 0.120 250 / 0.12);
+  --overlay-scrim: oklch(0 0 0 / 0.64);
 
-  /* 7 color block palette (DESIGN.md §2.2 — closed set, declared only;
-     consumers per Phase 2-6 design. One block per viewport, no drop shadow.) */
-  --block-lime:  #3a4a2c;
+  /* Workflow node classification colors only. */
+  --block-lime: #3a4a2c;
   --block-lilac: #3d3658;
   --block-cream: #4a3f24;
-  --block-mint:  #2c4438;
-  --block-pink:  #4a2f37;
+  --block-mint: #2c4438;
+  --block-pink: #4a2f37;
   --block-coral: #4a3128;
-  --block-navy:  #0e0f1a;
+  --block-navy: #0e0f1a;
 
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius-xs: 3px;
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 
-  /* ── z-index scale ─────────────────────────────────────────────────
-     New code must use these tokens. Tailwind z-[N] in components
-     may still reference the canonical values below. */
-  --z-topbar:     20;
-  --z-dropdown:  100;
-  --z-drawer:    200;
-  --z-modal-scrim: 400;
-  --z-modal:     500;
-  --z-toast:    9999;
+  --z-base: 0;
+  --z-topbar: 20;
+  --z-dropdown: 100;
+  --z-drawer: 200;
+  --z-modal-scrim: 300;
+  --z-modal: 400;
+  --z-toast: 500;
 
-  /* ── Motion tokens ─────────────────────────────────────────────────
-     JS-driven animations read prefers-reduced-motion separately and
-     switch to a synchronous path (see useTypewriter). */
-  --duration-instant:  80ms;
-  --duration-fast:    150ms;
-  --duration-normal:  220ms;
-  --duration-slow:    350ms;
-  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);   /* expo-out — most interactive transitions */
-  --ease-standard: cubic-bezier(0.45, 0, 0.55, 1);  /* symmetric — panel open / close */
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 240ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.45, 0, 0.55, 1);
 }
 
-/* Light theme overrides — DESIGN.md §2.1
-   Light is the default product theme: cream canvas, pastel surfaces,
-   accent-magenta as single-shot CTA color. */
+/* Archive Paper — light theme. */
 html[data-theme="light"] {
-  --bg-app: oklch(0.980 0.006 75);         /* canvas */
-  --bg-sidebar: oklch(0.944 0.014 85);     /* surface-soft */
-  --bg-surface: oklch(1.000 0 0);          /* surface-raised */
-  --bg-sunken: oklch(0.923 0.024 88);      /* surface-sunken */
-  --bg-hover: oklch(0.218 0 0 / 0.05);
-  --bg-active: oklch(0.218 0 0 / 0.08);
-  --border: oklch(0.218 0 0 / 0.08);       /* trace-line */
-  --border-strong: oklch(0.218 0 0 / 0.15);
-  --text-primary: oklch(0.218 0 0);        /* ink-primary */
-  --text-secondary: oklch(0.218 0 0 / 0.80);
-  --text-muted: oklch(0.218 0 0 / 0.50);
-  --text-inverse: oklch(0.980 0.006 75);
-  --text-inverse-soft: oklch(0.980 0.006 75 / 0.15); /* ink-inverse-soft */
-  --bg-inverse-canvas: oklch(0.218 0 0);   /* inverse-canvas */
-  --accent: oklch(0.592 0.240 359);         /* accent-magenta (Light single-shot) */
-  --accent-hover: oklch(0.532 0.216 359);
-  --accent-dim: oklch(0.592 0.240 359 / 0.12);
-  --accent-glow: oklch(0.592 0.240 359 / 0.08);
-  --success: oklch(0.508 0.134 151);
-  --success-dim: oklch(0.508 0.134 151 / 0.10);
-  --danger: oklch(0.510 0.205 22);
-  --danger-dim: oklch(0.510 0.205 22 / 0.10);
-  --warning: oklch(0.580 0.125 71);
-  --warning-dim: oklch(0.580 0.125 71 / 0.10);
-  --info: oklch(0.491 0.144 256);
-  --info-dim: oklch(0.491 0.144 256 / 0.10);
-  --overlay-scrim: oklch(0 0 0 / 0.60);
+  --bg-app: oklch(0.972 0.010 78);
+  --bg-sidebar: oklch(0.944 0.016 78);
+  --bg-surface: oklch(0.989 0.007 78);
+  --bg-sunken: oklch(0.925 0.014 78);
+  --bg-hover: oklch(0.260 0.020 55 / 0.050);
+  --bg-active: oklch(0.590 0.155 31 / 0.100);
+  --border: oklch(0.310 0.025 55 / 0.095);
+  --border-strong: oklch(0.310 0.025 55 / 0.175);
+  --text-primary: oklch(0.235 0.020 55);
+  --text-secondary: oklch(0.390 0.022 55);
+  --text-muted: oklch(0.535 0.020 55);
+  --text-disabled: oklch(0.650 0.014 55);
+  --text-inverse: oklch(0.972 0.010 78);
+  --text-inverse-soft: oklch(0.972 0.010 78 / 0.15);
+  --bg-inverse-canvas: oklch(0.235 0.020 55);
+  --accent: oklch(0.565 0.185 31);
+  --accent-hover: oklch(0.505 0.190 31);
+  --accent-dim: oklch(0.565 0.185 31 / 0.115);
+  --accent-glow: transparent;
+  --success: oklch(0.500 0.130 145);
+  --success-dim: oklch(0.500 0.130 145 / 0.10);
+  --danger: oklch(0.500 0.190 24);
+  --danger-dim: oklch(0.500 0.190 24 / 0.10);
+  --warning: oklch(0.570 0.140 76);
+  --warning-dim: oklch(0.570 0.140 76 / 0.10);
+  --info: oklch(0.490 0.120 250);
+  --info-dim: oklch(0.490 0.120 250 / 0.10);
+  --overlay-scrim: oklch(0 0 0 / 0.42);
 
   /* Light block palette — pastels on cream canvas. */
   --block-lime:  #e0f0c2;
@@ -174,6 +176,7 @@ html, body {
   background-color: var(--bg-app);
   color: var(--text-primary);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -204,34 +207,31 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 /* ═══ Center Onboarding Styles ═══ */
 .center-bg-glow {
-  position: absolute;
-  top: 35%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
-  pointer-events: none;
+  display: none;
 }
 
 .center-headline {
-  font-size: 28px;
-  font-weight: 700;
+  max-width: 32ch;
+  font-size: 24px;
+  font-weight: 650;
   color: var(--text-primary);
-  text-align: center;
+  text-align: left;
   letter-spacing: -0.02em;
-  line-height: 1.3;
+  line-height: 1.25;
+  text-wrap: balance;
 }
 
 .center-headline span {
-  color: var(--accent);
+  color: inherit;
 }
 
 .center-subline {
-  font-size: 15px;
-  color: var(--text-muted);
-  text-align: center;
-  margin-top: -8px;
+  max-width: 62ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-align: left;
+  text-wrap: pretty;
 }
 
 /* ─── Premium Dialog Box Input ─── */
@@ -467,54 +467,58 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 /* ─── Feature rows/cards ─── */
 .feature-rows {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 4px;
   width: 100%;
-  margin-top: 12px;
+  margin-top: 4px;
 }
 
 .feature-card {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 16px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
   cursor: pointer;
-  transition: all 0.18s;
+  transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
   text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
-.feature-card:hover {
-  border-color: var(--border-strong);
+.feature-card:hover,
+.feature-card:focus-visible {
+  border-color: var(--border);
   background: var(--bg-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px oklch(0 0 0 / 0.15);
+  outline: none;
 }
 
 .feature-card-icon {
+  grid-row: 1 / span 2;
   width: 32px;
   height: 32px;
   border-radius: var(--radius-sm);
   background: var(--accent-dim);
-  color: var(--accent-hover);
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 2px;
 }
 
 .feature-card-title {
-  font-size: 14px;
+  align-self: end;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .feature-card-desc {
+  align-self: start;
   font-size: 12px;
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .dialog-footer {
@@ -549,20 +553,20 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .main-topbar {
   display: flex;
   align-items: center;
-  padding: 0px 24px;
-  border-bottom: 1px solid oklch(0.6 0 0 / 0.06);
+  min-height: 40px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
   gap: 12px;
   flex-shrink: 0;
   -webkit-app-region: drag;
-  transition: padding-left 0.2s ease;
   background: var(--bg-app);
   position: relative;
   z-index: var(--z-topbar);
 }
 
-/* 当侧边栏折叠时，主界面顶栏自动向右缩进避开窗口控制交通灯及浮动按钮 */
+/* The shell owns the macOS traffic-light offset. */
 .sidebar-is-collapsed .main-topbar {
-  padding-left: 115px;
+  padding-left: 116px;
 }
 .main-topbar-left {
   display: flex;
@@ -613,7 +617,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
   -webkit-app-region: no-drag;
 }
 .topbar-btn:hover {
@@ -630,16 +634,32 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 550;
   cursor: pointer;
   border: none;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), transform var(--duration-instant) var(--ease-out);
   user-select: none;
   -webkit-app-region: no-drag;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:focus-visible,
+.topbar-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
 }
 .btn-primary {
   background: var(--accent);

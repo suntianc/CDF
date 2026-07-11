@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, XCircle } from 'lucide-react';
+import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, X, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
 import { useSessionStore } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -16,6 +16,7 @@ import {
 export interface TaskPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }
 
 // [P2-D] Icons alongside text labels are decorative — aria-hidden, not aria-label
@@ -411,7 +412,7 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
   );
 }
 
-export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
+export function TaskPanel({ isOpen, onClose, embedded = false }: TaskPanelProps) {
   const { t } = useTranslation();
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [animateActive, setAnimateActive] = useState(isOpen);
@@ -433,20 +434,32 @@ export function TaskPanel({ isOpen, onClose }: TaskPanelProps) {
   if (!shouldRender) return null;
 
   return (
-    <div
-      className={`w-[360px] max-h-[70vh] bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg shadow-lg flex flex-col overflow-hidden origin-top-right transition-all duration-200 ease-in-out ${
+    <aside
+      aria-label={t('taskPanel.title')}
+      className={`${embedded
+        ? 'h-full w-[360px] min-w-[300px] max-w-[440px] border-l'
+        : 'w-[360px] max-h-[70vh] rounded-[var(--radius-lg)] border'
+      } bg-[var(--color-bg-surface)] border-[var(--color-border)] flex flex-col overflow-hidden origin-top-right transition-[opacity,transform] duration-200 ease-in-out ${
         animateActive
           ? 'opacity-100 scale-100 pointer-events-auto'
-          : 'opacity-0 scale-95 pointer-events-none'
+          : 'opacity-0 scale-[0.98] pointer-events-none'
       }`}
     >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] shrink-0 select-none">
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
+      <div className="flex min-h-10 items-center justify-between px-4 border-b border-[var(--color-border)] shrink-0 select-none">
+        <h2 className="text-[13px] font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          aria-label={t('common.close')}
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="flex-1 p-4 overflow-y-auto space-y-4">
         <TaskPanelContent isOpen={isOpen} />
       </div>
-    </div>
+    </aside>
   );
 }

@@ -13,12 +13,13 @@ const PopoverClose = PopoverPrimitive.Close;
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "center", sideOffset = 8, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+>(({ className, align = "center", sideOffset = 8, forceMount, ...props }, ref) => (
+  <PopoverPrimitive.Portal forceMount={forceMount}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}
       sideOffset={sideOffset}
+      forceMount={forceMount}
       className={cn(
         "z-50 w-72 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-1 text-[var(--color-text-primary)] shadow-lg outline-none",
         className

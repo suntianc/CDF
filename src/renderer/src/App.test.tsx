@@ -3,6 +3,7 @@ import { render, waitFor, act, fireEvent, screen } from '@testing-library/react'
 import { toast } from 'sonner';
 import App from './App';
 import { useProjectStore } from './stores/projectStore';
+import { useSessionStore } from './stores/sessionStore';
 
 const { taskPanelRenderSpy, taskPanelMountSpy, shouldThrowTaskPanel } = vi.hoisted(() => ({
   taskPanelRenderSpy: vi.fn(),
@@ -80,7 +81,7 @@ vi.mock('@/components/TaskPanel/TaskPanel', async () => {
   };
 });
 vi.mock('@/components/FilePanel/FilePanel', () => ({
-  FilePanel: () => null,
+  FilePanel: () => <div data-testid="file-panel" />,
 }));
 
 beforeAll(() => {
@@ -130,6 +131,7 @@ beforeEach(() => {
     currentProjectId: null,
     projects: [],
   });
+  useSessionStore.setState({ pendingApproval: null });
 });
 
 describe('App', () => {
@@ -176,6 +178,36 @@ describe('App', () => {
     await screen.findByTestId('task-panel');
     expect(screen.getByTestId('task-panel').textContent).toBe('open');
     expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens Activity from its accessible trigger without replacing the Files panel', async () => {
+    render(<App />);
+
+    const trigger = screen.getByRole('button', { name: /Show task panel|显示任务面板/ });
+    expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('file-panel')).toBeTruthy();
+
+    fireEvent.click(trigger);
+
+    await screen.findByTestId('task-panel');
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('file-panel')).toBeTruthy();
+  });
+
+  it('shows a warning count when an approval is pending', async () => {
+    useSessionStore.setState({
+      pendingApproval: {
+        id: 'approval-1',
+        runId: 'run-1',
+        actions: [],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('activity-approval-count').textContent).toBe('1');
   });
 
   it('hides TaskPanel error fallback when closed and retries on reopen', async () => {

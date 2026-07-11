@@ -185,7 +185,7 @@ export function ResearchSettings() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
-      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-12 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -203,7 +203,7 @@ export function ResearchSettings() {
         ))}
       </div>
 
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.header')}</h1></div></header>
 
       <div className="settings-content !pt-3 flex-1 overflow-y-auto flex flex-col">
         <div className="max-w-[1200px] w-full flex flex-col gap-5">

@@ -52,14 +52,17 @@ export function PluginsPanel() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
-      {/* Top Header */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10">
+        <div className="main-topbar-left">
+          <h1>{t('sidebar.plugins')}</h1>
+        </div>
+      </header>
 
       {/* 内置二级 Tab 导航栏 */}
-      <div className="px-6 py-2 flex items-center justify-start bg-[var(--color-bg-sidebar)]/20 shrink-0">
-        <div className="flex items-center bg-[var(--color-bg-sidebar)] border border-[var(--color-border)] p-0.5 rounded-lg select-none">
+      <div className="px-5 py-2 flex items-center justify-start border-b border-[var(--color-border)] shrink-0">
+        <div className="flex items-center gap-1 select-none">
           <button
-            className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+            className={`min-h-8 px-3 text-[13px] font-semibold rounded-[var(--radius-sm)] transition-colors cursor-pointer ${
               activeTab === 'skills'
                 ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -69,7 +72,7 @@ export function PluginsPanel() {
             {t('plugins.skillsTab')}
           </button>
           <button
-            className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+            className={`min-h-8 px-3 text-[13px] font-semibold rounded-[var(--radius-sm)] transition-colors cursor-pointer ${
               activeTab === 'mcp'
                 ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -219,13 +222,13 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
   );
 
   return (
-    <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
+    <div className="h-full flex flex-col px-5 pb-6 pt-4 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
         <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
           {t('plugins.skillsListTitle', { count: skills.length })}
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 bg-[var(--color-bg-sidebar)]/80 border border-[var(--color-border)]/50 px-2.5 py-1.5 rounded-lg w-[200px] no-drag">
+          <div className="flex h-8 items-center gap-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] px-3 rounded-[var(--radius-sm)] w-[220px] no-drag focus-within:border-[var(--color-accent)]">
             <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
             <input
               type="text"
@@ -247,7 +250,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="flex flex-col gap-2">
         {filteredSkills.map((skill) => {
           const displayName = skill.qualifiedName ?? skill.name;
           const overrideKey = displayName;
@@ -261,7 +264,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
             .map((shadowed) => `${shadowed.qualifiedName ?? shadowed.name} (${shadowed.sourceLabel ?? shadowed.sourceKind ?? t('plugins.skillSourceUnknown')})`)
             .join('\n');
           return (
-            <div key={skill.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
+            <div key={skill.id} className="provider-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Code className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
@@ -344,7 +347,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
             {skill.editable !== false && (
               <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
                 <button
-                  className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                  className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
                   onClick={() => handleDeleteSkill(skill.id, displayName)}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -357,8 +360,8 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
         })}
 
         {filteredSkills.length === 0 && (
-          <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-            {searchQuery ? t('plugins.skillEmptySearch') : t('plugins.skillEmpty')}
+          <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+            <span>{searchQuery ? t('plugins.skillEmptySearch') : t('plugins.skillEmpty')}</span>
           </div>
         )}
       </div>
@@ -505,14 +508,14 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
   };
 
   return (
-    <div className="h-full flex flex-col px-6 pb-6 pt-3 overflow-y-auto">
+    <div className="h-full flex flex-col px-5 pb-6 pt-4 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
         <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
           {t('plugins.mcpListTitle', { count: mcpServers.length })}
         </div>
         <div className="flex items-center gap-2">
           {/* Search box */}
-          <div className="flex items-center gap-2 bg-[var(--color-bg-sidebar)]/80 border border-[var(--color-border)]/50 px-2.5 py-1.5 rounded-lg w-[200px] no-drag">
+          <div className="flex h-8 items-center gap-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] px-3 rounded-[var(--radius-sm)] w-[220px] no-drag focus-within:border-[var(--color-accent)]">
             <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
             <input
               type="text"
@@ -534,14 +537,14 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="flex flex-col gap-2">
         {mcpServers.filter(s =>
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.server_type || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).map((server) => {
           const config = server.config || {};
           return (
-            <div key={server.id} className="provider-card p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors flex flex-col justify-between group">
+            <div key={server.id} className="provider-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 max-w-[70%]">
@@ -567,12 +570,12 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                   </span>
 
                   {/* Status Indicator Badge */}
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 border ${
+                  <span className={`px-2 py-0.5 rounded-[var(--radius-xs)] text-[10px] font-semibold tracking-wide flex items-center gap-1.5 border ${
                     server.is_connected
                       ? 'bg-[var(--color-success-dim)] text-[var(--color-success)] border-[var(--color-success)]/10'
                       : 'bg-[var(--color-danger-dim)] text-[var(--color-danger)] border-[var(--color-danger)]/10'
                   }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${server.is_connected ? 'bg-[var(--color-success)] animate-pulse' : 'bg-[var(--color-danger)]'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${server.is_connected ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]'}`} />
                     <span>{server.is_connected ? t('plugins.mcpOnline') : t('plugins.mcpOffline')}</span>
                   </span>
                 </div>
@@ -581,7 +584,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
               <div className="flex items-center justify-between border-t border-[var(--color-border)]/30 pt-3 mt-2 gap-2">
                 <button
                   onClick={() => toggleConnectionState(server)}
-                  className={`btn btn-sm cursor-pointer hover:scale-105 active:scale-95 transition-all ${
+                  className={`btn btn-sm cursor-pointer ${
                     server.is_connected
                       ? 'btn-secondary text-[var(--color-text-muted)]'
                       : 'btn-secondary text-[var(--color-success)] border-[var(--color-success)]/30 hover:bg-[var(--color-success-dim)]'
@@ -593,7 +596,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                 <div className="flex gap-1.5 ml-auto">
                   {/* Health Check Button */}
                   <button
-                    className="btn btn-secondary btn-sm p-1.5 hover:scale-105 active:scale-95 transition-all"
+                    className="btn btn-secondary btn-sm p-1.5"
                     onClick={() => testHealth(server.id, server.name)}
                     disabled={testingId === server.id}
                     title={t('plugins.mcpHealthProbe')}
@@ -606,7 +609,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                   </button>
 
                   <button
-                    className="btn btn-secondary btn-sm p-1.5 hover:scale-105 active:scale-95 transition-all"
+                    className="btn btn-secondary btn-sm p-1.5"
                     onClick={() => openEditModal(server)}
                     title={t('plugins.mcpEditConfig')}
                   >
@@ -614,7 +617,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                   </button>
 
                   <button
-                    className="btn btn-danger btn-sm p-1.5 hover:scale-105 active:scale-95 transition-all"
+                    className="btn btn-danger btn-sm p-1.5"
                     onClick={() => handleDeleteMcp(server.id, server.name)}
                     title={t('plugins.mcpDeleteService')}
                   >
@@ -630,8 +633,9 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.server_type || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).length === 0 && (
-          <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-            {searchQuery ? t('plugins.mcpEmptySearch') : t('plugins.mcpEmpty')}
+          <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+            <span>{searchQuery ? t('plugins.mcpEmptySearch') : t('plugins.mcpEmpty')}</span>
+            {!searchQuery && <button className="btn btn-primary" onClick={openCreateModal}>{t('plugins.addMcpServer')}</button>}
           </div>
         )}
       </div>

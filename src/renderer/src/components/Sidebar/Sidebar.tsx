@@ -74,7 +74,7 @@ export function Sidebar({
     onChangeView('chat');
   };
 
-  const isSettings: boolean = activeView !== 'chat';
+  const isSettings = ['settings', 'ai-subscriptions', 'tools', 'research', 'system'].includes(activeView);
 
   return (
     <aside
@@ -98,6 +98,7 @@ export function Sidebar({
             <button
               onClick={() => onChangeView('agents')}
               className={`${styles.sidebarMenuBtn} ${activeView === 'agents' ? styles.active : ''}`}
+              aria-current={activeView === 'agents' ? 'page' : undefined}
             >
               <Bot className="w-4 h-4" />
               <span>{t('sidebar.agents')}</span>
@@ -106,6 +107,7 @@ export function Sidebar({
             <button
               onClick={() => onChangeView('plugins')}
               className={`${styles.sidebarMenuBtn} ${activeView === 'plugins' ? styles.active : ''}`}
+              aria-current={activeView === 'plugins' ? 'page' : undefined}
             >
               <LayoutGrid className="w-4 h-4" />
               <span>{t('sidebar.plugins')}</span>
@@ -114,6 +116,7 @@ export function Sidebar({
             <button
               onClick={() => onChangeView('workflows')}
               className={`${styles.sidebarMenuBtn} ${activeView === 'workflows' ? styles.active : ''}`}
+              aria-current={activeView === 'workflows' ? 'page' : undefined}
             >
               <GitFork className="w-4 h-4" />
               <span>{t('sidebar.workflows')}</span>
@@ -170,24 +173,6 @@ export function Sidebar({
           </button>
           <button
             type="button"
-            className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}
-            onClick={() => onChangeView('agents')}
-            aria-current={activeView === 'agents' ? 'page' : undefined}
-          >
-            <Bot className="w-4 h-4" />
-            {t('sidebar.settings.agents')}
-          </button>
-          <button
-            type="button"
-            className={`${styles.settingsMenuItem} ${activeView === 'plugins' ? styles.active : ''}`}
-            onClick={() => onChangeView('plugins')}
-            aria-current={activeView === 'plugins' ? 'page' : undefined}
-          >
-            <LayoutGrid className="w-4 h-4" />
-            {t('sidebar.settings.skillsMcp')}
-          </button>
-          <button
-            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'tools' ? styles.active : ''}`}
             onClick={() => onChangeView('tools')}
             aria-current={activeView === 'tools' ? 'page' : undefined}
@@ -203,15 +188,6 @@ export function Sidebar({
           >
             <Microscope className="w-4 h-4" />
             {t('sidebar.settings.research')}
-          </button>
-          <button
-            type="button"
-            className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}
-            onClick={() => onChangeView('workflows')}
-            aria-current={activeView === 'workflows' ? 'page' : undefined}
-          >
-            <GitFork className="w-4 h-4" />
-            {t('sidebar.settings.workflows')}
           </button>
           <button
             type="button"

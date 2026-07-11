@@ -77,6 +77,26 @@ describe('Sidebar', () => {
     expect(onChangeView).toHaveBeenCalledWith('ai-subscriptions');
   });
 
+  it('keeps Settings navigation separate from Work navigation', () => {
+    render(
+      <Sidebar
+        collapsed={false}
+        width={280}
+        activeView="system"
+        onCollapse={vi.fn()}
+        onResize={vi.fn()}
+        onChangeView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Agents' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Plugins' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Workflows' })).toBeNull();
+    expect(screen.queryByTestId('project-tree')).toBeNull();
+    expect(screen.getByRole('navigation', { name: 'Settings navigation' })).toBeTruthy();
+  });
+
   it('keeps the sidebar collapse control available as a labelled button', () => {
     const onCollapse = vi.fn();
 

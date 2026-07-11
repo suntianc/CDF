@@ -13,9 +13,10 @@ const ruleBody = (selector: string) => {
   return match?.groups?.body ?? '';
 };
 
-describe('ChatArea welcome ambient glow', () => {
-  it('keeps the default radial glow as ambient decoration', () => {
-    expect(ruleBody('.center-bg-glow')).toContain('radial-gradient');
+describe('ChatArea welcome background', () => {
+  it('keeps the work surface free of decorative ambient glow', () => {
+    expect(ruleBody('.center-bg-glow')).toContain('display: none');
+    expect(ruleBody('.center-bg-glow')).not.toContain('radial-gradient');
   });
 
   it('adds a standalone high-contrast media query after reduced-motion rules', () => {

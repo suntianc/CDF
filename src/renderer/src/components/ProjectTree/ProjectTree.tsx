@@ -112,9 +112,9 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
       {/* Project Folder Item */}
       <div
         className={`
-          group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border border-transparent min-w-0
+          group flex min-h-8 items-center justify-between px-3 py-1.5 rounded-[var(--radius-sm)] cursor-pointer transition-[background-color,color,box-shadow] border border-transparent min-w-0
           hover:bg-[var(--color-bg-hover)]
-          ${isActive ? 'text-[var(--color-text-primary)] font-medium' : 'text-[var(--color-text-secondary)]'}
+          ${isActive ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)] font-semibold shadow-[inset_3px_0_0_var(--color-accent)]' : 'text-[var(--color-text-secondary)]'}
         `}
         onClick={handleProjectClick}
       >
@@ -166,14 +166,14 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
         </div>
 
         {/* Hover action buttons */}
-        <div className={`flex items-center gap-0.5 relative transition-opacity ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+        <div className="flex items-center gap-0.5 relative opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               setMenuOpen(!menuOpen);
             }}
-            className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+            className="p-1 rounded-[var(--radius-sm)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
             title={t('projectTree.projectActions')}
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
@@ -181,7 +181,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
           <button
             type="button"
             onClick={handleNewChat}
-            className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+            className="p-1 rounded-[var(--radius-sm)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
             title={t('projectTree.newChat')}
           >
             <Plus className="w-3.5 h-3.5" />
@@ -239,10 +239,10 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
             <div
               key={session.id}
               className={`
-                group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border min-w-0
+                group/session flex min-h-[30px] items-center justify-between px-3 py-1.5 rounded-[var(--radius-sm)] cursor-pointer transition-colors border min-w-0
                 ${
                   activeSessionId === session.id
-                    ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium'
+                    ? 'bg-[var(--color-bg-active)] border-transparent text-[var(--color-text-primary)] font-medium'
                     : 'bg-transparent border-transparent hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                 }
               `}
@@ -263,7 +263,7 @@ function ProjectFolder({ project, isActive }: ProjectFolderProps) {
               <button
                 type="button"
                 onClick={(e) => handleDeleteSession(e, session.id)}
-                className="opacity-0 group-hover/session:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-all shrink-0 ml-1.5 cursor-pointer"
+                className="opacity-40 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded-[var(--radius-sm)] hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[opacity,background-color,color] shrink-0 ml-1.5 cursor-pointer"
                 title={t('projectTree.deleteSession')}
               >
                 <Trash2 className="w-3 h-3" />

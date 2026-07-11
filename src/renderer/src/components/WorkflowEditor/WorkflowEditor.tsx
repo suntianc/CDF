@@ -23,7 +23,7 @@ import { Workflow, WorkflowNode, WorkflowDefinition, WorkflowEdge, WorkflowStrea
 import { StartNode } from './StartNode';
 import { EndNode } from './EndNode';
 import { AgentNode } from './AgentNode';
-import { NodeConfigDrawer } from './NodeConfigDrawer';
+import { NodeConfigDrawer, type NodeConfigDrawerProps } from './NodeConfigDrawer';
 import { EdgeConfigDrawer } from './EdgeConfigDrawer';
 import { ExecutionPanel } from './ExecutionPanel';
 import { ExecutionHistoryDrawer } from './ExecutionHistoryDrawer';
@@ -203,7 +203,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
       if (data.type === 'workflow_end') {
         setIsRunning(false);
         // Remove animation from all edges when execution ends
-        setEdges((eds) => eds.map((edge) => ({ ...edge, animated: Boolean((edge as any).metadata?.condition) })));
+        setEdges((eds) => eds.map((edge) => ({ ...edge, animated: Boolean(edgeMetadata(edge)?.condition) })));
       }
     });
 
@@ -643,11 +643,16 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
     };
   }, [handleSave, handleUndo, handleRedo]);
 
+  // React Flow stores node data as a generic record; executable nodes are normalized on load.
+  const nodeForConfig = selectedNode
+    ? ({ id: selectedNode.id, type: selectedNode.type, data: selectedNode.data } as unknown as NonNullable<NodeConfigDrawerProps['node']>)
+    : null;
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Toast Notification Container */}
       <div
-        className="absolute top-14 right-4 z-[9999] flex flex-col gap-2 pointer-events-none"
+        className="absolute top-14 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none"
         role="status"
         aria-live="polite"
         aria-atomic="false"
@@ -655,7 +660,7 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
         {toasts.map(t => (
           <div 
             key={t.id} 
-            className={`p-3 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg transition-all duration-300 animate-slide-in pointer-events-auto border ${
+            className={`p-3 rounded-[var(--radius-md)] text-xs font-semibold flex items-center gap-2 transition-[opacity,transform] duration-200 animate-slide-in pointer-events-auto border ${
               t.type === 'success' 
                 ? 'bg-[var(--color-success-dim)] border-[var(--color-success)]/20 text-[var(--color-success)]' 
                 : t.type === 'error'
@@ -724,31 +729,25 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
           </ReactFlow>
         </div>
 
-        {/* Execution Panel (right side when running) */}
-        {executionId && (
+        {/* One contextual side panel at a time preserves canvas width. */}
+        {executionId ? (
           <ExecutionPanel
             executionId={executionId}
             taskGoal={nodes.find((n) => n.type === 'start')?.data?.taskGoal as string || ''}
             onClose={handleCloseExecution}
           />
-        )}
-
-        {/* Execution History Drawer (right side, toggled via toolbar) */}
-        {historyDrawerOpen && (
+        ) : historyDrawerOpen ? (
           <ExecutionHistoryDrawer
             workflowId={workflowId}
             onClose={() => setHistoryDrawerOpen(false)}
           />
-        )}
-
-        {/* Config Side Panel — inside flex row so canvas auto-shrinks, Toolbar never overlapped */}
-        {(drawerOpen || edgeDrawerOpen) && (
-          <div className="w-[380px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col overflow-hidden">
+        ) : (drawerOpen || edgeDrawerOpen) ? (
+          <aside className="w-[380px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col overflow-hidden">
             {drawerOpen && (
               <NodeConfigDrawer
                 isOpen={drawerOpen}
                 onClose={() => setDrawerOpen(false)}
-                node={selectedNode ? { id: selectedNode.id, type: selectedNode.type, data: selectedNode.data as Record<string, unknown> } as any : null}
+                node={nodeForConfig}
                 onUpdateNode={handleUpdateNode}
                 onDeleteNode={(nodeId) => deleteNodesById([nodeId])}
               />
@@ -762,8 +761,8 @@ export function WorkflowEditor({ workflow, onBack }: WorkflowEditorProps) {
                 onDeleteEdge={(edgeId) => deleteEdgesById([edgeId])}
               />
             )}
-          </div>
-        )}
+          </aside>
+        ) : null}
       </div>
     </div>
   );

@@ -187,7 +187,7 @@ export function AISubscriptionSettings() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-bg-app overflow-hidden">
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.aiSubscriptions')}</h1></div></header>
 
       <div className="settings-content !pt-3 w-full max-w-none flex-1 overflow-y-auto flex flex-col">
         <div className="flex items-center justify-between gap-4 mb-5 shrink-0">

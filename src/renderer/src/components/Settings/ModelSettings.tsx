@@ -341,7 +341,7 @@ export function ModelSettings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Topbar */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.llm')}</h1></div></header>
 
       {/* Main Settings Content */}
       <div className="settings-content !pt-3">

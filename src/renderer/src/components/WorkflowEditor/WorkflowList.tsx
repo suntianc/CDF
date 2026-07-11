@@ -95,11 +95,11 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Toast Notification Container */}
-      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-12 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div 
             key={t.id} 
-            className={`p-3 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg transition-all duration-300 animate-slide-in pointer-events-auto border ${
+            className={`p-3 rounded-[var(--radius-md)] text-xs font-semibold flex items-center gap-2 transition-[opacity,transform] duration-200 animate-slide-in pointer-events-auto border ${
               t.type === 'success' 
                 ? 'bg-[var(--color-success-dim)] border-[var(--color-success)]/20 text-[var(--color-success)]' 
                 : t.type === 'error'
@@ -113,11 +113,14 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
         ))}
       </div>
 
-      {/* Header */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10">
+        <div className="main-topbar-left">
+          <h1>{t('sidebar.workflows')}</h1>
+        </div>
+      </header>
 
       {/* Content */}
-      <div className="settings-content overflow-y-auto flex-1 px-6 pb-6 pt-3">
+      <div className="settings-content overflow-y-auto flex-1 px-5 pb-6 pt-4">
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
@@ -140,17 +143,17 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
         )}
 
         {/* Workflow Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="flex flex-col gap-2">
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
+              className="provider-card flex items-center gap-4 px-4 py-3 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
               onClick={() => onSelectWorkflow(workflow)}
             >
-              <div>
-                <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3 mb-2">
                   <div className="flex items-center gap-3 truncate">
-                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0">
                       <GitBranch className="w-6 h-6 text-[var(--color-accent)]" />
                     </div>
                     <div className="truncate">
@@ -159,9 +162,9 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                       </div>
                       <div className="text-[10px] font-medium mt-0.5">
                         {workflow.status === 'active' ? (
-                          <span className="text-[var(--color-success)] bg-[var(--color-success-dim)]/20 px-1.5 py-0.5 rounded">{t('workflow.list.enabled')}</span>
+                          <span className="text-[var(--color-success)] bg-[var(--color-success-dim)] px-1.5 py-0.5 rounded-[var(--radius-xs)]">{t('workflow.list.enabled')}</span>
                         ) : (
-                          <span className="text-[var(--color-text-muted)] bg-[var(--color-bg-active)] px-1.5 py-0.5 rounded">{t('workflow.list.disabled')}</span>
+                          <span className="text-[var(--color-text-muted)] bg-[var(--color-bg-active)] px-1.5 py-0.5 rounded-[var(--radius-xs)]">{t('workflow.list.disabled')}</span>
                         )}
                       </div>
                     </div>
@@ -186,7 +189,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                 </div>
 
                 <p
-                  className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-4 line-clamp-2 h-8"
+                  className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-2 truncate"
                   title={workflow.description}
                 >
                   {workflow.description || t('workflow.list.noDescription')}
@@ -200,9 +203,9 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
+              <div className="flex shrink-0 items-center justify-end gap-2">
                 <button
-                  className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all text-[var(--color-success)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 hover:bg-[var(--color-success-dim)]/20"
+                  className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer text-[var(--color-success)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 hover:bg-[var(--color-success-dim)]"
                   onClick={(e) => handleRunWorkflow(workflow, e)}
                   title={t('workflow.list.runDirectly')}
                 >
@@ -210,7 +213,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   <span>{t('workflow.list.run')}</span>
                 </button>
                 <button
-                  className="btn btn-primary btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                  className="btn btn-primary btn-sm flex items-center gap-1 cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectWorkflow(workflow);
@@ -220,7 +223,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   <span>{t('workflow.list.edit')}</span>
                 </button>
                 <button
-                  className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                  className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
                     setDeleteConfirmId(workflow.id);
@@ -234,8 +237,9 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
           ))}
 
           {workflows.length === 0 && !isLoading && (
-            <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-              {t('workflow.list.empty')}
+            <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+              <span>{t('workflow.list.empty')}</span>
+              <button className="btn btn-primary" onClick={onCreateWorkflow}>{t('workflow.list.newWorkflow')}</button>
             </div>
           )}
         </div>

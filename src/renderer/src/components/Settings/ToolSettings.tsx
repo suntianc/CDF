@@ -264,7 +264,7 @@ export function ToolSettings() {
       `}</style>
 
       {/* Toast Notification Container */}
-      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-12 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div 
             key={t.id} 
@@ -283,7 +283,7 @@ export function ToolSettings() {
       </div>
 
       {/* Topbar */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.tools')}</h1></div></header>
 
       {/* Main Settings Content */}
       <div className="settings-content !pt-3 flex-1 overflow-y-auto flex flex-col">

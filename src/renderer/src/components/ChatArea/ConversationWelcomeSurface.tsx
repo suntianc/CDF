@@ -76,15 +76,14 @@ export function ConversationWelcomeSurface({
 
   return (
     <main
-      className={`absolute inset-0 flex flex-col items-center justify-center p-6 bg-[var(--color-bg-app)] overflow-hidden transition-all duration-300 ease-in-out ${
+      className={`absolute inset-0 flex flex-col items-center justify-start px-6 pt-28 pb-10 bg-[var(--color-bg-app)] overflow-y-auto transition-[opacity,transform] duration-200 ease-out ${
         visible
-          ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto z-10'
-          : 'opacity-0 translate-y-4 scale-95 pointer-events-none z-0'
+          ? 'opacity-100 translate-y-0 pointer-events-auto z-10'
+          : 'opacity-0 translate-y-2 pointer-events-none z-0'
       }`}
     >
-      <div className="center-bg-glow" />
 
-      <div className="max-w-[640px] w-full flex flex-col items-center gap-6 z-10">
+      <div className="max-w-[820px] w-full flex flex-col items-start gap-4 z-10">
         <h1 className="center-headline">
           <Trans
             i18nKey={welcomeText.headlineKey}

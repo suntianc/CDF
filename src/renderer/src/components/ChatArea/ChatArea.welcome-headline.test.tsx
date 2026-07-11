@@ -17,13 +17,13 @@ describe('ChatArea welcome headline treatment', () => {
   const headlineRule = ruleBody('.center-headline');
   const headlineAccentRule = ruleBody('.center-headline span');
 
-  it('keeps the welcome headline type scale stable', () => {
-    expect(headlineRule).toContain('font-size: 28px');
-    expect(headlineRule).toContain('font-weight: 700');
+  it('uses the compact workbench headline scale', () => {
+    expect(headlineRule).toContain('font-size: 24px');
+    expect(headlineRule).toContain('font-weight: 650');
   });
 
-  it('uses a single theme-aware accent color for the highlighted text', () => {
-    expect(headlineAccentRule).toContain('color: var(--accent);');
+  it('keeps highlighted text in the primary ink hierarchy', () => {
+    expect(headlineAccentRule).toContain('color: inherit;');
   });
 
   it('does not use gradient text on semantic headline copy', () => {

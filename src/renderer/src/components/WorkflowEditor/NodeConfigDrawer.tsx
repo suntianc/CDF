@@ -7,7 +7,7 @@ import { Bot, Layers, ShieldCheck, Trash2, PlayCircle, Repeat2, Zap, Maximize2, 
 import { CustomSelect } from '../ui/CustomSelect';
 import { ApprovalModeSelector } from '../shared/ApprovalModeSelector';
 
-interface NodeConfigDrawerProps {
+export interface NodeConfigDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   node: {

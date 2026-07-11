@@ -71,6 +71,14 @@
   -webkit-app-region: no-drag;
 }
 
+.sidebarMenuBtn:focus-visible,
+.backBtn:focus-visible,
+.settingsMenuItem:focus-visible,
+.bottomBar button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
 .sidebarMenuBtn:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
@@ -79,6 +87,7 @@
 .sidebarMenuBtn.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .sidebarMenuBtn svg {
@@ -222,7 +231,7 @@
   color: var(--color-text-muted);
   background: transparent;
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   transition-property: background-color, color, opacity, transform;
   transition-duration: var(--duration-fast);
   transition-timing-function: var(--ease-out);
@@ -305,6 +314,7 @@
 .settingsMenuItem.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .settingsMenuItem svg {

@@ -93,15 +93,21 @@ CDF 的界面是一张**本地项目工作桌**，不是聊天主页，也不是
 - 用户拖拽宽度后持久化。
 - 折叠后宽度为 0；召回按钮位于 Scene Desk topbar 左侧，不悬浮在 traffic lights 附近。
 
-**结构**：
+**模式**：
 
-1. macOS traffic lights 安全区：40px。
-2. 固定工作区入口：New Conversation、Agents、Skills & MCP、Workflows。
-3. Project section：Project 与其 Conversation。
-4. Scratch section：不归属自定义 Project 的 Conversation。
-5. 底部：Settings、主题/语言的低频入口。
+Project Ledger 有两个互斥模式，禁止混排：
 
-工作区入口固定，不随进入 Agents、Skills & MCP 或 Workflows 而消失。进入 Settings 时，Project section 可替换为 Settings 分类，但顶部始终保留明确的“返回工作桌”。
+1. **Work 模式**
+   - 顶部：New Conversation、Agents、Skills & MCP、Workflows。
+   - 中部：Project 与其 Conversation。
+   - 下部：Scratch Conversation。
+   - 底部：Settings。
+2. **Settings 模式**
+   - 顶部只显示“返回工作桌”。
+   - 中部只显示 LLM Provider、AI Subscription、Tools、Research、System 等设置分类。
+   - 不重复显示 Agents、Skills & MCP、Workflows，也不显示 Project Tree。
+
+进入 Settings 是一次明确的导航层级切换，而不是在 Work 导航中插入第二组菜单。返回工作桌时恢复离开前的 Project、Conversation 和滚动位置。
 
 **项目树规则**：
 
@@ -120,41 +126,47 @@ Scene Desk 是唯一主工作区。其顶部固定 40px topbar：
 
 - 左侧：侧栏召回、当前 Project、Scene 或页面名称。
 - 中部：仅在 Research Scene 等同一对象的子视图中显示 Tabs。
-- 右侧：状态、次要动作、一个主要动作、Auxiliary Bay 开关。
+- 右侧：状态、次要动作、一个主要动作、Files 开关和 Activity 触发器。
 - 无业务控件的空白区域是窗口 drag region。
 
 Topbar 不能为空。Agent、Skills、MCP、Settings 和 Workflow 列表都必须显示页面名称，不再保留只有拖拽功能的空条。
 
-### 2.4 Auxiliary Bay
+### 2.4 Files Panel 与 Activity Popover
 
-将当前 `FilePanel` 与 `TaskPanel` 统一为右侧辅助舱。默认一次显示一个 Tab：
+Files 和 Agent Activity 的使用频率与持续时间不同，不能合并为同一种侧面板。
 
-- **Files**：FileTree、Filter、EditorPane。
-- **Activity**：当前运行、Tool、Approval、Delegated Work、Parallel Batch。
+#### Files Panel
 
-尺寸：默认 360px，最小 300px，最大 440px。可拖拽且持久化。
+- FileTree、Filter 和 EditorPane 使用右侧固定面板。
+- 默认宽 360px，最小 300px，最大 440px；可拖拽并持久化。
+- Files 是持续参考内容，可以与 Conversation 或 Research Scene 并排存在。
+- 关闭后焦点返回 Files 触发按钮。
 
-规则：
+#### Activity Popover
 
-- Files 与 Activity 不再通过绝对定位和 CSS `calc()` 互相避让。
-- 打开 Approval 时自动切到 Activity，但不能抢走正在输入 Composer 的键盘焦点。
-- Activity 有未决审批时，关闭辅助舱仍在 topbar 按钮显示琥珀计数。
-- Wide 模式允许 Files 与 Activity 并排，但只在可用主工作区仍 ≥ 720px 时出现。
-- 关闭辅助舱后焦点返回其触发按钮。
+- Agent Activity 使用由 topbar 触发器锚定的浮动 Popover，不占用固定横向布局。
+- 默认宽 360px，最大高 70vh；内容内部滚动。
+- 使用 Radix Popover 的 Portal、碰撞检测、Escape 和焦点返回，不以窗口坐标或 `calc()` 手工避让 Files Panel。
+- 内容包括当前 Run、Tool、Approval、Delegated Work 和 Parallel Batch。
+- 有未决审批时，触发器显示琥珀计数；Popover 自动打开，但不抢走 Composer 中正在输入的焦点。
+- Popover 适合快速查看和决策；选择 Subagent/Worker 详情后，详情继续进入 Conversation Viewport，而不是把浮层扩成永久侧栏。
+- 点击外部或 Escape 关闭；关闭 Activity 不改变 Files Panel 的打开状态。
+
+**原因**：Activity 是短时、上下文相关的运行检查；固定侧栏会长期压缩 Composer、Timeline 和 Workflow Canvas，并错误暗示它与 Files 一样需要持续并排。只有当未来出现需要长期监控多个 Run 的明确工作流时，才重新评估可固定模式。
 
 ### 2.5 窗口策略
 
 当前主窗口最小尺寸为 800 × 600；规范必须在此尺寸可用。
 
-| 可用宽度 | Project Ledger | Auxiliary Bay | Scene Desk |
-|---|---|---|---|
-| ≥ 1440px | 固定显示 | 可固定；满足条件可双栏 | 最小 720px |
-| 1120–1439px | 固定显示 | 单栏固定或覆盖 | 最小 560px |
-| 800–1119px | 可折叠 Drawer | 覆盖层，一次一个 | 全宽优先 |
+| 可用宽度 | Project Ledger | Files Panel | Activity Popover | Scene Desk |
+|---|---|---|---|---|
+| ≥ 1440px | 固定显示 | 可固定 | 锚定浮层 | 最小 720px |
+| 1120–1439px | 固定显示 | 可固定或覆盖 | 锚定浮层 | 最小 560px |
+| 800–1119px | 可折叠 Drawer | 覆盖层 | 碰撞后向内翻转 | 全宽优先 |
 
 空间不足时按以下顺序收缩：
 
-1. Auxiliary Bay 从固定变覆盖。
+1. Files Panel 从固定变覆盖。
 2. Project Ledger 折叠。
 3. Topbar 次要动作进入 More。
 4. Composer 使用 Scene Desk 全宽并保留 16px 边距。
@@ -166,7 +178,7 @@ Topbar 不能为空。Agent、Skills、MCP、Settings 和 Workflow 列表都必�
 - Project Ledger：工作区入口和底栏固定，Project/Scratch 列表滚动。
 - Conversation：Timeline 是唯一纵向滚动区，Composer Dock 固定。
 - Files：FileTree 与 EditorPane 分区滚动，分隔明显。
-- Activity：头部固定，轨迹内容滚动。
+- Activity Popover：头部固定，轨迹内容在 70vh 内滚动。
 - Resource 页面：页面级滚动，不在每个资源块内再滚动。
 - Workflow Canvas 不随页面滚动；Palette、Inspector 和 Execution Panel 独立滚动。
 - 禁止两个无边界的同方向嵌套滚动区。
@@ -514,7 +526,7 @@ Welcome Composer 与 Session Composer 共用一套结构：
 
 ### 7.4 Approval
 
-Pending Approval 在 Timeline 显示摘要，在 Auxiliary Bay 的 Activity Tab 完成决策。
+Pending Approval 在 Timeline 显示摘要，在 Activity Popover 中完成决策。
 
 必须显示：
 
@@ -527,7 +539,7 @@ Pending Approval 在 Timeline 显示摘要，在 Auxiliary Bay 的 Activity Tab 
 
 ### 7.5 Activity
 
-Activity Tab 复用现有 TaskPanel projection：
+Activity Popover 复用现有 TaskPanel projection：
 
 1. Run summary。
 2. Tool summary。
@@ -805,8 +817,8 @@ Tab 顺序：Project Ledger → Scene topbar → Scene content → Composer/Canv
 
 1. 统一 Light/Dark token 为 Archive Paper / Carbon Desk，删除 welcome glow 和主题间不一致 accent。
 2. 统一 40px Shell topbar，修复 traffic lights 和 drag region。
-3. 保持单一 Project Ledger，确保进入 Agents、Skills & MCP、Workflows 后工作区入口不消失。
-4. 合并 FilePanel 与 TaskPanel 为 Auxiliary Bay。
+3. 保持单一 Project Ledger，并明确分离 Work 模式与 Settings 模式。
+4. 保留 FilePanel 作为右侧面板；将 TaskPanel 实现为锚定 topbar 的 Activity Popover。
 5. 重做 Conversation Welcome 和 Timeline 层级。
 6. 将 Agents、Skills、MCP、Workflow 卡片网格迁移为资源列表 + Drawer。
 7. 统一 Dialog、Drawer、Toast、Button、Input 和状态组件。

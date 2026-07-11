@@ -1,10 +1,9 @@
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Beaker, BookOpen, FileText, MessageSquare, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { Beaker, BookOpen, FileText, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import type { KnowledgeEntrySummary, ProjectScene } from '@shared/types';
 import { useProjectStore } from '../../stores/projectStore';
-import { useFileStore } from '../../stores/fileStore';
 
 type ResearchPanel = 'conversation' | 'papers' | 'writing' | 'experiments';
 type PaperViewMode = 'flat' | 'grouped';
@@ -36,14 +35,11 @@ export function SceneWorkspace({ scene, conversation }: SceneWorkspaceProps) {
 function ResearchSceneWorkspace({ conversation }: { conversation: ReactNode }) {
   const { t } = useTranslation();
   const [activePanel, setActivePanel] = useState<ResearchPanel>('conversation');
-  const taskPanelOpen = useProjectStore((state) => state.taskPanelOpen);
-  const setTaskPanelOpen = useProjectStore((state) => state.setTaskPanelOpen);
-  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--color-bg-app)]">
-      <div className="relative flex h-10 shrink-0 items-center justify-between border-b border-[var(--color-border)] px-3">
-        <div role="tablist" aria-label={t('sceneWorkspace.researchTabs')} className="flex items-center gap-1">
+      <header className="main-topbar h-10 shrink-0 justify-between px-3">
+        <div role="tablist" aria-label={t('sceneWorkspace.researchTabs')} className="main-topbar-left flex items-center gap-1">
           {researchPanels.map((panel) => {
             const Icon = panel.icon;
             const selected = activePanel === panel.id;
@@ -54,7 +50,7 @@ function ResearchSceneWorkspace({ conversation }: { conversation: ReactNode }) {
                 role="tab"
                 aria-selected={selected}
                 onClick={() => setActivePanel(panel.id)}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors ${
+                className={`inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] ${
                   selected
                     ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
@@ -67,22 +63,7 @@ function ResearchSceneWorkspace({ conversation }: { conversation: ReactNode }) {
           })}
         </div>
 
-        <button
-          onClick={() => setTaskPanelOpen(!taskPanelOpen)}
-          className={`absolute top-[4px] w-7 h-7 flex items-center justify-center cursor-pointer rounded transition-all no-drag ${
-            taskPanelOpen
-              ? 'text-[var(--color-accent)]'
-              : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-          }`}
-          style={{
-            right: filePanelOpen ? '8px' : '32px'
-          }}
-          title={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
-          aria-label={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      </header>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {activePanel === 'conversation' ? (
@@ -179,8 +160,8 @@ function PaperLibraryPanel() {
   const groupedPapers = useMemo(() => groupPapersByTag(filteredPapers, t('sceneWorkspace.untaggedGroup')), [filteredPapers, t]);
 
   return (
-    <div role="tabpanel" className="h-full overflow-auto bg-[var(--color-bg-app)] px-5 py-4">
-      <div className="mx-auto flex max-w-5xl flex-col gap-3">
+    <div role="tabpanel" className="h-full overflow-auto bg-[var(--color-bg-app)] px-5 py-5">
+      <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-[var(--color-text-primary)]">{t('sceneWorkspace.paperLibrary')}</div>
@@ -197,13 +178,13 @@ function PaperLibraryPanel() {
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder={t('sceneWorkspace.paperSearchPlaceholder')}
-                className="h-8 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] pl-8 pr-2 text-xs text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-border-strong)]"
+                className="h-8 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-sunken)] pl-8 pr-2 text-xs text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
               />
             </label>
             <button
               type="button"
               onClick={() => void loadEntries()}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               {t('sceneWorkspace.refreshPapers')}

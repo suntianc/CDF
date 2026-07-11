@@ -3,12 +3,11 @@ import { useTranslation } from 'react-i18next';
 import type { Project } from '@shared/types';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
-import { useFileStore } from '../../stores/fileStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import {
-  Plus, SlidersHorizontal, Image, BarChart3
+  Plus, Image, BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -50,13 +49,10 @@ export function ChatArea({
   onOpenSettings,
   onOpenPlugins,
   onToggleSidebar,
-  taskPanelOpen,
-  onToggleTaskPanel,
   onOpenTaskPanel,
   scene
 }: ChatAreaProps) {
   const { t } = useTranslation();
-  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
   const setProjects = useProjectStore((s) => s.setProjects);
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject);
   const sendMessage = useSessionStore((s) => s.sendMessage);
@@ -333,24 +329,8 @@ export function ChatArea({
       >
         {/* Chat Header */}
         {scene !== 'research' && (
-          <header className="main-topbar shrink-0 h-9">
+          <header className="main-topbar shrink-0 h-10">
             <div className="main-topbar-left" />
-            
-            {/* Right Header Toolbar */}
-            <div className={`main-topbar-right flex items-center gap-2 ml-auto no-drag ${filePanelOpen ? '-mr-4' : 'mr-2'}`}>
-              <button
-                onClick={onToggleTaskPanel}
-                className={`w-7 h-7 flex items-center justify-center cursor-pointer rounded transition-all ${
-                  taskPanelOpen
-                    ? 'text-[var(--color-accent)]'
-                    : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                }`}
-                title={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
-                aria-label={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-            </div>
           </header>
         )}
 
