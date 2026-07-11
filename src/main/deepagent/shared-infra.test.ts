@@ -129,8 +129,8 @@ describe('resolveInterruptOn', () => {
 // ===== DEFAULT_INTERRUPT_ON =====
 
 describe('DEFAULT_INTERRUPT_ON', () => {
-  it('contains exactly 6 keys', () => {
-    expect(Object.keys(DEFAULT_INTERRUPT_ON)).toHaveLength(6);
+  it('contains every approval-gated built-in tool', () => {
+    expect(Object.keys(DEFAULT_INTERRUPT_ON)).toHaveLength(8);
   });
 
   it('has all required tool keys', () => {
@@ -141,6 +141,8 @@ describe('DEFAULT_INTERRUPT_ON', () => {
     expect(keys).toContain('delete_agent');
     expect(keys).toContain('update_agent');
     expect(keys).toContain('create_agent');
+    expect(keys).toContain('generate_video');
+    expect(keys).toContain('manage_background_jobs');
   });
 });
 
@@ -192,6 +194,7 @@ describe('createBuiltInTools', () => {
       'knowledge_create',
       'generate_image',
       'generate_video',
+      'manage_background_jobs',
       'synthesize_speech',
       'generate_music',
     ]);

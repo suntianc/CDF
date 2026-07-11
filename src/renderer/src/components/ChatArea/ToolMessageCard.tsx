@@ -130,7 +130,7 @@ export function ToolMessageCard({
         type="button"
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-surface)] active:scale-[0.98] rounded px-1.5 py-1 -mx-1.5 transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+        className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-surface)] rounded px-1.5 py-1 -mx-1.5 transition-[background-color,color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
       >
         {/* Status/Category Icon */}
         <span aria-hidden="true" className="flex items-center justify-center shrink-0">
@@ -268,7 +268,7 @@ export function ToolGroupCard({ tools }: { tools: any[] }) {
           type="button"
           onClick={() => setExpanded(!expanded)}
           aria-expanded={expanded}
-          className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-surface)] active:scale-[0.98] rounded px-1.5 py-1 -mx-1.5 transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+          className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-surface)] rounded px-1.5 py-1 -mx-1.5 transition-[background-color,color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
         >
           <span aria-hidden="true" className="flex items-center justify-center shrink-0 animate-pop-in">
             {getGroupIcon()}

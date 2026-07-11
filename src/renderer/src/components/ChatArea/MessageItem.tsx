@@ -92,7 +92,7 @@ function SkillAttributionCard({ info }: { info: SkillAttributionInfo }) {
 
 function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = false }: ThinkBlockProps) {
   return (
-    <div className="mb-2.5 flex flex-col transition-all duration-200">
+    <div className="mb-2.5 flex flex-col">
       <button
         type="button"
         onClick={onToggle}

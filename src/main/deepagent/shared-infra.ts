@@ -20,9 +20,10 @@ import { loadMcpTools } from './mcp-connector';
 import type { ApprovalMode, MCPServer } from '../../shared/types';
 import { createKnowledgeCreateTool, createKnowledgeSearchTool } from '../knowledge-base';
 import { createGenerateImageTool } from '../capabilities/generate-image';
-import { createGenerateVideoTool } from '../capabilities/generate-video';
+import { createGenerateVideoJobTool } from '../capabilities/generate-video-job-tool';
 import { createSynthesizeSpeechTool } from '../capabilities/synthesize-speech';
 import { createGenerateMusicTool } from '../capabilities/generate-music';
+import { createManageBackgroundJobsTool } from '../capabilities/manage-background-jobs-tool';
 
 // Re-export loadMcpTools for consumers that only need shared-infra
 export { loadMcpTools };
@@ -182,6 +183,8 @@ export const DEFAULT_INTERRUPT_ON: InterruptOnConfig = {
   delete_agent: { allowedDecisions: ['approve', 'reject'] },
   update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
   create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  generate_video: { allowedDecisions: ['approve', 'reject'] },
+  manage_background_jobs: { allowedDecisions: ['approve', 'reject'] },
 };
 
 /**
@@ -208,7 +211,7 @@ export function resolveInterruptOn(
 /**
  * 构建内建工具（delete_file、bash、fetch、generate_image/video/speech/music 等），绑定到指定工作目录
  */
-export function createBuiltInTools(workingDir: string): any[] {
+export function createBuiltInTools(workingDir: string, sourceSessionId?: string): any[] {
   return [
     createDeleteFileTool(workingDir),
     createBashTool({ workingDir }),
@@ -217,7 +220,8 @@ export function createBuiltInTools(workingDir: string): any[] {
     createKnowledgeSearchTool(workingDir),
     createKnowledgeCreateTool(workingDir),
     createGenerateImageTool(workingDir),
-    createGenerateVideoTool(workingDir),
+    createGenerateVideoJobTool(workingDir, sourceSessionId),
+    createManageBackgroundJobsTool(workingDir),
     createSynthesizeSpeechTool(workingDir),
     createGenerateMusicTool(workingDir),
   ];

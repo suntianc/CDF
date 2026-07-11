@@ -260,7 +260,7 @@ export const renderMarkdownText = (text: string) => {
     if (currentDetailsLines.length > 0 || detailsSummary) {
       const detailsContent = currentDetailsLines.join('\n');
       elements.push(
-        <details key={`details-${key}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+        <details key={`details-${key}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-[background-color,border-color] duration-150">
           {detailsSummary && (
             <summary className="font-semibold cursor-pointer select-none text-sm hover:text-[var(--color-text-primary)] transition-colors py-0.5">
               {detailsSummary}

@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, waitFor, act, fireEvent } from '@testing-library/react';
 import { TaskPanel } from './TaskPanel';
+import type { CapabilityJobEvent } from '../../../../shared/capability-jobs';
 
 const fetchAgentActivity = vi.fn();
+const listCapabilityJobs = vi.fn();
+const commandCapabilityJob = vi.fn();
+let capabilityJobListener: ((event: CapabilityJobEvent) => void) | undefined;
 let sessionState: Record<string, unknown>;
 
 vi.mock('react-i18next', () => ({
@@ -19,11 +23,33 @@ vi.mock('../../stores/sessionStore', () => ({
 vi.mock('../../stores/agentStore', () => ({
   useAgentStore: () => [],
 }));
+vi.mock('../../stores/projectStore', () => ({
+  useProjectStore: (selector: (state: { currentProjectId: string }) => unknown) =>
+    selector({ currentProjectId: 'project-1' }),
+}));
 
 
 beforeEach(() => {
   fetchAgentActivity.mockReset();
   fetchAgentActivity.mockResolvedValue(undefined);
+  listCapabilityJobs.mockReset();
+  listCapabilityJobs.mockResolvedValue([]);
+  commandCapabilityJob.mockReset();
+  commandCapabilityJob.mockResolvedValue({ ok: false, error: 'not configured', code: 'TEST' });
+  capabilityJobListener = undefined;
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+      capabilityJobs: {
+        list: listCapabilityJobs,
+        command: commandCapabilityJob,
+        onChanged: (listener: typeof capabilityJobListener) => {
+          capabilityJobListener = listener;
+          return vi.fn();
+        },
+      },
+    },
+  });
   sessionState = {
     activeSessionId: 'session-1',
     activeRunId: null,
@@ -105,6 +131,95 @@ describe('TaskPanel', () => {
 
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('shows project background video job state and applies status events', async () => {
+    listCapabilityJobs.mockResolvedValue([{
+      id: 'job-1',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'queued',
+      provider: 'xai-oauth',
+      artifacts: [],
+      connectionId: 'xai-oauth',
+      queuePosition: 1,
+      relatedJobId: null,
+      availableActions: ['cancel'],
+      error: null,
+      statusMessage: 'waiting_connection_slot',
+      createdAt: 1,
+      updatedAt: 1,
+    }]);
+    const { getByText, getByRole } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getByText('taskPanel.jobStatus.queued')).toBeTruthy());
+    commandCapabilityJob.mockRejectedValueOnce(new Error('IPC unavailable'));
+    fireEvent.click(getByRole('button', { name: 'taskPanel.jobAction.cancel' }));
+    await waitFor(() => expect(getByRole('alert').textContent).toBe('taskPanel.commandError.generic'));
+    act(() => capabilityJobListener?.({
+      projectId: 'project-1',
+      job: {
+        id: 'job-1',
+        projectId: 'project-1',
+        type: 'video.generate',
+        status: 'completed',
+        provider: 'xai-oauth',
+        artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
+        connectionId: 'xai-oauth',
+        queuePosition: null,
+        relatedJobId: null,
+        availableActions: [],
+        error: null,
+        statusMessage: 'artifact_durable',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    }));
+    expect(getByText('taskPanel.jobStatus.completed')).toBeTruthy();
+    expect(getByText('/project/video.mp4')).toBeTruthy();
+  });
+
+  it('offers state-safe controls and explains unknown submission risk', async () => {
+    listCapabilityJobs.mockResolvedValue([{
+      id: 'job-unknown',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'submission_unknown',
+      provider: 'xai-oauth',
+      connectionId: 'xai-oauth',
+      queuePosition: null,
+      relatedJobId: null,
+      availableActions: ['resubmit'],
+      artifacts: [],
+      error: 'connection reset',
+      statusMessage: 'submission_unknown_no_retry',
+      createdAt: 1,
+      updatedAt: 1,
+    }]);
+    commandCapabilityJob.mockResolvedValue({ ok: true, job: {
+      id: 'job-new',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'queued',
+      provider: 'xai-oauth',
+      connectionId: 'xai-oauth',
+      queuePosition: 1,
+      relatedJobId: 'job-unknown',
+      availableActions: ['cancel'],
+      artifacts: [],
+      error: null,
+      statusMessage: 'explicit_resubmission_risk',
+      createdAt: 2,
+      updatedAt: 2,
+    } });
+    const { getByText, getByRole } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getByText('taskPanel.jobStatus.submission_unknown')).toBeTruthy());
+    expect(getByText('taskPanel.jobMessage.submission_unknown_no_retry')).toBeTruthy();
+    fireEvent.click(getByRole('button', { name: 'taskPanel.jobAction.resubmit' }));
+    await waitFor(() => expect(commandCapabilityJob).toHaveBeenCalledWith(
+      'project-1', 'job-unknown', 'resubmit'
+    ));
+  });
+
 });
 
 describe('TaskPanel — Activity Trail', () => {

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '../../i18n';
 import { SceneWorkspace } from './SceneWorkspace';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import type { KnowledgeEntrySummary } from '@shared/types';
 
 const knowledgeListMock = vi.fn();
@@ -37,6 +38,7 @@ describe('SceneWorkspace Paper Library', () => {
       activeView: 'chat',
       taskPanelOpen: false,
     });
+    useSessionStore.setState({ activeSessionId: 'session-1' });
     (window as unknown as { electronAPI: unknown }).electronAPI = {
       knowledge: {
         list: knowledgeListMock,
@@ -45,6 +47,20 @@ describe('SceneWorkspace Paper Library', () => {
         openPdf: openPaperPdfMock,
       },
     };
+  });
+
+  it('hides research scene navigation on the welcome surface', () => {
+    useSessionStore.setState({ activeSessionId: null });
+
+    render(
+      <SceneWorkspace
+        scene="research"
+        conversation={<div data-testid="conversation-workspace">Conversation</div>}
+      />,
+    );
+
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /论文库|Paper Library/ })).toBeNull();
   });
 
   it('shows Paper Entries from the project Knowledge Base', async () => {

@@ -28,7 +28,7 @@ export function CodeBlock({ lang, code }: CodeBlockProps) {
         <button
           type="button"
           onClick={handleCopy}
-          className={`transition-all duration-200 text-xs font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${
+          className={`transition-[background-color,color,transform] duration-150 text-xs font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
             copied
               ? 'text-[var(--color-success)] bg-[var(--color-success-dim)]/20'
               : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'

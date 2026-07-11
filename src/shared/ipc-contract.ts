@@ -49,6 +49,12 @@ import type {
   WorkflowNodeRun,
   WorkflowSaveInput,
 } from './types';
+import type {
+  CapabilityJobAction,
+  CapabilityJobCommandResult,
+  CapabilityJobEvent,
+  CapabilityJobSnapshot,
+} from './capability-jobs';
 import type { SkillOverrideState } from './skill-overrides';
 import type {
   AtMentionCandidateList,
@@ -112,6 +118,11 @@ export interface IpcInvokeContract {
   'db:deleteProvider': { args: [id: string]; result: void };
   'db:setActiveProvider': { args: [id: string]; result: void };
   'db:selectDirectory': { args: []; result: string | null };
+  'capability-jobs:list': { args: [projectId: string]; result: CapabilityJobSnapshot[] };
+  'capability-jobs:command': {
+    args: [projectId: string, jobId: string, action: CapabilityJobAction];
+    result: CapabilityJobCommandResult;
+  };
   // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
   'db:getAgents': { args: [projectId: string]; result: Agent[] };
   'db:saveAgent': { args: [agent: AgentSaveInput]; result: AgentSaveResult };
@@ -342,6 +353,8 @@ export const IPC_INVOKE_CHANNELS = [
   'db:deleteProvider',
   'db:setActiveProvider',
   'db:selectDirectory',
+  'capability-jobs:list',
+  'capability-jobs:command',
   'db:getAgents',
   'db:saveAgent',
   'db:deleteAgent',
@@ -444,6 +457,7 @@ export interface IpcEventContract {
   'fs:directoryChange': { type: string; path: string };
   'commands:changed': { source: string };
   'commands:fallback': { scope: 'system' | 'project'; dir: string; error: string };
+  'capability-jobs:changed': CapabilityJobEvent;
 }
 
 export type IpcEventChannel = keyof IpcEventContract;

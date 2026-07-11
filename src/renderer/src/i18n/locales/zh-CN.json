@@ -168,7 +168,53 @@
     "taskFailed": "任务失败: {{code}}",
     "taskCompleted": "任务执行完成",
     "tokenUnit": "tokens",
-    "subagentCallIntercepted": "子 Agent 工具调用被拦截"
+    "subagentCallIntercepted": "子 Agent 工具调用被拦截",
+    "backgroundJobsTitle": "后台任务",
+    "backgroundJobsEmpty": "当前项目暂无后台任务。",
+    "videoGeneration": "视频生成",
+    "queuePosition": "队列第 {{position}} 位",
+    "jobStatus": {
+      "queued": "排队中",
+      "submission_pending": "正在提交",
+      "submission_unknown": "提交结果未知",
+      "submitted": "已提交",
+      "running": "处理中",
+      "downloading": "下载中",
+      "blocked": "已阻塞",
+      "tracking_stopped": "已停止跟踪",
+      "completed": "已完成",
+      "failed": "失败",
+      "canceled": "已取消"
+    },
+    "jobAction": {
+      "cancel": "取消排队任务",
+      "stop_tracking": "停止跟踪",
+      "resume_tracking": "恢复跟踪",
+      "resubmit": "承担重复计费风险并重新提交",
+      "running": "正在执行…"
+    },
+    "commandError": {
+      "INVALID_STATE": "当前任务状态已不允许执行此操作。",
+      "NOT_FOUND": "该后台任务已不存在。",
+      "PROJECT_NOT_FOUND": "该项目已不存在。",
+      "generic": "后台任务操作失败，请重试。"
+    },
+    "jobMessage": {
+      "waiting_connection_slot": "正在等待已冻结连接的执行槽，尚未向 Provider 发送请求。",
+      "tracking_stopped_remote_continues": "已停止本地跟踪，远端生成与计费仍可能继续。",
+      "explicit_resubmission_risk": "已明确重新提交，原任务是否产生 Provider 费用仍未知。",
+      "submission_unknown_no_retry": "Provider 是否接受任务未知，CDF 不会自动重试。",
+      "route_blocked_no_fallback": "已冻结连接不可用，CDF 不会切换 Provider。",
+      "submitting_once": "正在向已冻结的 Provider 连接提交一次。",
+      "provider_task_submitted": "已提交 Provider 任务。",
+      "temporary_provider_error": "Provider 暂时不可用，可恢复跟踪以重试同一任务。",
+      "reconnect_same_connection": "请重新连接同一个 Provider 连接后恢复跟踪。",
+      "provider_processing": "Provider 正在处理视频。",
+      "downloading_provider_result": "正在下载 Provider 结果。",
+      "temporary_download_error": "下载暂时失败，可恢复跟踪后重试。",
+      "artifact_durable": "本地 MP4 产物已持久落盘。",
+      "job_failed": "后台视频任务失败。"
+    }
   },
   "subagentView": {
     "backToMaster": "返回主对话",
@@ -741,6 +787,7 @@
     },
     "list": {
       "title": "工作流列表 ({{count}})",
+      "loading": "正在加载工作流...",
       "newWorkflow": "新建工作流",
       "enabled": "已启用",
       "disabled": "未启用",
@@ -990,6 +1037,10 @@
     "togglePanel": "文件面板",
     "collapsePanel": "收起文件面板",
     "showTree": "显示文件树",
+    "selectProject": "选择一个项目以浏览文件",
+    "loadingTree": "正在加载文件树...",
+    "retry": "重试",
+    "emptyDirectory": "此文件夹为空",
     "hideTree": "隐藏文件树"
   }
 }

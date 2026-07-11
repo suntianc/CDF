@@ -1,5 +1,6 @@
 import { app, BrowserWindow, protocol, net } from 'electron';
 import { registerIpcHandlers } from './ipc-handlers';
+import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
 
 // Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media
 protocol.registerSchemesAsPrivileged([
@@ -105,6 +106,7 @@ app.whenReady().then(() => {
 
   configureNetworkProxy();
   registerIpcHandlers();
+  backgroundCapabilityJobs.resumePending();
 
   // Phase 6 Plan 02: start system-scoped chokidar watcher for `~/.cdf/commands/*.md`.
   // P6.6: os.homedir() is now ready since we are inside app.whenReady.

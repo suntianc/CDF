@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import { Beaker, BookOpen, FileText, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import type { KnowledgeEntrySummary, ProjectScene } from '@shared/types';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSessionStore } from '../../stores/sessionStore';
 
 type ResearchPanel = 'conversation' | 'papers' | 'writing' | 'experiments';
 type PaperViewMode = 'flat' | 'grouped';
@@ -35,35 +36,43 @@ export function SceneWorkspace({ scene, conversation }: SceneWorkspaceProps) {
 function ResearchSceneWorkspace({ conversation }: { conversation: ReactNode }) {
   const { t } = useTranslation();
   const [activePanel, setActivePanel] = useState<ResearchPanel>('conversation');
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      setActivePanel('conversation');
+    }
+  }, [activeSessionId]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--color-bg-app)]">
-      <header className="main-topbar h-10 shrink-0 justify-between px-3">
-        <div role="tablist" aria-label={t('sceneWorkspace.researchTabs')} className="main-topbar-left flex items-center gap-1">
-          {researchPanels.map((panel) => {
-            const Icon = panel.icon;
-            const selected = activePanel === panel.id;
-            return (
-              <button
-                key={panel.id}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => setActivePanel(panel.id)}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] ${
-                  selected
-                    ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
-                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {t(panel.labelKey)}
-              </button>
-            );
-          })}
-        </div>
-
-      </header>
+      {activeSessionId && (
+        <header className="main-topbar h-10 shrink-0 justify-between px-3">
+          <div role="tablist" aria-label={t('sceneWorkspace.researchTabs')} className="main-topbar-left flex items-center gap-1">
+            {researchPanels.map((panel) => {
+              const Icon = panel.icon;
+              const selected = activePanel === panel.id;
+              return (
+                <button
+                  key={panel.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setActivePanel(panel.id)}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] ${
+                    selected
+                      ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
+                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {t(panel.labelKey)}
+                </button>
+              );
+            })}
+          </div>
+        </header>
+      )}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {activePanel === 'conversation' ? (

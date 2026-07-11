@@ -678,7 +678,7 @@ export async function createDeepAgentRuntime(
     .map((fileName) => path.join(project.path, fileName))
     .slice(0, 1);
 
-  const builtInTools: any[] = createBuiltInTools(project.path);
+  const builtInTools: any[] = createBuiltInTools(project.path, sessionId);
 
   try {
     builtInTools.push(...loadRegistryTools());

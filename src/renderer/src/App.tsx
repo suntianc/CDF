@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useMemo, useRef, useState, useEffect, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar/Sidebar';
+import sidebarStyles from './components/Sidebar/Sidebar.module.css';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { ModelSettings } from './components/Settings/ModelSettings';
 import { AISubscriptionSettings } from './components/Settings/AISubscriptionSettings';
@@ -226,7 +227,7 @@ export default function App() {
       {sidebarCollapsed && !isEditingWorkflow && (
         <button
           onClick={() => setSidebarCollapsed(false)}
-          className="absolute top-[4px] left-[78px] z-[var(--z-topbar)] flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] no-drag"
+          className={sidebarStyles.sidebarCollapseBtn}
           title={t('app.expandSidebar')}
           aria-label={t('app.expandSidebar')}
         >

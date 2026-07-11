@@ -281,7 +281,7 @@ const DetailsComponent = ({ children }: { children: React.ReactNode }) => {
     .trim();
 
   return (
-    <details className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+    <details className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-[background-color,border-color] duration-150">
       {summary ?? <summary className="font-semibold cursor-pointer select-none text-sm py-0.5">Details</summary>}
       {bodyText && (
         <Streamdown
@@ -365,7 +365,7 @@ const ImgComponent = ({ src, alt }: { src?: string; alt?: string }) => {
       <img
         src={safeSrc}
         alt={alt || 'image'}
-        className="max-w-[280px] max-h-[200px] object-contain rounded-lg border border-[var(--color-border)]/20 cursor-zoom-in shadow-sm hover:opacity-90 hover:scale-[1.01] active:scale-[0.99] transition-all duration-150"
+        className="max-w-[280px] max-h-[200px] object-contain rounded-lg outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10 cursor-zoom-in shadow-sm hover:opacity-90 hover:scale-[1.01] active:scale-[0.99] transition-[opacity,transform] duration-150"
         onClick={() => zoomImage(safeSrc)}
       />
     </span>
@@ -448,7 +448,7 @@ export const StreamdownRenderer = memo(({ text, isTypewriting = false, density =
           }
 
           return (
-            <details key={`details-${index}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+            <details key={`details-${index}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-[background-color,border-color] duration-150">
               <SummaryComponent>{segment.summary}</SummaryComponent>
               <StreamdownRenderer text={segment.body} isTypewriting={isTypewriting} density={density} />
             </details>

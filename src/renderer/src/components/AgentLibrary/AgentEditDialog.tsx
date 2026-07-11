@@ -204,7 +204,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
           </span>
           <button
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+            className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-[background-color,color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             aria-label={t('common.closeModal')}
           >
             <X className="w-4 h-4" />
@@ -365,7 +365,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                   {t('agent.skillPreloadDesc')}
                 </p>
 
-                <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-all">
+                <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-[background-color,border-color] duration-150">
                   {formSkillIds.map(id => {
                     const sk = skills.find(s => s.id === id);
                     const displayName = sk ? getSkillDisplayName(sk) : '';
@@ -394,7 +394,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                     e.stopPropagation();
                     setSkillDropdownOpen(!skillDropdownOpen);
                   }}
-                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer font-medium"
+                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-[background-color,border-color,color] duration-150 cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>{t('agent.manageSkillPreload')}</span>

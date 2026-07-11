@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, X, XCircle } from 'lucide-react';
+import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, Video, X, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
 import { useSessionStore } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useProjectStore } from '../../stores/projectStore';
+import type { CapabilityJobAction, CapabilityJobSnapshot } from '../../../../shared/capability-jobs';
 import type { AgentRunStatus } from '../../../../shared/types';
 import {
   projectActivityPanel,
@@ -93,9 +95,9 @@ function DelegatedTaskCard({ item, onSelect }: {
         type="button"
         aria-label={`${item.agentName} (${item.statusText})`}
         onClick={onSelect}
-        className={`w-full text-left p-2.5 rounded-md border transition-all duration-150 ease-out focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+        className={`w-full text-left p-2.5 rounded-md border transition-[background-color,border-color] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-sidebar)] focus-visible:outline-none ${
           item.isActive
-            ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30 shadow-sm'
+            ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
             : 'bg-[var(--color-bg-surface)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
         }`}
       >
@@ -127,10 +129,10 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
                 key={item.key}
                 type="button"
                 onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug, workerId: worker.workerId })}
-                className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-all text-left focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+                className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-[background-color,border-color] duration-150 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] focus-visible:outline-none ${
                   item.isActive
                     ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
-                    : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)]'
+                    : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -154,6 +156,144 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
         </div>
       ))}
     </div>
+  );
+}
+
+function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
+  const { t } = useTranslation();
+  const projectId = useProjectStore((state) => state.currentProjectId);
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
+  const [jobs, setJobs] = useState<CapabilityJobSnapshot[]>([]);
+  const [jobsProjectId, setJobsProjectId] = useState(projectId);
+  const visibleJobs = jobsProjectId === projectId ? jobs : [];
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setJobsProjectId(projectId);
+    setJobs([]);
+    if (!isOpen || !projectId) return;
+    let active = true;
+    const unsubscribe = window.electronAPI.capabilityJobs.onChanged((event) => {
+      if (!active || event.projectId !== projectId) return;
+      setJobs((current) => [
+        event.job,
+        ...current.filter((job) => job.id !== event.job.id),
+      ].sort((left, right) => right.createdAt - left.createdAt));
+    });
+    window.electronAPI.capabilityJobs.list(projectId)
+      .then((snapshots) => {
+        if (!active) return;
+        setJobs((current) => {
+          const latestById = new Map(snapshots.map((job) => [job.id, job]));
+          for (const job of current) {
+            const snapshot = latestById.get(job.id);
+            if (!snapshot || job.updatedAt >= snapshot.updatedAt) latestById.set(job.id, job);
+          }
+          return [...latestById.values()]
+            .sort((left, right) => right.createdAt - left.createdAt);
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [isOpen, projectId]);
+
+  const runCommand = (jobId: string, action: CapabilityJobAction) => {
+    if (!projectId) return;
+    const commandKey = `${jobId}:${action}`;
+    setPendingCommand(commandKey);
+    setCommandError(null);
+    window.electronAPI.capabilityJobs.command(projectId, jobId, action)
+      .then((result) => {
+        if (projectIdRef.current !== projectId) return;
+        if (!result.ok) {
+          setCommandError(`taskPanel.commandError.${result.code}`);
+          return;
+        }
+        setJobs((current) => [
+          result.job,
+          ...current.filter((job) => job.id !== result.job.id),
+        ].sort((left, right) => right.createdAt - left.createdAt));
+      })
+      .catch(() => {
+        if (projectIdRef.current !== projectId) return;
+        setCommandError('taskPanel.commandError.generic');
+      })
+      .finally(() => setPendingCommand((current) => current === commandKey ? null : current));
+  };
+
+  if (!projectId) return null;
+  return (
+    <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
+      <h3 className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
+        <Video className="h-3.5 w-3.5 text-[var(--color-accent)]" aria-hidden="true" />
+        {t('taskPanel.backgroundJobsTitle')}
+      </h3>
+      {commandError && (
+        <p role="alert" className="text-xs text-[var(--color-danger)]">{t(commandError)}</p>
+      )}
+      {visibleJobs.length === 0 ? (
+        <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsEmpty')}</p>
+      ) : visibleJobs.map((job) => (
+        <div key={job.id} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] p-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-medium text-[var(--color-text-primary)]">
+              {t('taskPanel.videoGeneration')}
+            </span>
+            <span className={`shrink-0 text-xs ${
+              job.status === 'failed'
+                ? 'text-[var(--color-danger)]'
+                : job.status === 'completed'
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-accent)]'
+            }`}>
+              {t(`taskPanel.jobStatus.${job.status}`)}
+            </span>
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-muted)]">
+            <span>{job.connectionId}</span>
+            {job.queuePosition !== null && (
+              <span>{t('taskPanel.queuePosition', { position: job.queuePosition })}</span>
+            )}
+          </div>
+          {job.statusMessage && (
+            <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">
+              {t(`taskPanel.jobMessage.${job.statusMessage}`)}
+            </p>
+          )}
+          {job.error && <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.error}</p>}
+          {job.artifacts.map((artifact) => (
+            <p key={artifact.path} className="mt-1 truncate font-mono text-xs text-[var(--color-text-muted)]" title={artifact.path}>
+              {artifact.path}
+            </p>
+          ))}
+          {job.availableActions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {job.availableActions.map((action) => {
+                const commandKey = `${job.id}:${action}`;
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    disabled={pendingCommand !== null}
+                    onClick={() => runCommand(job.id, action)}
+                    className="rounded border border-[var(--color-border-strong)] px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {pendingCommand === commandKey
+                      ? t('taskPanel.jobAction.running')
+                      : t(`taskPanel.jobAction.${action}`)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -214,6 +354,8 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
 
   return (
     <>
+      <BackgroundJobsSection isOpen={isOpen} />
+
       {projection.sessionEmptyState && (
         <div className="text-xs text-[var(--color-text-muted)]">{projection.sessionEmptyState.message}</div>
       )}
@@ -360,7 +502,7 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
               className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
             >
               <div
-                className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out motion-reduce:transition-none"
+                className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
                 style={{ width: `${projection.delegatedWorkSection.progress.percentage}%` }}
               />
             </div>

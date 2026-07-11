@@ -123,7 +123,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       <div className="settings-content overflow-y-auto flex-1 px-5 pb-6 pt-4">
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-4 shrink-0">
-          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
+          <div className="text-[13px] font-semibold tabular-nums text-[var(--color-text-primary)]">
             {t('workflow.list.title', { count: workflows.length })}
           </div>
           <button
@@ -143,11 +143,37 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
         )}
 
         {/* Workflow Cards */}
-        <div className="flex flex-col gap-2">
+        <div className="resource-card-grid">
+          {isLoading && workflows.length === 0 && (
+            <>
+              <span className="sr-only" role="status">{t('workflow.list.loading')}</span>
+              {[0, 1, 2].map((index) => (
+                <div
+                  key={index}
+                  aria-hidden="true"
+                  className="provider-card resource-square-card flex min-h-[220px] flex-col gap-4 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-1 items-center gap-3">
+                      <div className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                      <div className="h-4 w-28 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                    </div>
+                    <div className="h-5 w-9 rounded-full bg-[var(--color-bg-sunken)] animate-pulse" />
+                  </div>
+                  <div className="h-3 w-3/4 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                  <div className="h-3 w-1/2 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                  <div className="mt-auto flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
+                    <div className="h-7 w-14 rounded-[var(--radius-sm)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                    <div className="h-7 w-14 rounded-[var(--radius-sm)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className="provider-card flex items-center gap-4 px-4 py-3 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
+              className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
               onClick={() => onSelectWorkflow(workflow)}
             >
               <div className="min-w-0 flex-1">
@@ -195,7 +221,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   {workflow.description || t('workflow.list.noDescription')}
                 </p>
 
-                <div className="flex items-center gap-2 text-[11px] text-[var(--color-text-muted)]">
+                <div className="flex items-center gap-2 text-[11px] tabular-nums text-[var(--color-text-muted)]">
                   <Clock className="w-3 h-3" />
                   <span>{formatDate(workflow.updated_at)}</span>
                   <span className="mx-1">·</span>
@@ -203,7 +229,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center justify-end gap-2">
+              <div className="mt-auto flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
                 <button
                   className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer text-[var(--color-success)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 hover:bg-[var(--color-success-dim)]"
                   onClick={(e) => handleRunWorkflow(workflow, e)}
@@ -237,7 +263,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
           ))}
 
           {workflows.length === 0 && !isLoading && (
-            <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+            <div className="col-span-full flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
               <span>{t('workflow.list.empty')}</span>
               <button className="btn btn-primary" onClick={onCreateWorkflow}>{t('workflow.list.newWorkflow')}</button>
             </div>

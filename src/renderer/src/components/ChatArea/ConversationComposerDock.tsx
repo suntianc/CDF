@@ -85,7 +85,7 @@ export function ConversationComposerDock({
               <button
                 type="button"
                 onClick={onStopGenerating}
-                className="h-8 w-8 rounded-full bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/90 text-white transition-all flex items-center justify-center cursor-pointer border-0 outline-none shadow-sm"
+                className="h-8 w-8 rounded-full bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/90 text-white transition-[background-color,transform] duration-150 flex items-center justify-center cursor-pointer border-0 outline-none shadow-sm active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-app)]"
                 title={stopGeneratingLabel}
                 aria-label={stopGeneratingLabel}
               >
@@ -96,7 +96,7 @@ export function ConversationComposerDock({
                 type="button"
                 onClick={onSubmit}
                 disabled={!canSubmit}
-                className="h-8 w-8 rounded-full bg-[var(--color-accent)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all flex items-center justify-center cursor-pointer border-0 outline-none shadow-sm"
+                className="h-8 w-8 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-bg-sunken)] disabled:text-[var(--color-text-disabled)] disabled:[&_svg]:text-[var(--color-text-disabled)] disabled:cursor-not-allowed text-white transition-[background-color,color,transform] duration-150 flex items-center justify-center cursor-pointer border-0 outline-none shadow-sm active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-app)]"
                 aria-label={sendLabel}
               >
                 <ArrowUp className="w-4 h-4 text-white" />
