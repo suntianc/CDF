@@ -1,472 +1,815 @@
----
-name: CDF
-description: 本地多领域 Agent 工作站，让用户在自己的机器上组织任务、上下文、Agent、能力和产物。
-themes:
-  - light
-  - dark
-colors:
-  # Light 主题（默认，Figma 风格奶白画布 + 粉彩 color blocks + 单点 accent-magenta）
-  light:
-    canvas: "#fbf8f4"
-    inverse-canvas: "#1a1a1a"
-    surface-raised: "#ffffff"
-    surface-soft: "#f1ece2"
-    surface-sunken: "#ece5d4"
-    ink-primary: "#1a1a1a"
-    ink-secondary: "#1a1a1acc"
-    ink-muted: "#1a1a1a80"
-    ink-inverse: "#fbf8f4"
-    ink-inverse-soft: "#fbf8f426"
-    block-lime: "#e0f0c2"
-    block-lilac: "#e3d8f5"
-    block-cream: "#f5e6c5"
-    block-mint: "#c2e8d6"
-    block-pink: "#f5c4d1"
-    block-coral: "#f5b0a0"
-    block-navy: "#1a1a3a"
-    accent-magenta: "#e2007a"
-    accent-magenta-hover: "#c4006a"
-    accent-magenta-dim: "#e2007a1f"
-    success: "#0a7a3a"
-    danger: "#c0002a"
-    warning: "#a86b00"
-    info: "#1f5fb0"
-    overlay-scrim: "#00000099"
-    trace-line: "#1a1a1a14"
-    border-strong: "#1a1a1a26"
-  # Dark 主题（冷黑画布 + 同一套 ink 角色 + Intelligence Violet 单点强调）
-  dark:
-    canvas: "#111216"
-    inverse-canvas: "#f0f2f5"
-    surface-raised: "#252932"
-    surface-soft: "#1f2228"
-    surface-sunken: "#171a1f"
-    ink-primary: "#f0f2f5"
-    ink-secondary: "#c8cfda99"
-    ink-muted: "#c8cfda5c"
-    ink-inverse: "#111216"
-    ink-inverse-soft: "#11121626"
-    block-lime: "#3a4a2c"
-    block-lilac: "#3d3658"
-    block-cream: "#4a3f24"
-    block-mint: "#2c4438"
-    block-pink: "#4a2f37"
-    block-coral: "#4a3128"
-    block-navy: "#0e0f1a"
-    accent-magenta: "#7c3aed"
-    accent-magenta-hover: "#8b5cf6"
-    accent-magenta-dim: "#7c3aed1f"
-    success: "#22c55e"
-    danger: "#ef4444"
-    warning: "#f59e0b"
-    info: "#3b82f6"
-    overlay-scrim: "#000000cc"
-    trace-line: "#d8e0f014"
-    border-strong: "#d8e0f026"
-typography:
-  title:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif"
-    fontSize: "16px"
-    fontWeight: 600
-    lineHeight: 1.25
-    letterSpacing: "-0.01em"
-  body:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif"
-    fontSize: "14px"
-    fontWeight: 400
-    lineHeight: 1.7
-  label:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif"
-    fontSize: "12px"
-    fontWeight: 500
-    lineHeight: 1.4
-  mono:
-    fontFamily: "JetBrains Mono, SF Mono, Fira Code, monospace"
-    fontSize: "12px"
-    fontWeight: 400
-    lineHeight: 1.5
-rounded:
-  sm: "6px"
-  md: "10px"
-  lg: "14px"
-  xl: "20px"
-  pill: "999px"
-spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "12px"
-  lg: "16px"
-  xl: "24px"
-  panel: "28px 32px"
-components:
-  task-surface:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.ink-primary}"
-    rounded: "{rounded.lg}"
-    padding: "14px 16px 10px"
-  color-block-section:
-    backgroundColor: "{colors.block-cream}"
-    textColor: "{colors.ink-primary}"
-    rounded: "{rounded.lg}"
-    padding: "28px 32px"
-  button-primary:
-    backgroundColor: "{colors.accent-magenta}"
-    textColor: "{colors.ink-inverse}"
-    rounded: "{rounded.md}"
-    padding: "8px 14px"
-  button-secondary:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink-primary}"
-    rounded: "{rounded.md}"
-    padding: "8px 14px"
-  text-input:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.ink-primary}"
-    rounded: "{rounded.md}"
-    padding: "9px 12px"
-  tab-selected:
-    backgroundColor: "{colors.accent-magenta}"
-    textColor: "{colors.ink-inverse}"
-    rounded: "{rounded.md}"
-  overlay-icon-inverse:
-    backgroundColor: "{colors.ink-inverse-soft}"
-    textColor: "{colors.ink-inverse}"
-    rounded: "{rounded.md}"
+# CDF UI System
+
+本文件是 CDF 唯一的界面设计规范。它直接从当前 Electron 渲染进程的结构、状态和交互能力提炼，不以 README、旧截图或通用 Dashboard 模板为依据。
+
+## 0. 代码基线
+
+本规范覆盖当前代码中真实存在的界面能力：
+
+- 应用壳层和视图切换：`src/renderer/src/App.tsx`
+- 主侧栏、Project 与 Conversation 树：`components/Sidebar/`、`components/ProjectTree/`
+- Conversation Welcome、Timeline、Composer、Tool、Approval、Subagent：`components/ChatArea/`
+- 文件树和编辑预览：`components/FilePanel/`
+- Agent 活动、委派、并行任务、审批：`components/TaskPanel/`
+- Agents、Skills、MCP、Tools、Provider 与系统设置：`components/AgentLibrary/`、`components/PluginsPanel/`、`components/Settings/`
+- Workflow 列表、画布、Node Palette、配置 Drawer 和执行面板：`components/WorkflowEditor/`
+- General / Research Scene，以及 Paper Library、Writing、Experiments：`components/SceneWorkspace/`
+- 当前主题、圆角、层级、动效和 Workflow 色块：`styles/globals.css`
+
+规范不得虚构代码中不存在的一级产品模块。新能力出现后，先确认其状态模型和导航归属，再扩充本文件。
+
 ---
 
-# Design System: CDF
+## 1. 设计方向：Local Field Desk
 
-## 1. Overview
+CDF 的界面是一张**本地项目工作桌**，不是聊天主页，也不是企业后台。
 
-**Creative North Star: “Agent 工作站，不是 AI 聊天页”**
+桌面由三个有明确职责的区域构成：
 
-CDF 的界面是一个本地多领域 Agent 工作站。它不是普通聊天产品，也不是代码专用 IDE。用户在这里创建任务、绑定上下文、选择 Agent 与能力、观察过程、审批关键动作，并把结果沉淀为可继续使用的产物。
+1. **Project Ledger / 项目簿**：左侧持续记录当前 Project、Conversation 和可进入的工作区。
+2. **Scene Desk / 场景桌面**：中间承载 Conversation、Research、Workflow 和资源管理等实际工作。
+3. **Auxiliary Bay / 辅助舱**：右侧按需打开 Files 或 Activity，不与主工作争夺导航层级。
 
-高级感来自工作空间秩序、上下文清晰度、Agent 协作透明度和产物位置感。默认界面应安静、清醒、精密；只有当任务被聚焦、Agent 正在工作、能力被调用、用户需要确认或产物生成时，信号色才出现。
+视觉语气来自纸质档案、石墨工具、实验记录和终端输出：Light 主题像暖灰纸面上的墨水，Dark 主题像碳黑仪器面板。唯一全局强调色是**朱砂红**，用于当前焦点和主要动作；Workflow Node 的淡色块是用户数据，不是全局装饰色。
 
-CDF 借 **Figma DESIGN.md** 纪律：双主题、ink 角色、状态色、组件命名都遵循同一套规则。Light 主题以奶白画布 + 粉彩 color block 表达 section depth；Dark 主题以冷黑画布 + 同一套 ink 角色和 state 语言。
+### 1.1 设计意图
 
-**Key Characteristics:**
+- **人**：在桌面上长时间处理本地 Project、文件、Agent 执行和研究材料的用户。
+- **核心动作**：恢复 Project 上下文，下达指令，观察执行，处理审批，检查文件或结果。
+- **感受**：像可靠的工作台——有重量、有秩序、信息密集但不嘈杂。
+- **主焦点**：每个视图只允许一个主要工作对象；辅助信息退到边缘，不与其争夺对比度。
 
-- 工作站布局：Task Surface、Activity Trail、Agent Bench、Capability Shelf、Artifact Space、Workflow Canvas 各自承担明确任务。
-- 双主题（Light + Dark），状态语言、组件语法和 token 纪律在两套主题下一致。
-- 中性色主导，色彩只作为焦点、协作、状态或风险信号。
-- 信息层级靠字重和排版承载，不靠透明度或灰度滑变。
-- 细线、层级、密度和留白制造高级感，而不是终端感、霓虹感或装饰性发光。
-- 单一 sans + 少量 mono 仪表文字，保持桌面生产力工具的长期可读性。
-- 动效表达状态变化，不表演情绪。
+### 1.2 独特标志
 
-## 2. Colors
+**Ledger Edge / 档案边标**是 CDF 的识别元素：
 
-CDF 采用双主题：
+- 当前 Project 或当前 Scene 在左侧使用 3px 朱砂边标。
+- Timeline 中等待审批、失败和 Artifact 使用同一边标语言，但颜色改为对应语义色。
+- Workflow Node 选中态使用边标而不是发光描边。
+- 边标始终贴合容器左侧，不导致文字位移，不使用渐变。
 
-- **Light 主题**：默认。奶白画布 + 粉彩 color block 表达 section depth。**accent-magenta** 是 single-shot 强调色，一页只允许一个主 CTA。
-- **Dark 主题**：冷黑画布 + 同一套 ink 角色和 state 语言。**Intelligence Violet** 作为 single-shot 强调色。
+它表达“这条记录当前有效或需要处理”，不是装饰。
 
-两套主题共享 ink 角色、状态色、组件语法和 spacing；用户切换主题时不丢失语境。
+### 1.3 拒绝的模式
 
-### 2.1 Light Theme
+- 不新增全局图标 Rail；当前产品的 Project Ledger 已经承担主要导航。
+- 不把 Welcome Surface 设计为 Hero + 三张功能卡。
+- 不默认使用三列资源卡片；Agents、Skills、MCP 和 Workflows 优先使用列表或主从布局。
+- 不使用紫蓝 AI 渐变、霓虹发光、玻璃拟态、噪点背景或大面积模糊光晕。
+- 不让 Files 与 Activity 以两个独立浮层互相避让。
+- 不使用 `transition: all`、hover 放大到 1.05、持续 pulse 或无意义 spinner。
+- 不把所有辅助动作隐藏到 hover 后才出现。
+- 不以“设置”包住 Agents、Skills、MCP 和 Workflows；这些是工作区，设置只承载连接和偏好。
 
-#### Canvas & Surface
+---
 
-- **canvas** (`#fbf8f4`): 主画布。奶白纸张感，长时间阅读不刺眼。
-- **inverse-canvas** (`#1a1a1a`): 用于 footer / 收尾 / 反白面板。
-- **surface-raised** (`#ffffff`): 卡片、弹层、Task Surface 和表单容器。
-- **surface-soft** (`#f1ece2`): 浮层、轻底色。
-- **surface-sunken** (`#ece5d4`): recessed 输入区、代码块。
+## 2. 应用框架
 
-#### Ink
+### 2.1 标准布局
 
-- **ink-primary** (`#1a1a1a`): 标题、正文、关键状态。
-- **ink-secondary** (`#1a1a1acc`): 次级说明、导航、按钮辅助。
-- **ink-muted** (`#1a1a1a80`): 时间戳、占位和低优先级提示。**不要用于正文或关键状态。**
-- **ink-inverse** (`#fbf8f4`): 反白 ink，用于深色面板和深色 CTA。
-- **ink-inverse-soft** (`#fbf8f426`): 反白半透明 ink，用于 inverse 按钮和图标。
-
-#### Block Palette（封闭集）
-
-- **block-lime**, **block-lilac**, **block-cream**, **block-mint**, **block-pink**, **block-coral**, **block-navy**: 7 个 color block 角色。
-- **Do not add new colors to the block palette.** 这是封闭集合。section depth 只能通过 7 种 block 表达。
-- **One color block per viewport maximum** — 白色画布必须把它们分开。
-- **No drop shadows on color blocks.** section depth 由色块本身承担。
-
-#### Accent
-
-- **accent-magenta** (`#e2007a`): 主动作、当前焦点、关键状态信号。**single-shot**，一页只允许一个主 CTA。
-- **accent-magenta-hover** (`#c4006a`): 主操作 hover。
-- **accent-magenta-dim** (`#e2007a1f`): 用户目标、低强度选中、Task Surface 焦点。
-
-#### Semantic
-
-- **success** (`#0a7a3a`): 完成、可用、通过。
-- **danger** (`#c0002a`): 错误、失败、破坏性操作。
-- **warning** (`#a86b00`): 等待确认、条件分支。
-- **info** (`#1f5fb0`): 非阻塞信息、系统提示。
-- **semantic-success / semantic-danger / semantic-warning / semantic-info** 只用于 glyph 填充，不用于 surface。
-
-#### Lines & Overlays
-
-- **trace-line** (`#1a1a1a14`): 默认分割线、color block 边界、节点边界。
-- **border-strong** (`#1a1a1a26`): hover、focus-adjacent、弹层。
-- **overlay-scrim** (`#00000099`): 模态遮罩。token 只存底色，opacity 在 render 时应用。
-
-### 2.2 Dark Theme
-
-#### Canvas & Surface
-
-- **canvas** (`#111216`): 冷黑工作站画布。
-- **inverse-canvas** (`#f0f2f5`): 反白面板，用于 footer / 收尾。
-- **surface-raised** (`#252932`): 卡片、弹层、Task Surface、Agent Bench。
-- **surface-soft** (`#1f2228`): 浮层、轻底色。
-- **surface-sunken** (`#171a1f`): recessed 输入区、代码块。
-
-#### Ink
-
-- **ink-primary** (`#f0f2f5`): 标题、正文、关键状态。
-- **ink-secondary** (`#c8cfda99`): 次级说明、导航、按钮辅助。
-- **ink-muted** (`#c8cfda5c`): 时间戳、占位和低优先级提示。
-- **ink-inverse** (`#111216`): 反白 ink。
-- **ink-inverse-soft** (`#11121626`): 反白半透明 ink。
-
-#### Block Palette（封闭集）
-
-- **block-lime** (`#3a4a2c`), **block-lilac** (`#3d3658`), **block-cream** (`#4a3f24`), **block-mint** (`#2c4438`), **block-pink** (`#4a2f37`), **block-coral** (`#4a3128`), **block-navy** (`#0e0f1a`): 同样 7 个 color block，深度更暗。
-
-#### Accent
-
-- **accent-magenta** (`#7c3aed` → Intelligence Violet): 主动作、当前焦点、关键状态信号。**single-shot**。
-- **accent-magenta-hover**, **accent-magenta-dim**: 配套。
-
-#### Semantic & Lines
-
-- 与 Light 主题同一组语义角色和描边规则，hex 值随主题不同。
-- **trace-line** (`#d8e0f014`), **border-strong** (`#d8e0f026`), **overlay-scrim** (`#000000cc`)。
-
-### 2.3 Named Rules（两主题共享）
-
-**The Ink Hierarchy Rule.** 信息层级来自字重和排版，不靠透明度。body 文字 320–340 已经在 weight 上表达 secondary，不要再降透明度。
-
-**The Single-Shot Accent Rule.** 同一 viewport 中 `accent-magenta` / Intelligence Violet 主动作只能出现一次。出现第二次时必须把其中一个降为 secondary。
-
-**The Block Pacing Rule.** 同一 viewport 最多一个 color block；block 之间必须保留白色 / canvas 间隔。
-
-**The State Color Rule.** 所有彩色必须绑定含义：当前焦点、智能协作、可执行、等待确认、失败、完成、风险或产物状态。
-
-**The 90/10 Rule.** 单屏 90% 应由中性色、线、排版和空间承担；10% 以内给 accent 与语义色。
-
-## 3. Typography
-
-**Display Font:** Inter, with system fallbacks  
-**Body Font:** Inter, with system fallbacks  
-**Label/Mono Font:** JetBrains Mono, SF Mono, Fira Code, monospace
-
-**Character:** CDF 使用单一 sans 字体保持系统工具感。Mono 不是装饰字体，而是仪表文字：模型名、token、时间、命令参数、路径、JSON、工作流 ID 和工具详情使用 mono，让机器信息和人类说明一眼区分。
-
-### Hierarchy
-
-- **Title** (600, 16px, 1.25, -0.01em): 顶栏标题、弹窗标题、主区域名称。标题短，不写营销句。
-- **Section Title** (600, 18px, 1.3): 设置页、资产页、产物区和活动轨的区域标题。
-- **Body** (400, 14px, 1.7): 工作流说明、Agent 回传、产物正文和长文本。长文本保持 65 到 75ch。
-- **Control** (500, 13px, 1.4): 按钮、导航、菜单、输入控件。
-- **Label** (500 到 600, 11px 到 12px, 1.4): 字段名、状态名和分组名。大写只用于技术分组，不作为装饰性 eyebrow。
-- **Instrumentation** (400, 12px 到 13px, 1.5): 代码、token 数、模型、时间戳、路径、JSON 和工具技术细节。
-
-### Named Rules
-
-**The Instrumentation Rule.** Mono 只用于机器信息和结构化状态，不用于“看起来技术”的装饰。
-
-**The Plain Task Rule.** 控件和状态文案要短、具体、面向任务。用户在工作站里组织工作，不阅读营销文案。
-
-**The Theme Parity Rule.** Light 与 Dark 共享同一份 typography hierarchy，字号、字重、lineHeight 在两套主题下一致。
-
-## 4. Elevation
-
-CDF 的层级来自材料、线和状态，不来自厚重阴影。默认表面是平的，使用主题 surface 层级区分深度。浮层、toast、菜单和正在交互的面板可以短暂提升，但阴影必须服务于“这个东西浮在当前工作之上”的含义。
-
-### Shadow Vocabulary
-
-- **Popover Shadow** (`0 4px 20px rgba(0,0,0,0.4)`): 模型选择、菜单、临时列表。
-- **Panel Lift** (`0 8px 24px rgba(0,0,0,0.18)`): 活动面板或产物预览的轻微提升。
-- **Toast Shadow** (`0 10px 25px -5px rgba(0,0,0,0.20), 0 8px 10px -6px rgba(0,0,0,0.15)`): 浮动通知。
-- **Signal Ring** (`0 0 0 3px var(--accent-dim)`): 焦点、Task Surface 激活、需要用户确认的操作入口。
-
-### Named Rules
-
-**The Surface Before Shadow Rule.** 先用背景层级和线表达结构，只有浮层、焦点或状态变化才允许阴影。
-
-**The No Shadow On Blocks Rule.** Color block section 不允许使用 drop shadow；section depth 由色块本身承担。
-
-## 5. Components
-
-组件语言是工作站组件语言，不是通用卡片库。标准控件要保持标准，CDF 的独特性来自 Task Surface、Activity Trail、Agent Bench、Capability Shelf、Artifact Space 和 Workflow Canvas。
-
-### State Vocabulary（两主题共享）
-
-- `default`
-- `hover`
-- `focus`（focus-visible 必须显示 ring；ring 用 accent）
-- `pressed`（主按钮 pressed 不降色，靠 micro-scale 0.98）
-- `selected`（与 `button-primary` surface 一致；选中 = 主动 CTA）
-- `disabled`
-
-### Task Surface
-
-- **Role:** 用户描述目标、绑定上下文、选择 Agent/能力并启动工作的主入口，不是普通 textarea。
-- **Shape:** `14px` 到 `20px` 圆角，使用主题 `surface-raised` 或 `surface-sunken`，边框为 `trace-line`。
-- **Focus:** 边框切到 accent，使用轻微 Signal Ring。焦点只提示“当前任务表面已激活”，不要大面积发光。
-- **Controls:** 模型选择、上下文、附件、能力和发送按钮是任务控制件，视觉上应嵌入同一个表面。
-
-### Color Block Section
-
-- **Role:** 表达 section depth 的核心器件，沿用 Figma 纪律。
-- **Style:** 选用 7 种 block color 之一作为 section 背景。同一 viewport 只允许一个 block。**不允许 drop shadow。**
-- **Padding:** 至少 `28px 32px`。
-- **Use cases:** 欢迎页 hero 的状态面板、产物区 hero、Capability Shelf 的 ready 区域。
-
-### Activity Trail
-
-- **Role:** 展示 Agent 活动、工具调用、材料读取、用户确认、阶段性结果和失败恢复。
-- **Style:** 线性、时间性、可扫描。使用细线、状态点、短标签和 mono 元数据。
-- **State:** running 使用 accent 或 Warning Amber；completed 使用 Success；failed 使用 Danger。状态必须配文字。
-- **Motion:** 展开和折叠使用短促过渡，不用 bounce。
-
-### Agent Bench
-
-- **Role:** 承载当前主 Agent、可调用子 Agent、角色、能力范围、权限和失败恢复。
-- **Style:** 席位化而不是部署栈。用标题、状态槽、能力摘要和分隔线组织信息。
-- **Density:** 高密度可以接受，但每个 Agent 状态块必须有明确目标、动作和归属。
-
-### Capability Shelf
-
-- **Role:** 承载 MCP、Skills、Workflows、文件系统、浏览器、知识库、模板和本地应用连接。
-- **Style:** 像工作站的能力架，而不是工具广告墙。优先展示可用性、边界、健康状态和适用任务。
-- **Color:** 能力类型不靠彩色装饰区分；状态才用色。
-
-### Artifact Space
-
-- **Role:** 放置 Agent 生成或修改的产物：文档、计划、代码、表格、摘要、图片、文件变更、工作流输出。
-- **Style:** 产物应可识别、可打开、可复制、可保存或继续编辑。不要只埋在聊天流里。
-- **State:** draft、generated、modified、needs review、saved、failed 应有清晰状态。
-
-### Workflow Canvas
-
-- **Role:** 可视化编排跨领域任务流程，不只是代码工作流。
-- **Nodes:** 节点像工作步骤和 Agent 能力元件，不像营销卡片。输入、输出、条件和产物比图标更重要。
-- **Edges:** 线条表达顺序、条件、循环和依赖。不要用彩色边作为装饰。
-- **Selection:** 当前节点使用 accent，非当前节点保持中性。
-
-### Buttons
-
-- **Shape:** 默认 `10px`，紧凑、标准、可预测。
-- **Primary:** accent-magenta / Intelligence Violet 背景和反白 ink，只用于真正主动作。**single-shot 限制。**
-- **Secondary:** 透明背景、细边框或 hover tonal fill，用于普通操作。
-- **Destructive:** Danger Red，永远配明确文本。
-- **Pressed:** 同 fill + micro-scale，不降色。
-
-### Inputs / Fields
-
-- **Style:** 深色 recessed 背景、1px 边框、`10px` 圆角。
-- **Focus:** accent 边框和轻 ring。**focused surface 与 default surface 相同，焦点靠 ring 表达。**
-- **Placeholder:** `Muted` 只用于短占位，不用于说明正文。
-
-### Navigation
-
-- **Sidebar:** 主题 `surface` 背景、细边框、13px/500 文本。active 是位置和状态，不是装饰。
-- **Topbar:** 低高度、低装饰，保留窗口区域和当前工作空间。
-- **Panels:** 右侧或抽屉面板使用 Agent Bench / Activity Trail 语言，避免普通 dashboard 卡片堆叠。
-
-### Work Stream
-
-- **User:** 用户输入是目标或指令来源，使用低强度 accent containment。
-- **Agent:** Agent 回传像工作站输出，默认无气泡，保持阅读流。
-- **Tool / Evidence:** 工具证据使用 Activity Trail 或 Artifact Space 结构。
-- **Code / Data:** mono、低对比背景、小圆角、可复制，像仪表内容而不是装饰块。
-
-## 7. System Conventions
-
-这些约定是跨组件共享的实现规则，必须一致遵循。
-
-### 7.1 z-index 比例尺
-
-```
---z-topbar:     20   /* 顶栏、主侧边栏 sticky header */
---z-dropdown:  100   /* 菜单、模型选择器、内联弹出层 */
---z-drawer:    200   /* 侧边 drawer、Config 面板 */
---z-modal-scrim: 400 /* 模态遮罩 */
---z-modal:     500   /* 对话框、弹层内容 */
---z-toast:    9999   /* 浮动通知，始终覆盖所有内容 */
+```text
+┌────────────────────────────── 40px title / drag strip ────────────────────────────────┐
+│ Project Ledger │ Scene Desk topbar                                 │ Auxiliary Bay    │
+│ 240–360px      ├───────────────────────────────────────────────────┤ 300–440px        │
+│                │                                                   │ Files | Activity │
+│ app entries    │ Scene / Conversation / Resource / Workflow        │                  │
+│ project tree   │                                                   │                  │
+│ conversations  │                                                   │                  │
+│                │                                                   │                  │
+│ settings       │ Composer dock / canvas controls                   │                  │
+└────────────────┴───────────────────────────────────────────────────┴──────────────────┘
 ```
 
-Radix UI 等组件库使用自管理的 z-index（如 9999/10000），不覆盖此比例尺。新代码使用 CSS 变量引用，旧代码用相同数值。
+应用根节点不滚动。Project Ledger、Scene Desk 和 Auxiliary Bay 各自管理滚动。
 
-### 7.2 Motion 系统
+### 2.2 Project Ledger
 
-```
---duration-instant:  80ms   /* 状态点、badge 计数微动效 */
---duration-fast:    150ms   /* hover、focus、toggle、icon 切换 */
---duration-normal:  220ms   /* panel 展开/收起、dropdown 进出 */
---duration-slow:    350ms   /* 页面级过渡 */
+保留当前侧栏作为单一左侧导航，不新增第二条全局导航。
 
---ease-out:      cubic-bezier(0.16, 1, 0.3, 1)   /* expo-out：大多数交互过渡 */
---ease-standard: cubic-bezier(0.45, 0, 0.55, 1)  /* 对称：panel open / close */
-```
+**宽度**：
 
-**Motion 规则：**
-- 动效只表达状态变化，不表演情绪
-- 不对布局属性（width/height/margin）做过渡动画
-- 不使用回弹/弹性缓动
-- 必须通过 `@media (prefers-reduced-motion: reduce)` 降级
+- 默认 280px，与 `App.tsx` 当前状态一致。
+- 最小 240px；最大 360px。
+- 用户拖拽宽度后持久化。
+- 折叠后宽度为 0；召回按钮位于 Scene Desk topbar 左侧，不悬浮在 traffic lights 附近。
 
-### 7.3 Focus Ring
+**结构**：
 
-所有交互元素通过 `:focus-visible` 显示焦点，鼠标点击不触发。
+1. macOS traffic lights 安全区：40px。
+2. 固定工作区入口：New Conversation、Agents、Skills & MCP、Workflows。
+3. Project section：Project 与其 Conversation。
+4. Scratch section：不归属自定义 Project 的 Conversation。
+5. 底部：Settings、主题/语言的低频入口。
+
+工作区入口固定，不随进入 Agents、Skills & MCP 或 Workflows 而消失。进入 Settings 时，Project section 可替换为 Settings 分类，但顶部始终保留明确的“返回工作桌”。
+
+**项目树规则**：
+
+- Project 行高 32px；Conversation 行高 30px。
+- Project 名称 13px/600；Conversation 名称 12px/450。
+- 展开箭头与选择操作分离。
+- Project 的 More 按钮始终占位，默认使用 tertiary ink；hover/focus 提高对比，禁止 `opacity: 0`。
+- 当前 Project 使用 Ledger Edge + `surface-selected`。
+- 当前 Conversation 使用更浅的 selected surface，不重复 Ledger Edge。
+- 运行中的 Conversation 显示 6px 状态点和可访问文本；等待审批显示琥珀标记。
+- 删除进入 More 菜单，不在每一行 hover 时突然出现。
+
+### 2.3 Scene Desk
+
+Scene Desk 是唯一主工作区。其顶部固定 40px topbar：
+
+- 左侧：侧栏召回、当前 Project、Scene 或页面名称。
+- 中部：仅在 Research Scene 等同一对象的子视图中显示 Tabs。
+- 右侧：状态、次要动作、一个主要动作、Auxiliary Bay 开关。
+- 无业务控件的空白区域是窗口 drag region。
+
+Topbar 不能为空。Agent、Skills、MCP、Settings 和 Workflow 列表都必须显示页面名称，不再保留只有拖拽功能的空条。
+
+### 2.4 Auxiliary Bay
+
+将当前 `FilePanel` 与 `TaskPanel` 统一为右侧辅助舱。默认一次显示一个 Tab：
+
+- **Files**：FileTree、Filter、EditorPane。
+- **Activity**：当前运行、Tool、Approval、Delegated Work、Parallel Batch。
+
+尺寸：默认 360px，最小 300px，最大 440px。可拖拽且持久化。
+
+规则：
+
+- Files 与 Activity 不再通过绝对定位和 CSS `calc()` 互相避让。
+- 打开 Approval 时自动切到 Activity，但不能抢走正在输入 Composer 的键盘焦点。
+- Activity 有未决审批时，关闭辅助舱仍在 topbar 按钮显示琥珀计数。
+- Wide 模式允许 Files 与 Activity 并排，但只在可用主工作区仍 ≥ 720px 时出现。
+- 关闭辅助舱后焦点返回其触发按钮。
+
+### 2.5 窗口策略
+
+当前主窗口最小尺寸为 800 × 600；规范必须在此尺寸可用。
+
+| 可用宽度 | Project Ledger | Auxiliary Bay | Scene Desk |
+|---|---|---|---|
+| ≥ 1440px | 固定显示 | 可固定；满足条件可双栏 | 最小 720px |
+| 1120–1439px | 固定显示 | 单栏固定或覆盖 | 最小 560px |
+| 800–1119px | 可折叠 Drawer | 覆盖层，一次一个 | 全宽优先 |
+
+空间不足时按以下顺序收缩：
+
+1. Auxiliary Bay 从固定变覆盖。
+2. Project Ledger 折叠。
+3. Topbar 次要动作进入 More。
+4. Composer 使用 Scene Desk 全宽并保留 16px 边距。
+
+禁止先压缩 Composer、Workflow Canvas 或编辑器到不可用宽度。
+
+### 2.6 滚动
+
+- Project Ledger：工作区入口和底栏固定，Project/Scratch 列表滚动。
+- Conversation：Timeline 是唯一纵向滚动区，Composer Dock 固定。
+- Files：FileTree 与 EditorPane 分区滚动，分隔明显。
+- Activity：头部固定，轨迹内容滚动。
+- Resource 页面：页面级滚动，不在每个资源块内再滚动。
+- Workflow Canvas 不随页面滚动；Palette、Inspector 和 Execution Panel 独立滚动。
+- 禁止两个无边界的同方向嵌套滚动区。
+
+---
+
+## 3. 密度与间距
+
+### 3.1 4px 网格
+
+所有布局使用下列值：
+
+| Token | 值 | 用途 |
+|---|---:|---|
+| `--space-1` | 4px | 状态点、紧凑图标间距 |
+| `--space-2` | 8px | 控件内图文、列表项间距 |
+| `--space-3` | 12px | 控件水平 padding、小组 |
+| `--space-4` | 16px | 面板 padding、字段间距 |
+| `--space-5` | 20px | 工具栏或表单组 |
+| `--space-6` | 24px | 页面区段 |
+| `--space-8` | 32px | 大区段、空状态 |
+| `--space-10` | 40px | 页面顶层留白上限 |
+
+1–2px 仅用于边框、Ledger Edge 和光学校正。禁止新增 5、7、9、13、18、22、30px 等游离值。
+
+### 3.2 工作台密度
+
+CDF 使用中高密度，不以大空白营造营销感：
+
+- Topbar：40px。
+- 标准列表行：32px；双行资源：48px。
+- 标准控件：32px；主要动作和 Composer 控件：36px。
+- 图标按钮视觉尺寸 28–32px，命中区至少 40 × 40px。
+- Ledger padding：左右 8px。
+- 面板 padding：16px。
+- 资源页面 padding：20px；≥1440px 时 24px。
+- 表单最大宽度：720px；Provider/MCP 复杂配置最大 880px。
+- Timeline 最大可读宽度：820px，但 Tool 输出、表格和代码可扩展到 1040px。
+
+空间节奏：控件内部 4–8px；语义组 8–12px；字段/列表 12–16px；区段 24px；页面概念 32–40px。
+
+---
+
+## 4. 排版
+
+### 4.1 字体
+
+只使用项目已安装字体：
+
+- UI：`Plus Jakarta Sans Variable`。
+- 技术内容：`JetBrains Mono`，后备 `SF Mono`、`Fira Code`、`monospace`。
+
+文件路径、模型 ID、MCP command、URL、Tool 名、日志、token 数和快捷键使用 Mono。正文、导航和表单标签使用 UI 字体。
+
+根节点启用：
 
 ```css
-*:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
+-webkit-font-smoothing: antialiased;
+font-variant-numeric: proportional-nums;
 ```
 
-Composer 和 Task Surface 的 textarea 使用 `focus-within` ring on the container，禁止对内部 textarea 的全局 outline 叠加。
+动态计数、时长、进度和表格数值单独启用 `tabular-nums`。
 
-### 7.4 State Color 规则
+### 4.2 字阶
 
-颜色只绑定含义，不用于装饰：
+| 角色 | 字号/行高 | 字重 | 使用位置 |
+|---|---|---:|---|
+| Page title | 18/24px | 650 | 资源页、Settings、空状态标题 |
+| Section title | 15/20px | 600 | 面板区段、Dialog 标题 |
+| Body | 14/21px | 450 | Conversation、描述、表单说明 |
+| UI label | 13/18px | 550 | 导航、按钮、Tab、字段标签 |
+| Meta | 12/16px | 450 | 时间、计数、状态说明 |
+| Micro | 11/14px | 550 | Badge、紧凑技术标签；不承载主要内容 |
+| Mono | 12/18px | 450 | 路径、命令、日志 |
 
-| Token | 用途 |
-|-------|------|
-| `--accent` | 主动作 CTA、当前焦点、选中状态（single-shot） |
-| `--success` | 完成、可用、通过（glyph only） |
-| `--danger` | 错误、失败、破坏性操作 |
-| `--warning` | 等待确认、条件分支 |
-| `--info` | 非阻塞信息、系统提示 |
+Welcome Surface 不使用超过 28px 的标题。页面标题轻微负字距 `-0.01em`；Micro 技术标签可用 `0.03em`。不使用大段 uppercase；`stdio`、HTTP、MCP 等协议标识可以 uppercase。
 
-"类型区分"（如 MCP vs Skills）不用颜色，用中性 mono badge。
+### 4.3 文字层级
+
+- `ink-primary`：当前值、标题、正文。
+- `ink-secondary`：未选导航、说明。
+- `ink-tertiary`：时间、辅助元数据。
+- `ink-disabled`：不可用控件，同时必须有禁用语义。
+
+标题 `text-wrap: balance`，说明 `text-wrap: pretty`。名称单行尾部截断；路径中间截断；完整值通过 Tooltip 和复制动作提供。
 
 ---
 
-## 6. Do's and Don'ts
+## 5. 色彩系统
 
-### Do:
+### 5.1 色彩方向
 
-- **Do** 把 CDF 当成本地多领域 Agent 工作站设计，不当作 AI 聊天页或代码 IDE。
-- **Do** 用中性色、细线、状态槽、产物区和 Task Surface 建立秩序。
-- **Do** 让 Light 与 Dark 共享同一套 ink 角色、状态语言和组件语法。
-- **Do** 让 mono 字体承担仪表信息，而不是装饰气质。
-- **Do** 在 section 深度上优先用 color block，而不是阴影或渐变。
-- **Do** 单一主动作严格 single-shot，不在同 viewport 出现两次 accent CTA。
+**Light：Archive Paper**——暖灰纸面、深棕黑墨水、朱砂边标。
 
-### Don't:
+**Dark：Carbon Desk**——碳黑表面、暖白文字、略亮朱砂。Dark 不是 Light 的紫色版本；两个主题必须共享色相身份。
 
-- **Don't** 把产品做成普通 AI Chat App、代码专用 IDE、VS Code 皮肤、黑绿 Hacker Terminal、开发者监控台或云端营销页。
-- **Don't** 使用渐变文字作为通用规则。欢迎页可以少量使用品牌强调，工作区不使用。
-- **Don't** 使用 hero-metric 模板、重复图标卡片网格、过度玻璃拟态、霓虹边框或无意义发光装饰。
-- **Don't** 让 accent-magenta / Intelligence Violet 变成普通品牌装饰。
-- **Don't** 让 color block 出现 drop shadow。
-- **Don't** 让同一 viewport 同时出现两个 color block。
-- **Don't** 用透明度或灰度滑变代替字重表达信息层级。
-- **Don't** 把所有任务都包装成命令执行日志。研究、写作、分析、运营和设计任务也需要自然的工作站表达。
-- **Don't** 用 `Muted` 承载正文或关键状态。
-- **Don't** 让动画表演情绪。动效只表达状态变化。
+### 5.2 全局语义色
+
+实现继续使用现有 `--bg-*`、`--text-*`、`--border-*`、`--accent-*` 命名，替换值而不并行新增第二套系统。
+
+```css
+/* Light / Archive Paper */
+--bg-app:            oklch(0.972 0.010 78);
+--bg-sidebar:        oklch(0.944 0.016 78);
+--bg-surface:        oklch(0.989 0.007 78);
+--bg-sunken:         oklch(0.925 0.014 78);
+--bg-hover:          oklch(0.260 0.020 55 / 0.050);
+--bg-active:         oklch(0.590 0.155 31 / 0.100);
+--border:            oklch(0.310 0.025 55 / 0.095);
+--border-strong:     oklch(0.310 0.025 55 / 0.175);
+--text-primary:      oklch(0.235 0.020 55);
+--text-secondary:    oklch(0.390 0.022 55);
+--text-muted:        oklch(0.535 0.020 55);
+--text-disabled:     oklch(0.650 0.014 55);
+--accent:            oklch(0.565 0.185 31);
+--accent-hover:      oklch(0.505 0.190 31);
+--accent-dim:        oklch(0.565 0.185 31 / 0.115);
+--accent-glow:       transparent;
+
+/* Dark / Carbon Desk */
+--bg-app:            oklch(0.150 0.010 55);
+--bg-sidebar:        oklch(0.176 0.012 55);
+--bg-surface:        oklch(0.205 0.013 55);
+--bg-sunken:         oklch(0.128 0.009 55);
+--bg-hover:          oklch(0.930 0.012 78 / 0.055);
+--bg-active:         oklch(0.690 0.145 31 / 0.145);
+--border:            oklch(0.930 0.012 78 / 0.070);
+--border-strong:     oklch(0.930 0.012 78 / 0.145);
+--text-primary:      oklch(0.930 0.012 78);
+--text-secondary:    oklch(0.780 0.014 78);
+--text-muted:        oklch(0.620 0.014 78);
+--text-disabled:     oklch(0.465 0.012 78);
+--accent:            oklch(0.690 0.165 31);
+--accent-hover:      oklch(0.745 0.145 31);
+--accent-dim:        oklch(0.690 0.165 31 / 0.145);
+--accent-glow:       transparent;
+```
+
+Accent 只用于主要动作、Focus ring、当前选中边标和链接。页面背景禁止径向光晕。
+
+### 5.3 语义状态
+
+| 状态 | Light | Dark | 用途 |
+|---|---|---|---|
+| Success | `oklch(0.50 0.13 145)` | `oklch(0.72 0.14 145)` | 完成、连接健康 |
+| Warning | `oklch(0.57 0.14 76)` | `oklch(0.78 0.14 76)` | 等待审批、额度、暂停 |
+| Danger | `oklch(0.50 0.19 24)` | `oklch(0.68 0.18 24)` | 失败、删除、断开 |
+| Info | `oklch(0.49 0.12 250)` | `oklch(0.72 0.12 250)` | 中性执行信息 |
+
+每种状态提供 solid、dim（10–14% alpha）、border（20% alpha）。状态必须同时显示图标或文字，不能只靠颜色。
+
+### 5.4 Workflow Node 色块
+
+现有 lime、lilac、cream、mint、pink、coral 是 Workflow 用户可选的 Node 分类色：
+
+- 只允许出现在 Node header、4px 顶边或小型色标，不填满整个 Node。
+- Light 使用低饱和 18–24% 混色；Dark 使用 20–28%。
+- Node 状态颜色优先于分类色：运行、成功、失败时分类色退为 30% 可见度。
+- `block-navy` 仅用于特殊技术节点，不作为主题表面。
+- 这些颜色不得用于按钮、导航和普通资源卡。
+
+### 5.5 表面、边框和阴影
+
+深度策略是**纸张叠层**：主要依靠表面明度和细边框，阴影只给浮层。
+
+- 普通资源行、设置区段、Timeline item：无阴影。
+- Popover/Menu：1px border + `0 8px 24px rgb(30 20 10 / .10)`。
+- Dialog/Drawer：Light 使用 `0 18px 56px rgb(30 20 10 / .14)`；Dark 使用更深 scrim 和弱阴影。
+- Input 比周围表面更深，表达“可写入”。
+- Sidebar 与 Scene Desk 仅用一条 subtle border 分隔。
+- 禁止 generic card shadow、内发光和 spotlight border。
+
+### 5.6 圆角
+
+| Token | 值 | 用途 |
+|---|---:|---|
+| `--radius-xs` | 3px | 技术 token、Ledger Edge 相邻标记 |
+| `--radius-sm` | 6px | Button、Input、列表选中态 |
+| `--radius-md` | 9px | Composer、Popover、Menu、Node |
+| `--radius-lg` | 12px | Dialog、Drawer、空状态 |
+| `--radius-xl` | 16px | 仅大型 Welcome/Onboarding 容器 |
+
+不使用 pill 作为默认形状；状态 Badge 可使用 4px 圆角。嵌套元素遵守同心圆角。
+
+---
+
+## 6. 组件状态
+
+### 6.1 强制状态矩阵
+
+每个交互控件必须覆盖：
+
+| 状态 | 表现 |
+|---|---|
+| Default | 稳定可识别，无装饰动画 |
+| Hover | 背景或边框轻微变化，不改变尺寸和排版 |
+| Active | 100ms 内背景加深；仅主要按钮可 `scale(.98)` |
+| Focus-visible | 2px accent ring + 2px offset，不能被裁剪 |
+| Selected | active surface + primary ink；必要时 Ledger Edge |
+| Disabled | disabled ink + disabled surface，并解释原因 |
+| Loading | 保持原尺寸，禁用重复操作，显示动作文本 |
+| Error | 控件附近说明原因并提供恢复动作 |
+
+数据区域必须覆盖 Loading、Empty、Error；执行相关区域还必须覆盖 Queued、Running、Waiting、Succeeded、Failed、Cancelled。
+
+### 6.2 Button
+
+| Variant | 高度 | 视觉 |
+|---|---:|---|
+| Primary | 32px；Composer 36px | 朱砂实心，每个区域最多一个 |
+| Secondary | 32px | Raised surface + border |
+| Ghost | 32px | 透明，hover 出现浅表面 |
+| Destructive | 32px | 普通场景为 Ghost danger；确认场景才实心 |
+| Icon | 32px 视觉/40px 命中 | 必须有 aria-label 和 Tooltip |
+| Link | 自适应 | Accent 文字，hover 下划线 |
+
+文字 13px/550；左右 padding 12px；图文间距 8px。禁止 `hover:scale-105` 和 `transition-all`。
+
+### 6.3 Input、Select、Search
+
+- 标准高 32px，圆角 6px。
+- Label 在上方，13px/550；帮助文字 12px/16。
+- Placeholder 不承载字段说明或格式要求。
+- Search 左侧图标 14px；有内容时提供 32px 清除按钮。
+- Select、Combobox、Menu 使用 Radix 或现有可访问原语，不手写透明全屏 overlay。
+- 错误边框与错误文字同时出现。
+- MCP command、URL 和参数使用 Mono。
+
+### 6.4 Resource row
+
+Agents、Skills、MCP 和 Workflows 使用 48px 或 56px 资源行；仅模板或需要视觉预览的对象使用 Card。
+
+标准列：
+
+1. 28px identity icon。
+2. 名称与一行说明。
+3. Scope/Type。
+4. 状态。
+5. 最近更新时间、模型或 endpoint 等一项关键元数据。
+6. 一个主要行级动作。
+7. More。
+
+行为：
+
+- 点击行选择并在右侧 Drawer/Inspector 编辑。
+- Toggle 不与整行点击冲突；Toggle 区域必须 stop propagation 并有明确 label。
+- Run、Edit、Delete 不同时裸露在卡片底部。
+- 删除、断开和重置进入 More 菜单的危险分组。
+- Search 无结果与完全空数据使用不同 Empty State。
+
+### 6.5 Badge 与状态点
+
+- Badge 高 20px，3–4px 圆角，11px/550。
+- `stdio`、HTTP 等协议可使用 Mono uppercase。
+- 在线/离线不能持续 pulse；Running 可在状态点内部使用低频亮度变化，reduced motion 下静止。
+- Badge 文案具体：连接正常、未连接、检查中、运行中、等待审批、失败。
+
+### 6.6 Tooltip、Menu、Popover
+
+- Tooltip 500ms hover 延迟，Focus 立即显示；不承载必需信息。
+- Menu 最小 180px，项高 32px；危险操作用 Divider 分组。
+- Popover 从触发点方向出现，150ms，opacity + 3px translate。
+- Escape 关闭最上层并恢复焦点。
+- 所有浮层做窗口碰撞检测，不遮住触发器或越界。
+
+### 6.7 Dialog、Drawer、Toast
+
+- 简短确认用 Dialog；Agent/MCP/Provider 的长表单用右侧 Drawer。
+- Dialog 默认 440–560px；复杂配置 Drawer 380–440px。
+- 危险确认重复对象名称和影响，初始焦点落在 Cancel。
+- Toast 只表达无需立即处理的已完成结果；审批和运行失败必须保留在 Activity。
+- Toast 右下角最多 3 条，成功 3s，信息 5s，错误保持。
+- 全局只使用 Sonner 或统一 Toast 实现；Workflow、Agent 和 Plugin 不再各自维护 z-9999 容器。
+
+### 6.8 Empty、Loading、Error
+
+**Empty**：标题 + 原因 + 一个主动作。不得只放一段居中文字和 dashed border。
+
+**Loading**：
+
+- 列表使用与真实行一致的 Skeleton。
+- 小于 300ms 不闪 Skeleton。
+- Agent/Workflow 长执行显示当前阶段，不显示假百分比。
+
+**Error**：
+
+- 不清空已加载内容。
+- 显示发生位置、影响和恢复动作。
+- 技术详情折叠并可复制。
+- 禁止 `window.alert()`；删除使用统一确认 Dialog。
+
+---
+
+## 7. Conversation
+
+### 7.1 Welcome Surface
+
+Welcome Surface 不再垂直居中整页，也不显示背景 glow 和三张等权 Feature Card。
+
+布局：
+
+```text
+Project / Scratch context
+一句状态化标题 + 简短说明
+Composer
+最近 Conversations 或当前 Project 建议动作（最多 4 行）
+```
+
+状态优先级：
+
+1. 没有 Project：创建或选择本地目录。
+2. 没有可用模型：打开模型设置。
+3. 有等待审批：打开 Activity。
+4. 有当前 Project：Composer 是焦点，下面显示最近 Conversation。
+5. Scratch：明确显示不会绑定自定义 Project。
+
+Composer 宽 680–820px，保持左对齐，不让整页像营销 Landing Page。
+
+### 7.2 Timeline
+
+Conversation 是连续工作记录，不使用社交聊天气泡。
+
+- 用户指令：左侧 Ledger Edge 为 accent，顶部显示“你”和时间。
+- Agent 输出：无边标，正文占主视觉。
+- Think trace：默认折叠为紧凑 disclosure，显示耗时；Streaming 时展开当前段。
+- Tool Group：折叠摘要显示数量、状态和总耗时。
+- Approval：warning Ledger Edge + warning soft surface，保持在原时间位置。
+- Error：danger Ledger Edge，提供 Retry/Details。
+- Artifact/modified files：显示文件图标、路径和打开 Files 动作。
+
+Timeline 主列 820px；代码、表格和 Tool 详情可扩展到 1040px。用户手动向上滚动后停止自动跟随，并显示“回到最新”。
+
+### 7.3 Composer
+
+Welcome Composer 与 Session Composer 共用一套结构：
+
+- 输入高度 92–220px，超过后内部滚动。
+- 上部：Slash token、Path Mention、Attachment 和正文。
+- 下部左侧：Add、Approval Mode、Context。
+- 下部右侧：Model Selection、Send/Stop。
+- Enter 发送，Shift+Enter 换行；IME composition 期间不发送。
+- Streaming 时 Send 原位变为 Stop，不改变宽度。
+- 不可发送时 Tooltip 说明缺少 Project、模型、文本或仍在 Streaming。
+- Plan disclosure 位于 Composer 上沿，与输入表面共享宽度，不悬浮遮挡 Timeline。
+
+### 7.4 Approval
+
+Pending Approval 在 Timeline 显示摘要，在 Auxiliary Bay 的 Activity Tab 完成决策。
+
+必须显示：
+
+- Agent 要执行的动作。
+- 目标文件、命令或外部资源。
+- 可见风险。
+- Approve once、Approve for run、Reject。
+
+危险 Shell/File 操作默认焦点在 Reject 或安全返回；批准按钮不使用绿色，使用中性 Primary，避免把批准暗示为“正确答案”。审批完成后卡片变为只读结果，不从 Timeline 消失。
+
+### 7.5 Activity
+
+Activity Tab 复用现有 TaskPanel projection：
+
+1. Run summary。
+2. Tool summary。
+3. Conversation approval。
+4. Workflow approval。
+5. Delegated work progress。
+6. Parallel batch。
+
+委派任务保持当前纵向轨迹，但轨迹只用于父子执行关系。Newest-first 必须在标题处明确；进入 Subagent/Worker detail 后提供稳定 Back，不替换整个应用导航。
+
+Progress 有确定总量时显示 `done / total`；无总量时显示当前阶段。Synthesis 不同时使用 pulse 和 spinner，只保留静态状态图标与文案，必要时旋转单个 14px Loader。
+
+---
+
+## 8. Files
+
+- Files 是 Auxiliary Bay Tab，不是独立全屏页面。
+- FileTree 行高 28px；目录和文件使用 14px 图标。
+- 选中文件使用 active surface；修改、未保存和错误通过独立状态标识。
+- Filter 固定在顶部；Tree 滚动；EditorPane 在选中文件后出现。
+- 宽度不足 340px 时 Tree 与 Preview 使用前后层级，不上下硬挤。
+- 路径使用 Mono，中间截断，可复制。
+- 文件创建、重命名和删除使用 inline input 或 Menu + Dialog；不能依赖 hover-only 图标。
+- 二进制或不可预览文件提供在系统中打开和显示所在目录。
+
+---
+
+## 9. Research Scene
+
+Research Scene 继续使用当前真实子视图：Conversation、Paper Library、Writing、Experiments。
+
+### 9.1 Scene Tabs
+
+- 位于 Scene Desk topbar 中部，不再另加一条 40px 子顶栏。
+- Tab 高 28px，13px/550；当前项使用 active surface 和 Ledger Edge 的 2px 下边变体，二者择一。
+- 800–999px 时图标保留、文字按优先级收纳到 More。
+
+### 9.2 Paper Library
+
+Paper Library 是研究资料目录，不使用 Dashboard 卡片：
+
+- 顶部一行：标题/结果数、Search、Refresh。
+- 第二行：View mode 和筛选器。
+- Filter chips 超出时横向滚动，不换成多行标签墙。
+- Flat 使用文献列表；Grouped 使用 tag section + 列表。
+- 文献项优先显示 title、authors、journal/year、DOI 和 tags；abstract 默认两行并可展开。
+- Journal metrics 是次级元数据，不用彩色 KPI Badge。
+- Refresh Loading 保留当前数据，按钮内显示状态。
+
+Writing 与 Experiments 未实现时显示明确的 Coming later 状态，但不能伪造可点击功能。
+
+---
+
+## 10. Resource Pages
+
+### 10.1 Agents
+
+- 默认使用列表 + 右侧编辑 Drawer。
+- 行显示 Agent、模型、Skill preload 数和 MCP exclusion 数。
+- 搜索和 Create Agent 保持在页面 topbar；结果数在列表头。
+- description 不固定 `h-8`；列表中单行截断，Drawer 中完整显示。
+- Agent 编辑表单按 Identity、Model、Skills、MCP exclusions 分段。
+
+### 10.2 Skills & MCP
+
+Plugins 页面统一命名为 **Skills & MCP**，内部使用 Tabs。
+
+Skills：
+
+- 列表显示名称、来源、可见性和最近更新。
+- 内容预览进入 Drawer，不用卡片展开全部说明。
+
+MCP：
+
+- 列表显示名称、transport、endpoint/command、连接状态、最近 health check。
+- Connect/Disconnect 是明确的行级动作。
+- Health check 在原位置显示 checking → success/error，不只发 Toast。
+- Command、args 和 URL 使用 Mono。
+- MCP 配置使用 Drawer；stdio 与 HTTP 字段按 transport 切换。
+
+### 10.3 Workflows 列表
+
+- 使用列表而不是三列 Card。
+- 列：名称、状态、节点数、最近更新、最近运行、Run、More。
+- 点击名称进入编辑；Run 是独立按钮；Enable Toggle 不让整行可点击。
+- Empty State 提供 Create Workflow。
+- 删除通过统一 Dialog，不使用本地 modal overlay。
+
+### 10.4 Settings
+
+Settings 保留现有分类：LLM Provider、AI Subscription、Tools、Research、System；Agents、Skills/MCP 和 Workflows 不在 Settings 中重复出现。
+
+- 左侧 Project Ledger 切换为 Settings index，并显示“返回工作桌”。
+- 设置内容最大 760px；Provider 详情最大 880px。
+- 使用 label + description + control 的行，不为每一项创建 Card。
+- 自动保存显示 Saving / Saved / Failed；手动保存固定在表单底部。
+- Theme、Language 和 Auto-save 属于 System。
+
+---
+
+## 11. Workflow Editor
+
+Workflow Editor 是唯一允许自动折叠 Project Ledger 的视图，以最大化画布。
+
+### 11.1 布局
+
+```text
+48px Workflow toolbar
+┌─────────────┬───────────────────────┬──────────────────┐
+│ Node palette│ React Flow canvas     │ one side panel   │
+│ 208px       │ flexible, min 520px   │ 360–400px        │
+└─────────────┴───────────────────────┴──────────────────┘
+```
+
+右侧一次只显示一种：Node/Edge Config、Execution、History。禁止三者并排连续压缩 Canvas。
+
+### 11.2 Toolbar
+
+- Back、workflow name、Save state、Undo/Redo、History、Run/Stop。
+- 高 48px；macOS drag region 与普通 topbar 共享规则。
+- 保存中、已保存、保存失败是可见状态。
+- Run 前验证失败在画布和 Validation summary 同时显示，不只发 Toast。
+- `⌘/Ctrl + S` Save，`⌘/Ctrl + Z` Undo，`⌘/Ctrl + Shift + Z` Redo。
+
+### 11.3 Node
+
+- Start/End：150 × 50px。
+- 可执行 Node：210 × 100px 基线，可因必要摘要增高但不缩小命中区。
+- Node header 展示 type 和 label；body 展示 Agent/goal/failure strategy 等一项关键配置。
+- 选中：accent Ledger Edge + strong border。
+- Pending：neutral status marker。
+- Running：info marker，禁止整个 Node pulse。
+- Success：success marker + check。
+- Failed：danger marker + error icon。
+- Disabled：降低文字对比并显示 Disabled label。
+- 分类色只出现在 4px 顶边或 header tint。
+
+### 11.4 Canvas 与面板
+
+- Palette 同时支持 Drag 和 Click-to-add；键盘用户使用 Add Node Menu。
+- Canvas 使用 subtle dot grid；Light/Dark 对比一致。
+- MiniMap 默认在节点超过 8 个后显示，少量节点不占空间。
+- Node/Edge Inspector 宽 380px，与当前代码一致。
+- Execution Panel 显示节点执行轨迹、Approval、Stop 和输出。
+- History Drawer 选择一次运行后复用 Execution Panel 详情，不再打开第三层面板。
+
+---
+
+## 12. 动效
+
+- 高频导航和列表选择：0–100ms，无位移。
+- Hover/Press：120ms。
+- Menu/Popover：150ms，opacity + 3px translate。
+- Drawer/Auxiliary Bay：200ms，transform + opacity。
+- Dialog：180ms，opacity + `scale(.98 → 1)`。
+- Toast：180ms enter / 140ms exit。
+- Sidebar 用户拖拽期间无 transition；折叠/展开 200ms。
+
+只动画 `transform`、`opacity` 和必要的颜色属性。禁止动画 width、height、margin、padding、top、left；面板尺寸拖拽直接更新。`prefers-reduced-motion` 下移除位移、缩放、pulse 和 stagger。
+
+---
+
+## 13. 可访问性与键盘
+
+- 所有点击区域使用 button、link 或可访问原语；禁止裸 `div onClick`。
+- Focus ring：2px accent + 2px offset，必须可见。
+- 图标按钮有 `aria-label`；Tooltip 不是唯一名称。
+- 最小命中区 40 × 40px；可视控件可以更小。
+- Selected、Running、Failed、Approval 不能只靠颜色。
+- Dialog、Drawer、Menu 和 Popover 正确管理 focus trap、Escape 和焦点返回。
+- Streaming 文本不逐 token `aria-live`；状态完成或变化时再宣告。
+- 拖拽操作必须有键盘替代：Workflow Add Node、Sidebar resize 默认值恢复、文件移动等。
+
+全局键盘：
+
+| 快捷键 | 行为 |
+|---|---|
+| `⌘/Ctrl + K` | Command Palette |
+| `⌘/Ctrl + N` | 当前 Project 新建 Conversation |
+| `⌘/Ctrl + Shift + N` | 新建 Project |
+| `⌘/Ctrl + B` | 折叠/展开 Project Ledger |
+| `⌘/Ctrl + .` | 打开/关闭 Auxiliary Bay |
+| `⌘/Ctrl + ,` | Settings |
+| `Escape` | 只关闭最上层临时表面 |
+
+Tab 顺序：Project Ledger → Scene topbar → Scene content → Composer/Canvas controls → Auxiliary Bay。Overlay 打开后限制在 Overlay 内，关闭后返回触发器。
+
+---
+
+## 14. 层级
+
+| Token | 值 | 用途 |
+|---|---:|---|
+| `--z-base` | 0 | 页面内容 |
+| `--z-sticky` | 20 | Topbar、Composer Dock |
+| `--z-popover` | 100 | Tooltip、Menu、Popover |
+| `--z-drawer` | 200 | 紧凑侧栏、Auxiliary overlay、Drawer |
+| `--z-scrim` | 300 | Dialog scrim |
+| `--z-modal` | 400 | Dialog |
+| `--z-toast` | 500 | Toast |
+
+禁止 `z-[9999]`。若出现新层级，先更新本表。
+
+---
+
+## 15. macOS 与桌面行为
+
+- 保持 hidden title bar 和 `contextIsolation` 等现有 Electron 安全边界。
+- 左上 traffic lights 预留 76 × 28px；仅 Shell 管理该偏移。
+- Topbar 空白区域是 drag region，Button/Input/Tab 明确 no-drag。
+- 不同 Scene 和 Workflow Toolbar 不分别硬编码 115px、144px 等左 padding。
+- 面板拖拽把手视觉宽 1–2px，命中宽 8px；hover 使用 accent 35% 混色。
+- 窗口关闭、缩放、最小化后恢复用户的 Ledger、Auxiliary 和 Workflow 面板尺寸，但必须 clamp 到当前窗口。
+
+---
+
+## 16. 国际化和长内容
+
+- 中文与英文共享同一布局，不依赖固定字符数。
+- 工作区入口、Tab、Button 在空间不足时按优先级收纳，禁止文字重叠。
+- 名称单行截断；说明最多三行；Abstract 和 Tool output 可展开。
+- 相对时间通过 Tooltip 提供绝对时间；日志显示本地精确时间。
+- 路径、命令、模型 ID 和 URL 可复制。
+- 动态数字使用 tabular figures，避免运行中布局抖动。
+
+---
+
+## 17. 验收标准
+
+每个新页面或重构模块必须通过以下检查。
+
+### 17.1 布局
+
+- 在 800 × 600、1120 × 700、1440 × 900 可完成核心任务。
+- Project Ledger、Scene Desk、Auxiliary Bay 职责清晰。
+- Files、Activity、Config、Execution、History 不会同时挤压主工作区。
+- Root 不滚动；每个滚动区边界清晰。
+- macOS traffic lights、drag/no-drag 区域正确。
+
+### 17.2 视觉
+
+- Light 是 Archive Paper，Dark 是 Carbon Desk；两者共享朱砂 accent。
+- 不存在 radial glow、紫蓝 AI gradient、generic card grid 或无理由大空白。
+- 颜色只来自现有语义 token；Workflow block palette 不泄漏到全局控件。
+- 间距使用 4px 网格；字体和圆角来自本规范。
+- Squint test 下可辨认当前 Project、主工作对象、Auxiliary 与最上层浮层。
+
+### 17.3 状态
+
+- 控件覆盖 Default、Hover、Active、Focus-visible、Selected、Disabled、Loading、Error。
+- 列表覆盖 Loading、Empty、Error、Search empty。
+- Agent/Workflow 覆盖 Queued、Running、Waiting Approval、Succeeded、Failed、Cancelled。
+- 审批、错误和运行状态在关闭 Toast 后仍可找到。
+
+### 17.4 交互
+
+- 核心操作可用键盘完成，Tab 顺序稳定。
+- 长文本、中文、英文、路径和模型 ID 不破坏布局。
+- Hover 不改变布局，不隐藏唯一入口。
+- Overlay 正确处理 Escape、外部点击和焦点返回。
+- reduced motion 下无位移、pulse 或持续动态装饰。
+
+### 17.5 实现
+
+- 复用 `components/ui/`、Radix、Lucide、Tailwind v4 和现有 Zustand/IPC。
+- 不引入第二套组件库、图标库、CSS-in-JS 或 token 系统。
+- 不修改业务数据、持久化、IPC 或 Agent runtime 来迁就视觉设计。
+- 不用绝对定位、魔法 z-index 或 `calc()` 让核心面板互相避让。
+- 同一模式出现第二次时提取 component 或 variant。
+- UI 文案同步 `en-US.json` 和 `zh-CN.json`。
+
+---
+
+## 18. 实施顺序
+
+1. 统一 Light/Dark token 为 Archive Paper / Carbon Desk，删除 welcome glow 和主题间不一致 accent。
+2. 统一 40px Shell topbar，修复 traffic lights 和 drag region。
+3. 保持单一 Project Ledger，确保进入 Agents、Skills & MCP、Workflows 后工作区入口不消失。
+4. 合并 FilePanel 与 TaskPanel 为 Auxiliary Bay。
+5. 重做 Conversation Welcome 和 Timeline 层级。
+6. 将 Agents、Skills、MCP、Workflow 卡片网格迁移为资源列表 + Drawer。
+7. 统一 Dialog、Drawer、Toast、Button、Input 和状态组件。
+8. 最后处理 Workflow Editor、Research Scene、窄窗口、键盘和动效。
+
+每次只实施用户指定模块；不得借设计迁移重写业务架构或扩大到无关页面。
