@@ -123,8 +123,6 @@ describe('MessageItem at-token rendering (Phase 08.3 — C-03)', () => {
     expect(container.textContent).toContain('conversation.capabilityJob.completed');
     expect(container.textContent).toContain('taskPanel.jobRoute.minimax-token-plan');
     expect(container.textContent).toContain('taskPanel.videoModeValue.first-frame');
-    expect(container.textContent).toContain('video.mp4');
-    expect(container.querySelector('[title="/project/video.mp4"]')).not.toBeNull();
     expect(container.textContent).not.toContain('capability_job_event');
   });
 

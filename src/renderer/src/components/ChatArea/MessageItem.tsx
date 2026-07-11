@@ -21,17 +21,6 @@ type CapabilityJobTimelineInfo = CapabilityJobTimelineEvent;
 
 function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }) {
   const { t } = useTranslation();
-  const getBasename = (p: string) => p.split(/[/\\]/).pop() || p;
-
-  const handleRevealFile = async (path: string) => {
-    try {
-      if (window.electronAPI?.db?.revealFile) {
-        await window.electronAPI.db.revealFile(path, info.projectId);
-      }
-    } catch (e) {
-      console.error('Failed to reveal file:', e);
-    }
-  };
 
   const statusConfig = {
     completed: {
@@ -55,121 +44,31 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
 
   return (
     <div
-      className="message assistant"
+      className="message assistant animate-fade-in"
       style={{
         maxWidth: '80%',
         alignSelf: 'flex-start',
         textAlign: 'left',
         marginRight: 'auto',
-        padding: '8px 0',
+        padding: '6px 0',
         display: 'flex',
         flexDirection: 'column'
       }}
     >
       <div className="message-row" style={{ width: '100%', minWidth: 0 }}>
-        <div
-          className="select-text"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            padding: '10px 12px',
-            borderRadius: '8px',
-            border: '1px solid var(--color-border)',
-            backgroundColor: 'var(--color-bg-sidebar)',
-            opacity: 0.9,
-            maxWidth: '420px',
-            width: '100%',
-            boxSizing: 'border-box',
-            overflow: 'hidden'
-          }}
-        >
-          {/* Header 行 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-              {config.icon}
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
-                {t(config.labelKey)}
-              </span>
-              {info.provider && info.mode && (
-                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
-                </span>
-              )}
-            </div>
-            <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', opacity: 0.6, flexShrink: 0 }}>
-              #{info.jobId.slice(0, 8)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          {config.icon}
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
+            {t(config.labelKey)}
+          </span>
+          {info.provider && info.mode && (
+            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
             </span>
-          </div>
-
-          {/* Artifacts 列表 */}
-          {info.artifacts.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {info.artifacts.map((artifact) => {
-                const basename = getBasename(artifact.path);
-                return (
-                  <div
-                    key={artifact.path}
-                    onClick={() => handleRevealFile(artifact.path)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '12px',
-                      padding: '8px 10px',
-                      borderRadius: '6px',
-                      backgroundColor: 'var(--color-bg-surface)',
-                      border: '1px solid var(--color-border)',
-                      cursor: 'pointer',
-                    }}
-                    title={artifact.path}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, fontSize: '11px', color: 'var(--color-text-primary)', flex: 1 }}>
-                      <FileVideo className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" style={{ color: 'var(--color-accent)' }} />
-                      <span className="font-mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                        {basename}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      style={{
-                        padding: '2px',
-                        border: 'none',
-                        background: 'transparent',
-                        color: 'var(--color-text-muted)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                      title={t('chat.revealInFolder') || '在文件夹中显示'}
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
           )}
-
-          {/* Error 消息 */}
-          {info.error && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'start',
-              gap: '6px',
-              padding: '6px 8px',
-              borderRadius: '4px',
-              backgroundColor: 'var(--color-danger-dim)',
-              border: '1px solid var(--color-danger)',
-              fontSize: '11px',
-              color: 'var(--color-danger)',
-              wordBreak: 'break-all'
-            }}>
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ marginTop: '2px' }} />
-              <span>{info.error}</span>
-            </div>
-          )}
+          <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', opacity: 0.6, flexShrink: 0, marginLeft: '4px' }}>
+            #{info.jobId.slice(0, 8)}
+          </span>
         </div>
       </div>
     </div>
