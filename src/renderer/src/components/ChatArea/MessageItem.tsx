@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { FileVideo, FolderOpen, AlertCircle } from 'lucide-react';
 import {
   CapabilityJobTimelineEventSchema,
   type CapabilityJobTimelineEvent,
@@ -20,23 +21,103 @@ type CapabilityJobTimelineInfo = CapabilityJobTimelineEvent;
 
 function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }) {
   const { t } = useTranslation();
+  const getBasename = (p: string) => p.split(/[/\\]/).pop() || p;
+
+  const handleRevealFile = async (path: string) => {
+    try {
+      if (window.electronAPI?.db?.revealFile) {
+        await window.electronAPI.db.revealFile(path, info.projectId);
+      }
+    } catch (e) {
+      console.error('Failed to reveal file:', e);
+    }
+  };
+
+  const statusConfig = {
+    completed: {
+      edgeColor: 'bg-[var(--color-success)]',
+      tagBg: 'bg-[var(--color-success-dim)]/50',
+      tagText: 'text-[var(--color-success)]',
+      labelKey: 'conversation.capabilityJob.completed'
+    },
+    failed: {
+      edgeColor: 'bg-[var(--color-danger)]',
+      tagBg: 'bg-[var(--color-danger-dim)]/50',
+      tagText: 'text-[var(--color-danger)]',
+      labelKey: 'conversation.capabilityJob.failed'
+    },
+    canceled: {
+      edgeColor: 'bg-[var(--color-text-muted)]',
+      tagBg: 'bg-[var(--color-bg-sunken)]',
+      tagText: 'text-[var(--color-text-muted)]',
+      labelKey: 'conversation.capabilityJob.canceled'
+    }
+  };
+
+  const status = info.status === 'completed' || info.status === 'failed' || info.status === 'canceled'
+    ? info.status
+    : 'completed';
+  const config = statusConfig[status];
+
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3">
-      <div className="text-xs font-semibold text-[var(--color-text-primary)]">
-        {t(`conversation.capabilityJob.${info.status}`)}
+    <div className="relative overflow-hidden pl-4 pr-3 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/35 hover:bg-[var(--color-bg-sidebar)]/60 transition-colors max-w-[82%] my-2 select-text">
+      {/* Ledger Edge / 档案边标 */}
+      <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${config.edgeColor}`} />
+
+      {/* Header 行 */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${config.tagBg} ${config.tagText}`}>
+            {t(config.labelKey)}
+          </span>
+          {info.provider && info.mode && (
+            <span className="truncate text-[11px] text-[var(--color-text-secondary)] font-medium">
+              {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
+            </span>
+          )}
+        </div>
+        <span className="shrink-0 font-mono text-[9px] text-[var(--color-text-muted)]/70 hover:text-[var(--color-text-muted)] transition-colors select-all" title={info.jobId}>
+          {info.jobId.slice(0, 8)}...
+        </span>
       </div>
-      {info.provider && info.mode && (
-        <div className="mt-1 text-xs text-[var(--color-text-secondary)]">
-          {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
+
+      {/* Artifacts 列表 */}
+      {info.artifacts.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {info.artifacts.map((artifact) => {
+            const basename = getBasename(artifact.path);
+            return (
+              <div
+                key={artifact.path}
+                className="flex items-center justify-between gap-3 px-2 py-1.5 rounded bg-[var(--color-bg-surface)] border border-[var(--color-border)]/55 group/artifact"
+              >
+                <div className="flex items-center gap-2 min-w-0 text-[11.5px] text-[var(--color-text-primary)]">
+                  <FileVideo className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" />
+                  <span className="truncate font-mono" title={artifact.path}>
+                    {basename}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRevealFile(artifact.path)}
+                  className="shrink-0 p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-85 group-hover/artifact:opacity-100"
+                  title={t('chat.revealInFolder') || '在文件夹中显示'}
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
-      <div className="mt-1 font-mono text-xs text-[var(--color-text-muted)]">{info.jobId}</div>
-      {info.artifacts.map((artifact) => (
-        <div key={artifact.path} className="mt-2 truncate font-mono text-xs text-[var(--color-text-secondary)]" title={artifact.path}>
-          {artifact.path}
+
+      {/* Error 消息 */}
+      {info.error && (
+        <div className="mt-2 flex items-start gap-1.5 px-2.5 py-1.5 rounded bg-[var(--color-danger-dim)]/50 border border-[var(--color-danger)]/15 text-[11px] text-[var(--color-danger)] leading-relaxed">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span className="break-all">{info.error}</span>
         </div>
-      ))}
-      {info.error && <div className="mt-2 text-xs text-[var(--color-danger)]">{info.error}</div>}
+      )}
     </div>
   );
 }

@@ -22,6 +22,8 @@ vi.mock('lucide-react', () => {
   return {
     File: sentinel('file'),
     Folder: sentinel('folder'),
+    FileVideo: sentinel('file-video'),
+    FolderOpen: sentinel('folder-open'),
     AlertTriangle: sentinel('alert-triangle'),
     // 共享 AlertBlock 经由 StreamdownRenderer 进入 MessageItem 子树。
     Info: sentinel('info'),
@@ -119,7 +121,8 @@ describe('MessageItem at-token rendering (Phase 08.3 — C-03)', () => {
     expect(container.textContent).toContain('conversation.capabilityJob.completed');
     expect(container.textContent).toContain('taskPanel.jobRoute.minimax-token-plan');
     expect(container.textContent).toContain('taskPanel.videoModeValue.first-frame');
-    expect(container.textContent).toContain('/project/video.mp4');
+    expect(container.textContent).toContain('video.mp4');
+    expect(container.querySelector('[title="/project/video.mp4"]')).not.toBeNull();
     expect(container.textContent).not.toContain('capability_job_event');
   });
 
