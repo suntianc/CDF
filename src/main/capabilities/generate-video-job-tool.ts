@@ -10,9 +10,9 @@ export function createGenerateVideoJobTool(projectPath: string, sourceSessionId?
     {
       name: 'generate_video',
       description:
-        'Submit video generation through connected xAI Grok OAuth using Grok Imagine. ' +
-        'Returns a stable background Job Receipt immediately after provider submission. ' +
-        'The Project task panel reports progress and the final local MP4 artifact.',
+        'Queue video generation through connected xAI Grok OAuth using Grok Imagine. ' +
+        'Returns a stable local Job Receipt before provider submission; queued work has not incurred provider cost. ' +
+        'The Project task panel reports queueing, tracking controls, progress, and the final local MP4 artifact.',
       schema: z.object({
         prompt: z.string().describe('Description of the video to generate'),
         route_hint: z.enum(['auto', 'xai-oauth']).optional(),

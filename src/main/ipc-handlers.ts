@@ -171,6 +171,18 @@ export function registerIpcHandlers() {
   typedHandle('capability-jobs:list', (_event, projectId) =>
     backgroundCapabilityJobs.list(projectId)
   );
+  typedHandle('capability-jobs:command', (_event, projectId, jobId, action) => {
+    switch (action) {
+      case 'cancel':
+        return backgroundCapabilityJobs.cancel(projectId, jobId);
+      case 'stop_tracking':
+        return backgroundCapabilityJobs.stopTracking(projectId, jobId);
+      case 'resume_tracking':
+        return backgroundCapabilityJobs.resumeTracking(projectId, jobId);
+      case 'resubmit':
+        return backgroundCapabilityJobs.resubmit(projectId, jobId);
+    }
+  });
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (existing) return;

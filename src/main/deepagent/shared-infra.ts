@@ -23,6 +23,7 @@ import { createGenerateImageTool } from '../capabilities/generate-image';
 import { createGenerateVideoJobTool } from '../capabilities/generate-video-job-tool';
 import { createSynthesizeSpeechTool } from '../capabilities/synthesize-speech';
 import { createGenerateMusicTool } from '../capabilities/generate-music';
+import { createManageBackgroundJobsTool } from '../capabilities/manage-background-jobs-tool';
 
 // Re-export loadMcpTools for consumers that only need shared-infra
 export { loadMcpTools };
@@ -182,6 +183,8 @@ export const DEFAULT_INTERRUPT_ON: InterruptOnConfig = {
   delete_agent: { allowedDecisions: ['approve', 'reject'] },
   update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
   create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
+  generate_video: { allowedDecisions: ['approve', 'reject'] },
+  manage_background_jobs: { allowedDecisions: ['approve', 'reject'] },
 };
 
 /**
@@ -218,6 +221,7 @@ export function createBuiltInTools(workingDir: string, sourceSessionId?: string)
     createKnowledgeCreateTool(workingDir),
     createGenerateImageTool(workingDir),
     createGenerateVideoJobTool(workingDir, sourceSessionId),
+    createManageBackgroundJobsTool(workingDir),
     createSynthesizeSpeechTool(workingDir),
     createGenerateMusicTool(workingDir),
   ];

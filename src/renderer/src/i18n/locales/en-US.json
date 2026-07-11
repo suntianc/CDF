@@ -172,12 +172,48 @@
     "backgroundJobsTitle": "Background jobs",
     "backgroundJobsEmpty": "No background jobs in this project.",
     "videoGeneration": "Video generation",
+    "queuePosition": "Queue #{{position}}",
     "jobStatus": {
       "queued": "Queued",
-      "running": "Running",
+      "submission_pending": "Submitting",
+      "submission_unknown": "Submission unknown",
+      "submitted": "Submitted",
+      "running": "Processing",
       "downloading": "Downloading",
+      "blocked": "Blocked",
+      "tracking_stopped": "Tracking stopped",
       "completed": "Completed",
-      "failed": "Failed"
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "jobAction": {
+      "cancel": "Cancel queued job",
+      "stop_tracking": "Stop tracking",
+      "resume_tracking": "Resume tracking",
+      "resubmit": "Resubmit with duplicate-charge risk",
+      "running": "Applying…"
+    },
+    "commandError": {
+      "INVALID_STATE": "This action is no longer valid for the current job state.",
+      "NOT_FOUND": "The background job no longer exists.",
+      "PROJECT_NOT_FOUND": "The project no longer exists.",
+      "generic": "The background job action failed. Try again."
+    },
+    "jobMessage": {
+      "waiting_connection_slot": "Waiting for the frozen connection slot. No provider request has been sent.",
+      "tracking_stopped_remote_continues": "Local tracking stopped. Remote generation and charges may continue.",
+      "explicit_resubmission_risk": "Explicit resubmission requested. The original provider charge remains unknown.",
+      "submission_unknown_no_retry": "Provider acceptance is unknown. CDF will not retry automatically.",
+      "route_blocked_no_fallback": "The frozen connection is unavailable. CDF will not switch providers.",
+      "submitting_once": "Submitting once to the frozen provider connection.",
+      "provider_task_submitted": "Provider task submitted.",
+      "temporary_provider_error": "Temporary provider error. Resume tracking to retry the same task.",
+      "reconnect_same_connection": "Reconnect the same provider connection to resume tracking.",
+      "provider_processing": "The provider is processing the video.",
+      "downloading_provider_result": "Downloading the provider result.",
+      "temporary_download_error": "Temporary download error. Resume tracking to retry.",
+      "artifact_durable": "The local MP4 artifact is durable.",
+      "job_failed": "The background video job failed."
     }
   },
   "subagentView": {

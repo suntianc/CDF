@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, Video, X, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
@@ -6,7 +6,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useProjectStore } from '../../stores/projectStore';
-import type { CapabilityJobSnapshot } from '../../../../shared/capability-jobs';
+import type { CapabilityJobAction, CapabilityJobSnapshot } from '../../../../shared/capability-jobs';
 import type { AgentRunStatus } from '../../../../shared/types';
 import {
   projectActivityPanel,
@@ -162,9 +162,13 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
 function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
   const { t } = useTranslation();
   const projectId = useProjectStore((state) => state.currentProjectId);
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
   const [jobs, setJobs] = useState<CapabilityJobSnapshot[]>([]);
   const [jobsProjectId, setJobsProjectId] = useState(projectId);
   const visibleJobs = jobsProjectId === projectId ? jobs : [];
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
 
   useEffect(() => {
     setJobsProjectId(projectId);
@@ -198,6 +202,30 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
     };
   }, [isOpen, projectId]);
 
+  const runCommand = (jobId: string, action: CapabilityJobAction) => {
+    if (!projectId) return;
+    const commandKey = `${jobId}:${action}`;
+    setPendingCommand(commandKey);
+    setCommandError(null);
+    window.electronAPI.capabilityJobs.command(projectId, jobId, action)
+      .then((result) => {
+        if (projectIdRef.current !== projectId) return;
+        if (!result.ok) {
+          setCommandError(`taskPanel.commandError.${result.code}`);
+          return;
+        }
+        setJobs((current) => [
+          result.job,
+          ...current.filter((job) => job.id !== result.job.id),
+        ].sort((left, right) => right.createdAt - left.createdAt));
+      })
+      .catch(() => {
+        if (projectIdRef.current !== projectId) return;
+        setCommandError('taskPanel.commandError.generic');
+      })
+      .finally(() => setPendingCommand((current) => current === commandKey ? null : current));
+  };
+
   if (!projectId) return null;
   return (
     <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
@@ -205,6 +233,9 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
         <Video className="h-3.5 w-3.5 text-[var(--color-accent)]" aria-hidden="true" />
         {t('taskPanel.backgroundJobsTitle')}
       </h3>
+      {commandError && (
+        <p role="alert" className="text-xs text-[var(--color-danger)]">{t(commandError)}</p>
+      )}
       {visibleJobs.length === 0 ? (
         <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsEmpty')}</p>
       ) : visibleJobs.map((job) => (
@@ -223,12 +254,43 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
               {t(`taskPanel.jobStatus.${job.status}`)}
             </span>
           </div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-muted)]">
+            <span>{job.connectionId}</span>
+            {job.queuePosition !== null && (
+              <span>{t('taskPanel.queuePosition', { position: job.queuePosition })}</span>
+            )}
+          </div>
+          {job.statusMessage && (
+            <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">
+              {t(`taskPanel.jobMessage.${job.statusMessage}`)}
+            </p>
+          )}
           {job.error && <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.error}</p>}
           {job.artifacts.map((artifact) => (
             <p key={artifact.path} className="mt-1 truncate font-mono text-xs text-[var(--color-text-muted)]" title={artifact.path}>
               {artifact.path}
             </p>
           ))}
+          {job.availableActions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {job.availableActions.map((action) => {
+                const commandKey = `${job.id}:${action}`;
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    disabled={pendingCommand !== null}
+                    onClick={() => runCommand(job.id, action)}
+                    className="rounded border border-[var(--color-border-strong)] px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {pendingCommand === commandKey
+                      ? t('taskPanel.jobAction.running')
+                      : t(`taskPanel.jobAction.${action}`)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       ))}
     </section>

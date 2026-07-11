@@ -84,5 +84,15 @@ export const backgroundCapabilityJobs = {
     getBackgroundCapabilityJobService().submitVideo(...args),
   list: (...args: Parameters<BackgroundCapabilityJobService['list']>) =>
     getBackgroundCapabilityJobService().list(...args),
+  get: (...args: Parameters<BackgroundCapabilityJobService['get']>) =>
+    getBackgroundCapabilityJobService().get(...args),
+  cancel: (...args: Parameters<BackgroundCapabilityJobService['cancel']>) =>
+    getBackgroundCapabilityJobService().cancel(...args),
+  stopTracking: (...args: Parameters<BackgroundCapabilityJobService['stopTracking']>) =>
+    getBackgroundCapabilityJobService().stopTracking(...args),
+  resumeTracking: (...args: Parameters<BackgroundCapabilityJobService['resumeTracking']>) =>
+    getBackgroundCapabilityJobService().resumeTracking(...args),
+  resubmit: (...args: Parameters<BackgroundCapabilityJobService['resubmit']>) =>
+    getBackgroundCapabilityJobService().resubmit(...args),
   resumePending: () => getBackgroundCapabilityJobService().resumePending(),
 };

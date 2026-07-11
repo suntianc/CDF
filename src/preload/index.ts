@@ -28,6 +28,7 @@ import type {
 } from '../shared/types';
 import type { SkillOverrideState } from '../shared/skill-overrides';
 import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
+import type { CapabilityJobAction } from '../shared/capability-jobs';
 
 const api = {
   store: {
@@ -233,6 +234,8 @@ const api = {
   },
   capabilityJobs: {
     list: (projectId: string) => typedInvoke('capability-jobs:list', projectId),
+    command: (projectId: string, jobId: string, action: CapabilityJobAction) =>
+      typedInvoke('capability-jobs:command', projectId, jobId, action),
     onChanged: (callback: (data: IpcEventPayload<'capability-jobs:changed'>) => void) => {
       const listener = (_event: IpcRendererEvent, data: IpcEventPayload<'capability-jobs:changed'>) =>
         callback(data);
