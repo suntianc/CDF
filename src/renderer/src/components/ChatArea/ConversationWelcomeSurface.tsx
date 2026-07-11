@@ -23,6 +23,7 @@ export interface ConversationWelcomeSurfaceProps {
   onClearError: () => void;
   onCreateProject: () => void;
   onOpenSettings?: () => void;
+  onOpenPlugins?: () => void;
   leftToolbarSlot?: ReactNode;
   modelSelectorSlot?: ReactNode;
 }
@@ -43,6 +44,7 @@ export function ConversationWelcomeSurface({
   onClearError,
   onCreateProject,
   onOpenSettings,
+  onOpenPlugins,
   leftToolbarSlot,
   modelSelectorSlot,
 }: ConversationWelcomeSurfaceProps) {
@@ -146,20 +148,20 @@ export function ConversationWelcomeSurface({
             <div className="feature-card-desc">{t('chat.createProjectDesc')}</div>
           </button>
 
-          <button type="button" className="feature-card" onClick={() => onOpenSettings?.()}>
-            <div className="feature-card-icon">
-              <Sliders className="w-4 h-4" />
-            </div>
-            <div className="feature-card-title">{t('chat.configureSkillsTitle')}</div>
-            <div className="feature-card-desc">{t('chat.configureSkillsDesc')}</div>
-          </button>
-
-          <button type="button" className="feature-card" onClick={() => onOpenSettings?.()}>
+          <button type="button" className="feature-card" onClick={onOpenPlugins}>
             <div className="feature-card-icon">
               <Layers className="w-4 h-4" />
             </div>
-            <div className="feature-card-title">{t('chat.connectMcpTitle')}</div>
-            <div className="feature-card-desc">{t('chat.connectMcpDesc')}</div>
+            <div className="feature-card-title">{t('chat.configurePluginsTitle')}</div>
+            <div className="feature-card-desc">{t('chat.configurePluginsDesc')}</div>
+          </button>
+
+          <button type="button" className="feature-card" onClick={onOpenSettings}>
+            <div className="feature-card-icon">
+              <Sliders className="w-4 h-4" />
+            </div>
+            <div className="feature-card-title">{t('chat.configureModelsTitle')}</div>
+            <div className="feature-card-desc">{t('chat.configureModelsDesc')}</div>
           </button>
         </div>
 

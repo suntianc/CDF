@@ -186,7 +186,7 @@ describe('AI subscription read model', () => {
 
     expect(candidate?.reasoning).toEqual({
       supportedEfforts: ['low', 'medium', 'high'],
-      defaultEffort: 'high',
+      defaultEffort: 'medium',
       control: 'depth',
     });
   });
@@ -201,7 +201,7 @@ describe('AI subscription read model', () => {
 
     expect(candidate?.reasoning).toEqual({
       supportedEfforts: ['none', 'low', 'medium', 'high'],
-      defaultEffort: 'low',
+      defaultEffort: 'medium',
       control: 'depth',
     });
   });
@@ -216,6 +216,7 @@ describe('AI subscription read model', () => {
 
     expect(candidate?.reasoning).toEqual({
       supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'medium',
       control: 'agent_count',
     });
   });
@@ -232,12 +233,12 @@ describe('AI subscription read model', () => {
 
     expect(profiles).toEqual({
       'gpt-5.6-sol': {
-        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultEffort: 'low',
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultEffort: 'medium',
         control: 'depth',
       },
       'gpt-5.6-terra': {
-        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         defaultEffort: 'medium',
         control: 'depth',
       },
@@ -263,7 +264,7 @@ describe('AI subscription read model', () => {
       },
       'gpt-5.3-codex-spark': {
         supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
-        defaultEffort: 'high',
+        defaultEffort: 'medium',
         control: 'depth',
       },
     });

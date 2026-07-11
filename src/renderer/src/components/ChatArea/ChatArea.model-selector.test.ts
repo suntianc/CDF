@@ -27,4 +27,12 @@ describe('Model Selection Surface direction wiring', () => {
 
     expect(baseRule?.groups?.body ?? '').not.toContain('bottom: calc(100% + 6px)');
   });
+
+  it('keeps the model selector trigger at the specified 12px size', () => {
+    const triggerRule = globalsCss.match(/\.model-selector-trigger\s*\{(?<body>[^}]*)\}/s);
+    const triggerStyles = triggerRule?.groups?.body ?? '';
+
+    expect(triggerStyles).toMatch(/font-size:\s*12px/);
+    expect(triggerStyles).not.toMatch(/font:\s*inherit/);
+  });
 });

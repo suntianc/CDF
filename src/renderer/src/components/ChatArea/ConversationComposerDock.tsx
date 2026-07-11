@@ -85,21 +85,21 @@ export function ConversationComposerDock({
               <button
                 type="button"
                 onClick={onStopGenerating}
-                className="p-2 rounded-lg bg-[var(--color-danger-dim)] hover:bg-[var(--color-danger)] hover:text-white text-[var(--color-danger)] transition-all flex items-center justify-center cursor-pointer"
+                className="h-8 w-8 rounded-full bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/90 text-white transition-all flex items-center justify-center cursor-pointer border-0 outline-none shadow-sm"
                 title={stopGeneratingLabel}
                 aria-label={stopGeneratingLabel}
               >
-                <Square className="w-4 h-4 fill-current" />
+                <Square className="w-3 h-3 fill-current text-white" />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={onSubmit}
                 disabled={!canSubmit}
-                className="dialog-btn send"
+                className="h-8 w-8 rounded-full bg-[var(--color-accent)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all flex items-center justify-center cursor-pointer border-0 outline-none shadow-sm"
                 aria-label={sendLabel}
               >
-                <ArrowUp className="w-4 h-4" />
+                <ArrowUp className="w-4 h-4 text-white" />
               </button>
             )
           }

@@ -125,7 +125,7 @@ describe('useModelSelectionController', () => {
       'Codex OAuth',
       'xAI Grok OAuth',
     ]);
-    expect(result.current.currentModelLabel).toBe('MiniMax Token Plan • MiniMax M2.7');
+    expect(result.current.currentModelLabel).toBe('MiniMax M2.7');
 
     act(() => {
       result.current.selectModel('ai_subscription', 'minimax-token-plan', 'MiniMax-M2.7');
@@ -169,7 +169,7 @@ describe('useModelSelectionController', () => {
 
     expect(result.current.reasoning).toEqual({
       supportedEfforts: ['none', 'low', 'medium', 'high'],
-      defaultEffort: 'low',
+      defaultEffort: 'medium',
       control: 'depth',
     });
     expect(result.current.selectedReasoningEffort).toBe('medium');

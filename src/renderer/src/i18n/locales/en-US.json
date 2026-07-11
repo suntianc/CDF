@@ -6,6 +6,7 @@
     "workflows": "Workflows",
     "back": "Back",
     "collapse": "Collapse sidebar",
+    "navigation": "Settings navigation",
     "modelConfig": "Model config",
     "settings": {
       "header": "General Settings",
@@ -508,10 +509,15 @@
     "addAttachment": "Add attachment",
     "noProvidersAvailable": "No providers available, click to configure",
     "modelSelection": {
+      "label": "Model",
       "sourceKinds": {
         "llm_provider": "API provider",
         "ai_subscription": "AI subscription"
-      }
+      },
+      "refreshConfig": "Refresh config",
+      "refreshingConfig": "Refreshing...",
+      "refreshConfigFailed": "Failed to refresh config: {{message}}",
+      "addModel": "Manage/Add model"
     },
     "reasoningEffort": {
       "depthLabel": "Reasoning depth",
@@ -532,10 +538,10 @@
     "sendMessage": "Send message",
     "createProjectTitle": "Create project",
     "createProjectDesc": "Import a code repo or create a blank project",
-    "configureSkillsTitle": "Configure skills",
-    "configureSkillsDesc": "Install and enable agent capability modules",
-    "connectMcpTitle": "Connect MCP",
-    "connectMcpDesc": "Configure data sources and external tool integrations",
+    "configurePluginsTitle": "Configure plugins",
+    "configurePluginsDesc": "Manage Skills and MCP integrations",
+    "configureModelsTitle": "Configure models",
+    "configureModelsDesc": "Add and manage model providers",
     "shortcutHint": "Press <kbd>/</kbd> for commands · <kbd>@</kbd> for files · <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line",
     "hideTaskPanel": "Hide task panel",
     "showTaskPanel": "Show task panel",
@@ -688,6 +694,7 @@
     "cancelCreateProject": "Cancel",
     "confirmCreateProject": "Create",
     "creatingProject": "Creating...",
+    "createProjectFailed": "Unable to create the project. Try again.",
     "scene": {
       "general": "General",
       "research": "Research"
@@ -698,9 +705,12 @@
   },
   "approvalMode": {
     "label": "Approval Mode",
-    "strict": "Strict",
-    "agentDecides": "Agent Decides",
-    "bypass": "Auto (Bypass)",
+    "strict": "Request Approval",
+    "strictDesc": "Always ask when editing external files and using the Internet",
+    "agentDecides": "Approve for Me",
+    "agentDecidesDesc": "Only ask for approval for detected risky operations",
+    "bypass": "Full Access",
+    "bypassDesc": "Unrestricted access to the Internet and any files on your computer",
     "bypassWarning": "All tool calls will execute automatically without confirmation"
   },
   "workflow": {

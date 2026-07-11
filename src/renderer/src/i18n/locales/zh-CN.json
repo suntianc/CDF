@@ -6,6 +6,7 @@
     "workflows": "工作流",
     "back": "返回",
     "collapse": "折叠侧边栏",
+    "navigation": "设置导航",
     "modelConfig": "模型配置",
     "settings": {
       "header": "通用设置",
@@ -508,10 +509,15 @@
     "addAttachment": "添加附件",
     "noProvidersAvailable": "暂无可用提供商，点击去配置",
     "modelSelection": {
+      "label": "模型",
       "sourceKinds": {
         "llm_provider": "API 提供商",
         "ai_subscription": "AI 订阅"
-      }
+      },
+      "refreshConfig": "刷新配置",
+      "refreshingConfig": "刷新中...",
+      "refreshConfigFailed": "刷新配置失败: {{message}}",
+      "addModel": "管理/添加模型"
     },
     "reasoningEffort": {
       "depthLabel": "思考深度",
@@ -532,10 +538,10 @@
     "sendMessage": "发送消息",
     "createProjectTitle": "创建项目",
     "createProjectDesc": "导入代码仓库或新建空白项目",
-    "configureSkillsTitle": "配置 Skills",
-    "configureSkillsDesc": "安装和启用智能体能力模块",
-    "connectMcpTitle": "连接 MCP",
-    "connectMcpDesc": "配置数据源和外部工具集成",
+    "configurePluginsTitle": "配置插件",
+    "configurePluginsDesc": "管理 Skills 与 MCP 集成",
+    "configureModelsTitle": "配置模型",
+    "configureModelsDesc": "添加和管理模型供应商",
     "shortcutHint": "按 <kbd>/</kbd> 调命令 · <kbd>@</kbd> 选文件 · <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行",
     "hideTaskPanel": "隐藏任务展板",
     "showTaskPanel": "显示任务展板",
@@ -688,6 +694,7 @@
     "cancelCreateProject": "取消",
     "confirmCreateProject": "创建",
     "creatingProject": "创建中...",
+    "createProjectFailed": "无法创建项目，请重试。",
     "scene": {
       "general": "通用",
       "research": "科研"
@@ -698,9 +705,12 @@
   },
   "approvalMode": {
     "label": "审批模式",
-    "strict": "严格审批",
-    "agentDecides": "Agent 自行判断",
-    "bypass": "全自动（跳过审批）",
+    "strict": "请求批准",
+    "strictDesc": "编辑外部文件和使用互联网时始终询问",
+    "agentDecides": "替我审批",
+    "agentDecidesDesc": "仅对检测到的风险操作请求批准",
+    "bypass": "完全访问",
+    "bypassDesc": "可不受限制地访问互联网和您电脑上的任何文件",
     "bypassWarning": "所有工具调用将自动执行，不经确认"
   },
   "workflow": {

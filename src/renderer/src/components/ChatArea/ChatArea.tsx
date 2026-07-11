@@ -8,8 +8,9 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import {
-  Plus, SlidersHorizontal
+  Plus, SlidersHorizontal, Image, BarChart3
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { useChatScroll } from './useChatScroll';
 import { resolve as dispatcherResolve, dispatch as dispatcherDispatch } from '@/lib/commands/dispatcher';
@@ -20,9 +21,14 @@ import { useComposerSubmissionController } from './composerInput/useComposerSubm
 import { ConversationViewportSurface } from './ConversationViewportSurface';
 import { ConversationWelcomeSurface } from './ConversationWelcomeSurface';
 import { ConversationComposerDock } from './ConversationComposerDock';
-import { ContextButton } from '@/components/Composer/ContextButton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useContextModalStore } from '@/stores/contextModalStore';
 import { ModelSelectionSurface } from './modelSelection/ModelSelectionSurface';
-import { ReasoningEffortSelector } from './modelSelection/ReasoningEffortSelector';
 import { useModelSelectionController } from './modelSelection/useModelSelectionController';
 import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
 import { useConversationPlanDisclosure } from './useConversationPlanDisclosure';
@@ -31,6 +37,7 @@ import { CreateProjectDialog } from '@/components/ProjectTree/CreateProjectDialo
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
+  onOpenPlugins?: () => void;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   taskPanelOpen?: boolean;
@@ -41,7 +48,7 @@ interface ChatAreaProps {
 
 export function ChatArea({
   onOpenSettings,
-  sidebarCollapsed,
+  onOpenPlugins,
   onToggleSidebar,
   taskPanelOpen,
   onToggleTaskPanel,
@@ -158,6 +165,39 @@ export function ChatArea({
     resolveCommand: dispatcherResolve,
   });
 
+  const openContextModal = useContextModalStore.getState().open;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+        const dataUrl = readerEvent.target?.result;
+        if (typeof dataUrl !== 'string') return;
+        
+        const result = composerInput.addAttachment({
+          dataUrl,
+          mimeType: file.type,
+          sizeBytes: file.size,
+        });
+        
+        if (!result.accepted) {
+          if (result.reason === 'tooMany') {
+            toast.warning('最多添加 5 张图片');
+          } else if (result.reason === 'tooLarge') {
+            toast.warning(`图片过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大 5MB`);
+          } else if (result.reason === 'unsupportedType') {
+            toast.warning('不支持的图片类型');
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  }, [composerInput]);
+
   const inputVal = composerInput.text;
 
   const composerSubmission = useComposerSubmissionController({
@@ -206,6 +246,14 @@ export function ChatArea({
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileChange}
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+      />
       <ConversationWelcomeSurface
         visible={!activeSessionId}
         currentProjectId={currentProjectId}
@@ -222,13 +270,38 @@ export function ChatArea({
         onClearError={clearError}
         onCreateProject={() => setCreateProjectOpen(true)}
         onOpenSettings={onOpenSettings}
+        onOpenPlugins={onOpenPlugins}
         leftToolbarSlot={
           <>
-            <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
-              <Plus className="w-4 h-4" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="p-1 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors border-0 bg-transparent cursor-pointer flex items-center justify-center"
+                  title={t('chat.addAttachment')}
+                  aria-label={t('chat.addAttachment')}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-[180px] z-50">
+                <DropdownMenuItem
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 text-xs py-2 cursor-pointer"
+                >
+                  <Image className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
+                  <span>添加图片附件</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={openContextModal}
+                  className="flex items-center gap-2 text-xs py-2 cursor-pointer"
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
+                  <span>查看上下文占用</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <ApprovalModeSelector />
-            <ContextButton />
           </>
         }
         modelSelectorSlot={
@@ -240,17 +313,12 @@ export function ChatArea({
               selectedSourceId={modelSelection.selectedSourceId}
               selectedModel={modelSelection.selectedModel}
               currentModelLabel={modelSelection.currentModelLabel}
+              currentProviderType={modelSelection.currentCandidate?.providerType}
               onSelectModel={modelSelection.selectModel}
               onOpenSettings={onOpenSettings}
+              selectedReasoningEffort={modelSelection.selectedReasoningEffort}
+              onSelectReasoningEffort={modelSelection.selectReasoningEffort}
             />
-            {modelSelection.reasoning && (
-              <ReasoningEffortSelector
-                variant="welcome"
-                profile={modelSelection.reasoning}
-                selectedEffort={modelSelection.selectedReasoningEffort}
-                onSelect={modelSelection.selectReasoningEffort}
-              />
-            )}
           </>
         }
       />
@@ -306,7 +374,7 @@ export function ChatArea({
           />
         </div>
 
-        {activeSessionId && (
+        {activeSessionId &&
           <ConversationComposerDock
             hidden={Boolean(viewingTask || viewingWorkerData)}
             showTodos={planDisclosure.showTodos}
@@ -329,11 +397,35 @@ export function ChatArea({
             onStopGenerating={stopMessage}
             leftToolbarSlot={
               <>
-                <button type="button" className="dialog-btn" title={t('chat.addAttachment')} aria-label={t('chat.addAttachment')}>
-                  <Plus className="w-4 h-4" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="p-1 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors border-0 bg-transparent cursor-pointer flex items-center justify-center"
+                      title={t('chat.addAttachment')}
+                      aria-label={t('chat.addAttachment')}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-[180px] z-50">
+                    <DropdownMenuItem
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 text-xs py-2 cursor-pointer"
+                    >
+                      <Image className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
+                      <span>添加图片附件</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={openContextModal}
+                      className="flex items-center gap-2 text-xs py-2 cursor-pointer"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
+                      <span>查看上下文占用</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <ApprovalModeSelector dropUp />
-                <ContextButton />
               </>
             }
             modelSelectorSlot={
@@ -345,23 +437,17 @@ export function ChatArea({
                   selectedSourceId={modelSelection.selectedSourceId}
                   selectedModel={modelSelection.selectedModel}
                   currentModelLabel={modelSelection.currentModelLabel}
+                  currentProviderType={modelSelection.currentCandidate?.providerType}
                   onSelectModel={modelSelection.selectModel}
                   onOpenSettings={onOpenSettings}
+                  selectedReasoningEffort={modelSelection.selectedReasoningEffort}
+                  onSelectReasoningEffort={modelSelection.selectReasoningEffort}
                 />
-                {modelSelection.reasoning && (
-                  <ReasoningEffortSelector
-                    variant="composer"
-                    profile={modelSelection.reasoning}
-                    selectedEffort={modelSelection.selectedReasoningEffort}
-                    onSelect={modelSelection.selectReasoningEffort}
-                  />
-                )}
               </>
             }
           />
-        )}
+          }
       </div>
-
       <CreateProjectDialog
         open={createProjectOpen}
         onOpenChange={setCreateProjectOpen}

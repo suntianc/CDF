@@ -148,65 +148,81 @@ export function Sidebar({
           </div>
         </>
       ) : (
-        <div className={styles.settingsMenu}>
+        <nav className={styles.settingsMenu} aria-label={t('sidebar.navigation')}>
           <div className={styles.settingsMenuHeader}>{t('sidebar.settings.header')}</div>
-          <div
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'settings' ? styles.active : ''}`}
             onClick={() => onChangeView('settings')}
+            aria-current={activeView === 'settings' ? 'page' : undefined}
           >
             <Monitor className="w-4 h-4" />
             {t('sidebar.settings.llm')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'ai-subscriptions' ? styles.active : ''}`}
             onClick={() => onChangeView('ai-subscriptions')}
+            aria-current={activeView === 'ai-subscriptions' ? 'page' : undefined}
           >
             <Sparkles className="w-4 h-4" />
             {t('sidebar.settings.aiSubscriptions')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}
             onClick={() => onChangeView('agents')}
+            aria-current={activeView === 'agents' ? 'page' : undefined}
           >
             <Bot className="w-4 h-4" />
             {t('sidebar.settings.agents')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'plugins' ? styles.active : ''}`}
             onClick={() => onChangeView('plugins')}
+            aria-current={activeView === 'plugins' ? 'page' : undefined}
           >
             <LayoutGrid className="w-4 h-4" />
             {t('sidebar.settings.skillsMcp')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'tools' ? styles.active : ''}`}
             onClick={() => onChangeView('tools')}
+            aria-current={activeView === 'tools' ? 'page' : undefined}
           >
             <Wrench className="w-4 h-4" />
             {t('sidebar.settings.tools')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'research' ? styles.active : ''}`}
             onClick={() => onChangeView('research')}
+            aria-current={activeView === 'research' ? 'page' : undefined}
           >
             <Microscope className="w-4 h-4" />
             {t('sidebar.settings.research')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}
             onClick={() => onChangeView('workflows')}
+            aria-current={activeView === 'workflows' ? 'page' : undefined}
           >
             <GitFork className="w-4 h-4" />
             {t('sidebar.settings.workflows')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'system' ? styles.active : ''}`}
             onClick={() => onChangeView('system')}
+            aria-current={activeView === 'system' ? 'page' : undefined}
           >
             <Sliders className="w-4 h-4" />
             {t('sidebar.settings.system')}
-          </div>
-        </div>
+          </button>
+        </nav>
       )}
 
       <div

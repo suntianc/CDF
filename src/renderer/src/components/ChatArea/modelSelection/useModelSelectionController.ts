@@ -25,9 +25,9 @@ export interface ModelSelectionCandidate {
   sourceName: string;
   model: string;
   label: string;
+  providerType?: string;
   reasoning?: ModelReasoningProfile;
 }
-
 export interface ModelSelectionGroup {
   id: string;
   sourceType: ModelSourceType;
@@ -70,6 +70,7 @@ function llmProviderCandidates(provider: LLMProvider): ModelSelectionCandidate[]
     sourceName: provider.name,
     model,
     label: model,
+    providerType: provider.provider_type,
   }));
 }
 
@@ -78,15 +79,26 @@ export function buildModelSelectionGroups(
   aiSubscriptionEntries: ReadonlyArray<AISubscriptionEntry> = []
 ): ModelSelectionGroup[] {
   const aiSubscriptionCandidates = buildAISubscriptionTextModelCandidates(aiSubscriptionEntries)
-    .map((candidate) => ({
-      key: `ai_subscription:${candidate.sourceId}:${candidate.model}`,
-      sourceType: candidate.sourceType,
-      sourceId: candidate.sourceId,
-      sourceName: candidate.sourceName,
-      model: candidate.model,
-      label: candidate.label,
-      reasoning: candidate.reasoning,
-    }));
+    .map((candidate) => {
+      let providerType = 'antigravity';
+      if (candidate.sourceId === 'minimax-token-plan') {
+        providerType = 'minimax';
+      } else if (candidate.sourceId === 'codex-oauth') {
+        providerType = 'codex';
+      } else if (candidate.sourceId === 'xai-oauth') {
+        providerType = 'grok';
+      }
+      return {
+        key: `ai_subscription:${candidate.sourceId}:${candidate.model}`,
+        sourceType: candidate.sourceType,
+        sourceId: candidate.sourceId,
+        sourceName: candidate.sourceName,
+        model: candidate.model,
+        label: candidate.label,
+        reasoning: candidate.reasoning,
+        providerType,
+      };
+    });
 
   const providerGroups = providers.map((provider) => ({
     id: `llm_provider:${provider.id}`,
@@ -169,9 +181,7 @@ export function useModelSelectionController({
     ? providers.find((provider) => provider.id === currentCandidate.sourceId) ?? masterProvider
     : null;
   const currentModel = currentCandidate?.model || masterProvider?.default_model || '';
-  const currentModelLabel = currentCandidate
-    ? `${currentCandidate.sourceName} • ${currentCandidate.label}`
-    : '';
+  const currentModelLabel = currentCandidate?.label || '';
   const reasoning = currentCandidate?.reasoning;
   const selectedReasoningEffort = reasoning?.supportedEfforts.includes(override?.reasoningEffort as ReasoningEffort)
     ? override?.reasoningEffort

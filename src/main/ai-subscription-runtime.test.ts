@@ -209,10 +209,10 @@ describe('resolveAISubscriptionRuntimeModel', () => {
       accountId: 'account-1',
     });
 
-    const config = resolveAISubscriptionRuntimeModel('codex-oauth', 'gpt-5.6-sol', 'ultra');
+    const config = resolveAISubscriptionRuntimeModel('codex-oauth', 'gpt-5.6-sol', 'max');
 
     expect(config.modelKwargs).toEqual({
-      reasoning: { effort: 'ultra' },
+      reasoning: { effort: 'max' },
     });
   });
 
