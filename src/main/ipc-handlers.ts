@@ -1,5 +1,6 @@
 import { ipcMain, dialog, app, shell } from 'electron';
 import { typedHandle } from './typed-ipc';
+import { typedCrud } from './typed-crud';
 import log from './logger';
 import store from './store';
 import db from './database';
@@ -352,21 +353,30 @@ export function registerIpcHandlers() {
     return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
   });
 
-  typedHandle('db:deleteProject', (_, id) => {
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteProject',
+    remove: (id) => {
+      db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    },
   });
 
-  typedHandle('db:renameProject', (_, id, name) => {
-    const now = Date.now();
-    db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
-    return { id, name, updated_at: now };
+  typedCrud({
+    channel: 'db:renameProject',
+    write: (id, name) => {
+      const now = Date.now();
+      db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
+      return { id, name, updated_at: now };
+    },
   });
 
   // Database handlers: Sessions
-  typedHandle('db:getSessions', (_, projectId) => {
-    return db
-      .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
-      .all(projectId) as Session[];
+  typedCrud({
+    channel: 'db:getSessions',
+    read: (projectId) => {
+      return db
+        .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
+        .all(projectId) as Session[];
+    },
   });
 
   typedHandle('db:createSession', (_, projectId, name, parentSessionId, summary, agentId) => {
@@ -382,8 +392,11 @@ export function registerIpcHandlers() {
     return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
   });
 
-  typedHandle('db:deleteSession', (_, sessionId) => {
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  typedCrud({
+    channel: 'db:deleteSession',
+    remove: (sessionId) => {
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    },
   });
 
   // Database handlers: Messages
@@ -428,12 +441,18 @@ export function registerIpcHandlers() {
     return { id, session_id, role, content, created_at: now, tokens, imageBase64 };
   });
 
-  typedHandle('db:updateMessageThinkDuration', (_, id, seconds) => {
-    db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
+  typedCrud({
+    channel: 'db:updateMessageThinkDuration',
+    write: (id, seconds) => {
+      db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
+    },
   });
 
-  typedHandle('db:deleteMessage', (_, id) => {
-    db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteMessage',
+    remove: (id) => {
+      db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+    },
   });
 
   // Database handlers: LLM Providers
@@ -498,8 +517,11 @@ export function registerIpcHandlers() {
     return { id, name, provider_type, api_url: normalizedApiUrl, default_model, context_limit, is_active, models, hasKey: !!finalApiKey };
   });
 
-  typedHandle('db:deleteProvider', (_, id) => {
-    db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteProvider',
+    remove: (id) => {
+      db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:setActiveProvider', (_, id) => {
@@ -713,8 +735,11 @@ export function registerIpcHandlers() {
     };
   });
 
-  typedHandle('db:deleteAgent', (_, id) => {
-    db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteAgent',
+    remove: (id) => {
+      db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+    },
   });
 
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
@@ -776,21 +801,30 @@ export function registerIpcHandlers() {
     return importPhysicalSkillDirectory(sourceDir) as Skill;
   });
 
-  typedHandle('db:getAgentRuns', (_, sessionId) => {
-    return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
+  typedCrud({
+    channel: 'db:getAgentRuns',
+    read: (sessionId) => {
+      return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
+    },
   });
 
-  typedHandle('db:getAgentToolCalls', (_, runId) => {
-    return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
+  typedCrud({
+    channel: 'db:getAgentToolCalls',
+    read: (runId) => {
+      return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
+    },
   });
 
-  typedHandle('db:getLatestTodos', (_, sessionId) => {
-    return db.prepare(`
-      SELECT atc.* FROM agent_tool_calls atc
-      JOIN agent_runs ar ON atc.run_id = ar.id
-      WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
-      ORDER BY atc.started_at DESC LIMIT 1
-    `).get(sessionId) as AgentToolCall | undefined;
+  typedCrud({
+    channel: 'db:getLatestTodos',
+    read: (sessionId) => {
+      return db.prepare(`
+        SELECT atc.* FROM agent_tool_calls atc
+        JOIN agent_runs ar ON atc.run_id = ar.id
+        WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
+        ORDER BY atc.started_at DESC LIMIT 1
+      `).get(sessionId) as AgentToolCall | undefined;
+    },
   });
 
   // ===== Phase 3: MCP Server IPC Handlers =====
@@ -824,8 +858,11 @@ export function registerIpcHandlers() {
     return { id, name, server_type, config, is_connected: false };
   });
 
-  typedHandle('db:deleteMcpServer', (_, id) => {
-    db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteMcpServer',
+    remove: (id) => {
+      db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:toggleMcpConnection', async (_, id, connected) => {
@@ -885,8 +922,11 @@ export function registerIpcHandlers() {
     };
   });
 
-  typedHandle('db:deleteToolConfig', (_, id) => {
-    db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteToolConfig',
+    remove: (id) => {
+      db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('paper-search:getSettings', () => getSyncedPaperSearchSettings());
@@ -924,12 +964,10 @@ export function registerIpcHandlers() {
 
   // ===== Phase 3 & Phase 4: deepagents Runtime IPC Handlers =====
 
-  // Store for deepagent instances (managed per session)
-  const agentInstances = new Map<string, any>();
-
+  // dead seam removed (was `agentInstances` Map, only ever written, never read).
+  // The deepagents:createAgent channel is the only one that referenced it.
   typedHandle('deepagents:createAgent', async (_, config) => {
     const agentId = crypto.randomUUID();
-    agentInstances.set(agentId, { config });
     return { agentId };
   });
 
@@ -973,8 +1011,11 @@ export function registerIpcHandlers() {
     return { id, project_id, name, description, graph_data: graph_data || { nodes: [], edges: [] }, status: status || 'draft', created_at: now, updated_at: now };
   });
 
-  typedHandle('db:deleteWorkflow', (_, id) => {
-    db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteWorkflow',
+    remove: (id) => {
+      db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:getWorkflowExecutions', (_, workflowId) => {
