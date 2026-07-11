@@ -125,6 +125,14 @@ function splitIntoTurns(items: Array<ConversationTimelineMessageItem | Conversat
       return;
     }
 
+    if (item.type === 'message' && isCapabilityJobEventMessage(item.message)) {
+      if (currentTurn.userItem || currentTurn.responseItems.length > 0) {
+        turns.push(currentTurn);
+      }
+      currentTurn = { userItem: null, responseItems: [item] };
+      return;
+    }
+
     currentTurn.responseItems.push(item);
   });
 
@@ -481,6 +489,17 @@ function isToolMessage(message: Message): boolean {
   try {
     const parsed = JSON.parse(message.content);
     return Boolean(parsed && parsed.type === 'tool');
+  } catch {
+    return false;
+  }
+}
+
+function isCapabilityJobEventMessage(message: Message): boolean {
+  if (message.role !== 'assistant') return false;
+
+  try {
+    const parsed = JSON.parse(message.content);
+    return Boolean(parsed && parsed.type === 'capability_job_event');
   } catch {
     return false;
   }
