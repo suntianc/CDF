@@ -1,5 +1,6 @@
 import type {
   AgentApprovalRequest,
+  ConversationRunStreamSnapshot,
   AgentRun,
   AgentToolCall,
   ExecutionStep,
@@ -48,6 +49,7 @@ export interface ParallelBatchProjection {
 
 export interface ConversationRuntimeProjectionState {
   sessionId: string;
+  requestId: string;
   messages: Message[];
   todos: TodoItem[];
   agentRuns: AgentRun[];
@@ -120,6 +122,66 @@ export function createConversationRuntimeState(
     pendingToolMessages: {},
     runtimeToolMessageIds: [],
     ...input,
+    requestId: input.requestId ?? input.streamingMessageId ?? '',
+  };
+}
+
+export function hydrateConversationRuntimeStream(
+  state: ConversationRuntimeProjectionState,
+  snapshot: ConversationRunStreamSnapshot,
+  deps: ConversationRuntimeProjectionDeps,
+): ConversationRuntimeProjectionState {
+  const tokens = deps.estimateTokens(snapshot.content);
+  const hasMessage = state.messages.some((message) => message.id === snapshot.messageId);
+  const messages = snapshot.content
+    ? (hasMessage
+        ? state.messages.map((message) => (
+            message.id === snapshot.messageId
+              ? { ...message, content: snapshot.content, tokens }
+              : message
+          ))
+        : [
+            ...state.messages,
+            {
+              id: snapshot.messageId,
+              session_id: snapshot.sessionId,
+              role: 'assistant' as const,
+              content: snapshot.content,
+              tokens,
+              created_at: deps.now(),
+            },
+          ])
+    : state.messages;
+  const agentRuns = snapshot.runId
+    && snapshot.agentId
+    && !state.agentRuns.some((run) => run.id === snapshot.runId)
+    ? [
+        {
+          id: snapshot.runId,
+          session_id: snapshot.sessionId,
+          agent_id: snapshot.agentId,
+          request_id: snapshot.requestId,
+          status: 'running' as const,
+          started_at: deps.now(),
+          ended_at: null,
+          aborted: 0,
+        },
+        ...state.agentRuns,
+      ]
+    : state.agentRuns;
+
+  return {
+    ...state,
+    sessionId: snapshot.sessionId,
+    requestId: snapshot.requestId,
+    streamingMessageId: snapshot.messageId,
+    currentAssistantMsgId: snapshot.messageId,
+    messages,
+    agentRuns,
+    activeRunId: snapshot.runId,
+    pendingApproval: null,
+    isStreaming: true,
+    accumulatedContent: snapshot.content,
   };
 }
 
@@ -304,7 +366,7 @@ export function projectConversationRuntime(
             id: streamEvent.runId,
             session_id: state.sessionId,
             agent_id: streamEvent.agentId,
-            request_id: state.streamingMessageId || '',
+            request_id: state.requestId,
             status: streamEvent.status,
             started_at: deps.now(),
             ended_at: null,

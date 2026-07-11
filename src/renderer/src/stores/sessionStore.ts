@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useProjectStore } from './projectStore';
 import {
   createConversationRuntimeState,
+  hydrateConversationRuntimeStream,
   projectConversationRuntime,
   restoreConversationRuntime,
   type ConversationRuntimeProjectionEffect,
@@ -692,6 +693,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     const runtime = cached ?? createConversationRuntimeState({
       sessionId: envelope.sessionId,
+      requestId: envelope.requestId,
       streamingMessageId: envelope.messageId,
       currentAssistantMsgId: envelope.messageId,
       messages: current.messages,
@@ -757,55 +759,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (snapshot.sequence < lastSequence) return;
 
     const current = get();
-    const existingMessage = current.messages.some((message) => message.id === snapshot.messageId);
-    const messages = snapshot.content
-      ? (existingMessage
-          ? current.messages.map((message) => (
-              message.id === snapshot.messageId
-                ? { ...message, content: snapshot.content }
-                : message
-            ))
-          : [
-              ...current.messages,
-              {
-                id: snapshot.messageId,
-                session_id: sessionId,
-                role: 'assistant' as const,
-                content: snapshot.content,
-                tokens: estimateTokens(snapshot.content),
-                created_at: Date.now(),
-              },
-            ])
-      : current.messages;
-    const agentRuns = snapshot.runId && !current.agentRuns.some((run) => run.id === snapshot.runId)
-      ? [
-          {
-            id: snapshot.runId,
-            session_id: sessionId,
-            agent_id: snapshot.agentId ?? '',
-            request_id: snapshot.requestId,
-            status: 'running' as const,
-            started_at: Date.now(),
-            ended_at: null,
-            aborted: 0,
-          },
-          ...current.agentRuns,
-        ]
-      : current.agentRuns;
-    const runtime = createConversationRuntimeState({
-      sessionId,
-      streamingMessageId: snapshot.messageId,
-      currentAssistantMsgId: snapshot.messageId,
-      messages,
-      todos: current.todos,
-      delegatedTasks: current.delegatedTasks,
-      parallelBatches: current.parallelBatches,
-      agentRuns,
-      agentToolCalls: current.agentToolCalls,
-      activeRunId: snapshot.runId,
-      pendingApproval: null,
-      accumulatedContent: snapshot.content,
-    });
+    const runtime = hydrateConversationRuntimeStream(
+      createConversationRuntimeState({
+        sessionId,
+        requestId: snapshot.requestId,
+        streamingMessageId: snapshot.messageId,
+        currentAssistantMsgId: snapshot.messageId,
+        messages: current.messages,
+        todos: current.todos,
+        delegatedTasks: current.delegatedTasks,
+        parallelBatches: current.parallelBatches,
+        agentRuns: current.agentRuns,
+        agentToolCalls: current.agentToolCalls,
+        activeRunId: current.activeRunId,
+        pendingApproval: current.pendingApproval,
+        isStreaming: current.isStreaming,
+      }),
+      snapshot,
+      {
+        now: () => Date.now(),
+        createId: () => window.crypto.randomUUID(),
+        estimateTokens,
+      },
+    );
     conversationRunSequences.set(sequenceKey, snapshot.sequence);
     streamingSessionsCache.set(sessionId, runtime);
     set({

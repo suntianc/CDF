@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '@shared/types';
 import {
   createConversationRuntimeState,
+  hydrateConversationRuntimeStream,
   projectConversationRuntime,
   restoreConversationRuntime,
   type ConversationRuntimeProjectionDeps,
@@ -464,6 +465,7 @@ describe('Conversation Runtime Projection', () => {
     const initial = createConversationRuntimeState({
       sessionId: 'session-1',
       streamingMessageId: 'assistant-current',
+      requestId: 'background-continuation:batch-1',
       currentAssistantMsgId: 'assistant-current',
       agentToolCalls: [
         {
@@ -499,7 +501,7 @@ describe('Conversation Runtime Projection', () => {
         id: 'run-1',
         session_id: 'session-1',
         agent_id: 'agent-1',
-        request_id: 'assistant-current',
+        request_id: 'background-continuation:batch-1',
         status: 'running',
         started_at: 1000,
         ended_at: null,
@@ -510,13 +512,51 @@ describe('Conversation Runtime Projection', () => {
       id: 'run-1',
       session_id: 'session-1',
       agent_id: 'agent-1',
-      request_id: 'assistant-current',
+      request_id: 'background-continuation:batch-1',
       status: 'completed',
       started_at: 1000,
       ended_at: 1000,
       aborted: 0,
       error: null,
     });
+  });
+
+  it('hydrates a background run snapshot through the projection state', () => {
+    const initial = createConversationRuntimeState({
+      sessionId: 'session-1',
+      streamingMessageId: null,
+      currentAssistantMsgId: 'unused',
+      messages: [],
+      isStreaming: false,
+    });
+
+    const hydrated = hydrateConversationRuntimeStream(initial, {
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation',
+      sequence: 4,
+      content: '已生成',
+      runId: 'run-1',
+      agentId: 'agent-1',
+    }, deps);
+
+    expect(hydrated).toMatchObject({
+      requestId: 'background-continuation:batch-1',
+      streamingMessageId: 'background-continuation-output:batch-1',
+      currentAssistantMsgId: 'background-continuation-output:batch-1',
+      activeRunId: 'run-1',
+      isStreaming: true,
+      accumulatedContent: '已生成',
+    });
+    expect(hydrated.messages).toContainEqual(expect.objectContaining({
+      id: 'background-continuation-output:batch-1',
+      content: '已生成',
+    }));
+    expect(hydrated.agentRuns).toContainEqual(expect.objectContaining({
+      id: 'run-1',
+      request_id: 'background-continuation:batch-1',
+    }));
   });
 
   it('projects todo updates from stream events and write_todos output', () => {
