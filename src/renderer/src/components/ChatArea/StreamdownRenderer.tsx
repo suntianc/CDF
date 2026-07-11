@@ -199,18 +199,12 @@ const AComponent = ({ children, href }: any) => {
 
   if (isAudio) {
     return (
-      <span className="audio-player-container my-3 p-3.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[420px] shadow-sm block">
-        {children && (
-          <span className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate block">
-            <span className="animate-pulse">🎵</span>
-            <span>{children}</span>
-          </span>
-        )}
+      <span className="inline-block my-1.5 w-full max-w-[360px] block">
         <audio
           src={safeSrc}
           controls
           preload="metadata"
-          className="w-full h-9 outline-none"
+          className="w-full h-8 outline-none"
         />
       </span>
     );
@@ -218,18 +212,13 @@ const AComponent = ({ children, href }: any) => {
 
   if (isVideo) {
     return (
-      <span className="video-player-container my-3 p-2.5 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]/45 rounded-xl flex flex-col gap-2 max-w-[540px] shadow-sm block">
-        {children && (
-          <span className="text-xs font-semibold text-[var(--color-text-secondary)] flex items-center gap-1.5 truncate block">
-            <span>🎬</span>
-            <span>{children}</span>
-          </span>
-        )}
+      <span className="inline-block my-2 w-full max-w-[480px] block">
         <video
           src={safeSrc}
           controls
           preload="metadata"
-          className="w-full max-h-[320px] object-contain rounded-lg bg-black/90"
+          className="w-full rounded-lg border border-[var(--color-border)]/55 bg-black/95 shadow-sm block focus-visible:outline-none"
+          style={{ maxHeight: '320px', objectFit: 'contain' }}
         />
       </span>
     );
@@ -361,11 +350,11 @@ const ImgComponent = ({ src, alt }: { src?: string; alt?: string }) => {
   }, [safeSrc]);
 
   return (
-    <span key={uniqueKey} className="inline-block my-1">
+    <span key={uniqueKey} className="inline-block my-1.5">
       <img
         src={safeSrc}
         alt={alt || 'image'}
-        className="max-w-[280px] max-h-[200px] object-contain rounded-lg outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10 cursor-zoom-in shadow-sm hover:opacity-90 hover:scale-[1.01] active:scale-[0.99] transition-[opacity,transform] duration-150"
+        className="max-w-[480px] w-full max-h-[360px] object-contain rounded-lg border border-[var(--color-border)]/55 bg-[var(--color-bg-surface)] cursor-zoom-in shadow-sm hover:opacity-95 hover:scale-[1.005] active:scale-[0.995] transition-all duration-150"
         onClick={() => zoomImage(safeSrc)}
       />
     </span>
