@@ -231,6 +231,17 @@ const api = {
       };
     },
   },
+  capabilityJobs: {
+    list: (projectId: string) => typedInvoke('capability-jobs:list', projectId),
+    onChanged: (callback: (data: IpcEventPayload<'capability-jobs:changed'>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: IpcEventPayload<'capability-jobs:changed'>) =>
+        callback(data);
+      ipcRenderer.on('capability-jobs:changed', listener);
+      return () => {
+        ipcRenderer.removeListener('capability-jobs:changed', listener);
+      };
+    },
+  },
   // ===== Phase 08.3 Plan 01: @Mention file candidate bridge (E-01, E-05) =====
   // Returns relative POSIX paths (directories suffixed with `/`). Renderer
   // infers `kind` from `path.endsWith('/')` (pitfall #4 — minimal payload).

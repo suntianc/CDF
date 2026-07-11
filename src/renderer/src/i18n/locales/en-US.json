@@ -168,7 +168,17 @@
     "taskFailed": "Task failed: {{code}}",
     "taskCompleted": "Task completed",
     "tokenUnit": "tokens",
-    "subagentCallIntercepted": "Sub-agent tool call intercepted"
+    "subagentCallIntercepted": "Sub-agent tool call intercepted",
+    "backgroundJobsTitle": "Background jobs",
+    "backgroundJobsEmpty": "No background jobs in this project.",
+    "videoGeneration": "Video generation",
+    "jobStatus": {
+      "queued": "Queued",
+      "running": "Running",
+      "downloading": "Downloading",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
   },
   "subagentView": {
     "backToMaster": "Back to main conversation",

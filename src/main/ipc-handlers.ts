@@ -72,6 +72,7 @@ import type {
   AISubscriptionEntryId,
   CapabilityId,
 } from '../shared/ai-subscriptions';
+import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -167,6 +168,9 @@ function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
 }
 
 export function registerIpcHandlers() {
+  typedHandle('capability-jobs:list', (_event, projectId) =>
+    backgroundCapabilityJobs.list(projectId)
+  );
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (existing) return;

@@ -3,6 +3,21 @@ import { render, waitFor, act, fireEvent } from '@testing-library/react';
 import { TaskPanel } from './TaskPanel';
 
 const fetchAgentActivity = vi.fn();
+const listCapabilityJobs = vi.fn();
+let capabilityJobListener: ((event: {
+  projectId: string;
+  job: {
+    id: string;
+    projectId: string;
+    type: 'video.generate';
+    status: 'queued' | 'running' | 'downloading' | 'completed' | 'failed';
+    provider: 'xai-oauth';
+    artifacts: Array<{ path: string; mimeType: string }>;
+    error: string | null;
+    createdAt: number;
+    updatedAt: number;
+  };
+}) => void) | undefined;
 let sessionState: Record<string, unknown>;
 
 vi.mock('react-i18next', () => ({
@@ -19,11 +34,30 @@ vi.mock('../../stores/sessionStore', () => ({
 vi.mock('../../stores/agentStore', () => ({
   useAgentStore: () => [],
 }));
+vi.mock('../../stores/projectStore', () => ({
+  useProjectStore: (selector: (state: { currentProjectId: string }) => unknown) =>
+    selector({ currentProjectId: 'project-1' }),
+}));
 
 
 beforeEach(() => {
   fetchAgentActivity.mockReset();
   fetchAgentActivity.mockResolvedValue(undefined);
+  listCapabilityJobs.mockReset();
+  listCapabilityJobs.mockResolvedValue([]);
+  capabilityJobListener = undefined;
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+      capabilityJobs: {
+        list: listCapabilityJobs,
+        onChanged: (listener: typeof capabilityJobListener) => {
+          capabilityJobListener = listener;
+          return vi.fn();
+        },
+      },
+    },
+  });
   sessionState = {
     activeSessionId: 'session-1',
     activeRunId: null,
@@ -105,6 +139,39 @@ describe('TaskPanel', () => {
 
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('shows project background video job state and applies status events', async () => {
+    listCapabilityJobs.mockResolvedValue([{
+      id: 'job-1',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'queued',
+      provider: 'xai-oauth',
+      artifacts: [],
+      error: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }]);
+    const { getByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getByText('taskPanel.jobStatus.queued')).toBeTruthy());
+    act(() => capabilityJobListener?.({
+      projectId: 'project-1',
+      job: {
+        id: 'job-1',
+        projectId: 'project-1',
+        type: 'video.generate',
+        status: 'completed',
+        provider: 'xai-oauth',
+        artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
+        error: null,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    }));
+    expect(getByText('taskPanel.jobStatus.completed')).toBeTruthy();
+    expect(getByText('/project/video.mp4')).toBeTruthy();
+  });
+
 });
 
 describe('TaskPanel — Activity Trail', () => {

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, X, XCircle } from 'lucide-react';
+import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, Video, X, XCircle } from 'lucide-react';
 // ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
 import { useSessionStore } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useProjectStore } from '../../stores/projectStore';
+import type { CapabilityJobSnapshot } from '../../../../shared/capability-jobs';
 import type { AgentRunStatus } from '../../../../shared/types';
 import {
   projectActivityPanel,
@@ -157,6 +159,82 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
   );
 }
 
+function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
+  const { t } = useTranslation();
+  const projectId = useProjectStore((state) => state.currentProjectId);
+  const [jobs, setJobs] = useState<CapabilityJobSnapshot[]>([]);
+  const [jobsProjectId, setJobsProjectId] = useState(projectId);
+  const visibleJobs = jobsProjectId === projectId ? jobs : [];
+
+  useEffect(() => {
+    setJobsProjectId(projectId);
+    setJobs([]);
+    if (!isOpen || !projectId) return;
+    let active = true;
+    const unsubscribe = window.electronAPI.capabilityJobs.onChanged((event) => {
+      if (!active || event.projectId !== projectId) return;
+      setJobs((current) => [
+        event.job,
+        ...current.filter((job) => job.id !== event.job.id),
+      ].sort((left, right) => right.createdAt - left.createdAt));
+    });
+    window.electronAPI.capabilityJobs.list(projectId)
+      .then((snapshots) => {
+        if (!active) return;
+        setJobs((current) => {
+          const latestById = new Map(snapshots.map((job) => [job.id, job]));
+          for (const job of current) {
+            const snapshot = latestById.get(job.id);
+            if (!snapshot || job.updatedAt >= snapshot.updatedAt) latestById.set(job.id, job);
+          }
+          return [...latestById.values()]
+            .sort((left, right) => right.createdAt - left.createdAt);
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [isOpen, projectId]);
+
+  if (!projectId) return null;
+  return (
+    <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
+      <h3 className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
+        <Video className="h-3.5 w-3.5 text-[var(--color-accent)]" aria-hidden="true" />
+        {t('taskPanel.backgroundJobsTitle')}
+      </h3>
+      {visibleJobs.length === 0 ? (
+        <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsEmpty')}</p>
+      ) : visibleJobs.map((job) => (
+        <div key={job.id} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] p-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-medium text-[var(--color-text-primary)]">
+              {t('taskPanel.videoGeneration')}
+            </span>
+            <span className={`shrink-0 text-xs ${
+              job.status === 'failed'
+                ? 'text-[var(--color-danger)]'
+                : job.status === 'completed'
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-accent)]'
+            }`}>
+              {t(`taskPanel.jobStatus.${job.status}`)}
+            </span>
+          </div>
+          {job.error && <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.error}</p>}
+          {job.artifacts.map((artifact) => (
+            <p key={artifact.path} className="mt-1 truncate font-mono text-xs text-[var(--color-text-muted)]" title={artifact.path}>
+              {artifact.path}
+            </p>
+          ))}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
   const { t } = useTranslation();
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
@@ -214,6 +292,8 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
 
   return (
     <>
+      <BackgroundJobsSection isOpen={isOpen} />
+
       {projection.sessionEmptyState && (
         <div className="text-xs text-[var(--color-text-muted)]">{projection.sessionEmptyState.message}</div>
       )}

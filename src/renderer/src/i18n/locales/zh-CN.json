@@ -168,7 +168,17 @@
     "taskFailed": "任务失败: {{code}}",
     "taskCompleted": "任务执行完成",
     "tokenUnit": "tokens",
-    "subagentCallIntercepted": "子 Agent 工具调用被拦截"
+    "subagentCallIntercepted": "子 Agent 工具调用被拦截",
+    "backgroundJobsTitle": "后台任务",
+    "backgroundJobsEmpty": "当前项目暂无后台任务。",
+    "videoGeneration": "视频生成",
+    "jobStatus": {
+      "queued": "排队中",
+      "running": "运行中",
+      "downloading": "下载中",
+      "completed": "已完成",
+      "failed": "失败"
+    }
   },
   "subagentView": {
     "backToMaster": "返回主对话",

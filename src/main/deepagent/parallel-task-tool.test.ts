@@ -178,6 +178,7 @@ describe('createParallelTaskTool', () => {
       builtInSkillDirs: ['/tmp/cdf-built-in-skills/knowledge-base'],
       preloadSkillNames: ['parallel-skill'],
     }));
+    expect(createBuiltInToolsMock).toHaveBeenCalledWith('/tmp/project', 'session-1');
   });
 
   it('preserves qualified additional worker skill names when building preload hints', async () => {

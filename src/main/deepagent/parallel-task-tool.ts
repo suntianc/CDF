@@ -133,6 +133,7 @@ async function invokeWorker(
   agentRow: AgentRow,
   taskDescription: string,
   projectPath: string,
+  sourceSessionId: string,
   onStep: (step: ExecutionStep) => void,
   approvalMode: ApprovalMode = 'strict',
 ): Promise<string> {
@@ -170,7 +171,7 @@ async function invokeWorker(
   const backend = new CompositeBackend(new StateBackend(), {
     '/': new FilesystemBackend({ rootDir: '/', virtualMode: false }),
   });
-  const builtInTools: any[] = createBuiltInTools(projectPath);
+  const builtInTools: any[] = createBuiltInTools(projectPath, sourceSessionId);
   builtInTools.push(...loadRegistryTools());
 
   const interruptOn = resolveInterruptOn(approvalMode, getRuntimeToolNames(mcpRuntime.tools));
@@ -357,6 +358,7 @@ export function createParallelTaskTool(projectId: string, sessionId: string, app
             agentRow,
             taskContext,
             projectPath,
+            sessionId,
             (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, workerId, step }),
             approvalMode,
           );

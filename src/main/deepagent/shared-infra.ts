@@ -20,7 +20,7 @@ import { loadMcpTools } from './mcp-connector';
 import type { ApprovalMode, MCPServer } from '../../shared/types';
 import { createKnowledgeCreateTool, createKnowledgeSearchTool } from '../knowledge-base';
 import { createGenerateImageTool } from '../capabilities/generate-image';
-import { createGenerateVideoTool } from '../capabilities/generate-video';
+import { createGenerateVideoJobTool } from '../capabilities/generate-video-job-tool';
 import { createSynthesizeSpeechTool } from '../capabilities/synthesize-speech';
 import { createGenerateMusicTool } from '../capabilities/generate-music';
 
@@ -208,7 +208,7 @@ export function resolveInterruptOn(
 /**
  * 构建内建工具（delete_file、bash、fetch、generate_image/video/speech/music 等），绑定到指定工作目录
  */
-export function createBuiltInTools(workingDir: string): any[] {
+export function createBuiltInTools(workingDir: string, sourceSessionId?: string): any[] {
   return [
     createDeleteFileTool(workingDir),
     createBashTool({ workingDir }),
@@ -217,7 +217,7 @@ export function createBuiltInTools(workingDir: string): any[] {
     createKnowledgeSearchTool(workingDir),
     createKnowledgeCreateTool(workingDir),
     createGenerateImageTool(workingDir),
-    createGenerateVideoTool(workingDir),
+    createGenerateVideoJobTool(workingDir, sourceSessionId),
     createSynthesizeSpeechTool(workingDir),
     createGenerateMusicTool(workingDir),
   ];
