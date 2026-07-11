@@ -1,5 +1,6 @@
 import React, { memo, useContext } from 'react';
 import { Streamdown } from 'streamdown';
+import { Play, Pause } from 'lucide-react';
 import { createMathPlugin } from '@streamdown/math';
 import { CodeBlock } from './markdown/CodeBlock';
 import { AlertBlock, type AlertType } from './markdown/AlertBlock';
@@ -187,6 +188,104 @@ function getSafeImageSrc(src: string): string {
   return src;
 }
 
+const CustomAudioPlayer = ({ src }: { src: string }) => {
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+  const [currentTime, setCurrentTime] = React.useState(0);
+  const [duration, setDuration] = React.useState(0);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    if (audioRef.current) {
+      audioRef.current.currentTime = val;
+      setCurrentTime(val);
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    if (isNaN(secs)) return '0:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)] rounded-lg w-full max-w-[320px] select-none shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+      style={{ boxSizing: 'border-box' }}
+    >
+      <button
+        type="button"
+        onClick={togglePlay}
+        className="w-7 h-7 flex items-center justify-center rounded-full bg-[var(--color-accent-dim)] hover:bg-[var(--color-accent)]/20 text-[var(--color-accent)] transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+        title={isPlaying ? '暂停' : '播放'}
+      >
+        {isPlaying ? (
+          <Pause className="w-3.5 h-3.5 fill-current" />
+        ) : (
+          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+        )}
+      </button>
+
+      <div className="flex-1 flex flex-col gap-0.5 min-w-0">
+        <input
+          type="range"
+          min={0}
+          max={duration || 100}
+          value={currentTime}
+          onChange={handleSeek}
+          className="w-full h-1 bg-[var(--color-border-strong)] rounded-lg appearance-none cursor-pointer accent-[var(--color-accent)] focus:outline-none"
+          style={{
+            background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${progressPercent}%, var(--color-border-strong) ${progressPercent}%, var(--color-border-strong) 100%)`
+          }}
+        />
+        <div className="flex items-center justify-between text-[9px] font-mono text-[var(--color-text-muted)] mt-0.5">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
+      <audio
+        ref={audioRef}
+        src={src}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
+      />
+    </div>
+  );
+};
+
 const AComponent = ({ children, href }: any) => {
   if (!href) return null;
 
@@ -199,13 +298,8 @@ const AComponent = ({ children, href }: any) => {
 
   if (isAudio) {
     return (
-      <span className="inline-block my-1.5 w-full max-w-[360px] block">
-        <audio
-          src={safeSrc}
-          controls
-          preload="metadata"
-          className="w-full h-8 outline-none"
-        />
+      <span className="inline-block my-1.5 w-full max-w-[320px] block">
+        <CustomAudioPlayer src={safeSrc} />
       </span>
     );
   }
