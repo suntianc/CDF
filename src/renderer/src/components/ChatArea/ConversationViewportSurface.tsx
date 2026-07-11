@@ -34,7 +34,7 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
   const headerText = t('chat.processedDuration', { duration: formatHMSTime(duration) });
 
   return (
-    <div className="mb-2.5 flex w-full flex-col animate-slide-down">
+    <div className="mb-0 flex w-full flex-col animate-slide-down">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
