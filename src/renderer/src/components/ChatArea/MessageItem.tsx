@@ -592,22 +592,94 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return <CapabilityJobTimelineCard info={capabilityJobInfo} />;
   }
 
-  return (
-    <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
-      <div className="message-row">
+  if (message.role === 'user') {
+    return (
+      <div
+        className="message user animate-fade-in"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '6px',
+          width: '100%',
+          maxWidth: '80%',
+          alignSelf: 'flex-end',
+          padding: '8px 0'
+        }}
+      >
+        {/* 缩略图区域（在气泡上方） */}
         {message.imageBase64 && message.imageBase64.length > 0 && (
-          <div className="flex gap-1.5 flex-wrap mb-2">
+          <div className="flex gap-2 flex-wrap justify-end mb-1">
             {message.imageBase64.map((dataUrl: string, idx: number) => (
-              <img
+              <div
                 key={idx}
-                src={dataUrl}
-                alt={`image_${idx + 1}`}
-                className="max-w-[200px] max-h-[150px] object-contain rounded cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => setLightboxUrl(dataUrl)}
-              />
+                className="group relative cursor-zoom-in overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] shadow-sm hover:border-[var(--color-border-strong)] transition-all bg-[var(--color-bg-surface)]"
+                style={{
+                  width: '80px',
+                  height: '80px',
+                  boxSizing: 'border-box'
+                }}
+              >
+                <img
+                  src={dataUrl}
+                  alt={`uploaded_image_${idx + 1}`}
+                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                />
+              </div>
             ))}
           </div>
         )}
+
+        {/* 用户气泡本体 */}
+        <div
+          className="message-row"
+          style={{
+            background: 'var(--accent-dim)',
+            border: '1px solid var(--border)',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-md)',
+            textAlign: 'left',
+            maxWidth: '100%',
+            wordBreak: 'break-word'
+          }}
+        >
+          <ImageZoomContext.Provider value={setLightboxUrl}>
+            <MessageContentRenderer
+              content={message.content}
+              isLast={isLast}
+              isStreaming={isStreaming}
+              messageId={message.id}
+              thinkDurationSeconds={message.think_duration_seconds}
+              thinkRecent={isRecent}
+            />
+          </ImageZoomContext.Provider>
+        </div>
+
+        {/* 辅助信息与时间（在气泡下方，靠右） */}
+        <div
+          style={{
+            fontSize: '11px',
+            color: 'var(--color-text-muted)',
+            fontFamily: 'var(--font-mono)',
+            marginRight: '4px',
+            marginTop: '2px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            userSelect: 'none'
+          }}
+        >
+          <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          {message.tokens && message.tokens > 0 && (
+            <>
+              <span style={{ opacity: 0.5 }}>·</span>
+              <span>{message.tokens} tokens</span>
+            </>
+          )}
+        </div>
+
+        {/* Preview Lightbox (Portal) */}
         {lightboxUrl && createPortal(
           <div
             className="fixed inset-0 z-[9999] flex items-center justify-center"
@@ -622,7 +694,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
                 style={{ borderRadius: 'var(--radius-lg)' }}
               />
               <button
-                className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors"
+                className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
                 style={{
                   background: 'var(--color-bg-surface)',
                   border: '1px solid var(--color-border)',
@@ -639,6 +711,13 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
           </div>,
           document.body
         )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`message assistant`}>
+      <div className="message-row">
         <ImageZoomContext.Provider value={setLightboxUrl}>
           <MessageContentRenderer
             content={message.content}
