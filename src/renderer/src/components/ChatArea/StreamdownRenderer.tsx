@@ -105,7 +105,7 @@ const CodeComponent = ({ inline, className, children, ...props }: any) => {
 
 // Custom tables components
 const TableComponent = ({ children }: any) => (
-  <div className="overflow-x-auto my-3 border border-[var(--color-border)]/40 rounded-lg max-w-full shadow-sm">
+  <div className="overflow-x-auto my-3 max-w-full">
     <table className="min-w-full divide-y divide-[var(--color-border)]/40 text-xs font-sans select-text border-collapse">
       {children}
     </table>
@@ -113,7 +113,7 @@ const TableComponent = ({ children }: any) => (
 );
 
 const TheadComponent = ({ children }: any) => (
-  <thead className="bg-[var(--color-bg-active)]/20 text-[var(--color-text-secondary)] font-semibold border-b border-[var(--color-border)]/30">
+  <thead className="bg-transparent text-[var(--color-text-secondary)] font-semibold border-b border-[var(--color-border)]/40">
     {children}
   </thead>
 );
@@ -125,7 +125,7 @@ const TbodyComponent = ({ children }: any) => (
 );
 
 const TrComponent = ({ children }: any) => (
-  <tr className="hover:bg-[var(--color-bg-hover)]/20 transition-colors odd:bg-[var(--color-bg-sidebar)]/10">
+  <tr className="hover:bg-[var(--color-bg-hover)]/15 transition-colors">
     {children}
   </tr>
 );
