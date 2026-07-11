@@ -30,6 +30,8 @@ vi.mock('lucide-react', () => {
     Lightbulb: sentinel('lightbulb'),
     AlertCircle: sentinel('alert-circle'),
     AlertOctagon: sentinel('alert-octagon'),
+    CheckCircle2: sentinel('check-circle-2'),
+    XCircle: sentinel('x-circle'),
   };
 });
 

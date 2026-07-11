@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileVideo, FolderOpen, AlertCircle } from 'lucide-react';
+import { FileVideo, FolderOpen, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import {
   CapabilityJobTimelineEventSchema,
   type CapabilityJobTimelineEvent,
@@ -35,21 +35,18 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
 
   const statusConfig = {
     completed: {
-      edgeColor: 'bg-[var(--color-success)]',
-      tagBg: 'bg-[var(--color-success-dim)]/50',
-      tagText: 'text-[var(--color-success)]',
+      borderColor: 'border-l-[var(--color-success)]',
+      icon: <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] shrink-0" />,
       labelKey: 'conversation.capabilityJob.completed'
     },
     failed: {
-      edgeColor: 'bg-[var(--color-danger)]',
-      tagBg: 'bg-[var(--color-danger-dim)]/50',
-      tagText: 'text-[var(--color-danger)]',
+      borderColor: 'border-l-[var(--color-danger)]',
+      icon: <XCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0" />,
       labelKey: 'conversation.capabilityJob.failed'
     },
     canceled: {
-      edgeColor: 'bg-[var(--color-text-muted)]',
-      tagBg: 'bg-[var(--color-bg-sunken)]',
-      tagText: 'text-[var(--color-text-muted)]',
+      borderColor: 'border-l-[var(--color-text-muted)]',
+      icon: <AlertCircle className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />,
       labelKey: 'conversation.capabilityJob.canceled'
     }
   };
@@ -60,47 +57,46 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
   const config = statusConfig[status];
 
   return (
-    <div className="relative overflow-hidden pl-4 pr-3 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/35 hover:bg-[var(--color-bg-sidebar)]/60 transition-colors max-w-[82%] my-2 select-text">
-      {/* Ledger Edge / 档案边标 */}
-      <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${config.edgeColor}`} />
-
+    <div className={`overflow-hidden pl-3 pr-3 py-2.5 rounded-lg border border-[var(--color-border)] ${config.borderColor} border-l-[3.5px] bg-[var(--color-bg-sidebar)]/35 hover:bg-[var(--color-bg-sidebar)]/60 transition-colors max-w-[420px] w-full my-2 select-text flex flex-col gap-2`}>
       {/* Header 行 */}
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${config.tagBg} ${config.tagText}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          {config.icon}
+          <span className="shrink-0 text-xs font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
             {t(config.labelKey)}
           </span>
           {info.provider && info.mode && (
-            <span className="truncate text-[11px] text-[var(--color-text-secondary)] font-medium">
+            <span className="truncate text-[11px] text-[var(--color-text-muted)]">
               {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
             </span>
           )}
         </div>
-        <span className="shrink-0 font-mono text-[9px] text-[var(--color-text-muted)]/70 hover:text-[var(--color-text-muted)] transition-colors select-all" title={info.jobId}>
-          {info.jobId.slice(0, 8)}...
+        <span className="shrink-0 font-mono text-[9px] text-[var(--color-text-muted)]/60 hover:text-[var(--color-text-muted)] transition-colors select-all" title={info.jobId}>
+          #{info.jobId.slice(0, 8)}
         </span>
       </div>
 
       {/* Artifacts 列表 */}
       {info.artifacts.length > 0 && (
-        <div className="mt-2 space-y-1">
+        <div className="space-y-1.5">
           {info.artifacts.map((artifact) => {
             const basename = getBasename(artifact.path);
             return (
               <div
                 key={artifact.path}
-                className="flex items-center justify-between gap-3 px-2 py-1.5 rounded bg-[var(--color-bg-surface)] border border-[var(--color-border)]/55 group/artifact"
+                onClick={() => handleRevealFile(artifact.path)}
+                className="flex items-center justify-between gap-3 px-2.5 py-2 rounded-md bg-[var(--color-bg-surface)] border border-[var(--color-border)]/75 hover:border-[var(--color-border-strong)] transition-all group/artifact cursor-pointer"
+                title={artifact.path}
               >
                 <div className="flex items-center gap-2 min-w-0 text-[11.5px] text-[var(--color-text-primary)]">
                   <FileVideo className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" />
-                  <span className="truncate font-mono" title={artifact.path}>
+                  <span className="truncate font-mono">
                     {basename}
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleRevealFile(artifact.path)}
-                  className="shrink-0 p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-85 group-hover/artifact:opacity-100"
+                  className="shrink-0 p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer opacity-70 group-hover/artifact:opacity-100"
                   title={t('chat.revealInFolder') || '在文件夹中显示'}
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
@@ -113,7 +109,7 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
 
       {/* Error 消息 */}
       {info.error && (
-        <div className="mt-2 flex items-start gap-1.5 px-2.5 py-1.5 rounded bg-[var(--color-danger-dim)]/50 border border-[var(--color-danger)]/15 text-[11px] text-[var(--color-danger)] leading-relaxed">
+        <div className="flex items-start gap-1.5 px-2.5 py-1.5 rounded bg-[var(--color-danger-dim)]/50 border border-[var(--color-danger)]/15 text-[11px] text-[var(--color-danger)] leading-relaxed">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span className="break-all">{info.error}</span>
         </div>
