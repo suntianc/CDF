@@ -182,6 +182,45 @@ describe('TaskPanel', () => {
     expect(getByText('taskPanel.continuationStatus.consumed')).toBeTruthy();
   });
 
+  it('shows the frozen route, explicit mode, and non-sensitive first-frame snapshot summary', async () => {
+    listCapabilityJobs.mockResolvedValue([{
+      id: 'job-first-frame',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'queued',
+      provider: 'xai-oauth',
+      artifacts: [],
+      connectionId: 'xai-oauth',
+      queuePosition: 1,
+      relatedJobId: null,
+      availableActions: ['cancel'],
+      inputSummary: {
+        mode: 'first-frame',
+        firstFrame: {
+          mimeType: 'image/png',
+          sizeBytes: 2048,
+          width: 1600,
+          height: 900,
+          aspectRatio: '16:9',
+          sha256: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        },
+      },
+      error: null,
+      statusMessage: 'waiting_connection_slot',
+      continuationStatus: null,
+      continuationError: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }]);
+
+    const { getByText, queryByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getByText('taskPanel.jobRoute.xai-oauth')).toBeTruthy());
+    expect(getByText('taskPanel.videoModeValue.first-frame')).toBeTruthy();
+    expect(getByText('image/png · 1600×900 · 16:9 · 2 KB · abcdef01')).toBeTruthy();
+    expect(queryByText(/opening\.png|token=/)).toBeNull();
+  });
+
   it('offers state-safe controls and explains unknown submission risk', async () => {
     listCapabilityJobs.mockResolvedValue([{
       id: 'job-unknown',

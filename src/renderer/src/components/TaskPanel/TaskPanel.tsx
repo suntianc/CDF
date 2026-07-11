@@ -159,6 +159,24 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
   );
 }
 
+function formatSnapshotBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function firstFrameSummary(job: CapabilityJobSnapshot): string | null {
+  const snapshot = job.inputSummary?.firstFrame;
+  if (!snapshot) return null;
+  return [
+    snapshot.mimeType,
+    `${snapshot.width}×${snapshot.height}`,
+    snapshot.aspectRatio,
+    formatSnapshotBytes(snapshot.sizeBytes),
+    snapshot.sha256.slice(0, 8),
+  ].join(' · ');
+}
+
 function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
   const { t } = useTranslation();
   const projectId = useProjectStore((state) => state.currentProjectId);
@@ -255,11 +273,27 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-muted)]">
-            <span>{job.connectionId}</span>
+            <span className="font-mono">{t(`taskPanel.jobRoute.${job.connectionId}`)}</span>
             {job.queuePosition !== null && (
-              <span>{t('taskPanel.queuePosition', { position: job.queuePosition })}</span>
+              <span className="tabular-nums">{t('taskPanel.queuePosition', { position: job.queuePosition })}</span>
             )}
           </div>
+          {job.inputSummary && (
+            <div className="mt-1 space-y-1 text-xs text-[var(--color-text-secondary)]">
+              <p>
+                {[
+                  t(`taskPanel.videoModeValue.${job.inputSummary.mode}`),
+                  job.inputSummary.duration !== undefined ? `${job.inputSummary.duration}s` : null,
+                  job.inputSummary.resolution,
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {firstFrameSummary(job) && (
+                <p className="break-words font-mono text-[11px] text-[var(--color-text-muted)]">
+                  {firstFrameSummary(job)}
+                </p>
+              )}
+            </div>
+          )}
           {job.statusMessage && (
             <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">
               {t(`taskPanel.jobMessage.${job.statusMessage}`)}

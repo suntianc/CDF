@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle, ShieldAlert, X } from 'lucide-react';
 import type { AgentApprovalRequest, Message } from '@shared/types';
 import type { DelegatedTask, ParallelWorker, SessionError } from '../../stores/sessionStore';
+import { projectVideoApprovalSummary } from '../shared/videoApprovalSummary';
 import { ToolGroupCard, translateToolAction } from './ToolMessageCard';
 import { MessageItem, formatHMSTime } from './MessageItem';
 import { GoalSystemBubble } from './GoalSystemBubble';
@@ -68,6 +69,23 @@ const FoldedBlockCard = ({ duration, items }: { duration: number; items: any[] }
   );
 };
 
+function approvalArgsForDisplay(
+  name: string,
+  args: unknown,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): unknown {
+  if (name !== 'generate_video') return args;
+  const summary = projectVideoApprovalSummary(args, t);
+  return {
+    route_hint: summary.route,
+    mode: summary.mode,
+    duration: summary.duration,
+    resolution: summary.resolution,
+    input_summary: summary.inputSummary,
+    non_cancellation_warning: summary.nonCancellationWarning,
+  };
+}
+
 const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApprovalRequest; onOpenTaskPanel?: () => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -104,7 +122,9 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApp
                 </span>
                 {action.args && (
                   <pre className="p-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] rounded text-xs font-mono text-[var(--color-text-secondary)] overflow-x-auto select-text max-h-40 overflow-y-auto leading-relaxed">
-                    <code>{typeof action.args === 'string' ? action.args : JSON.stringify(action.args, null, 2)}</code>
+                    <code>{typeof action.args === 'string'
+                      ? action.args
+                      : JSON.stringify(approvalArgsForDisplay(action.name, action.args, t), null, 2)}</code>
                   </pre>
                 )}
               </div>

@@ -157,6 +157,14 @@
     "approvalPreviewNew": "新内容",
     "approvalPreviewMatch": "匹配内容",
     "approvalPreviewArgs": "参数摘要",
+    "approvalVideoRouteMode": "路由与模式",
+    "approvalInputSummary": "安全输入摘要",
+    "videoInputText": "文本提示词",
+    "videoInputFirstFrame": "首帧图片",
+    "videoInputFirstFrameRemote": "来自 {{host}} 的首帧",
+    "videoInputFirstFrameLocal": "首帧 {{file}}",
+    "nonCancellationWarning": "提交后无法取消 Provider 远端生成",
+    "providerDefaultResolution": "Provider 默认分辨率（随路由解析）",
     "toolWriteFile": "写入文件",
     "toolEditFile": "编辑文件",
     "toolDeleteFile": "删除文件",
@@ -173,6 +181,14 @@
     "backgroundJobsEmpty": "当前项目暂无后台任务。",
     "videoGeneration": "视频生成",
     "queuePosition": "队列第 {{position}} 位",
+    "jobRoute": {
+      "xai-oauth": "xAI Grok OAuth",
+      "minimax-token-plan": "MiniMax Token Plan"
+    },
+    "videoModeValue": {
+      "text": "文生视频",
+      "first-frame": "首帧图生视频"
+    },
     "remoteBillingWarning": "停止跟踪只影响 CDF；MiniMax 远端仍可能继续生成并计费。",
     "jobStatus": {
       "queued": "排队中",

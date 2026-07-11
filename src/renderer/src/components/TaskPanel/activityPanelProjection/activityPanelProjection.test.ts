@@ -180,6 +180,87 @@ describe('projectActivityPanel', () => {
       });
     });
 
+    it('summarizes generate_video approval without exposing prompt or signed source URL', () => {
+      const projection = projectActivityPanel({
+        activeSessionId: 'session-1',
+        activeRunId: 'run-1',
+        agentRuns: [run({ id: 'run-1', status: 'waiting_approval' })],
+        agentToolCalls: [],
+        delegatedTasks: [],
+        parallelBatches: [],
+        pendingApproval: {
+          id: 'approval-video',
+          runId: 'run-1',
+          actions: [action({
+            name: 'generate_video',
+            args: {
+              mode: 'first-frame',
+              route_hint: 'xai-oauth',
+              duration: 5,
+              resolution: '720p',
+              prompt: 'confidential campaign description',
+              images: [{
+                role: 'first-frame',
+                source: 'https://cdn.example.com/opening.png?token=signed-secret',
+              }],
+            },
+          })],
+        },
+        pendingWorkflowApproval: null,
+        agents: [],
+        viewingSubagentId: null,
+        viewingParallelWorker: null,
+        t,
+      });
+
+      expect(projection.conversationApprovalSection?.actions[0]).toEqual({
+        key: 'generate_video-0',
+        name: 'generate_video',
+        title: 'taskPanel.videoGeneration',
+        targetLabel: 'taskPanel.approvalVideoRouteMode',
+        target: 'xai-oauth · first-frame',
+        previewLabel: 'taskPanel.approvalInputSummary',
+        preview: 'taskPanel.videoInputFirstFrameRemote:{"host":"cdn.example.com"} · 5s · 720p · taskPanel.nonCancellationWarning',
+      });
+      expect(JSON.stringify(projection.conversationApprovalSection)).not.toContain('signed-secret');
+      expect(JSON.stringify(projection.conversationApprovalSection)).not.toContain('confidential');
+    });
+
+    it('shows provider-specific defaults without inventing values for auto text routes', () => {
+      const projectVideoApproval = (args: Record<string, unknown>) => projectActivityPanel({
+        activeSessionId: 'session-1',
+        activeRunId: 'run-1',
+        agentRuns: [run({ id: 'run-1', status: 'waiting_approval' })],
+        agentToolCalls: [],
+        delegatedTasks: [],
+        parallelBatches: [],
+        pendingApproval: {
+          id: 'approval-video-defaults',
+          runId: 'run-1',
+          actions: [action({ name: 'generate_video', args })],
+        },
+        pendingWorkflowApproval: null,
+        agents: [],
+        viewingSubagentId: null,
+        viewingParallelWorker: null,
+        t,
+      }).conversationApprovalSection?.actions[0].preview;
+
+      expect(projectVideoApproval({
+        mode: 'text',
+        route_hint: 'minimax-token-plan',
+      })).toContain('6s · 768P');
+      expect(projectVideoApproval({
+        mode: 'text',
+        route_hint: 'auto',
+      })).toContain('6s · taskPanel.providerDefaultResolution');
+      expect(projectVideoApproval({
+        mode: 'first-frame',
+        route_hint: 'auto',
+        images: [{ role: 'first-frame', source: '/project/frame.png' }],
+      })).toContain('6s · 480p');
+    });
+
     it('projects workflow approval separately from conversation approval', () => {
       const projection = projectActivityPanel({
         activeSessionId: 'session-1',

@@ -1,5 +1,6 @@
 export type CapabilityJobType = 'video.generate';
 export type CapabilityJobProvider = 'xai-oauth' | 'minimax-token-plan';
+export type VideoGenerationMode = 'text' | 'first-frame';
 
 export type CapabilityJobStatus =
   | 'queued'
@@ -17,6 +18,20 @@ export type CapabilityJobStatus =
 export interface CapabilityJobArtifact {
   path: string;
   mimeType: string;
+}
+
+export interface CapabilityJobInputSummary {
+  mode: VideoGenerationMode;
+  duration?: number;
+  resolution?: string;
+  firstFrame?: {
+    mimeType: 'image/png' | 'image/jpeg';
+    sizeBytes: number;
+    width: number;
+    height: number;
+    aspectRatio: string;
+    sha256: string;
+  };
 }
 
 export type CapabilityJobAction =
@@ -61,6 +76,7 @@ export interface CapabilityJobSnapshot {
   relatedJobId: string | null;
   availableActions: CapabilityJobAction[];
   artifacts: CapabilityJobArtifact[];
+  inputSummary?: CapabilityJobInputSummary;
   error: string | null;
   createdAt: number;
   updatedAt: number;

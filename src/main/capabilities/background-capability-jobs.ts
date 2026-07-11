@@ -15,8 +15,16 @@ import type {
   CapabilityJobStatusMessage,
   CapabilityJobStatus,
   CapabilityJobSubmissionResult,
+  VideoGenerationMode,
 } from '../../shared/capability-jobs';
 import { XAI_RESPONSES_API_BASE_URL } from '../ai-subscription-runtime';
+import {
+  freezeVideoInputSnapshot,
+  videoInputSnapshotDir,
+  type VideoInputImageReference,
+  type VideoInputSnapshot,
+  type VideoInputSnapshotDeps,
+} from './video-input-snapshot';
 
 const MINIMAX_API_BASE_URL = 'https://api.minimaxi.com/v1';
 const MINIMAX_VIDEO_MODEL = 'MiniMax-Hailuo-2.3';
@@ -64,8 +72,17 @@ interface CapabilityJobRow {
   updated_at: number;
 }
 
+
+interface PersistedVideoInput extends Omit<BackgroundGenerateVideoInput, 'images'> {
+  prompt: string;
+  mode: VideoGenerationMode;
+  first_frame?: VideoInputSnapshot;
+}
+
 export interface BackgroundGenerateVideoInput {
   prompt: string;
+  mode?: VideoGenerationMode;
+  images?: VideoInputImageReference[];
   route_hint?: 'auto' | CapabilityJobProvider;
   duration?: number;
   aspect_ratio?: string;
@@ -90,7 +107,7 @@ export interface VideoProviderRoute {
   fetch: typeof fetch;
 }
 
-export interface CapabilityJobServiceDeps {
+export interface CapabilityJobServiceDeps extends VideoInputSnapshotDeps {
   resolveProject: (projectPath: string) => { id: string; path: string } | null;
   resolveRoute: (connectionId?: CapabilityJobProvider) => VideoProviderRoute | null;
   download: (url: string) => Promise<{ bytes: Buffer; mimeType: string }>;
@@ -203,18 +220,45 @@ export class BackgroundCapabilityJobService {
     if (!normalizedInput.ok) return normalizedInput;
 
     const id = crypto.randomUUID();
+    let persistedInput: PersistedVideoInput;
+    try {
+      persistedInput = await this.freezeVideoInput(id, project.path, normalizedInput.input);
+    } catch (error) {
+      return { ok: false, error: message(error), code: 'INVALID_INPUT' };
+    }
     const now = (this.deps.now ?? Date.now)();
-    this.db.prepare(`INSERT INTO capability_jobs
-      (id, project_id, project_path, type, status, input, provider, connection_id,
-       provider_task_id, source_session_id, related_job_id, artifacts, error,
-       status_message, submission_attempted, created_at, updated_at)
-      VALUES (?, ?, ?, 'video.generate', 'queued', ?, ?, ?,
-       NULL, ?, NULL, '[]', NULL, 'waiting_connection_slot', 0, ?, ?)`)
-      .run(id, project.id, project.path, JSON.stringify(normalizedInput.input),
-        connectionId, connectionId, sourceSessionId ?? null, now, now);
+    try {
+      this.db.prepare(`INSERT INTO capability_jobs
+        (id, project_id, project_path, type, status, input, provider, connection_id,
+         provider_task_id, source_session_id, related_job_id, artifacts, error,
+         status_message, submission_attempted, created_at, updated_at)
+        VALUES (?, ?, ?, 'video.generate', 'queued', ?, ?, ?,
+         NULL, ?, NULL, '[]', NULL, 'waiting_connection_slot', 0, ?, ?)`)
+        .run(id, project.id, project.path, JSON.stringify(persistedInput),
+          connectionId, connectionId, sourceSessionId ?? null, now, now);
+    } catch (error) {
+      await fs.rm(videoInputSnapshotDir(project.path, id), { recursive: true, force: true });
+      throw error;
+    }
     this.emit(id);
     this.schedulePump(connectionId);
     return { ok: true, jobId: id, type: 'video.generate', status: 'queued' };
+  }
+
+  private async freezeVideoInput(
+    jobId: string,
+    projectPath: string,
+    input: BackgroundGenerateVideoInput & { prompt: string; mode: VideoGenerationMode }
+  ): Promise<PersistedVideoInput> {
+    const { images: _images, ...persisted } = input;
+    if (input.mode === 'text') return persisted;
+    const firstFrame = await freezeVideoInputSnapshot(
+      jobId,
+      projectPath,
+      input.images![0].source,
+      this.deps,
+    );
+    return { ...persisted, first_frame: firstFrame };
   }
 
   list(projectId: string): CapabilityJobSnapshot[] {
@@ -410,6 +454,15 @@ export class BackgroundCapabilityJobService {
   ): Promise<string | null> {
     const input = parseInput(row.input);
     const body: Record<string, unknown> = { model: 'grok-imagine-video', prompt: input.prompt };
+    if (input.mode === 'first-frame') {
+      if (!input.first_frame) throw new Error('Persisted first-frame snapshot is missing');
+      const bytes = await fs.readFile(input.first_frame.path);
+      const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+      if (sha256 !== input.first_frame.sha256) {
+        throw new Error('Persisted first-frame snapshot failed integrity verification');
+      }
+      body.image_url = `data:${input.first_frame.mimeType};base64,${bytes.toString('base64')}`;
+    }
     if (input.duration !== undefined) body.duration = input.duration;
     if (input.aspect_ratio) body.aspect_ratio = input.aspect_ratio;
     if (input.resolution) body.resolution = input.resolution;
@@ -781,6 +834,7 @@ export class BackgroundCapabilityJobService {
       provider: row.provider,
       connectionId: row.connection_id,
       queuePosition: row.status === 'queued' ? this.queuePosition(row) : null,
+      inputSummary: summarizeVideoInput(row.input),
       relatedJobId: row.related_job_id,
       availableActions: availableActions(row),
       artifacts,
@@ -834,9 +888,35 @@ function availableActions(row: CapabilityJobRow): CapabilityJobAction[] {
 function normalizeVideoInput(
   input: BackgroundGenerateVideoInput,
   provider: CapabilityJobProvider
-): { ok: true; input: BackgroundGenerateVideoInput & { prompt: string } }
+): { ok: true; input: BackgroundGenerateVideoInput & { prompt: string; mode: VideoGenerationMode } }
   | { ok: false; error: string; code: string } {
   const prompt = input.prompt.trim();
+  const mode = input.mode ?? 'text';
+  if (mode !== 'text' && mode !== 'first-frame') {
+    return { ok: false, error: `Unsupported video mode: ${String(mode)}`, code: 'INVALID_INPUT' };
+  }
+  const images = Array.isArray(input.images) ? input.images : [];
+  if (mode === 'text' && images.length > 0) {
+    return { ok: false, error: 'Text-to-video does not accept input images', code: 'INVALID_INPUT' };
+  }
+  if (mode === 'first-frame') {
+    if (images.length !== 1) {
+      return { ok: false, error: 'First-frame video requires exactly one image', code: 'INVALID_INPUT' };
+    }
+    if (images[0]?.role !== 'first-frame') {
+      return { ok: false, error: 'First-frame image must use the first-frame role', code: 'INVALID_INPUT' };
+    }
+    if (typeof images[0].source !== 'string' || !images[0].source.trim()) {
+      return { ok: false, error: 'First-frame image source is required', code: 'INVALID_INPUT' };
+    }
+    if (provider !== 'xai-oauth') {
+      return {
+        ok: false,
+        error: 'First-frame video currently requires xAI Grok OAuth',
+        code: 'INVALID_INPUT',
+      };
+    }
+  }
   if (provider !== 'minimax-token-plan') {
     if (
       input.duration !== undefined
@@ -855,7 +935,22 @@ function normalizeVideoInput(
         code: 'INVALID_INPUT',
       };
     }
-    return { ok: true, input: { ...input, prompt, route_hint: 'xai-oauth' } };
+    const duration = input.duration ?? 6;
+    const resolution = input.resolution ?? '480p';
+    return {
+      ok: true,
+      input: {
+        ...input,
+        prompt,
+        mode,
+        duration,
+        resolution,
+        images: mode === 'first-frame'
+          ? [{ role: 'first-frame', source: images[0].source.trim() }]
+          : undefined,
+        route_hint: 'xai-oauth',
+      },
+    };
   }
   const duration = input.duration ?? 6;
   const resolution = input.resolution ?? '768P';
@@ -881,6 +976,7 @@ function normalizeVideoInput(
     ok: true,
     input: {
       prompt,
+      mode: 'text',
       route_hint: 'minimax-token-plan',
       duration,
       resolution,
@@ -924,13 +1020,41 @@ function miniMaxBaseResponseError(
   return `MiniMax ${operation} failed [${category}:${response.status_code}]: ${detail}`;
 }
 
-function parseInput(raw: string): BackgroundGenerateVideoInput & { prompt: string } {
+function parseInput(raw: string): PersistedVideoInput {
   const parsed: unknown = JSON.parse(raw);
   if (!parsed || typeof parsed !== 'object' || !('prompt' in parsed) || typeof parsed.prompt !== 'string') {
     throw new Error('Persisted video Job input is invalid');
   }
-  return parsed as BackgroundGenerateVideoInput & { prompt: string };
+  const input = parsed as PersistedVideoInput;
+  return { ...input, mode: input.mode ?? 'text' };
 }
+
+function summarizeVideoInput(raw: string) {
+  try {
+    const input = parseInput(raw);
+    const summary = {
+      mode: input.mode,
+      duration: input.duration,
+      resolution: input.resolution,
+    };
+    return input.first_frame
+      ? {
+          ...summary,
+          firstFrame: {
+            mimeType: input.first_frame.mimeType,
+            sizeBytes: input.first_frame.sizeBytes,
+            width: input.first_frame.width,
+            height: input.first_frame.height,
+            aspectRatio: input.first_frame.aspectRatio,
+            sha256: input.first_frame.sha256,
+          },
+        }
+      : summary;
+  } catch {
+    return undefined;
+  }
+}
+
 
 async function providerHttpError(
   response: Response,

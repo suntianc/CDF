@@ -48,6 +48,14 @@ function scheduler() {
     count: () => tasks.length,
   };
 }
+
+function pngHeader(width: number, height: number): Buffer {
+  const bytes = Buffer.alloc(24);
+  Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').copy(bytes);
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}
 describe('initializeCapabilityJobSchema', () => {
   it('adds connection columns before creating the queue index for an existing database', () => {
     const db = new Database(':memory:');
@@ -115,6 +123,280 @@ describe('BackgroundCapabilityJobService safety lifecycle', () => {
     await queue.runNext(service);
     expect(service.get('project-1', second.jobId)).toMatchObject({ status: 'completed' });
     expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('freezes one local first-frame image before xAI submission and maps only the snapshot to image_url', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const sourcePath = path.join(dir, 'opening.png');
+    const original = pngHeader(1600, 900);
+    await fs.writeFile(sourcePath, original);
+    const queue = scheduler();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ request_id: 'image-video-1' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'done',
+        video: { url: 'https://video/image-1' },
+      })));
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch }),
+      download: async () => ({ bytes: Buffer.from('video'), mimeType: 'video/mp4' }),
+      schedule: queue.schedule,
+    });
+
+    const receipt = await service.submitVideo({
+      mode: 'first-frame',
+      prompt: 'animate this opening frame',
+      route_hint: 'xai-oauth',
+      images: [{ role: 'first-frame', source: sourcePath }],
+    }, dir);
+    if (!receipt.ok) throw new Error(receipt.error);
+    await fs.writeFile(sourcePath, pngHeader(900, 1600));
+    await queue.runNext(service);
+
+    const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    expect(request).toMatchObject({
+      model: 'grok-imagine-video',
+      prompt: 'animate this opening frame',
+      image_url: `data:image/png;base64,${original.toString('base64')}`,
+    });
+    expect(service.get('project-1', receipt.jobId)).toMatchObject({
+      status: 'completed',
+      inputSummary: {
+        mode: 'first-frame',
+        firstFrame: {
+          mimeType: 'image/png',
+          sizeBytes: original.length,
+          width: 1600,
+          height: 900,
+          aspectRatio: '16:9',
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
+    });
+    const persisted = db.prepare('SELECT input FROM capability_jobs WHERE id = ?')
+      .get(receipt.jobId) as { input: string };
+    expect(persisted.input).not.toContain(sourcePath);
+    expect(persisted.input).not.toContain(original.toString('base64'));
+    const input = JSON.parse(persisted.input);
+    expect(await fs.readFile(input.first_frame.path)).toEqual(original);
+  });
+
+  it('downloads a URL first frame once and reuses its immutable snapshot on explicit resubmission', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    const image = pngHeader(900, 1600);
+    const fetchInput = vi.fn().mockResolvedValue(new Response(new Uint8Array(image), {
+      headers: { 'Content-Type': 'image/png' },
+    }));
+    const providerFetch = vi.fn().mockRejectedValue(new Error('connection reset'));
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch: providerFetch }),
+      download: vi.fn(),
+      fetchInput,
+      schedule: queue.schedule,
+    });
+
+    const receipt = await service.submitVideo({
+      mode: 'first-frame',
+      prompt: 'portrait motion',
+      route_hint: 'xai-oauth',
+      images: [{ role: 'first-frame', source: 'https://cdn.example.com/opening.png?token=secret' }],
+    }, dir);
+    if (!receipt.ok) throw new Error(receipt.error);
+    await queue.runNext(service);
+    const resubmitted = service.resubmit('project-1', receipt.jobId);
+
+    expect(resubmitted.ok).toBe(true);
+    expect(fetchInput).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(service.get('project-1', receipt.jobId))).not.toContain('token=secret');
+    if (!resubmitted.ok) return;
+    expect(resubmitted.job.inputSummary).toEqual(service.get('project-1', receipt.jobId)?.inputSummary);
+  });
+
+  it('recovers a queued first-frame Job from SQLite without rereading its deleted source', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const sourcePath = path.join(dir, 'restart-source.png');
+    const image = pngHeader(1600, 900);
+    await fs.writeFile(sourcePath, image);
+    const initialQueue = scheduler();
+    const initialService = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch: vi.fn() }),
+      download: vi.fn(),
+      schedule: initialQueue.schedule,
+    });
+    const receipt = await initialService.submitVideo({
+      mode: 'first-frame',
+      prompt: 'survive restart',
+      route_hint: 'xai-oauth',
+      images: [{ role: 'first-frame', source: sourcePath }],
+    }, dir);
+    if (!receipt.ok) throw new Error(receipt.error);
+    await fs.rm(sourcePath);
+
+    const recoveryQueue = scheduler();
+    const fetchInput = vi.fn();
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ request_id: 'recovered-image-video' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'done',
+        video: { url: 'https://video/recovered-image' },
+      })));
+    const recoveredService = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch: providerFetch }),
+      download: vi.fn().mockResolvedValue({ bytes: Buffer.from('video'), mimeType: 'video/mp4' }),
+      fetchInput,
+      schedule: recoveryQueue.schedule,
+    });
+
+    recoveredService.resumePending();
+    await recoveryQueue.runNext(recoveredService);
+
+    expect(fetchInput).not.toHaveBeenCalled();
+    expect(JSON.parse(String(providerFetch.mock.calls[0]?.[1]?.body))).toHaveProperty(
+      'image_url',
+      `data:image/png;base64,${image.toString('base64')}`
+    );
+    expect(recoveredService.get('project-1', receipt.jobId)).toMatchObject({ status: 'completed' });
+  });
+
+  it('rejects invalid first-frame cardinality, role, format, size, dimensions, and ratio before provider creation', async () => {
+    const cases: Array<{ name: string; input: Record<string, unknown>; bytes?: Buffer }> = [
+      { name: 'missing image', input: { images: [] } },
+      {
+        name: 'multiple images',
+        input: { images: [
+          { role: 'first-frame', source: 'fixture' },
+          { role: 'first-frame', source: 'fixture' },
+        ] },
+      },
+      {
+        name: 'wrong role',
+        input: { images: [{ role: 'last-frame', source: 'fixture' }] },
+      },
+      {
+        name: 'unsupported format',
+        input: { images: [{ role: 'first-frame', source: 'fixture' }] },
+        bytes: Buffer.from('not-an-image'),
+      },
+      {
+        name: 'oversized image',
+        input: { images: [{ role: 'first-frame', source: 'fixture' }] },
+        bytes: Buffer.alloc(20 * 1024 * 1024 + 1),
+      },
+      {
+        name: 'invalid dimensions',
+        input: { images: [{ role: 'first-frame', source: 'fixture' }] },
+        bytes: pngHeader(0, 900),
+      },
+      {
+        name: 'unsupported ratio',
+        input: { images: [{ role: 'first-frame', source: 'fixture' }] },
+        bytes: pngHeader(2000, 400),
+      },
+    ];
+
+    for (const scenario of cases) {
+      const db = database();
+      const dir = await projectDir();
+      const providerFetch = vi.fn();
+      const service = new BackgroundCapabilityJobService(db, {
+        resolveProject: () => ({ id: 'project-1', path: dir }),
+        resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch: providerFetch }),
+        download: vi.fn(),
+        loadInputSource: vi.fn().mockResolvedValue({
+          bytes: scenario.bytes ?? pngHeader(1600, 900),
+          mimeType: 'image/png',
+        }),
+      });
+      const result = await service.submitVideo({
+        mode: 'first-frame',
+        prompt: scenario.name,
+        route_hint: 'xai-oauth',
+        ...scenario.input,
+      } as never, dir);
+
+      expect(result, scenario.name).toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+      expect(providerFetch, scenario.name).not.toHaveBeenCalled();
+    }
+  });
+
+  it('rejects private-network URLs and decoder-rejected images before provider creation', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const providerFetch = vi.fn();
+    const fetchInput = vi.fn();
+    const privateUrlService = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch: providerFetch }),
+      download: vi.fn(),
+      fetchInput,
+    });
+    const privateResult = await privateUrlService.submitVideo({
+      mode: 'first-frame',
+      prompt: 'private URL',
+      route_hint: 'xai-oauth',
+      images: [{ role: 'first-frame', source: 'http://127.0.0.1/private.png' }],
+    }, dir);
+
+    const decoderService = new BackgroundCapabilityJobService(database(), {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch: providerFetch }),
+      download: vi.fn(),
+      loadInputSource: vi.fn().mockResolvedValue({
+        bytes: pngHeader(1600, 900),
+        mimeType: 'image/png',
+      }),
+      decodeInputImage: vi.fn().mockRejectedValue(new Error('corrupt PNG')),
+    });
+    const corruptResult = await decoderService.submitVideo({
+      mode: 'first-frame',
+      prompt: 'corrupt image',
+      route_hint: 'xai-oauth',
+      images: [{ role: 'first-frame', source: 'corrupt.png' }],
+    }, dir);
+
+    expect(privateResult).toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    expect(corruptResult).toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    expect(fetchInput).not.toHaveBeenCalled();
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps xAI text-to-video requests free of image_url', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ request_id: 'text-video-1' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'done',
+        video: { url: 'https://video/text-1' },
+      })));
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch }),
+      download: async () => ({ bytes: Buffer.from('video'), mimeType: 'video/mp4' }),
+      schedule: queue.schedule,
+    });
+    const receipt = await service.submitVideo({ mode: 'text', prompt: 'text only' }, dir);
+    if (!receipt.ok) throw new Error(receipt.error);
+
+    await queue.runNext(service);
+
+    const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    expect(request).not.toHaveProperty('image_url');
+    expect(request).toMatchObject({ duration: 6, resolution: '480p' });
+    expect(service.get('project-1', receipt.jobId)?.inputSummary).toEqual({
+      mode: 'text',
+      duration: 6,
+      resolution: '480p',
+    });
   });
 
   it('marks an ambiguous creation failure unknown and only resubmits explicitly as a linked Job', async () => {

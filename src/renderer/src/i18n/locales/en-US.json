@@ -157,6 +157,14 @@
     "approvalPreviewNew": "New content",
     "approvalPreviewMatch": "Match content",
     "approvalPreviewArgs": "Args summary",
+    "approvalVideoRouteMode": "Route and mode",
+    "approvalInputSummary": "Safe input summary",
+    "videoInputText": "Text prompt",
+    "videoInputFirstFrame": "First-frame image",
+    "videoInputFirstFrameRemote": "First frame from {{host}}",
+    "videoInputFirstFrameLocal": "First frame {{file}}",
+    "nonCancellationWarning": "Provider generation cannot be canceled after submission",
+    "providerDefaultResolution": "Provider default resolution (resolved with route)",
     "toolWriteFile": "Write file",
     "toolEditFile": "Edit file",
     "toolDeleteFile": "Delete file",
@@ -173,6 +181,14 @@
     "backgroundJobsEmpty": "No background jobs in this project.",
     "videoGeneration": "Video generation",
     "queuePosition": "Queue #{{position}}",
+    "jobRoute": {
+      "xai-oauth": "xAI Grok OAuth",
+      "minimax-token-plan": "MiniMax Token Plan"
+    },
+    "videoModeValue": {
+      "text": "Text to video",
+      "first-frame": "First-frame image to video"
+    },
     "remoteBillingWarning": "Stopping tracking only affects CDF. MiniMax may continue generating and charging remotely.",
     "jobStatus": {
       "queued": "Queued",

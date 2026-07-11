@@ -1,6 +1,7 @@
 import type { Agent, AgentApprovalRequest, AgentRun, AgentToolCall, WorkflowApprovalRequest } from '@shared/types';
 import { estimateTokens } from '@/stores/sessionStore';
 import type { DelegatedTask, ParallelBatch, ParallelWorker } from '@/stores/sessionStore';
+import { projectVideoApprovalSummary } from '../../shared/videoApprovalSummary';
 
 export type ActivityPanelEmptyState = {
   kind: 'noSession' | 'noRun';
@@ -152,12 +153,30 @@ function clipText(value: string, maxLength = 180): string {
   return `${normalized.slice(0, maxLength).trimEnd()}...`;
 }
 
+
 function approvalActionSummary(
   action: AgentApprovalRequest['actions'][number],
   index: number,
   t: ProjectActivityPanelInput['t'],
 ): ActivityPanelApprovalActionSummary {
   const args = toRecord(action.args);
+  if (action.name === 'generate_video') {
+    const summary = projectVideoApprovalSummary(args, t);
+    return {
+      key: `${action.name}-${index}`,
+      name: action.name,
+      title: t('taskPanel.videoGeneration'),
+      targetLabel: t('taskPanel.approvalVideoRouteMode'),
+      target: `${summary.route} · ${summary.mode}`,
+      preview: [
+        summary.inputSummary,
+        `${summary.duration}s`,
+        summary.resolution,
+        summary.nonCancellationWarning,
+      ].join(' · '),
+      previewLabel: t('taskPanel.approvalInputSummary'),
+    };
+  }
   const target = toDisplayText(args.file_path || args.path || args.target || args.command);
   const preview = toDisplayText(args.content || args.new_string || args.old_string || args.input);
   const previewLabel = args.content

@@ -102,6 +102,44 @@ describe('ConversationViewportSurface', () => {
     expect(onOpenTaskPanel).toHaveBeenCalledTimes(1);
   });
 
+  it('does not expose prompt or signed first-frame source details in approval UI', () => {
+    const approval: AgentApprovalRequest = {
+      id: 'approval-video',
+      runId: 'run-video',
+      actions: [{
+        name: 'generate_video',
+        args: {
+          mode: 'first-frame',
+          route_hint: 'xai-oauth',
+          duration: 5,
+          resolution: '720p',
+          prompt: 'confidential campaign description',
+          images: [{
+            role: 'first-frame',
+            source: 'https://cdn.example.com/opening.png?token=signed-secret',
+          }],
+        },
+      }],
+    };
+
+    renderSurface({
+      timelineItems: [{
+        type: 'pending_approval_block',
+        id: 'pending-video',
+        approval,
+      }],
+    });
+    fireEvent.click(screen.getByText(/awaitingApproval/));
+
+    expect(screen.getByText(/"route_hint": "xai-oauth"/)).toBeTruthy();
+    expect(screen.getByText(/"mode": "first-frame"/)).toBeTruthy();
+    expect(screen.getByText(/"duration": 5/)).toBeTruthy();
+    expect(screen.getByText(/"resolution": "720p"/)).toBeTruthy();
+    expect(screen.getByText(/"input_summary": "taskPanel.videoInputFirstFrameRemote"/)).toBeTruthy();
+    expect(screen.getByText(/"non_cancellation_warning": "taskPanel.nonCancellationWarning"/)).toBeTruthy();
+    expect(screen.queryByText(/signed-secret|confidential/)).toBeNull();
+  });
+
   it('renders delegated task detail instead of master timeline and wires back navigation', () => {
     const onBackFromSubagent = vi.fn();
     const viewingTask: DelegatedTask = {
