@@ -90,7 +90,7 @@ export function ComposerInputSurface({
   const rootClassName =
     variant === 'welcome'
       ? 'dialog-box'
-      : 'chat-composer relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-all shadow-lg';
+      : 'chat-composer relative z-10 flex flex-col bg-[var(--color-bg-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)]/20 rounded-xl p-3 transition-[background-color,border-color,box-shadow] duration-150';
 
   const applyTailChange = (tail: string, cursor: number) => {
     const prefix = leadingTokens.map((token) => token.raw).join(' ');

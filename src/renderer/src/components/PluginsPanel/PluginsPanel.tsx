@@ -651,7 +651,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
               </span>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-all cursor-pointer"
+                className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-[background-color,color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                 aria-label={t('common.closeModal')}
               >
                 <X className="w-4 h-4" />

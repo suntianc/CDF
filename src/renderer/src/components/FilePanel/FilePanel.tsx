@@ -206,7 +206,7 @@ export function FilePanel() {
     <div
       ref={panelRef}
       className={`h-full bg-[var(--color-bg-surface)] flex flex-col overflow-hidden relative ${
-        isResizing ? 'transition-none' : 'transition-all duration-300 ease-in-out'
+        isResizing ? 'transition-none' : 'transition-[width,min-width,opacity,border-color] duration-300 ease-in-out'
       } ${
         filePanelOpen
           ? 'border-l border-[var(--color-border)] opacity-100'
@@ -260,7 +260,7 @@ export function FilePanel() {
               content={previewFile.content}
             />
             <div
-              className={`absolute top-8 right-0 bottom-0 w-[240px] z-10 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col shadow-md transition-all duration-300 ease-in-out ${
+              className={`absolute top-8 right-0 bottom-0 w-[240px] z-10 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col shadow-[0_8px_24px_rgba(30,20,10,0.10)] transition-[transform,opacity] duration-200 ease-out ${
                 showFileTree
                   ? 'translate-x-0 opacity-100 pointer-events-auto'
                   : 'translate-x-full opacity-0 pointer-events-none'
@@ -291,7 +291,7 @@ export function FilePanel() {
         <div
           ref={resizeRef}
           onMouseDown={handleResizeStart}
-          className="absolute left-0 top-0 bottom-0 w-[1px] cursor-col-resize hover:bg-[var(--color-accent)] transition-colors before:absolute before:inset-y-0 before:-left-[3px] before:w-[8px] before:content-['']"
+          className="absolute left-0 top-0 bottom-0 w-[1px] cursor-col-resize transition-colors hover:bg-[var(--color-accent)] focus-visible:bg-[var(--color-accent)] focus-visible:outline-none before:absolute before:inset-y-0 before:-left-[3px] before:w-[8px] before:content-['']"
         />
       )}
     </div>

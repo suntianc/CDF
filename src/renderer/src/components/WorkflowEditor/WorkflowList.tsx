@@ -123,7 +123,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       <div className="settings-content overflow-y-auto flex-1 px-5 pb-6 pt-4">
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-4 shrink-0">
-          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
+          <div className="text-[13px] font-semibold tabular-nums text-[var(--color-text-primary)]">
             {t('workflow.list.title', { count: workflows.length })}
           </div>
           <button
@@ -144,6 +144,32 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
 
         {/* Workflow Cards */}
         <div className="resource-card-grid">
+          {isLoading && workflows.length === 0 && (
+            <>
+              <span className="sr-only" role="status">{t('workflow.list.loading')}</span>
+              {[0, 1, 2].map((index) => (
+                <div
+                  key={index}
+                  aria-hidden="true"
+                  className="provider-card resource-square-card flex min-h-[220px] flex-col gap-4 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-1 items-center gap-3">
+                      <div className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                      <div className="h-4 w-28 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                    </div>
+                    <div className="h-5 w-9 rounded-full bg-[var(--color-bg-sunken)] animate-pulse" />
+                  </div>
+                  <div className="h-3 w-3/4 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                  <div className="h-3 w-1/2 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                  <div className="mt-auto flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
+                    <div className="h-7 w-14 rounded-[var(--radius-sm)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                    <div className="h-7 w-14 rounded-[var(--radius-sm)] bg-[var(--color-bg-sunken)] animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
@@ -195,7 +221,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   {workflow.description || t('workflow.list.noDescription')}
                 </p>
 
-                <div className="flex items-center gap-2 text-[11px] text-[var(--color-text-muted)]">
+                <div className="flex items-center gap-2 text-[11px] tabular-nums text-[var(--color-text-muted)]">
                   <Clock className="w-3 h-3" />
                   <span>{formatDate(workflow.updated_at)}</span>
                   <span className="mx-1">·</span>

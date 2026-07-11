@@ -741,6 +741,7 @@
     },
     "list": {
       "title": "Workflow list ({{count}})",
+      "loading": "Loading workflows...",
       "newWorkflow": "New workflow",
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -990,6 +991,10 @@
     "togglePanel": "File panel",
     "collapsePanel": "Collapse file panel",
     "showTree": "Show file tree",
+    "selectProject": "Select a project to browse files",
+    "loadingTree": "Loading file tree...",
+    "retry": "Retry",
+    "emptyDirectory": "This folder is empty",
     "hideTree": "Hide file tree"
   }
 }

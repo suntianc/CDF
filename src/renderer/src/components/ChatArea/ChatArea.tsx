@@ -321,7 +321,7 @@ export function ChatArea({
 
       {/* Main Chat Workspace */}
       <div 
-        className={`absolute inset-0 flex flex-col bg-[var(--color-bg-app)] overflow-hidden transition-all duration-300 ease-in-out ${
+        className={`absolute inset-0 flex flex-col bg-[var(--color-bg-app)] overflow-hidden transition-[opacity,transform] duration-200 ease-out ${
           activeSessionId 
             ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto z-10' 
             : 'opacity-0 -translate-y-4 scale-105 pointer-events-none z-0'

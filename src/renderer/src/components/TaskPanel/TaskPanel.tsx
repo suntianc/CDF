@@ -93,9 +93,9 @@ function DelegatedTaskCard({ item, onSelect }: {
         type="button"
         aria-label={`${item.agentName} (${item.statusText})`}
         onClick={onSelect}
-        className={`w-full text-left p-2.5 rounded-md border transition-all duration-150 ease-out focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+        className={`w-full text-left p-2.5 rounded-md border transition-[background-color,border-color] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-sidebar)] focus-visible:outline-none ${
           item.isActive
-            ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30 shadow-sm'
+            ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
             : 'bg-[var(--color-bg-surface)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
         }`}
       >
@@ -127,10 +127,10 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
                 key={item.key}
                 type="button"
                 onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug, workerId: worker.workerId })}
-                className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-all text-left focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none ${
+                className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-[background-color,border-color] duration-150 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] focus-visible:outline-none ${
                   item.isActive
                     ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
-                    : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)]'
+                    : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -360,7 +360,7 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
               className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
             >
               <div
-                className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out motion-reduce:transition-none"
+                className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
                 style={{ width: `${projection.delegatedWorkSection.progress.percentage}%` }}
               />
             </div>

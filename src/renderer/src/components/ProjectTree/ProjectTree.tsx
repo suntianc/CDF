@@ -444,7 +444,7 @@ export function ProjectTree() {
               <div
                 key={session.id}
                 className={`
-                  group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all border min-w-0
+                  group/session flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-[background-color,border-color,color] duration-150 border min-w-0 focus-within:ring-2 focus-within:ring-[var(--color-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--color-bg-sidebar)]
                   ${
                     activeSessionId === session.id
                       ? 'bg-[var(--color-bg-active)] border-[var(--color-border)] text-[var(--color-text-primary)] font-medium'
@@ -468,7 +468,7 @@ export function ProjectTree() {
                 <button
                   type="button"
                   onClick={(e) => handleDeleteSession(e, session.id)}
-                  className="opacity-0 group-hover/session:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-all shrink-0 ml-1.5 cursor-pointer"
+                  className="opacity-60 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[background-color,color,opacity] duration-150 shrink-0 ml-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                   title={t('projectTree.deleteSession')}
                 >
                   <Trash2 className="w-3 h-3" />

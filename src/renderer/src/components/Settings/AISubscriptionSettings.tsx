@@ -88,7 +88,7 @@ const mapSubscriptionIdToIconName = (id: string) => {
 
 // Bind connection health to a semantic color: connected reads as success,
 // expired/unavailable as danger, connecting as the accent in-progress signal;
-// only logged-out stays neutral. Avoids muted grey for key status (DESIGN.md).
+// only logged-out stays neutral.
 function statusBadgeClass(status: AISubscriptionEntry['status']): string {
   switch (status) {
     case 'connected':

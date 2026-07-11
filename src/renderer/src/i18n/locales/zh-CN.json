@@ -741,6 +741,7 @@
     },
     "list": {
       "title": "工作流列表 ({{count}})",
+      "loading": "正在加载工作流...",
       "newWorkflow": "新建工作流",
       "enabled": "已启用",
       "disabled": "未启用",
@@ -990,6 +991,10 @@
     "togglePanel": "文件面板",
     "collapsePanel": "收起文件面板",
     "showTree": "显示文件树",
+    "selectProject": "选择一个项目以浏览文件",
+    "loadingTree": "正在加载文件树...",
+    "retry": "重试",
+    "emptyDirectory": "此文件夹为空",
     "hideTree": "隐藏文件树"
   }
 }

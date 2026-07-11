@@ -88,7 +88,7 @@ export function AgentLibrary() {
       <div className="settings-content overflow-y-auto flex-1 px-5 pb-6 pt-4">
         {/* 内置的操作 Toolbar 面板 */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 shrink-0">
-          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
+          <div className="text-[13px] font-semibold tabular-nums text-[var(--color-text-primary)]">
             {t('agent.listTitle', { count: agents.filter(agent =>
               agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
               (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -154,11 +154,11 @@ export function AgentLibrary() {
                   </p>
 
                   <div className="flex flex-wrap gap-2">
-                    <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
+                    <span className="px-2 py-0.5 rounded text-[11px] tabular-nums bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
                       <Layers className="w-3 h-3 text-[var(--color-text-muted)]" />
                       <span>{t('agent.mcpExclusions', { count: agent.mcpServerExclusionIds?.length || 0 })}</span>
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
+                    <span className="px-2 py-0.5 rounded text-[11px] tabular-nums bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
                       <Code className="w-3 h-3 text-[var(--color-text-muted)]" />
                       <span>{t('agent.skillPreloads', { count: agent.skillNames?.length || 0 })}</span>
                     </span>

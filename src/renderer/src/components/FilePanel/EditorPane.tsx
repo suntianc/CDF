@@ -166,7 +166,7 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
           )}
           <button
             onClick={toggleFileTreeCollapsed}
-            className={`p-1 rounded cursor-pointer transition-all shrink-0 border ${
+            className={`p-1 rounded cursor-pointer transition-[background-color,border-color,color,box-shadow] duration-150 shrink-0 border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] ${
               !fileTreeCollapsed
                 ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border-[var(--color-border)] shadow-sm'
                 : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-transparent'

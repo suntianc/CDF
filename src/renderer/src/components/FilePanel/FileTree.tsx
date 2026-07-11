@@ -383,16 +383,26 @@ export function FileTree() {
   if (!rootPath) {
     return (
       <div className="flex-1 flex items-center justify-center text-xs text-[var(--color-text-muted)] px-4 text-center">
-        选择一个项目以浏览文件
+        {t('filePanel.selectProject')}
       </div>
     );
   }
 
   if (isLoading && !rootEntries) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2">
-        <span className="w-4 h-4 border-2 border-[var(--color-text-muted)] border-t-transparent rounded-full animate-spin" />
-        <span className="text-[11px] text-[var(--color-text-muted)]">加载文件树…</span>
+      <div className="flex-1 px-2 py-2" role="status" aria-label={t('filePanel.loadingTree')}>
+        <span className="sr-only">{t('filePanel.loadingTree')}</span>
+        <div className="space-y-1" aria-hidden="true">
+          {[0, 1, 2, 3, 4, 5].map((index) => (
+            <div key={index} className="flex h-7 items-center gap-2 rounded-[var(--radius-sm)] px-2">
+              <span className="h-3.5 w-3.5 shrink-0 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse" />
+              <span
+                className="h-3 rounded-[var(--radius-xs)] bg-[var(--color-bg-sunken)] animate-pulse"
+                style={{ width: `${48 + (index % 3) * 16}%` }}
+              />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -404,10 +414,10 @@ export function FileTree() {
         <span className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">{rootError}</span>
         <button
           onClick={handleRetry}
-          className="flex items-center gap-1 text-[11px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] cursor-pointer transition-colors"
+          className="flex min-h-8 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] text-[var(--color-accent)] transition-[background-color,color] duration-150 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent-hover)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         >
           <RefreshCw className="w-3 h-3" />
-          重试
+          {t('filePanel.retry')}
         </button>
       </div>
     );
@@ -416,7 +426,7 @@ export function FileTree() {
   if (rootEntries && rootEntries.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-xs text-[var(--color-text-muted)] px-4 text-center">
-        空目录
+        {t('filePanel.emptyDirectory')}
       </div>
     );
   }
