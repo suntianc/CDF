@@ -21,7 +21,8 @@ function database() {
     );
     CREATE TABLE capability_jobs (
       id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_session_id TEXT,
-      status TEXT NOT NULL, artifacts TEXT, error TEXT,
+      status TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'xai-oauth',
+      connection_id TEXT NOT NULL DEFAULT 'xai-oauth', artifacts TEXT, error TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     INSERT INTO projects (id, path) VALUES ('project-1', '/project');

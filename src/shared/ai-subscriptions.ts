@@ -60,10 +60,7 @@ export const MINIMAX_TOKEN_PLAN_TEXT_MODELS = [
 
 export const MINIMAX_TOKEN_PLAN_IMAGE_MODELS = ['image-01'] as const;
 export const MINIMAX_TOKEN_PLAN_SPEECH_MODELS = ['speech-2.8-hd', 'speech-2.8-turbo'] as const;
-export const MINIMAX_TOKEN_PLAN_VIDEO_MODELS = [
-  'MiniMax-Hailuo-2.3',
-  'MiniMax-Hailuo-2.3-Fast',
-] as const;
+export const MINIMAX_TOKEN_PLAN_VIDEO_MODELS = ['MiniMax-Hailuo-2.3'] as const;
 export const MINIMAX_TOKEN_PLAN_MUSIC_MODELS = ['music-2.6'] as const;
 
 export const CODEX_OAUTH_TEXT_MODELS = [

@@ -1,4 +1,6 @@
 export type CapabilityJobType = 'video.generate';
+export type CapabilityJobProvider = 'xai-oauth' | 'minimax-token-plan';
+
 export type CapabilityJobStatus =
   | 'queued'
   | 'submission_pending'
@@ -33,6 +35,8 @@ export type CapabilityJobStatusMessage =
   | 'provider_task_submitted'
   | 'temporary_provider_error'
   | 'reconnect_same_connection'
+  | 'provider_preparing'
+  | 'provider_queueing'
   | 'provider_processing'
   | 'downloading_provider_result'
   | 'temporary_download_error'
@@ -51,8 +55,8 @@ export interface CapabilityJobSnapshot {
   projectId: string;
   type: CapabilityJobType;
   status: CapabilityJobStatus;
-  provider: 'xai-oauth';
-  connectionId: 'xai-oauth';
+  provider: CapabilityJobProvider;
+  connectionId: CapabilityJobProvider;
   queuePosition: number | null;
   relatedJobId: string | null;
   availableActions: CapabilityJobAction[];

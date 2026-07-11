@@ -4,6 +4,7 @@ import log from '../logger';
 import { z } from 'zod';
 import type {
   CapabilityJobContinuationStatus,
+  CapabilityJobProvider,
   CapabilityJobSnapshot,
 } from '../../shared/capability-jobs';
 
@@ -157,7 +158,7 @@ export class CapabilityJobContinuationCoordinator {
 
   resumePending(): void {
     const missing = this.db.prepare(`SELECT j.id, j.project_id, j.source_session_id,
-        j.status, j.artifacts, j.error, j.created_at, j.updated_at
+        j.status, j.provider, j.connection_id, j.artifacts, j.error, j.created_at, j.updated_at
       FROM capability_jobs j
       LEFT JOIN capability_job_completion_events e ON e.job_id = j.id
       WHERE j.status IN ('completed', 'failed')
@@ -167,6 +168,8 @@ export class CapabilityJobContinuationCoordinator {
           project_id: string;
           source_session_id: string;
           status: 'completed' | 'failed';
+          provider: CapabilityJobProvider;
+          connection_id: CapabilityJobProvider;
           artifacts: string | null;
           error: string | null;
           created_at: number;
@@ -186,8 +189,8 @@ export class CapabilityJobContinuationCoordinator {
         projectId: row.project_id,
         type: 'video.generate',
         status: row.status,
-        provider: 'xai-oauth',
-        connectionId: 'xai-oauth',
+        provider: row.provider,
+        connectionId: row.connection_id,
         queuePosition: null,
         relatedJobId: null,
         availableActions: [],

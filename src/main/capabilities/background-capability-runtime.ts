@@ -1,9 +1,12 @@
 import { BrowserWindow, net } from 'electron';
-import { getOAuthCredential } from '../ai-subscription-credentials';
+import { getOAuthCredential, getSubscriptionSecret } from '../ai-subscription-credentials';
 import { createOAuthAuthenticatedFetch } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
 import db from '../database';
-import { BackgroundCapabilityJobService } from './background-capability-jobs';
+import {
+  BackgroundCapabilityJobService,
+  createMiniMaxAuthenticatedFetch,
+} from './background-capability-jobs';
 import {
   CapabilityJobContinuationCoordinator,
   type CapabilityJobContinuationBatch,
@@ -47,6 +50,35 @@ function getContinuationCoordinator(): CapabilityJobContinuationCoordinator {
   return continuationCoordinator;
 }
 
+function resolveXaiVideoRoute() {
+  const credential = getOAuthCredential('xai-oauth');
+  if (!credential?.accessToken || credential.terminalStatus) return null;
+  const entry = getAISubscriptionEntries().find((item) => item.id === 'xai-oauth');
+  if (!entry || entry.status !== 'connected') return null;
+  const capability = entry.capabilities.find((item) => item.capabilityId === 'video.generate');
+  return {
+    id: 'xai-oauth' as const,
+    enabled: capability?.enabled !== false,
+    fetch: createOAuthAuthenticatedFetch('xai-oauth'),
+  };
+}
+
+function resolveMiniMaxVideoRoute() {
+  const subscriptionKey = getSubscriptionSecret('minimax-token-plan')?.trim();
+  if (!subscriptionKey) return null;
+  const entry = getAISubscriptionEntries().find((item) => item.id === 'minimax-token-plan');
+  if (!entry || entry.status !== 'connected') return null;
+  const capability = entry.capabilities.find((item) => item.capabilityId === 'video.generate');
+  const transport: typeof fetch = (url, init) =>
+    net.fetch(url instanceof URL ? url.toString() : url, init);
+  const authenticatedFetch = createMiniMaxAuthenticatedFetch(subscriptionKey, transport);
+  return {
+    id: 'minimax-token-plan' as const,
+    enabled: capability?.enabled !== false,
+    fetch: authenticatedFetch,
+  };
+}
+
 function getBackgroundCapabilityJobService(): BackgroundCapabilityJobService {
   if (service) return service;
   service = new BackgroundCapabilityJobService(db, {
@@ -57,16 +89,13 @@ function getBackgroundCapabilityJobService(): BackgroundCapabilityJobService {
         | undefined;
       return project ?? null;
     },
-    resolveRoute: () => {
-      const credential = getOAuthCredential('xai-oauth');
-      if (!credential?.accessToken || credential.terminalStatus) return null;
-      const entry = getAISubscriptionEntries().find((item) => item.id === 'xai-oauth');
-      if (!entry || entry.status !== 'connected') return null;
-      const capability = entry.capabilities.find((item) => item.capabilityId === 'video.generate');
-      return {
-        enabled: capability?.enabled !== false,
-        fetch: createOAuthAuthenticatedFetch('xai-oauth'),
-      };
+    resolveRoute: (connectionId) => {
+      if (connectionId === 'xai-oauth') return resolveXaiVideoRoute();
+      if (connectionId === 'minimax-token-plan') return resolveMiniMaxVideoRoute();
+      const routes = [resolveXaiVideoRoute(), resolveMiniMaxVideoRoute()].filter(
+        (route): route is NonNullable<typeof route> => route !== null
+      );
+      return routes.find((route) => route.enabled) ?? routes[0] ?? null;
     },
     download: async (url) => {
       const response = await net.fetch(url);

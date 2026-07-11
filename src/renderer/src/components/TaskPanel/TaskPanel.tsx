@@ -283,6 +283,11 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
               {artifact.path}
             </p>
           ))}
+          {job.provider === 'minimax-token-plan' && job.availableActions.includes('stop_tracking') && (
+            <p className="mt-1 break-words text-xs text-[var(--color-warning)]">
+              {t('taskPanel.remoteBillingWarning')}
+            </p>
+          )}
           {job.availableActions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {job.availableActions.map((action) => {

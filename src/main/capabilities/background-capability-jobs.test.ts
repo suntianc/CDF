@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BackgroundCapabilityJobService,
+  createMiniMaxAuthenticatedFetch,
   initializeCapabilityJobSchema,
 } from './background-capability-jobs';
 
@@ -479,5 +480,369 @@ describe('BackgroundCapabilityJobService safety lifecycle', () => {
       sourceSessionId: 'session-1',
     }));
   });
+
+  it('runs the MiniMax fixture create-query-file-download lifecycle without exposing the credential', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    const transport = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        task_id: 'minimax-task-1',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Preparing',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Queueing',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Processing',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Success',
+        file_id: 'file-1',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        file: { download_url: 'https://video/minimax-1' },
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })));
+    const secret = 'sk-minimax-unique-sentinel-127';
+    const authenticatedFetch = createMiniMaxAuthenticatedFetch(secret, transport);
+    const download = vi.fn().mockResolvedValue({
+      bytes: Buffer.from('fixture-video'),
+      mimeType: 'video/mp4',
+    });
+    const statusMessages: string[] = [];
+    const eventPayloads: string[] = [];
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({
+        id: 'minimax-token-plan',
+        enabled: true,
+        fetch: authenticatedFetch,
+      }),
+      download,
+      sleep: async () => undefined,
+      schedule: queue.schedule,
+      emit: (event) => {
+        statusMessages.push(event.job.statusMessage ?? event.job.status);
+        eventPayloads.push(JSON.stringify(event));
+      },
+    });
+
+    const receipt = await service.submitVideo({
+      prompt: 'fixture only, not a real Token Plan success',
+      route_hint: 'minimax-token-plan',
+      duration: 6,
+      resolution: '1080P',
+    }, dir, 'session-1');
+    if (!receipt.ok) throw new Error(receipt.error);
+    await queue.runNext(service);
+
+    expect(service.get('project-1', receipt.jobId)).toMatchObject({
+      status: 'completed',
+      provider: 'minimax-token-plan',
+      connectionId: 'minimax-token-plan',
+      artifacts: [expect.objectContaining({ mimeType: 'video/mp4' })],
+    });
+    expect(db.prepare(
+      'SELECT id, provider_task_id, input FROM capability_jobs WHERE id = ?'
+    ).get(receipt.jobId)).toMatchObject({
+      id: receipt.jobId,
+      provider_task_id: 'minimax-task-1',
+      input: expect.not.stringContaining(secret),
+    });
+    expect(statusMessages).toEqual(expect.arrayContaining([
+      'provider_preparing',
+      'provider_queueing',
+      'provider_processing',
+      'downloading_provider_result',
+      'artifact_durable',
+    ]));
+    expect(transport).toHaveBeenCalledTimes(6);
+    expect(transport.mock.calls[0][0]).toBe('https://api.minimaxi.com/v1/video_generation');
+    expect(JSON.parse(String(transport.mock.calls[0][1]?.body))).toEqual({
+      model: 'MiniMax-Hailuo-2.3',
+      prompt: 'fixture only, not a real Token Plan success',
+      duration: 6,
+      resolution: '1080P',
+    });
+    expect(transport.mock.calls[1][0]).toContain('/v1/query/video_generation?task_id=minimax-task-1');
+    expect(transport.mock.calls[5][0]).toContain('/v1/files/retrieve?file_id=file-1');
+    expect((transport.mock.calls[0][1]?.headers as Headers).get('Authorization')).toBe(
+      `Bearer ${secret}`
+    );
+    expect(JSON.stringify(service.get('project-1', receipt.jobId))).not.toContain(secret);
+    expect(eventPayloads.join('\n')).not.toContain(secret);
+    expect(download).toHaveBeenCalledWith('https://video/minimax-1');
+  });
+
+  it('rejects unsupported MiniMax duration and resolution combinations before provider creation', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const fetch = vi.fn();
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'minimax-token-plan', enabled: true, fetch }),
+      download: vi.fn(),
+      schedule: scheduler().schedule,
+    });
+
+    await expect(service.submitVideo({
+      prompt: 'unsupported combination',
+      route_hint: 'minimax-token-plan',
+      duration: 10,
+      resolution: '1080P',
+    }, dir)).resolves.toMatchObject({
+      ok: false,
+      code: 'INVALID_INPUT',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(service.list('project-1')).toEqual([]);
+  });
+  it('preserves xAI duration and resolution constraints before provider creation', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const fetch = vi.fn();
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'xai-oauth', enabled: true, fetch }),
+      download: vi.fn(),
+      schedule: scheduler().schedule,
+    });
+
+    await expect(service.submitVideo({
+      prompt: 'invalid xAI duration',
+      route_hint: 'xai-oauth',
+      duration: 0,
+      resolution: '720p',
+    }, dir)).resolves.toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    await expect(service.submitVideo({
+      prompt: 'invalid xAI resolution',
+      route_hint: 'xai-oauth',
+      duration: 5,
+      resolution: '1080P',
+    }, dir)).resolves.toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(service.list('project-1')).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: 'HTTP authentication failure',
+      responses: [new Response('invalid token', { status: 401 })],
+      expectedStatus: 'failed',
+      expectedError: '[AUTHENTICATION:401]',
+    },
+    {
+      name: 'HTTP quota failure with unknown provider acceptance',
+      responses: [new Response('quota exceeded', { status: 429 })],
+      expectedStatus: 'submission_unknown',
+      expectedError: '[QUOTA:429]',
+    },
+    {
+      name: 'base response quota failure',
+      responses: [new Response(JSON.stringify({
+        base_resp: { status_code: 1008, status_msg: 'insufficient balance' },
+      }))],
+      expectedStatus: 'failed',
+      expectedError: '[QUOTA:1008]',
+    },
+    {
+      name: 'base response content safety failure',
+      responses: [new Response(JSON.stringify({
+        base_resp: { status_code: 1026, status_msg: '视频描述涉及敏感内容' },
+      }))],
+      expectedStatus: 'failed',
+      expectedError: '[CONTENT_SAFETY:1026]',
+    },
+    {
+      name: 'invalid creation response',
+      responses: [new Response(JSON.stringify({ base_resp: { status_code: 0 } }))],
+      expectedStatus: 'submission_unknown',
+      expectedError: 'no usable task_id',
+    },
+    {
+      name: 'unknown task status',
+      responses: [
+        new Response(JSON.stringify({
+          task_id: 'task-unknown',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })),
+        new Response(JSON.stringify({
+          status: 'Unexpected',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })),
+      ],
+      expectedStatus: 'failed',
+      expectedError: 'Unknown MiniMax video generation status',
+    },
+    {
+      name: 'query base response authentication failure',
+      responses: [
+        new Response(JSON.stringify({
+          task_id: 'task-query-auth',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })),
+        new Response(JSON.stringify({
+          base_resp: { status_code: 1004, status_msg: 'invalid api key' },
+        })),
+      ],
+      expectedStatus: 'failed',
+      expectedError: '[AUTHENTICATION:1004]',
+    },
+    {
+      name: 'success without file id',
+      responses: [
+        new Response(JSON.stringify({
+          task_id: 'task-no-file',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })),
+        new Response(JSON.stringify({
+          status: 'Success',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })),
+      ],
+      expectedStatus: 'failed',
+      expectedError: 'no file_id',
+    },
+  ])('returns a stable diagnostic for MiniMax $name', async ({
+    responses,
+    expectedStatus,
+    expectedError,
+  }) => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    const fetch = vi.fn();
+    for (const response of responses) fetch.mockResolvedValueOnce(response);
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'minimax-token-plan', enabled: true, fetch }),
+      download: vi.fn(),
+      sleep: async () => undefined,
+      schedule: queue.schedule,
+    });
+    const receipt = await service.submitVideo({
+      prompt: 'diagnostic fixture',
+      route_hint: 'minimax-token-plan',
+      duration: 6,
+      resolution: '768P',
+    }, dir);
+    if (!receipt.ok) throw new Error(receipt.error);
+
+    await queue.runNext(service);
+
+    expect(service.get('project-1', receipt.jobId)).toMatchObject({
+      status: expectedStatus,
+      error: expect.stringContaining(expectedError),
+    });
+  });
+
+  it('diagnoses empty MiniMax file retrieval and downloaded content', async () => {
+    const cases = [
+      {
+        fileResponse: {
+          file: { download_url: '' },
+          base_resp: { status_code: 0, status_msg: 'success' },
+        },
+        bytes: Buffer.from('unused'),
+        error: 'no download_url',
+      },
+      {
+        fileResponse: {
+          file: { download_url: 'https://video/empty' },
+          base_resp: { status_code: 0, status_msg: 'success' },
+        },
+        bytes: Buffer.alloc(0),
+        error: 'Downloaded generated video is empty',
+      },
+    ];
+    for (const scenario of cases) {
+      const db = database();
+      const dir = await projectDir();
+      const queue = scheduler();
+      const fetch = vi.fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          task_id: 'task-empty',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          status: 'Success',
+          file_id: 'file-empty',
+          base_resp: { status_code: 0, status_msg: 'success' },
+        })))
+        .mockResolvedValueOnce(new Response(JSON.stringify(scenario.fileResponse)));
+      const service = new BackgroundCapabilityJobService(db, {
+        resolveProject: () => ({ id: 'project-1', path: dir }),
+        resolveRoute: () => ({ id: 'minimax-token-plan', enabled: true, fetch }),
+        download: vi.fn().mockResolvedValue({ bytes: scenario.bytes, mimeType: 'video/mp4' }),
+        schedule: queue.schedule,
+      });
+      const receipt = await service.submitVideo({
+        prompt: 'empty result fixture',
+        route_hint: 'minimax-token-plan',
+      }, dir);
+      if (!receipt.ok) throw new Error(receipt.error);
+
+      await queue.runNext(service);
+
+      expect(service.get('project-1', receipt.jobId)).toMatchObject({
+        status: 'failed',
+        error: expect.stringContaining(scenario.error),
+      });
+    }
+  });
+
+  it('continues querying and downloading a submitted MiniMax task after its new-job switch is disabled', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Success',
+        file_id: 'file-existing',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        file: { download_url: 'https://video/existing' },
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })));
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'minimax-token-plan', enabled: false, fetch }),
+      download: vi.fn().mockResolvedValue({
+        bytes: Buffer.from('existing-video'),
+        mimeType: 'video/mp4',
+      }),
+      schedule: queue.schedule,
+    });
+    db.prepare(`INSERT INTO capability_jobs
+      (id, project_id, project_path, type, status, input, provider, connection_id,
+       provider_task_id, artifacts, created_at, updated_at)
+      VALUES ('job-minimax-existing', 'project-1', ?, 'video.generate', 'submitted', ?,
+       'minimax-token-plan', 'minimax-token-plan', 'task-existing', '[]', 1, 1)`)
+      .run(dir, JSON.stringify({
+        prompt: 'already submitted',
+        route_hint: 'minimax-token-plan',
+        duration: 6,
+        resolution: '768P',
+      }));
+
+    service.resumePending();
+    await queue.runNext(service);
+
+    expect(service.get('project-1', 'job-minimax-existing')).toMatchObject({
+      status: 'completed',
+      provider: 'minimax-token-plan',
+    });
+    expect(fetch.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(0);
+  });
+
 
 });

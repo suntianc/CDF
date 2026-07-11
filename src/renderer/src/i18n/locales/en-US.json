@@ -173,6 +173,7 @@
     "backgroundJobsEmpty": "No background jobs in this project.",
     "videoGeneration": "Video generation",
     "queuePosition": "Queue #{{position}}",
+    "remoteBillingWarning": "Stopping tracking only affects CDF. MiniMax may continue generating and charging remotely.",
     "jobStatus": {
       "queued": "Queued",
       "submission_pending": "Submitting",
@@ -215,6 +216,8 @@
       "provider_task_submitted": "Provider task submitted.",
       "temporary_provider_error": "Temporary provider error. Resume tracking to retry the same task.",
       "reconnect_same_connection": "Reconnect the same provider connection to resume tracking.",
+      "provider_preparing": "The provider is preparing the video task.",
+      "provider_queueing": "The provider queued the video task.",
       "provider_processing": "The provider is processing the video.",
       "downloading_provider_result": "Downloading the provider result.",
       "temporary_download_error": "Temporary download error. Resume tracking to retry.",

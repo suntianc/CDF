@@ -229,6 +229,36 @@ describe('TaskPanel', () => {
     ));
   });
 
+  it('shows only stop tracking for an active MiniMax task and warns that remote billing may continue', async () => {
+    listCapabilityJobs.mockResolvedValue([{
+      id: 'job-minimax',
+      projectId: 'project-1',
+      type: 'video.generate',
+      status: 'running',
+      provider: 'minimax-token-plan',
+      connectionId: 'minimax-token-plan',
+      queuePosition: null,
+      relatedJobId: null,
+      availableActions: ['stop_tracking'],
+      artifacts: [],
+      error: null,
+      statusMessage: 'provider_processing',
+      continuationStatus: null,
+      continuationError: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }]);
+    const { getByText, getByRole, queryByRole } = render(
+      <TaskPanel isOpen onClose={vi.fn()} />
+    );
+
+    await waitFor(() => expect(getByText('taskPanel.remoteBillingWarning')).toBeTruthy());
+    expect(getByText('taskPanel.jobMessage.provider_processing')).toBeTruthy();
+    expect(getByRole('button', { name: 'taskPanel.jobAction.stop_tracking' })).toBeTruthy();
+    expect(queryByRole('button', { name: 'taskPanel.jobAction.cancel' })).toBeNull();
+    expect(queryByRole('button', { name: 'taskPanel.jobAction.resubmit' })).toBeNull();
+  });
+
 });
 
 describe('TaskPanel — Activity Trail', () => {
