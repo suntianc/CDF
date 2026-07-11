@@ -1,23 +1,18 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import log from '../logger';
-import { z } from 'zod';
+import {
+  CapabilityJobArtifactSchema,
+  CapabilityJobTimelineEventSchema,
+} from '../../shared/capability-jobs';
 import type {
   CapabilityJobContinuationStatus,
   CapabilityJobProvider,
   CapabilityJobSnapshot,
+  CapabilityJobTimelineEvent,
 } from '../../shared/capability-jobs';
 
-const ArtifactSchema = z.object({ path: z.string(), mimeType: z.string() });
-const CompletionPayloadSchema = z.object({
-  eventId: z.string(),
-  jobId: z.string(),
-  projectId: z.string(),
-  sessionId: z.string(),
-  status: z.enum(['completed', 'failed']),
-  artifacts: z.array(ArtifactSchema),
-  error: z.string().nullable(),
-});
+const CompletionPayloadSchema = CapabilityJobTimelineEventSchema.omit({ type: true });
 
 
 function parseCompletionPayload(raw: string): CapabilityJobCompletionPayload | null {
@@ -27,7 +22,7 @@ function parseCompletionPayload(raw: string): CapabilityJobCompletionPayload | n
     return null;
   }
 }
-export type CapabilityJobCompletionPayload = z.infer<typeof CompletionPayloadSchema>;
+export type CapabilityJobCompletionPayload = Omit<CapabilityJobTimelineEvent, 'type'>;
 
 export interface CapabilityJobContinuationBatch {
   batchId: string;
@@ -130,6 +125,8 @@ export class CapabilityJobContinuationCoordinator {
       projectId: job.projectId,
       sessionId: job.sourceSessionId,
       status: job.status,
+      provider: job.provider,
+      mode: job.inputSummary?.mode ?? 'text',
       artifacts: job.artifacts,
       error: job.error,
     };
@@ -158,7 +155,7 @@ export class CapabilityJobContinuationCoordinator {
 
   resumePending(): void {
     const missing = this.db.prepare(`SELECT j.id, j.project_id, j.source_session_id,
-        j.status, j.provider, j.connection_id, j.artifacts, j.error, j.created_at, j.updated_at
+        j.status, j.provider, j.connection_id, j.input, j.artifacts, j.error, j.created_at, j.updated_at
       FROM capability_jobs j
       LEFT JOIN capability_job_completion_events e ON e.job_id = j.id
       WHERE j.status IN ('completed', 'failed')
@@ -170,6 +167,7 @@ export class CapabilityJobContinuationCoordinator {
           status: 'completed' | 'failed';
           provider: CapabilityJobProvider;
           connection_id: CapabilityJobProvider;
+          input: string;
           artifacts: string | null;
           error: string | null;
           created_at: number;
@@ -182,7 +180,7 @@ export class CapabilityJobContinuationCoordinator {
       } catch {
         rawArtifacts = [];
       }
-      const artifacts = z.array(ArtifactSchema).safeParse(rawArtifacts);
+      const artifacts = CapabilityJobArtifactSchema.array().safeParse(rawArtifacts);
       this.enqueue({
         id: row.id,
         sourceSessionId: row.source_session_id,
@@ -195,6 +193,7 @@ export class CapabilityJobContinuationCoordinator {
         relatedJobId: null,
         availableActions: [],
         artifacts: artifacts.success ? artifacts.data : [],
+        inputSummary: { mode: persistedVideoMode(row.input) },
         error: row.error,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -359,5 +358,15 @@ export class CapabilityJobContinuationCoordinator {
 
   private notifyBatchState(batch: CapabilityJobContinuationBatch): void {
     for (const event of batch.events) this.deps.onStateChanged?.(batch.projectId, event.jobId);
+  }
+
+}
+
+function persistedVideoMode(raw: string): 'text' | 'first-frame' {
+  try {
+    const parsed = JSON.parse(raw) as { mode?: unknown };
+    return parsed.mode === 'first-frame' ? 'first-frame' : 'text';
+  } catch {
+    return 'text';
   }
 }

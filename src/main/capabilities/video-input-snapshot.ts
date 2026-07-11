@@ -1,15 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadImage } from '@napi-rs/canvas';
 
 const MAX_FIRST_FRAME_BYTES = 20 * 1024 * 1024;
-const MIN_FIRST_FRAME_DIMENSION = 64;
-const MAX_FIRST_FRAME_DIMENSION = 8192;
-const SUPPORTED_FIRST_FRAME_RATIOS = [
-  ['16:9', 16 / 9],
-  ['9:16', 9 / 16],
-  ['1:1', 1],
-] as const;
+const MAX_FIRST_FRAME_DIMENSION = 65_535;
 
 export interface VideoInputImageReference {
   role: 'first-frame';
@@ -19,7 +14,7 @@ export interface VideoInputImageReference {
 export interface VideoInputSnapshot {
   role: 'first-frame';
   path: string;
-  mimeType: 'image/png' | 'image/jpeg';
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   sizeBytes: number;
   width: number;
   height: number;
@@ -36,6 +31,13 @@ export interface VideoInputSnapshotDeps {
   decodeInputImage?: (bytes: Buffer) => Promise<{ width: number; height: number }>;
 }
 
+export async function decodeVideoInputImage(
+  bytes: Buffer
+): Promise<{ width: number; height: number }> {
+  const image = await loadImage(bytes);
+  return { width: image.width, height: image.height };
+}
+
 export async function freezeVideoInputSnapshot(
   jobId: string,
   projectPath: string,
@@ -46,7 +48,11 @@ export async function freezeVideoInputSnapshot(
   const metadata = await inspectFirstFrameImage(loaded.bytes, deps.decodeInputImage);
   const dir = videoInputSnapshotDir(projectPath, jobId);
   await fs.mkdir(dir, { recursive: true });
-  const extension = metadata.mimeType === 'image/png' ? 'png' : 'jpg';
+  const extension = metadata.mimeType === 'image/png'
+    ? 'png'
+    : metadata.mimeType === 'image/webp'
+      ? 'webp'
+      : 'jpg';
   const target = path.join(dir, `first-frame.${extension}`);
   const temporary = `${target}.tmp-${crypto.randomBytes(4).toString('hex')}`;
   try {
@@ -125,7 +131,7 @@ async function inspectFirstFrameImage(
   bytes: Buffer,
   decode?: (bytes: Buffer) => Promise<{ width: number; height: number }>
 ): Promise<{
-  mimeType: 'image/png' | 'image/jpeg';
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   width: number;
   height: number;
   aspectRatio: string;
@@ -134,33 +140,28 @@ async function inspectFirstFrameImage(
   if (bytes.length > MAX_FIRST_FRAME_BYTES) {
     throw new Error('First-frame image must not exceed 20 MiB');
   }
-  const parsed = pngDimensions(bytes) ?? jpegDimensions(bytes);
-  if (!parsed) throw new Error('First-frame image must be a valid PNG or JPEG');
+  const parsed = pngDimensions(bytes) ?? jpegDimensions(bytes) ?? webpDimensions(bytes);
+  if (!parsed) throw new Error('First-frame image must be a valid JPG, JPEG, PNG, or WebP');
   let dimensions = parsed;
   if (decode) {
     try {
       dimensions = { ...parsed, ...await decode(bytes) };
     } catch {
-      throw new Error('First-frame image must be a valid PNG or JPEG');
+      throw new Error('First-frame image must be a valid JPG, JPEG, PNG, or WebP');
     }
   }
   const { mimeType, width, height } = dimensions;
   if (
-    width < MIN_FIRST_FRAME_DIMENSION
-    || height < MIN_FIRST_FRAME_DIMENSION
+    !Number.isInteger(width)
+    || !Number.isInteger(height)
+    || width < 1
+    || height < 1
     || width > MAX_FIRST_FRAME_DIMENSION
     || height > MAX_FIRST_FRAME_DIMENSION
   ) {
-    throw new Error('First-frame dimensions must be between 64 and 8192 pixels');
+    throw new Error(`First-frame dimensions must be between 1 and ${MAX_FIRST_FRAME_DIMENSION} pixels`);
   }
-  const ratio = width / height;
-  const match = SUPPORTED_FIRST_FRAME_RATIOS.find(([, value]) =>
-    Math.abs(ratio - value) / value <= 0.03
-  );
-  if (!match) {
-    throw new Error('First-frame aspect ratio must be 16:9, 9:16, or 1:1');
-  }
-  return { mimeType, width, height, aspectRatio: match[0] };
+  return { mimeType, width, height, aspectRatio: reduceAspectRatio(width, height) };
 }
 
 function isObviouslyPrivateHostname(hostname: string): boolean {
@@ -220,4 +221,55 @@ function jpegDimensions(bytes: Buffer) {
     offset += length;
   }
   return null;
+}
+
+function webpDimensions(bytes: Buffer) {
+  if (
+    bytes.length < 30
+    || bytes.toString('ascii', 0, 4) !== 'RIFF'
+    || bytes.toString('ascii', 8, 12) !== 'WEBP'
+  ) {
+    return null;
+  }
+  const chunk = bytes.toString('ascii', 12, 16);
+  if (chunk === 'VP8X') {
+    return {
+      mimeType: 'image/webp' as const,
+      width: bytes.readUIntLE(24, 3) + 1,
+      height: bytes.readUIntLE(27, 3) + 1,
+    };
+  }
+  if (chunk === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+    const bits = bytes.readUInt32LE(21);
+    return {
+      mimeType: 'image/webp' as const,
+      width: (bits & 0x3fff) + 1,
+      height: ((bits >>> 14) & 0x3fff) + 1,
+    };
+  }
+  if (
+    chunk === 'VP8 '
+    && bytes.length >= 30
+    && bytes[23] === 0x9d
+    && bytes[24] === 0x01
+    && bytes[25] === 0x2a
+  ) {
+    return {
+      mimeType: 'image/webp' as const,
+      width: bytes.readUInt16LE(26) & 0x3fff,
+      height: bytes.readUInt16LE(28) & 0x3fff,
+    };
+  }
+  return null;
+}
+
+function reduceAspectRatio(width: number, height: number): string {
+  let a = width;
+  let b = height;
+  while (b !== 0) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return `${width / a}:${height / a}`;
 }

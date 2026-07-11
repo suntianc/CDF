@@ -3,12 +3,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import { setTimeout as sleepTimer } from 'node:timers/promises';
 import path from 'node:path';
+import { createCanvas } from '@napi-rs/canvas';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BackgroundCapabilityJobService,
   createMiniMaxAuthenticatedFetch,
   initializeCapabilityJobSchema,
 } from './background-capability-jobs';
+import { decodeVideoInputImage } from './video-input-snapshot';
 
 const tempDirs: string[] = [];
 
@@ -55,6 +57,11 @@ function pngHeader(width: number, height: number): Buffer {
   bytes.writeUInt32BE(width, 16);
   bytes.writeUInt32BE(height, 20);
   return bytes;
+}
+
+function encodedImage(format: 'jpeg' | 'png' | 'webp'): Buffer {
+  const canvas = createCanvas(1000, 600);
+  return format === 'png' ? canvas.encodeSync('png') : canvas.encodeSync(format);
 }
 describe('initializeCapabilityJobSchema', () => {
   it('adds connection columns before creating the queue index for an existing database', () => {
@@ -862,6 +869,225 @@ describe('BackgroundCapabilityJobService safety lifecycle', () => {
     expect(JSON.stringify(service.get('project-1', receipt.jobId))).not.toContain(secret);
     expect(eventPayloads.join('\n')).not.toContain(secret);
     expect(download).toHaveBeenCalledWith('https://video/minimax-1');
+  });
+
+  it('runs an auto-routed MiniMax first-frame fixture through the complete frozen lifecycle', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    const original = pngHeader(1000, 600);
+    const sourcePath = path.join(dir, 'minimax-opening.png');
+    await fs.writeFile(sourcePath, original);
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        task_id: 'minimax-image-task-1',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Processing',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 'Success',
+        file_id: 'minimax-image-file-1',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        file: { download_url: 'https://video/minimax-image-1' },
+        base_resp: { status_code: 0, status_msg: 'success' },
+      })));
+    const download = vi.fn().mockResolvedValue({
+      bytes: Buffer.from('fixture-image-video'),
+      mimeType: 'video/mp4',
+    });
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: (connectionId) => connectionId && connectionId !== 'minimax-token-plan'
+        ? null
+        : { id: 'minimax-token-plan', enabled: true, fetch },
+      download,
+      sleep: async () => undefined,
+      schedule: queue.schedule,
+    });
+
+    const receipt = await service.submitVideo({
+      mode: 'first-frame',
+      prompt: 'animate the immutable MiniMax opening frame',
+      route_hint: 'auto',
+      images: [{ role: 'first-frame', source: sourcePath }],
+      duration: 10,
+      resolution: '768P',
+    }, dir, 'session-1');
+    if (!receipt.ok) throw new Error(receipt.error);
+    await fs.writeFile(sourcePath, pngHeader(600, 1000));
+    await queue.runNext(service);
+
+    expect(service.get('project-1', receipt.jobId)).toMatchObject({
+      status: 'completed',
+      provider: 'minimax-token-plan',
+      connectionId: 'minimax-token-plan',
+      inputSummary: {
+        mode: 'first-frame',
+        firstFrame: {
+          mimeType: 'image/png',
+          width: 1000,
+          height: 600,
+        },
+      },
+      artifacts: [expect.objectContaining({ mimeType: 'video/mp4' })],
+    });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      model: 'MiniMax-Hailuo-2.3',
+      prompt: 'animate the immutable MiniMax opening frame',
+      first_frame_image: `data:image/png;base64,${original.toString('base64')}`,
+      duration: 10,
+      resolution: '768P',
+    });
+    expect(fetch.mock.calls[1]?.[0]).toContain(
+      '/v1/query/video_generation?task_id=minimax-image-task-1'
+    );
+    expect(fetch.mock.calls[3]?.[0]).toContain(
+      '/v1/files/retrieve?file_id=minimax-image-file-1'
+    );
+    expect(download).toHaveBeenCalledWith('https://video/minimax-image-1');
+  });
+
+  it.each([
+    ['JPEG', 'image/jpeg', encodedImage('jpeg')],
+    ['PNG', 'image/png', encodedImage('png')],
+    ['WebP', 'image/webp', encodedImage('webp')],
+  ])('accepts a valid MiniMax %s first frame before provider creation', async (
+    _format,
+    mimeType,
+    bytes
+  ) => {
+    const db = database();
+    const dir = await projectDir();
+    const fetch = vi.fn();
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'minimax-token-plan', enabled: true, fetch }),
+      download: vi.fn(),
+      loadInputSource: vi.fn().mockResolvedValue({ bytes, mimeType }),
+      decodeInputImage: decodeVideoInputImage,
+      schedule: scheduler().schedule,
+    });
+
+    const receipt = await service.submitVideo({
+      mode: 'first-frame',
+      prompt: `valid ${_format}`,
+      route_hint: 'minimax-token-plan',
+      images: [{ role: 'first-frame', source: 'fixture' }],
+    }, dir);
+
+    expect(receipt).toMatchObject({ ok: true, status: 'queued' });
+    expect(service.list('project-1')[0]?.inputSummary?.firstFrame).toMatchObject({
+      mimeType,
+      width: 1000,
+      height: 600,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'a 20 MiB image',
+      bytes: (() => {
+        const bytes = Buffer.alloc(20 * 1024 * 1024);
+        pngHeader(1000, 600).copy(bytes);
+        return bytes;
+      })(),
+      input: {},
+      error: 'smaller than 20 MiB',
+    },
+    {
+      name: 'a 300 px short edge',
+      bytes: pngHeader(1000, 300),
+      input: {},
+      error: 'short edge must be greater than 300 pixels',
+    },
+    {
+      name: 'a ratio below 2:5',
+      bytes: pngHeader(401, 1010),
+      input: {},
+      error: 'aspect ratio must be between 2:5 and 5:2',
+    },
+    {
+      name: 'a ratio above 5:2',
+      bytes: pngHeader(1010, 401),
+      input: {},
+      error: 'aspect ratio must be between 2:5 and 5:2',
+    },
+    {
+      name: 'an explicit aspect ratio',
+      bytes: pngHeader(1600, 900),
+      input: { aspect_ratio: '16:9' },
+      error: 'follows the first-frame aspect ratio',
+    },
+  ])('rejects MiniMax first-frame $name before provider creation', async ({
+    bytes,
+    input,
+    error,
+  }) => {
+    const db = database();
+    const dir = await projectDir();
+    const fetch = vi.fn();
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'minimax-token-plan', enabled: true, fetch }),
+      download: vi.fn(),
+      loadInputSource: vi.fn().mockResolvedValue({ bytes }),
+      schedule: scheduler().schedule,
+    });
+
+    const result = await service.submitVideo({
+      mode: 'first-frame',
+      prompt: 'reject invalid MiniMax input',
+      route_hint: 'minimax-token-plan',
+      images: [{ role: 'first-frame', source: 'fixture' }],
+      ...input,
+    } as never, dir);
+
+    expect(result).toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    expect(result).toHaveProperty('error', expect.stringContaining(error));
+    expect(service.list('project-1')).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ mode: 'last-frame', images: [{ role: 'first-frame', source: 'fixture' }] }, 'Unsupported video mode'],
+    [{ mode: 'first-frame', images: [{ role: 'last-frame', source: 'fixture' }] }, 'Unsupported video image role'],
+    [{ mode: 'first-frame', images: [{ role: 'subject', source: 'fixture' }] }, 'Unsupported video image role'],
+    [{
+      mode: 'first-frame',
+      images: [
+        { role: 'first-frame', source: 'opening' },
+        { role: 'last-frame', source: 'ending' },
+      ],
+    }, 'Unsupported video image role'],
+  ])('returns a clear unsupported error for MiniMax non-first-frame inputs', async (
+    input,
+    error
+  ) => {
+    const db = database();
+    const dir = await projectDir();
+    const fetch = vi.fn();
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ id: 'minimax-token-plan', enabled: true, fetch }),
+      download: vi.fn(),
+      loadInputSource: vi.fn().mockResolvedValue({ bytes: pngHeader(1000, 600) }),
+    });
+
+    const result = await service.submitVideo({
+      prompt: 'unsupported reference',
+      route_hint: 'minimax-token-plan',
+      ...input,
+    } as never, dir);
+
+    expect(result).toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    expect(result).toHaveProperty('error', expect.stringContaining(error));
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('rejects unsupported MiniMax duration and resolution combinations before provider creation', async () => {

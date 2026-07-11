@@ -28,6 +28,7 @@ import {
 
 const MINIMAX_API_BASE_URL = 'https://api.minimaxi.com/v1';
 const MINIMAX_VIDEO_MODEL = 'MiniMax-Hailuo-2.3';
+const MAX_MINIMAX_FIRST_FRAME_BYTES = 20 * 1024 * 1024;
 const XaiCreateResponseSchema = z.object({ request_id: z.string().trim().min(1) });
 const XaiPollResponseSchema = z.object({
   status: z.string(),
@@ -222,7 +223,12 @@ export class BackgroundCapabilityJobService {
     const id = crypto.randomUUID();
     let persistedInput: PersistedVideoInput;
     try {
-      persistedInput = await this.freezeVideoInput(id, project.path, normalizedInput.input);
+      persistedInput = await this.freezeVideoInput(
+        id,
+        project.path,
+        normalizedInput.input,
+        connectionId
+      );
     } catch (error) {
       return { ok: false, error: message(error), code: 'INVALID_INPUT' };
     }
@@ -248,7 +254,8 @@ export class BackgroundCapabilityJobService {
   private async freezeVideoInput(
     jobId: string,
     projectPath: string,
-    input: BackgroundGenerateVideoInput & { prompt: string; mode: VideoGenerationMode }
+    input: BackgroundGenerateVideoInput & { prompt: string; mode: VideoGenerationMode },
+    provider: CapabilityJobProvider
   ): Promise<PersistedVideoInput> {
     const { images: _images, ...persisted } = input;
     if (input.mode === 'text') return persisted;
@@ -258,6 +265,12 @@ export class BackgroundCapabilityJobService {
       input.images![0].source,
       this.deps,
     );
+    try {
+      validateProviderFirstFrame(firstFrame, provider);
+    } catch (error) {
+      await fs.rm(videoInputSnapshotDir(projectPath, jobId), { recursive: true, force: true });
+      throw error;
+    }
     return { ...persisted, first_frame: firstFrame };
   }
 
@@ -455,13 +468,8 @@ export class BackgroundCapabilityJobService {
     const input = parseInput(row.input);
     const body: Record<string, unknown> = { model: 'grok-imagine-video', prompt: input.prompt };
     if (input.mode === 'first-frame') {
-      if (!input.first_frame) throw new Error('Persisted first-frame snapshot is missing');
-      const bytes = await fs.readFile(input.first_frame.path);
-      const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-      if (sha256 !== input.first_frame.sha256) {
-        throw new Error('Persisted first-frame snapshot failed integrity verification');
-      }
-      body.image_url = `data:${input.first_frame.mimeType};base64,${bytes.toString('base64')}`;
+      const bytes = await readVerifiedFirstFrame(input);
+      body.image_url = `data:${input.first_frame!.mimeType};base64,${bytes.toString('base64')}`;
     }
     if (input.duration !== undefined) body.duration = input.duration;
     if (input.aspect_ratio) body.aspect_ratio = input.aspect_ratio;
@@ -488,16 +496,22 @@ export class BackgroundCapabilityJobService {
     route: VideoProviderRoute
   ): Promise<string | null> {
     const input = parseInput(row.input);
+    const body: Record<string, unknown> = {
+      model: MINIMAX_VIDEO_MODEL,
+      prompt: input.prompt,
+      duration: input.duration,
+      resolution: input.resolution,
+    };
+    if (input.mode === 'first-frame') {
+      const bytes = await readVerifiedFirstFrame(input);
+      body.first_frame_image =
+        `data:${input.first_frame!.mimeType};base64,${bytes.toString('base64')}`;
+    }
     const response = await this.submitProviderTask(
       row,
       route,
       `${MINIMAX_API_BASE_URL}/video_generation`,
-      {
-        model: MINIMAX_VIDEO_MODEL,
-        prompt: input.prompt,
-        duration: input.duration,
-        resolution: input.resolution,
-      }
+      body
     );
     if (!response) return null;
     const raw = await response.json().catch(() => null);
@@ -900,21 +914,19 @@ function normalizeVideoInput(
     return { ok: false, error: 'Text-to-video does not accept input images', code: 'INVALID_INPUT' };
   }
   if (mode === 'first-frame') {
+    const unsupportedImage = images.find((image) => image?.role !== 'first-frame');
+    if (unsupportedImage) {
+      return {
+        ok: false,
+        error: `Unsupported video image role: ${String(unsupportedImage.role)}; only first-frame is supported`,
+        code: 'INVALID_INPUT',
+      };
+    }
     if (images.length !== 1) {
       return { ok: false, error: 'First-frame video requires exactly one image', code: 'INVALID_INPUT' };
     }
-    if (images[0]?.role !== 'first-frame') {
-      return { ok: false, error: 'First-frame image must use the first-frame role', code: 'INVALID_INPUT' };
-    }
     if (typeof images[0].source !== 'string' || !images[0].source.trim()) {
       return { ok: false, error: 'First-frame image source is required', code: 'INVALID_INPUT' };
-    }
-    if (provider !== 'xai-oauth') {
-      return {
-        ok: false,
-        error: 'First-frame video currently requires xAI Grok OAuth',
-        code: 'INVALID_INPUT',
-      };
     }
   }
   if (provider !== 'minimax-token-plan') {
@@ -968,7 +980,9 @@ function normalizeVideoInput(
   if (input.aspect_ratio) {
     return {
       ok: false,
-      error: 'MiniMax-Hailuo-2.3 does not accept aspect_ratio for this text-to-video route',
+      error: mode === 'first-frame'
+        ? 'MiniMax-Hailuo-2.3 follows the first-frame aspect ratio and does not accept aspect_ratio'
+        : 'MiniMax-Hailuo-2.3 does not accept aspect_ratio for this text-to-video route',
       code: 'INVALID_INPUT',
     };
   }
@@ -976,7 +990,10 @@ function normalizeVideoInput(
     ok: true,
     input: {
       prompt,
-      mode: 'text',
+      mode,
+      images: mode === 'first-frame'
+        ? [{ role: 'first-frame', source: images[0].source.trim() }]
+        : undefined,
       route_hint: 'minimax-token-plan',
       duration,
       resolution,
@@ -1018,6 +1035,50 @@ function miniMaxBaseResponseError(
                 ? 'CONTENT_SAFETY'
                 : 'BASE_RESPONSE';
   return `MiniMax ${operation} failed [${category}:${response.status_code}]: ${detail}`;
+}
+
+function validateProviderFirstFrame(
+  snapshot: VideoInputSnapshot,
+  provider: CapabilityJobProvider
+): void {
+  const ratio = snapshot.width / snapshot.height;
+  if (provider === 'minimax-token-plan') {
+    if (snapshot.sizeBytes >= MAX_MINIMAX_FIRST_FRAME_BYTES) {
+      throw new Error('MiniMax first-frame image must be smaller than 20 MiB');
+    }
+    if (Math.min(snapshot.width, snapshot.height) <= 300) {
+      throw new Error('MiniMax first-frame image short edge must be greater than 300 pixels');
+    }
+    if (ratio < 2 / 5 || ratio > 5 / 2) {
+      throw new Error('MiniMax first-frame image aspect ratio must be between 2:5 and 5:2');
+    }
+    return;
+  }
+  if (snapshot.mimeType === 'image/webp') {
+    throw new Error('xAI first-frame image must be a valid PNG or JPEG');
+  }
+  if (
+    snapshot.width < 64
+    || snapshot.height < 64
+    || snapshot.width > 8192
+    || snapshot.height > 8192
+  ) {
+    throw new Error('First-frame dimensions must be between 64 and 8192 pixels');
+  }
+  const supportedRatios = [16 / 9, 9 / 16, 1];
+  if (!supportedRatios.some((value) => Math.abs(ratio - value) / value <= 0.03)) {
+    throw new Error('First-frame aspect ratio must be 16:9, 9:16, or 1:1');
+  }
+}
+
+async function readVerifiedFirstFrame(input: PersistedVideoInput): Promise<Buffer> {
+  if (!input.first_frame) throw new Error('Persisted first-frame snapshot is missing');
+  const bytes = await fs.readFile(input.first_frame.path);
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (sha256 !== input.first_frame.sha256) {
+    throw new Error('Persisted first-frame snapshot failed integrity verification');
+  }
+  return bytes;
 }
 
 function parseInput(raw: string): PersistedVideoInput {

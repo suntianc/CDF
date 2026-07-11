@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { z } from 'zod';
+import {
+  CapabilityJobTimelineEventSchema,
+  type CapabilityJobTimelineEvent,
+} from '@shared/capability-jobs';
 
 export const ImageZoomContext = React.createContext<(url: string) => void>(() => {});
 import { createPortal } from 'react-dom';
@@ -12,15 +15,8 @@ import { useTypewriter } from '@/hooks/useTypewriter';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { SkillAttribution } from '@shared/types';
 
-const CapabilityJobTimelineSchema = z.object({
-  type: z.literal('capability_job_event'),
-  eventId: z.string(),
-  jobId: z.string(),
-  status: z.enum(['completed', 'failed']),
-  artifacts: z.array(z.object({ path: z.string(), mimeType: z.string() })),
-  error: z.string().nullable(),
-});
-type CapabilityJobTimelineInfo = z.infer<typeof CapabilityJobTimelineSchema>;
+const CapabilityJobTimelineSchema = CapabilityJobTimelineEventSchema;
+type CapabilityJobTimelineInfo = CapabilityJobTimelineEvent;
 
 function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }) {
   const { t } = useTranslation();
@@ -29,6 +25,11 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
       <div className="text-xs font-semibold text-[var(--color-text-primary)]">
         {t(`conversation.capabilityJob.${info.status}`)}
       </div>
+      {info.provider && info.mode && (
+        <div className="mt-1 text-xs text-[var(--color-text-secondary)]">
+          {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
+        </div>
+      )}
       <div className="mt-1 font-mono text-xs text-[var(--color-text-muted)]">{info.jobId}</div>
       {info.artifacts.map((artifact) => (
         <div key={artifact.path} className="mt-2 truncate font-mono text-xs text-[var(--color-text-secondary)]" title={artifact.path}>

@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { BrowserWindow, nativeImage, net } from 'electron';
+import { BrowserWindow, net } from 'electron';
 import { getOAuthCredential, getSubscriptionSecret } from '../ai-subscription-credentials';
 import { createOAuthAuthenticatedFetch } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
@@ -13,6 +13,7 @@ import {
   CapabilityJobContinuationCoordinator,
   type CapabilityJobContinuationBatch,
 } from './capability-job-continuations';
+import { decodeVideoInputImage } from './video-input-snapshot';
 
 let service: BackgroundCapabilityJobService | null = null;
 let continuationCoordinator: CapabilityJobContinuationCoordinator | null = null;
@@ -166,11 +167,7 @@ function getBackgroundCapabilityJobService(): BackgroundCapabilityJobService {
       return routes.find((route) => route.enabled) ?? routes[0] ?? null;
     },
     fetchInput: fetchPublicInput,
-    decodeInputImage: async (bytes) => {
-      const image = nativeImage.createFromBuffer(bytes);
-      if (image.isEmpty()) throw new Error('Image decoder rejected the first-frame input');
-      return image.getSize();
-    },
+    decodeInputImage: decodeVideoInputImage,
     download: async (url) => {
       const response = await net.fetch(url);
       if (!response.ok) throw new Error(`Failed to download generated video (${response.status})`);

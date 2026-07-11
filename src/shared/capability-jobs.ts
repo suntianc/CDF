@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export type CapabilityJobType = 'video.generate';
 export type CapabilityJobProvider = 'xai-oauth' | 'minimax-token-plan';
 export type VideoGenerationMode = 'text' | 'first-frame';
@@ -15,17 +17,32 @@ export type CapabilityJobStatus =
   | 'failed'
   | 'canceled';
 
-export interface CapabilityJobArtifact {
-  path: string;
-  mimeType: string;
-}
+export const CapabilityJobArtifactSchema = z.object({
+  path: z.string(),
+  mimeType: z.string(),
+});
+export type CapabilityJobArtifact = z.infer<typeof CapabilityJobArtifactSchema>;
+
+export const CapabilityJobTimelineEventSchema = z.object({
+  type: z.literal('capability_job_event'),
+  eventId: z.string(),
+  jobId: z.string(),
+  projectId: z.string(),
+  sessionId: z.string(),
+  status: z.enum(['completed', 'failed']),
+  provider: z.enum(['xai-oauth', 'minimax-token-plan']).optional(),
+  mode: z.enum(['text', 'first-frame']).optional(),
+  artifacts: z.array(CapabilityJobArtifactSchema),
+  error: z.string().nullable(),
+});
+export type CapabilityJobTimelineEvent = z.infer<typeof CapabilityJobTimelineEventSchema>;
 
 export interface CapabilityJobInputSummary {
   mode: VideoGenerationMode;
   duration?: number;
   resolution?: string;
   firstFrame?: {
-    mimeType: 'image/png' | 'image/jpeg';
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
     sizeBytes: number;
     width: number;
     height: number;

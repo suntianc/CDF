@@ -101,7 +101,11 @@ describe('MessageItem at-token rendering (Phase 08.3 — C-03)', () => {
         type: 'capability_job_event',
         eventId: 'capability-job:job-1:terminal',
         jobId: 'job-1',
+        projectId: 'project-1',
+        sessionId: 'session-1',
         status: 'completed',
+        provider: 'minimax-token-plan',
+        mode: 'first-frame',
         artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
         error: null,
       })),
@@ -113,6 +117,8 @@ describe('MessageItem at-token rendering (Phase 08.3 — C-03)', () => {
     );
 
     expect(container.textContent).toContain('conversation.capabilityJob.completed');
+    expect(container.textContent).toContain('taskPanel.jobRoute.minimax-token-plan');
+    expect(container.textContent).toContain('taskPanel.videoModeValue.first-frame');
     expect(container.textContent).toContain('/project/video.mp4');
     expect(container.textContent).not.toContain('capability_job_event');
   });

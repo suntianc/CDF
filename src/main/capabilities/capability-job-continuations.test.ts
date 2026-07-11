@@ -22,8 +22,9 @@ function database() {
     CREATE TABLE capability_jobs (
       id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_session_id TEXT,
       status TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'xai-oauth',
-      connection_id TEXT NOT NULL DEFAULT 'xai-oauth', artifacts TEXT, error TEXT,
-      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      connection_id TEXT NOT NULL DEFAULT 'xai-oauth',
+      input TEXT NOT NULL DEFAULT '{"prompt":"fixture","mode":"text"}',
+      artifacts TEXT, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     INSERT INTO projects (id, path) VALUES ('project-1', '/project');
     INSERT INTO sessions (id, project_id, agent_id) VALUES
@@ -96,6 +97,29 @@ describe('CapabilityJobContinuationCoordinator', () => {
 
       eventId: 'capability-job:job-1:terminal',
       jobId: 'job-1',
+    });
+  });
+
+  it('persists the provider and generation mode in a MiniMax first-frame Timeline event', () => {
+    const db = database();
+    const coordinator = new CapabilityJobContinuationCoordinator(db, {
+      runContinuation: vi.fn(),
+      schedule: vi.fn(),
+    });
+
+    coordinator.enqueue({
+      ...job('job-minimax-first-frame'),
+      provider: 'minimax-token-plan',
+      connectionId: 'minimax-token-plan',
+      inputSummary: { mode: 'first-frame', duration: 6, resolution: '768P' },
+    });
+
+    const message = db.prepare('SELECT content FROM messages WHERE id = ?')
+      .get('capability-job:job-minimax-first-frame:terminal') as { content: string };
+    expect(JSON.parse(message.content)).toMatchObject({
+      type: 'capability_job_event',
+      provider: 'minimax-token-plan',
+      mode: 'first-frame',
     });
   });
 
