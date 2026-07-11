@@ -243,7 +243,7 @@ describe('App', () => {
     await screen.findByTestId('model-settings');
   });
 
-  it('routes research projects to a research Scene Workspace while keeping Conversation available', () => {
+  it('keeps research project welcome focused on Conversation without Scene navigation', () => {
     useProjectStore.setState({
       activeView: 'chat',
       currentProjectId: 'project-research',
@@ -259,10 +259,10 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(screen.getByRole('tab', { name: /Conversation|对话/ })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Paper Library|论文库/ })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Writing|写作/ })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Experiments|实验记录/ })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /Conversation|对话/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Writing|写作/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Experiments|实验记录/ })).toBeNull();
     expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
   });
 

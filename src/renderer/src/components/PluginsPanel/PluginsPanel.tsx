@@ -250,7 +250,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="resource-card-grid">
         {filteredSkills.map((skill) => {
           const displayName = skill.qualifiedName ?? skill.name;
           const overrideKey = displayName;
@@ -264,8 +264,8 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
             .map((shadowed) => `${shadowed.qualifiedName ?? shadowed.name} (${shadowed.sourceLabel ?? shadowed.sourceKind ?? t('plugins.skillSourceUnknown')})`)
             .join('\n');
           return (
-            <div key={skill.id} className="provider-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
-            <div>
+            <div key={skill.id} className="provider-card resource-square-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
+            <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex items-center gap-2 mb-2">
                 <Code className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
                 <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate flex-1" title={displayName}>{displayName}</div>
@@ -345,7 +345,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
             </div>
 
             {skill.editable !== false && (
-              <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
+              <div className="mt-auto flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
                 <button
                   className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
                   onClick={() => handleDeleteSkill(skill.id, displayName)}
@@ -360,7 +360,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
         })}
 
         {filteredSkills.length === 0 && (
-          <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+          <div className="col-span-full flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
             <span>{searchQuery ? t('plugins.skillEmptySearch') : t('plugins.skillEmpty')}</span>
           </div>
         )}
@@ -537,15 +537,15 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="resource-card-grid">
         {mcpServers.filter(s =>
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.server_type || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).map((server) => {
           const config = server.config || {};
           return (
-            <div key={server.id} className="provider-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
-              <div>
+            <div key={server.id} className="provider-card resource-square-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
+              <div className="min-h-0 flex-1">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 max-w-[70%]">
                     <Layers className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
@@ -581,7 +581,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
                 </div>
               </div>
 
-              <div className="flex items-center justify-between border-t border-[var(--color-border)]/30 pt-3 mt-2 gap-2">
+              <div className="mt-auto flex items-center justify-between border-t border-[var(--color-border)]/30 pt-3 gap-2">
                 <button
                   onClick={() => toggleConnectionState(server)}
                   className={`btn btn-sm cursor-pointer ${
@@ -633,7 +633,7 @@ function McpTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) 
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.server_type || '').toLowerCase().includes(searchQuery.toLowerCase())
         ).length === 0 && (
-          <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+          <div className="col-span-full flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
             <span>{searchQuery ? t('plugins.mcpEmptySearch') : t('plugins.mcpEmpty')}</span>
             {!searchQuery && <button className="btn btn-primary" onClick={openCreateModal}>{t('plugins.addMcpServer')}</button>}
           </div>

@@ -218,28 +218,28 @@ export function FilePanel() {
       {isEditorMode && openTabs.length > 0 && (
         <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0 h-9 relative">
           {/* Left: Tabs */}
-          <div className="flex-1 flex items-center gap-0 overflow-x-auto scrollbar-none h-full mr-10">
+          <div className="mr-20 flex min-w-0 flex-1 items-center gap-0 overflow-x-auto scrollbar-none h-full">
             {openTabs.map((tab, i) => {
               const isActive = i === activeTabIndex;
               const isDirty = dirtyTabs[tab.path] ?? false;
               return (
                 <div
                   key={tab.path}
-                  className={`flex items-center gap-1.5 px-3 h-full border-r border-[var(--color-border)] text-[12px] cursor-pointer shrink-0 transition-colors ${
+                  className={`flex min-w-0 max-w-[160px] items-center gap-1.5 px-3 h-full border-r border-[var(--color-border)] text-[12px] cursor-pointer shrink-0 transition-colors ${
                     isActive
                       ? 'bg-[var(--color-bg-canvas)] text-[var(--color-text-primary)] font-medium border-t-2 border-t-[var(--color-accent)]'
                       : 'bg-[var(--color-bg-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
                   }`}
                   onClick={() => setActiveTab(i)}
                 >
-                  <FileTypeIcon filename={tab.name} className="w-3.5 h-3.5" />
-                  <span className="truncate max-w-[120px]">{tab.name}</span>
+                  <FileTypeIcon filename={tab.name} className="w-3.5 h-3.5 shrink-0" />
+                  <span className="min-w-0 max-w-[100px] flex-1 truncate">{tab.name}</span>
                   {isDirty && (
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); closeTab(i); }}
-                    className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
+                    className="shrink-0 p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
                   >
                     <X className="w-3 h-3" />
                   </button>

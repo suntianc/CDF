@@ -77,7 +77,9 @@ describe('Sidebar', () => {
     expect(onChangeView).toHaveBeenCalledWith('ai-subscriptions');
   });
 
-  it('keeps Settings navigation separate from Work navigation', () => {
+  it('keeps resource management inside Settings navigation', () => {
+    const onChangeView = vi.fn();
+
     render(
       <Sidebar
         collapsed={false}
@@ -85,16 +87,51 @@ describe('Sidebar', () => {
         activeView="system"
         onCollapse={vi.fn()}
         onResize={vi.fn()}
-        onChangeView={vi.fn()}
+        onChangeView={onChangeView}
       />,
     );
 
     expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Agents' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Plugins' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Workflows' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Agents' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Skills & MCP' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Workflows' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Chat' })).toBeNull();
     expect(screen.queryByTestId('project-tree')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skills & MCP' }));
+    expect(onChangeView).toHaveBeenCalledWith('plugins');
+  });
+
+  it('uses Work resource entries as shortcuts into Settings management', () => {
+    const onChangeView = vi.fn();
+
+    const { rerender } = render(
+      <Sidebar
+        collapsed={false}
+        width={280}
+        activeView="chat"
+        onCollapse={vi.fn()}
+        onResize={vi.fn()}
+        onChangeView={onChangeView}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    expect(onChangeView).toHaveBeenCalledWith('agents');
+
+    rerender(
+      <Sidebar
+        collapsed={false}
+        width={280}
+        activeView="agents"
+        onCollapse={vi.fn()}
+        onResize={vi.fn()}
+        onChangeView={onChangeView}
+      />,
+    );
+
     expect(screen.getByRole('navigation', { name: 'Settings navigation' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Agents' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('keeps the sidebar collapse control available as a labelled button', () => {

@@ -74,7 +74,7 @@ export function Sidebar({
     onChangeView('chat');
   };
 
-  const isSettings = ['settings', 'ai-subscriptions', 'tools', 'research', 'system'].includes(activeView);
+  const isSettings = ['settings', 'ai-subscriptions', 'agents', 'plugins', 'workflows', 'tools', 'research', 'system'].includes(activeView);
 
   return (
     <aside
@@ -170,6 +170,33 @@ export function Sidebar({
           >
             <Sparkles className="w-4 h-4" />
             {t('sidebar.settings.aiSubscriptions')}
+          </button>
+          <button
+            type="button"
+            className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}
+            onClick={() => onChangeView('agents')}
+            aria-current={activeView === 'agents' ? 'page' : undefined}
+          >
+            <Bot className="w-4 h-4" />
+            {t('sidebar.settings.agents')}
+          </button>
+          <button
+            type="button"
+            className={`${styles.settingsMenuItem} ${activeView === 'plugins' ? styles.active : ''}`}
+            onClick={() => onChangeView('plugins')}
+            aria-current={activeView === 'plugins' ? 'page' : undefined}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            {t('sidebar.settings.skillsMcp')}
+          </button>
+          <button
+            type="button"
+            className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}
+            onClick={() => onChangeView('workflows')}
+            aria-current={activeView === 'workflows' ? 'page' : undefined}
+          >
+            <GitFork className="w-4 h-4" />
+            {t('sidebar.settings.workflows')}
           </button>
           <button
             type="button"

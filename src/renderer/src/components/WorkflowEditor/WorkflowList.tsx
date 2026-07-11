@@ -143,11 +143,11 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
         )}
 
         {/* Workflow Cards */}
-        <div className="flex flex-col gap-2">
+        <div className="resource-card-grid">
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className="provider-card flex items-center gap-4 px-4 py-3 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
+              className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
               onClick={() => onSelectWorkflow(workflow)}
             >
               <div className="min-w-0 flex-1">
@@ -203,7 +203,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center justify-end gap-2">
+              <div className="mt-auto flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
                 <button
                   className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer text-[var(--color-success)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 hover:bg-[var(--color-success-dim)]"
                   onClick={(e) => handleRunWorkflow(workflow, e)}
@@ -237,7 +237,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
           ))}
 
           {workflows.length === 0 && !isLoading && (
-            <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+            <div className="col-span-full flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
               <span>{t('workflow.list.empty')}</span>
               <button className="btn btn-primary" onClick={onCreateWorkflow}>{t('workflow.list.newWorkflow')}</button>
             </div>

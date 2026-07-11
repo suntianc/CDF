@@ -124,14 +124,14 @@ export function AgentLibrary() {
           </div>
         )}
 
-        <div className="flex flex-col gap-1">
+        <div className="resource-card-grid">
           {agents.filter(agent =>
             agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
             return (
-              <div key={agent.id} className="provider-card flex items-center gap-4 px-4 py-3 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
+              <div key={agent.id} className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0">
@@ -149,7 +149,7 @@ export function AgentLibrary() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-2 truncate" title={agent.description}>
+                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-3 line-clamp-2" title={agent.description}>
                     {agent.description || t('agent.noDescription')}
                   </p>
 
@@ -165,7 +165,7 @@ export function AgentLibrary() {
                   </div>
                 </div>
 
-                <div className="flex shrink-0 justify-end gap-2">
+                <div className="mt-auto flex shrink-0 justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
                   <button
                     className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer"
                     onClick={() => openEditModal(agent)}
@@ -189,7 +189,7 @@ export function AgentLibrary() {
             agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).length === 0 && (
-            <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+            <div className="col-span-full flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
               <span>{searchQuery ? t('agent.emptySearch') : t('agent.empty')}</span>
               {!searchQuery && <button className="btn btn-primary" onClick={openCreateModal}>{t('agent.createAgent')}</button>}
             </div>

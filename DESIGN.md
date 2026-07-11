@@ -53,13 +53,13 @@ CDF 的界面是一张**本地项目工作桌**，不是聊天主页，也不是
 ### 1.3 拒绝的模式
 
 - 不新增全局图标 Rail；当前产品的 Project Ledger 已经承担主要导航。
-- 不把 Welcome Surface 设计为 Hero + 三张功能卡。
-- 不默认使用三列资源卡片；Agents、Skills、MCP 和 Workflows 优先使用列表或主从布局。
+- Welcome Surface 保持工作台语气，不做营销 Hero；Composer 下方允许三张紧凑方形快捷入口。
+- Agents、Skills、MCP 和 Workflows 默认使用响应式紧凑卡片网格，不使用横贯内容区的长卡片，也不以严格 `1:1` 制造无效空白。
 - 不使用紫蓝 AI 渐变、霓虹发光、玻璃拟态、噪点背景或大面积模糊光晕。
 - 不让 Files 与 Activity 以两个独立浮层互相避让。
 - 不使用 `transition: all`、hover 放大到 1.05、持续 pulse 或无意义 spinner。
 - 不把所有辅助动作隐藏到 hover 后才出现。
-- 不以“设置”包住 Agents、Skills、MCP 和 Workflows；这些是工作区，设置只承载连接和偏好。
+- Agents、Skills/MCP 和 Workflows 是设置中的资源管理页；Work 顶部入口仅作为直达这些设置页的快捷方式。
 
 ---
 
@@ -476,7 +476,7 @@ Agents、Skills、MCP 和 Workflows 使用 48px 或 56px 资源行；仅模板�
 
 ### 7.1 Welcome Surface
 
-Welcome Surface 不再垂直居中整页，也不显示背景 glow 和三张等权 Feature Card。
+Welcome Surface 不再垂直居中整页，也不显示背景 glow；Composer 下方恢复三张等宽、紧凑的快捷入口卡片。
 
 布局：
 
@@ -484,7 +484,7 @@ Welcome Surface 不再垂直居中整页，也不显示背景 glow 和三张等�
 Project / Scratch context
 一句状态化标题 + 简短说明
 Composer
-最近 Conversations 或当前 Project 建议动作（最多 4 行）
+Create Project / Skills & MCP / Models 快捷入口
 ```
 
 状态优先级：
@@ -496,6 +496,8 @@ Composer
 5. Scratch：明确显示不会绑定自定义 Project。
 
 Composer 宽 680–820px，保持左对齐，不让整页像营销 Landing Page。
+
+快捷入口使用三列方形卡片，图标、标题和一句说明纵向排列；它们只负责导航，不在 Welcome Surface 内承载管理表单。模型与 Skills/MCP 入口进入 Settings 对应管理页。
 
 ### 7.2 Timeline
 
@@ -560,6 +562,7 @@ Progress 有确定总量时显示 `done / total`；无总量时显示当前阶�
 - FileTree 行高 28px；目录和文件使用 14px 图标。
 - 选中文件使用 active surface；修改、未保存和错误通过独立状态标识。
 - Filter 固定在顶部；Tree 滚动；EditorPane 在选中文件后出现。
+- Editor tabs 单项最大宽度 160px，文件名在 100px 内省略；标签滚动视口右侧必须以 80px 实体外边距避开 Files/Activity 全局按钮，不允许只用可滚动 padding 形成伪占位。
 - 宽度不足 340px 时 Tree 与 Preview 使用前后层级，不上下硬挤。
 - 路径使用 Mono，中间截断，可复制。
 - 文件创建、重命名和删除使用 inline input 或 Menu + Dialog；不能依赖 hover-only 图标。
@@ -574,6 +577,7 @@ Research Scene 继续使用当前真实子视图：Conversation、Paper Library�
 ### 9.1 Scene Tabs
 
 - 位于 Scene Desk topbar 中部，不再另加一条 40px 子顶栏。
+- Welcome Surface 不显示 Scene Tabs；只有建立或进入 Conversation 后才显示，退出当前会话时自动回到 Conversation 面板。
 - Tab 高 28px，13px/550；当前项使用 active surface 和 Ledger Edge 的 2px 下边变体，二者择一。
 - 800–999px 时图标保留、文字按优先级收纳到 More。
 
@@ -597,10 +601,10 @@ Writing 与 Experiments 未实现时显示明确的 Coming later 状态，但不
 
 ### 10.1 Agents
 
-- 默认使用列表 + 右侧编辑 Drawer。
-- 行显示 Agent、模型、Skill preload 数和 MCP exclusion 数。
-- 搜索和 Create Agent 保持在页面 topbar；结果数在列表头。
-- description 不固定 `h-8`；列表中单行截断，Drawer 中完整显示。
+- 使用响应式紧凑卡片网格；卡片保持短而完整，基础最小高度约 220px，由内容决定最终高度。
+- 卡片显示 Agent、模型、Skill preload 数和 MCP exclusion 数，操作区固定在底部。
+- 搜索和 Create Agent 保持在页面 topbar；结果数在网格头。
+- description 最多两行截断，编辑表单中完整显示。
 - Agent 编辑表单按 Identity、Model、Skills、MCP exclusions 分段。
 
 ### 10.2 Skills & MCP
@@ -609,28 +613,28 @@ Plugins 页面统一命名为 **Skills & MCP**，内部使用 Tabs。
 
 Skills：
 
-- 列表显示名称、来源、可见性和最近更新。
-- 内容预览进入 Drawer，不用卡片展开全部说明。
+- 方卡片显示名称、来源、可见性和最近更新。
+- 内容预览进入 Drawer，不在卡片中展开全部说明。
 
 MCP：
 
-- 列表显示名称、transport、endpoint/command、连接状态、最近 health check。
-- Connect/Disconnect 是明确的行级动作。
+- 方卡片显示名称、transport、endpoint/command、连接状态、最近 health check。
+- Connect/Disconnect 是明确的卡片底部动作。
 - Health check 在原位置显示 checking → success/error，不只发 Toast。
 - Command、args 和 URL 使用 Mono。
 - MCP 配置使用 Drawer；stdio 与 HTTP 字段按 transport 切换。
 
 ### 10.3 Workflows 列表
 
-- 使用列表而不是三列 Card。
-- 列：名称、状态、节点数、最近更新、最近运行、Run、More。
-- 点击名称进入编辑；Run 是独立按钮；Enable Toggle 不让整行可点击。
+- 使用响应式紧凑卡片网格，不使用横贯页面的列表行，也不强制严格正方形高度。
+- 卡片显示名称、状态、节点数、最近更新和操作区。
+- 点击卡片进入编辑；Run 是独立按钮；Enable Toggle 不触发卡片导航。
 - Empty State 提供 Create Workflow。
 - 删除通过统一 Dialog，不使用本地 modal overlay。
 
 ### 10.4 Settings
 
-Settings 保留现有分类：LLM Provider、AI Subscription、Tools、Research、System；Agents、Skills/MCP 和 Workflows 不在 Settings 中重复出现。
+Settings 保留 LLM Provider、AI Subscription、Agents、Skills/MCP、Workflows、Tools、Research、System；Work 中的 Agents、Skills/MCP 和 Workflows 入口只是快捷方式，进入后统一使用 Settings 导航。
 
 - 左侧 Project Ledger 切换为 Settings index，并显示“返回工作桌”。
 - 设置内容最大 760px；Provider 详情最大 880px。
