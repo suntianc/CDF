@@ -50,7 +50,7 @@ function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }
         alignSelf: 'flex-start',
         textAlign: 'left',
         marginRight: 'auto',
-        padding: '6px 0',
+        padding: '6px 0 12px 0',
         display: 'flex',
         flexDirection: 'column'
       }}
