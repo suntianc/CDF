@@ -193,6 +193,12 @@
       "resubmit": "Resubmit with duplicate-charge risk",
       "running": "Applying…"
     },
+    "continuationStatus": {
+      "pending": "Agent continuation queued",
+      "running": "Agent continuation running",
+      "failed": "Agent continuation failed; retry queued",
+      "consumed": "Agent continuation completed"
+    },
     "commandError": {
       "INVALID_STATE": "This action is no longer valid for the current job state.",
       "NOT_FOUND": "The background job no longer exists.",
@@ -214,6 +220,12 @@
       "temporary_download_error": "Temporary download error. Resume tracking to retry.",
       "artifact_durable": "The local MP4 artifact is durable.",
       "job_failed": "The background video job failed."
+    }
+  },
+  "conversation": {
+    "capabilityJob": {
+      "completed": "Background video completed",
+      "failed": "Background video failed"
     }
   },
   "subagentView": {

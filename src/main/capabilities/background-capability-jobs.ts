@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type {
   CapabilityJobAction,
   CapabilityJobArtifact,
+  CapabilityJobContinuationStatus,
   CapabilityJobCommandResult,
   CapabilityJobEvent,
   CapabilityJobSnapshot,
@@ -544,6 +545,16 @@ export class BackgroundCapabilityJobService {
   private toSnapshot(row: CapabilityJobRow): CapabilityJobSnapshot {
     let artifacts: CapabilityJobArtifact[] = [];
     try { artifacts = JSON.parse(row.artifacts ?? '[]') as CapabilityJobArtifact[]; } catch { artifacts = []; }
+    let continuation: { status: CapabilityJobContinuationStatus; error: string | null } | null = null;
+    try {
+      const event = this.db.prepare(`SELECT status, last_error
+        FROM capability_job_completion_events WHERE job_id = ?`).get(row.id) as
+        | { status: CapabilityJobContinuationStatus; last_error: string | null }
+        | undefined;
+      if (event) continuation = { status: event.status, error: event.last_error };
+    } catch {
+      // The continuation schema is initialized separately from isolated Job service tests.
+    }
     return {
       id: row.id,
       sourceSessionId: row.source_session_id ?? undefined,
@@ -560,6 +571,8 @@ export class BackgroundCapabilityJobService {
       statusMessage: row.status_message,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      continuationStatus: continuation?.status ?? null,
+      continuationError: continuation?.error ?? null,
     };
   }
 

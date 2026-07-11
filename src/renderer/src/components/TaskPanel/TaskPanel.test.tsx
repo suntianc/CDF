@@ -145,6 +145,8 @@ describe('TaskPanel', () => {
       availableActions: ['cancel'],
       error: null,
       statusMessage: 'waiting_connection_slot',
+      continuationStatus: null,
+      continuationError: null,
       createdAt: 1,
       updatedAt: 1,
     }]);
@@ -169,12 +171,15 @@ describe('TaskPanel', () => {
         availableActions: [],
         error: null,
         statusMessage: 'artifact_durable',
+        continuationStatus: 'consumed',
+        continuationError: null,
         createdAt: 1,
         updatedAt: 2,
       },
     }));
     expect(getByText('taskPanel.jobStatus.completed')).toBeTruthy();
     expect(getByText('/project/video.mp4')).toBeTruthy();
+    expect(getByText('taskPanel.continuationStatus.consumed')).toBeTruthy();
   });
 
   it('offers state-safe controls and explains unknown submission risk', async () => {
@@ -191,6 +196,8 @@ describe('TaskPanel', () => {
       artifacts: [],
       error: 'connection reset',
       statusMessage: 'submission_unknown_no_retry',
+      continuationStatus: null,
+      continuationError: null,
       createdAt: 1,
       updatedAt: 1,
     }]);
@@ -207,6 +214,8 @@ describe('TaskPanel', () => {
       artifacts: [],
       error: null,
       statusMessage: 'explicit_resubmission_risk',
+      continuationStatus: null,
+      continuationError: null,
       createdAt: 2,
       updatedAt: 2,
     } });

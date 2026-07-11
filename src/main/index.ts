@@ -1,6 +1,12 @@
 import { app, BrowserWindow, protocol, net } from 'electron';
+import db from './database';
 import { registerIpcHandlers } from './ipc-handlers';
-import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
+import {
+  backgroundCapabilityContinuations,
+  backgroundCapabilityJobs,
+  configureCapabilityJobContinuationRunner,
+} from './capabilities/background-capability-runtime';
+import { runLLMChat, setConversationIdleListener } from './llm';
 
 // Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media
 protocol.registerSchemesAsPrivileged([
@@ -84,6 +90,60 @@ function createWindow() {
 
   log.info('Application starting...');
 }
+configureCapabilityJobContinuationRunner(async (batch) => {
+  let assistantText = '';
+  await runLLMChat(
+    {
+      send: (_channel, payload) => {
+        if (!payload || typeof payload !== 'object' || !('type' in payload)) return;
+        if (payload.type === 'message_chunk' && 'text' in payload && typeof payload.text === 'string') {
+          assistantText += payload.text;
+        }
+      },
+    },
+    `background-continuation:${batch.batchId}`,
+    {
+      projectId: batch.projectId,
+      sessionId: batch.sessionId,
+      agentId: batch.agentId,
+      message: {
+        id: `background-continuation-input:${batch.batchId}`,
+        content: JSON.stringify({
+          type: 'background_capability_job_continuation',
+          events: batch.events,
+          instruction:
+            'Present these already-durable local results. Do not recreate, re-query, or re-download provider jobs.',
+        }),
+      },
+      // Empty means "all tools"; a deliberately unmatched allowlist hard-blocks
+      // provider and mutation tools during replay/retry of already-durable events.
+      overrides: { allowedTools: ['__background_continuation_no_tools__'] },
+    }
+  );
+  const messageInserted = db.transaction(() => {
+    const completedAt = Date.now();
+    db.prepare(`INSERT OR IGNORE INTO capability_job_continuation_batches (batch_id, completed_at)
+      VALUES (?, ?)`).run(batch.batchId, completedAt);
+    if (!assistantText.trim()) return false;
+    const result = db.prepare(`INSERT OR IGNORE INTO messages (id, session_id, role, content, created_at)
+      VALUES (?, ?, 'assistant', ?, ?)`)
+      .run(`background-continuation-output:${batch.batchId}`, batch.sessionId, assistantText, completedAt);
+    return result.changes === 1;
+  })();
+  if (messageInserted) {
+    for (const window of BrowserWindow.getAllWindows()) {
+      try {
+        window.webContents.send('conversation:messages-changed', { sessionId: batch.sessionId });
+      } catch {
+        // A closing renderer must not turn a durable continuation into a retry.
+      }
+    }
+  }
+});
+setConversationIdleListener((sessionId) => {
+  backgroundCapabilityContinuations.notifyConversationIdle(sessionId);
+});
+
 
 app.whenReady().then(() => {
   log.info('App is ready');
@@ -107,6 +167,7 @@ app.whenReady().then(() => {
   configureNetworkProxy();
   registerIpcHandlers();
   backgroundCapabilityJobs.resumePending();
+  backgroundCapabilityContinuations.resumePending();
 
   // Phase 6 Plan 02: start system-scoped chokidar watcher for `~/.cdf/commands/*.md`.
   // P6.6: os.homedir() is now ready since we are inside app.whenReady.

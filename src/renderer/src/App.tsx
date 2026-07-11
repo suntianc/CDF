@@ -141,6 +141,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    return window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
+      const sessionState = useSessionStore.getState();
+      if (sessionState.activeSessionId === sessionId && !sessionState.isStreaming) {
+        void sessionState.selectSession(sessionId);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     if (pendingApproval && activeView === 'chat') {
       activityAutoOpenedRef.current = true;
       setTaskPanelOpen(true);

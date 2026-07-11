@@ -209,6 +209,17 @@ db.exec(`
   );
 `);
 
+// A process restart cannot retain a live Agent run. Close stale rows before
+// enforcing the one-active-run-per-Conversation invariant used by background continuations.
+db.prepare(`UPDATE agent_runs
+  SET status = 'aborted',
+      error = COALESCE(error, 'Application stopped before the Agent run completed'),
+      ended_at = COALESCE(ended_at, ?),
+      aborted = 1
+  WHERE status IN ('running', 'waiting_approval')`).run(Date.now());
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_one_active_session
+  ON agent_runs(session_id) WHERE status IN ('running', 'waiting_approval')`);
+
 try {
   db.exec(`ALTER TABLE agents ADD COLUMN project_id TEXT;`);
 } catch (error: any) {

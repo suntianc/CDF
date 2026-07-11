@@ -232,6 +232,20 @@ const api = {
       };
     },
   },
+  conversation: {
+    onMessagesChanged: (
+      callback: (data: IpcEventPayload<'conversation:messages-changed'>) => void
+    ) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        data: IpcEventPayload<'conversation:messages-changed'>
+      ) => callback(data);
+      ipcRenderer.on('conversation:messages-changed', listener);
+      return () => {
+        ipcRenderer.removeListener('conversation:messages-changed', listener);
+      };
+    },
+  },
   capabilityJobs: {
     list: (projectId: string) => typedInvoke('capability-jobs:list', projectId),
     command: (projectId: string, jobId: string, action: CapabilityJobAction) =>

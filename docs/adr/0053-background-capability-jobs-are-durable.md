@@ -33,6 +33,14 @@ Provider result downloads use a project-local temporary file followed by an atom
 
 Conversation history records the tool submission receipt and terminal completion/failure only. Poll attempts and intermediate provider responses are operational details and do not become conversation timeline entries.
 
+After the Job terminal artifact or error is durable, CDF inserts one structured completion event with stable identity `capability-job:<jobId>:terminal`. The event and its single significant Conversation Timeline message are committed together. Duplicate recovery callbacks are ignored by the event and Job uniqueness constraints.
+
+Completion events are queued per source Conversation. A Conversation with a `running` or `waiting_approval` Agent run is not interrupted. Once idle, the coordinator atomically claims the then-pending events as one batch; events arriving during that continuation remain pending for the next batch. A partial unique index on `agent_runs.session_id` enforces at most one active run per Conversation.
+
+The continuation uses the normal main-Agent runtime with the Conversation's current Agent, model, and approval configuration. Its runtime tool allowlist is deliberately empty for this system delivery, so event consumption cannot create, query, or download provider work even if a model attempts a tool call. Success durably records a stable batch-completion marker before any optional non-empty assistant output; only then are claimed events marked `consumed`. Restart recovery recognizes that marker instead of invoking the Agent again. Failure before the marker leaves the same stable batch retryable without changing the Job or Provider Task.
+
+Continuation execution is Conversation-scoped and may run while its Conversation is not visible. It persists Timeline/output messages without changing the renderer's active Conversation, viewport, Composer, or model controls. TaskPanel projects the event state as queued, running, failed, or consumed.
+
 - Each Capability Connection has at most one submitted video Job; additional work remains locally queued and uncharged.
 - Unknown creation outcomes are explicit and require a user- or Agent-approved linked resubmission.
 - Cancellation means pre-submission cancellation only; stopping local tracking never claims the remote generation was canceled.
@@ -44,3 +52,5 @@ Conversation history records the tool submission receipt and terminal completion
 - Project TaskPanel can show durable work independently of the currently selected conversation.
 - Adding another background capability requires an adapter that maps its Provider Task lifecycle into the shared CDF Job states.
 - Terminal conversation projection needs only one final event; polling frequency does not increase timeline volume.
+- Background completion cannot interrupt an active Agent run or deliver an artifact to another Conversation.
+- Multiple completion events coalesce into one main-Agent continuation and remain idempotent across restart and retry.

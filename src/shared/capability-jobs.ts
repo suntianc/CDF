@@ -39,6 +39,12 @@ export type CapabilityJobStatusMessage =
   | 'artifact_durable'
   | 'job_failed';
 
+export type CapabilityJobContinuationStatus =
+  | 'pending'
+  | 'running'
+  | 'failed'
+  | 'consumed';
+
 export interface CapabilityJobSnapshot {
   id: string;
   sourceSessionId?: string;
@@ -55,6 +61,8 @@ export interface CapabilityJobSnapshot {
   createdAt: number;
   updatedAt: number;
   statusMessage: CapabilityJobStatusMessage | null;
+  continuationStatus: CapabilityJobContinuationStatus | null;
+  continuationError: string | null;
 }
 
 export interface CapabilityJobReceipt {

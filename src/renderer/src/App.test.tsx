@@ -11,6 +11,8 @@ const { taskPanelRenderSpy, taskPanelMountSpy, shouldThrowTaskPanel } = vi.hoist
   shouldThrowTaskPanel: { current: false },
 }));
 
+let messagesChangedListener: ((data: { sessionId: string }) => void) | null = null;
+
 // Phase 8 — T-08-T9: latent bug fix verification.
 // Phase 6/7 dispatcher.ts and useCommandRegistry.ts call `toast.warning/info/error`,
 // but sonner requires an explicit `<Toaster />` mount in the React tree to render
@@ -118,6 +120,12 @@ beforeAll(() => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn(),
     },
+    conversation: {
+      onMessagesChanged: (callback: (data: { sessionId: string }) => void) => {
+        messagesChangedListener = callback;
+        return vi.fn();
+      },
+    },
   };
 });
 
@@ -125,6 +133,7 @@ beforeEach(() => {
   taskPanelRenderSpy.mockClear();
   taskPanelMountSpy.mockClear();
   shouldThrowTaskPanel.current = false;
+  messagesChangedListener = null;
   useProjectStore.setState({
     activeView: 'chat',
     taskPanelOpen: false,
@@ -305,4 +314,19 @@ describe('App', () => {
     expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
     expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
   });
+  it('refreshes the visible Conversation after a durable background message arrives', async () => {
+    const selectSession = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      isStreaming: false,
+      selectSession,
+    });
+    render(<App />);
+
+    act(() => messagesChangedListener?.({ sessionId: 'session-1' }));
+
+    await waitFor(() => expect(selectSession).toHaveBeenCalledWith('session-1'));
+    expect(useSessionStore.getState().activeSessionId).toBe('session-1');
+  });
+
 });

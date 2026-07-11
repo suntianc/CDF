@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { z } from 'zod';
 
 export const ImageZoomContext = React.createContext<(url: string) => void>(() => {});
 import { createPortal } from 'react-dom';
@@ -10,6 +11,34 @@ import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { useTypewriter } from '@/hooks/useTypewriter';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
 import type { SkillAttribution } from '@shared/types';
+
+const CapabilityJobTimelineSchema = z.object({
+  type: z.literal('capability_job_event'),
+  eventId: z.string(),
+  jobId: z.string(),
+  status: z.enum(['completed', 'failed']),
+  artifacts: z.array(z.object({ path: z.string(), mimeType: z.string() })),
+  error: z.string().nullable(),
+});
+type CapabilityJobTimelineInfo = z.infer<typeof CapabilityJobTimelineSchema>;
+
+function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3">
+      <div className="text-xs font-semibold text-[var(--color-text-primary)]">
+        {t(`conversation.capabilityJob.${info.status}`)}
+      </div>
+      <div className="mt-1 font-mono text-xs text-[var(--color-text-muted)]">{info.jobId}</div>
+      {info.artifacts.map((artifact) => (
+        <div key={artifact.path} className="mt-2 truncate font-mono text-xs text-[var(--color-text-secondary)]" title={artifact.path}>
+          {artifact.path}
+        </div>
+      ))}
+      {info.error && <div className="mt-2 text-xs text-[var(--color-danger)]">{info.error}</div>}
+    </div>
+  );
+}
 
 const formatDuration = (seconds: number): string => {
   if (seconds <= 0) return '< 1 秒';
@@ -505,12 +534,27 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return null;
   }, [message.content, message.role]);
 
+  const capabilityJobInfo = useMemo<CapabilityJobTimelineInfo | null>(() => {
+    if (message.role !== 'assistant') return null;
+    try {
+      const parsed: unknown = JSON.parse(message.content);
+      const result = CapabilityJobTimelineSchema.safeParse(parsed);
+      return result.success ? result.data : null;
+    } catch {
+      return null;
+    }
+  }, [message.content, message.role]);
+
   if (toolInfo) {
     return <ToolMessageCard toolInfo={toolInfo} createdAt={message.created_at} />;
   }
 
   if (skillAttributionInfo) {
     return <SkillAttributionCard info={skillAttributionInfo} />;
+  }
+
+  if (capabilityJobInfo) {
+    return <CapabilityJobTimelineCard info={capabilityJobInfo} />;
   }
 
   return (

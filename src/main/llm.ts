@@ -1,4 +1,3 @@
-import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
 import log from './logger';
@@ -37,6 +36,15 @@ export function buildTaskPackage(agentSlug: string, goal: string): { name: strin
 
 // ChatPayload / JudgePayload 已迁移至 src/shared/types.ts（IPC 契约共享）。
 export type { ChatPayload, JudgePayload } from '../shared/types';
+export interface LLMChatEventSender {
+  send(channel: string, payload: unknown): void;
+}
+
+let conversationIdleListener: ((sessionId: string) => void) | null = null;
+
+export function setConversationIdleListener(listener: (sessionId: string) => void): void {
+  conversationIdleListener = listener;
+}
 
 const activeRequests = new Map<string, AbortController>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
@@ -275,6 +283,7 @@ function toApprovalRequest(runId: string, interruptValue: any) {
 }
 
 
+
 function takeReasoningText(accumulator: LLMStreamAccumulator, model: unknown): string {
   const accumulatorText = accumulator.takeReasoning();
   const modelText = takeModelReasoningCapture(model);
@@ -333,7 +342,7 @@ export async function runLLMJudge(payload: JudgePayload): Promise<{ text: string
 async function checkAndSendTodos(
   runtime: any,
   sessionId: string,
-  sender: WebContents,
+  sender: LLMChatEventSender,
   channel: string,
   lastTodosJsonRef: { current: string }
 ) {
@@ -392,7 +401,7 @@ function findModelTriggeredSkillAttribution(
 }
 
 
-export async function runLLMChat(sender: WebContents, requestId: string, payload: ChatPayload): Promise<void> {
+export async function runLLMChat(sender: LLMChatEventSender, requestId: string, payload: ChatPayload): Promise<void> {
   const channel = llmChunkChannel(requestId);
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
@@ -772,6 +781,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       lastRunApprovals.delete(runId);
     }
     await cleanup();
+    conversationIdleListener?.(payload.sessionId);
   }
   });
 }

@@ -1,12 +1,51 @@
-import crypto from 'node:crypto';
 import { BrowserWindow, net } from 'electron';
 import { getOAuthCredential } from '../ai-subscription-credentials';
 import { createOAuthAuthenticatedFetch } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
 import db from '../database';
 import { BackgroundCapabilityJobService } from './background-capability-jobs';
+import {
+  CapabilityJobContinuationCoordinator,
+  type CapabilityJobContinuationBatch,
+} from './capability-job-continuations';
 
 let service: BackgroundCapabilityJobService | null = null;
+let continuationCoordinator: CapabilityJobContinuationCoordinator | null = null;
+let continuationRunner = async (_batch: CapabilityJobContinuationBatch): Promise<void> => {
+  throw new Error('Background Job continuation runner is not configured');
+};
+
+function emitCapabilityJob(projectId: string, jobId: string): void {
+  const job = getBackgroundCapabilityJobService().get(projectId, jobId);
+  if (!job) return;
+  for (const window of BrowserWindow.getAllWindows()) {
+    try {
+      window.webContents.send('capability-jobs:changed', { projectId, job });
+    } catch {
+      // A closing renderer must not affect durable continuation state.
+    }
+  }
+}
+
+function emitConversationMessagesChanged(sessionId: string): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    try {
+      window.webContents.send('conversation:messages-changed', { sessionId });
+    } catch {
+      // A closing renderer must not affect durable Timeline state.
+    }
+  }
+}
+
+function getContinuationCoordinator(): CapabilityJobContinuationCoordinator {
+  if (continuationCoordinator) return continuationCoordinator;
+  continuationCoordinator = new CapabilityJobContinuationCoordinator(db, {
+    runContinuation: (batch) => continuationRunner(batch),
+    onStateChanged: emitCapabilityJob,
+    onTimelineChanged: emitConversationMessagesChanged,
+  });
+  return continuationCoordinator;
+}
 
 function getBackgroundCapabilityJobService(): BackgroundCapabilityJobService {
   if (service) return service;
@@ -38,46 +77,25 @@ function getBackgroundCapabilityJobService(): BackgroundCapabilityJobService {
         mimeType: response.headers.get('content-type')?.split(';')[0]?.trim() || 'video/mp4',
       };
     },
-    recordTerminal: (job) => {
-      if (!job.sourceSessionId) return;
-      try {
-        const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(job.sourceSessionId);
-        if (!session) return;
-        const content = job.status === 'completed'
-          ? JSON.stringify({
-              type: 'capability_job_result',
-              jobId: job.id,
-              status: job.status,
-              artifacts: job.artifacts,
-              displayMarkdown: job.artifacts[0]
-                ? `[generated video](${job.artifacts[0].path})`
-                : undefined,
-            })
-          : JSON.stringify({
-              type: 'capability_job_result',
-              jobId: job.id,
-              status: job.status,
-              error: job.error,
-            });
-        db.prepare(
-          'INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
-        ).run(crypto.randomUUID(), job.sourceSessionId, 'assistant', content, job.updatedAt);
-      } catch {
-        // Conversation projection is best-effort and must not alter the durable Job result.
-      }
-    },
-    emit: (event) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        try {
-          window.webContents.send('capability-jobs:changed', event);
-        } catch {
-          // A closing renderer must not affect the durable Job transition.
-        }
-      }
-    },
+    recordTerminal: (job) => getContinuationCoordinator().enqueue(job),
+    emit: (event) => emitCapabilityJob(event.projectId, event.job.id),
   });
   return service;
 }
+
+export function configureCapabilityJobContinuationRunner(
+  runner: (batch: CapabilityJobContinuationBatch) => Promise<void>
+): void {
+  continuationRunner = runner;
+}
+
+export const backgroundCapabilityContinuations = {
+  notifyConversationIdle: (sessionId: string) =>
+    getContinuationCoordinator().notifyConversationIdle(sessionId),
+  listProjectStates: (projectId: string) =>
+    getContinuationCoordinator().listProjectStates(projectId),
+  resumePending: () => getContinuationCoordinator().resumePending(),
+};
 
 export const backgroundCapabilityJobs = {
   submitVideo: (...args: Parameters<BackgroundCapabilityJobService['submitVideo']>) =>

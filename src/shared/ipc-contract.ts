@@ -454,6 +454,7 @@ export interface IpcEventContract {
     workflowId: string;
     triggerSource: WorkflowTriggerSource;
   };
+  'conversation:messages-changed': { sessionId: string };
   'fs:directoryChange': { type: string; path: string };
   'commands:changed': { source: string };
   'commands:fallback': { scope: 'system' | 'project'; dir: string; error: string };

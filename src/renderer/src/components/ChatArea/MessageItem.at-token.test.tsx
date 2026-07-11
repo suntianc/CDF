@@ -95,4 +95,26 @@ describe('MessageItem at-token rendering (Phase 08.3 — C-03)', () => {
     // The AtToken component sets data-at-token-kind={kind} — dir tokens have "dir"
     expect(token.getAttribute('data-at-token-kind')).toBe('dir');
   });
+  it('renders a structured capability Job event instead of raw JSON', () => {
+    const message = {
+      ...baseMessage(JSON.stringify({
+        type: 'capability_job_event',
+        eventId: 'capability-job:job-1:terminal',
+        jobId: 'job-1',
+        status: 'completed',
+        artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
+        error: null,
+      })),
+      role: 'assistant' as const,
+    };
+
+    const { container } = render(
+      <MessageItem message={message} isLast={false} isStreaming={false} />
+    );
+
+    expect(container.textContent).toContain('conversation.capabilityJob.completed');
+    expect(container.textContent).toContain('/project/video.mp4');
+    expect(container.textContent).not.toContain('capability_job_event');
+  });
+
 });

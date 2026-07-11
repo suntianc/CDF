@@ -21,6 +21,8 @@ const snapshot = {
   artifacts: [],
   error: 'connection reset',
   statusMessage: 'submission_unknown_no_retry' as const,
+  continuationStatus: null,
+  continuationError: null,
   createdAt: 1,
   updatedAt: 2,
 };

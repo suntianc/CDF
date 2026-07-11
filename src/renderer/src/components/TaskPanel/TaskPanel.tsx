@@ -265,6 +265,18 @@ function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
               {t(`taskPanel.jobMessage.${job.statusMessage}`)}
             </p>
           )}
+          {job.continuationStatus && (
+            <p className={`mt-1 text-xs ${
+              job.continuationStatus === 'failed'
+                ? 'text-[var(--color-danger)]'
+                : 'text-[var(--color-text-secondary)]'
+            }`}>
+              {t(`taskPanel.continuationStatus.${job.continuationStatus}`)}
+            </p>
+          )}
+          {job.continuationError && (
+            <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.continuationError}</p>
+          )}
           {job.error && <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.error}</p>}
           {job.artifacts.map((artifact) => (
             <p key={artifact.path} className="mt-1 truncate font-mono text-xs text-[var(--color-text-muted)]" title={artifact.path}>

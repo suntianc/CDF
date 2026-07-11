@@ -193,6 +193,12 @@
       "resubmit": "承担重复计费风险并重新提交",
       "running": "正在执行…"
     },
+    "continuationStatus": {
+      "pending": "Agent continuation 已排队",
+      "running": "Agent continuation 运行中",
+      "failed": "Agent continuation 失败，已排队重试",
+      "consumed": "Agent continuation 已完成"
+    },
     "commandError": {
       "INVALID_STATE": "当前任务状态已不允许执行此操作。",
       "NOT_FOUND": "该后台任务已不存在。",
@@ -214,6 +220,12 @@
       "temporary_download_error": "下载暂时失败，可恢复跟踪后重试。",
       "artifact_durable": "本地 MP4 产物已持久落盘。",
       "job_failed": "后台视频任务失败。"
+    }
+  },
+  "conversation": {
+    "capabilityJob": {
+      "completed": "后台视频已完成",
+      "failed": "后台视频失败"
     }
   },
   "subagentView": {
