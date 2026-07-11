@@ -1,4 +1,5 @@
-import type { LLMStreamEvent } from '../shared/types';
+import type { DelegatedTaskResult, ExecutionStep, LLMStreamEvent, SkillAttribution } from '../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA } from '../shared/types';
 
 export const THINK_OPEN_TAG = '<think>';
 export const THINK_CLOSE_TAG = '</think>';
@@ -75,7 +76,15 @@ export type RuntimeStreamEvent =
   | { kind: 'reasoning-token'; token: string }
   | { kind: 'reasoning-ended' }
   | { kind: 'text-token'; token: string }
-  | { kind: 'message-ended' };
+  | { kind: 'message-ended' }
+  | { kind: 'tool-call-started'; callId: string | undefined; toolName: string; input: unknown }
+  | { kind: 'tool-output'; output: unknown }
+  | { kind: 'tool-failed'; message: string; isInterrupt: boolean }
+  | { kind: 'run-started'; skillAttributions: SkillAttribution[] }
+  | { kind: 'subagent-started'; slug: string }
+  | { kind: 'subagent-text'; slug: string; text: string }
+  | { kind: 'accumulator-text'; text: string }
+  | { kind: 'accumulator-step'; step: ExecutionStep };
 
 // 与现网字节一致：开标记裸发，闭标记带双换行（renderer 折叠块之后需要空行分隔正文）。
 const THINK_CLOSE_CHUNK = `${THINK_CLOSE_TAG}\n\n`;
@@ -87,11 +96,28 @@ export interface RuntimeStreamProjectionDeps {
   takeFallbackText: () => string;
   // 委派任务显示名（agents 表查询，注入以保持核心纯净）。
   lookupAgentName: (slug: string) => string;
-  // 为 subagent 流首次出现时合成 taskId。
-  generateTaskId: () => string;
+  // 流未携带 callId 时为工具调用生成 id。
+  generateToolCallId: () => string;
+  // subagent 流先于 task 工具调用出现时合成 taskId。
+  generateSubagentTaskId: (slug: string) => string;
 }
 
-export type RuntimeStreamProjectionEffect = never; // S1 尚无 effect；S2/S3 扩展。
+export type RuntimeStreamProjectionEffect =
+  | { type: 'upsert-tool-call'; toolCallId: string; toolName: string; input: unknown }
+  | {
+      type: 'update-tool-call';
+      toolCallId: string;
+      status: 'success' | 'error' | 'skipped';
+      output?: unknown;
+      errorMessage?: string;
+    };
+
+interface ActiveToolCall {
+  toolCallId: string;
+  toolName: string;
+  // task 工具专属：委派任务关联（tool_end 后据此发 delegated_task_end 并解注册）。
+  agentSlug: string | null;
+}
 
 interface MessageState {
   hasReasoningSource: boolean;
@@ -105,6 +131,13 @@ interface MessageState {
 
 export interface RuntimeStreamProjectionState {
   message: MessageState | null;
+  // 工具调用在壳层是顺序 await 的，任一时刻至多一个在途。
+  activeToolCall: ActiveToolCall | null;
+  // slug → 在途委派任务 id（task 调用注册 / subagent 先到时合成；task_end 解注册）。
+  subagentTaskIds: Map<string, string>;
+  // run 级：模型可发现的 Skill 归因 + 已发路径去重。
+  skillAttributions: SkillAttribution[];
+  emittedSkillPaths: Set<string>;
 }
 
 export interface RuntimeStreamProjectionResult {
@@ -114,7 +147,48 @@ export interface RuntimeStreamProjectionResult {
 }
 
 export function createRuntimeStreamState(): RuntimeStreamProjectionState {
-  return { message: null };
+  return {
+    message: null,
+    activeToolCall: null,
+    subagentTaskIds: new Map(),
+    skillAttributions: [],
+    emittedSkillPaths: new Set(),
+  };
+}
+
+function getToolInputPath(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const record = input as Record<string, unknown>;
+  const rawPath = record.path ?? record.file_path ?? record.filePath ?? record.AbsolutePath ?? record.TargetFile;
+  return typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : null;
+}
+
+// read_file 命中 model-discovery 归因路径时升格为 model-triggered，一条路径只发一次。
+function findModelTriggeredSkill(
+  state: RuntimeStreamProjectionState,
+  toolName: string,
+  input: unknown,
+): SkillAttribution | null {
+  if (toolName !== 'read_file') return null;
+  const requestedPath = getToolInputPath(input);
+  if (!requestedPath || !state.skillAttributions.length) return null;
+  const attribution = state.skillAttributions.find(
+    (item) => item.phase === 'model-discovery' && item.skillPath === requestedPath,
+  );
+  if (!attribution || state.emittedSkillPaths.has(attribution.skillPath)) return null;
+  state.emittedSkillPaths.add(attribution.skillPath);
+  return { ...attribution, phase: 'model-triggered' };
+}
+
+function drainReasoningAtToolBoundary(
+  deps: RuntimeStreamProjectionDeps,
+  events: LLMStreamEvent[],
+): void {
+  const reasoningText = deps.takeBufferedReasoning();
+  if (!reasoningText) return;
+  events.push({ type: 'message_chunk', text: THINK_OPEN_TAG });
+  events.push({ type: 'message_chunk', text: reasoningText });
+  events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
 }
 
 function drainBufferedReasoning(
@@ -129,6 +203,93 @@ function drainBufferedReasoning(
   events.push({ type: 'message_chunk', text: THINK_OPEN_TAG });
   events.push({ type: 'message_chunk', text: reasoningText });
   events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
+}
+
+interface ParsedDelegatedOutput {
+  status: 'success' | 'failure';
+  result: DelegatedTaskResult;
+  errorCode: string | undefined;
+}
+
+// 委派任务输出解析：标准 schema → LangChain Command 信封 → 纯文本 content 三层回退。
+// 逻辑与原 runLLMChat 内联版本逐语义对应（PARSE_FAILED 兜底）。
+function parseDelegatedTaskOutput(output: unknown): ParsedDelegatedOutput {
+  try {
+    const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
+    const direct = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(rawOutput));
+    if (direct.success) {
+      const result = direct.data;
+      if (result.status === 'failure') {
+        return { status: 'failure', result, errorCode: result.error?.code };
+      }
+      return { status: 'success', result, errorCode: undefined };
+    }
+
+    const cmd = JSON.parse(rawOutput) as {
+      lg_name?: string;
+      update?: { messages?: Array<{ kwargs?: { content?: unknown } } | string> };
+    };
+    if (cmd?.lg_name === 'Command' && cmd?.update?.messages?.length) {
+      const toolMsg = cmd.update.messages[cmd.update.messages.length - 1];
+      const content = typeof toolMsg === 'object' ? toolMsg.kwargs?.content : toolMsg;
+      if (typeof content === 'string') {
+        try {
+          const inner = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(content));
+          if (inner.success) {
+            const result = inner.data;
+            if (result.status === 'failure') {
+              return { status: 'failure', result, errorCode: result.error?.code };
+            }
+            return { status: 'success', result, errorCode: undefined };
+          }
+          return {
+            status: 'success',
+            result: { status: 'success', artifacts: [], summary: content.slice(0, 500) },
+            errorCode: undefined,
+          };
+        } catch {
+          return {
+            status: 'success',
+            result: {
+              status: 'success',
+              artifacts: [],
+              summary: typeof content === 'string' ? content.slice(0, 500) : String(content).slice(0, 500),
+            },
+            errorCode: undefined,
+          };
+        }
+      }
+      return {
+        status: 'success',
+        result: { status: 'success', artifacts: [], summary: '任务执行完成' },
+        errorCode: undefined,
+      };
+    }
+
+    const rawSlice = rawOutput.slice(0, 200);
+    return {
+      status: 'failure',
+      result: {
+        status: 'failure',
+        artifacts: [],
+        summary: '',
+        error: { code: 'PARSE_FAILED', message: `无法解析子Agent返回: ${rawSlice}` },
+      },
+      errorCode: 'PARSE_FAILED',
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown parse error';
+    return {
+      status: 'failure',
+      result: {
+        status: 'failure',
+        artifacts: [],
+        summary: '',
+        error: { code: 'PARSE_FAILED', message },
+      },
+      errorCode: 'PARSE_FAILED',
+    };
+  }
 }
 
 export function projectRuntimeStream(
@@ -210,6 +371,165 @@ export function projectRuntimeStream(
         events.push({ type: 'message_chunk', text: remaining });
       }
       return { state: { ...state, message: null }, events, effects: [] };
+    }
+    case 'tool-call-started': {
+      const effects: RuntimeStreamProjectionEffect[] = [];
+      // 现网行为：任何工具调用前先冲刷 accumulator 中未呈现的思考。
+      drainReasoningAtToolBoundary(deps, events);
+      const input = event.input as {
+        name?: string;
+        task?: string;
+        subagent_type?: string;
+        description?: string;
+      } | null;
+      const isTask = event.toolName === 'task';
+      const agentSlug = isTask ? input?.subagent_type || input?.name || 'unknown' : null;
+      // subagent 流先出现时已合成 taskId：task 调用复用它保证两路事件对齐。
+      const existingSubagentTaskId = agentSlug ? state.subagentTaskIds.get(agentSlug) : undefined;
+      const toolCallId = existingSubagentTaskId || event.callId || deps.generateToolCallId();
+      effects.push({
+        type: 'upsert-tool-call',
+        toolCallId,
+        toolName: event.toolName,
+        input: event.input,
+      });
+      const triggeredSkill = findModelTriggeredSkill(state, event.toolName, event.input);
+      if (triggeredSkill) {
+        events.push({ type: 'skill_attribution', attributions: [triggeredSkill] });
+      }
+      events.push({ type: 'tool_start', id: toolCallId, name: event.toolName, input: event.input });
+
+      if (isTask && agentSlug) {
+        // D-03：task 输入的 task 字段是含 goal 的 JSON 串；缺失时回退 description。
+        let goal = '';
+        if (input?.task) {
+          try {
+            goal = (JSON.parse(input.task) as { goal?: string }).goal || '';
+          } catch {
+            goal = input?.name || '任务执行';
+          }
+        } else if (input?.description) {
+          goal = input.description;
+        }
+        events.push({
+          type: 'delegated_task_start',
+          taskId: toolCallId,
+          agentSlug,
+          agentName: deps.lookupAgentName(agentSlug),
+          goal,
+        });
+        if (!existingSubagentTaskId) {
+          state.subagentTaskIds.set(agentSlug, toolCallId);
+        }
+      }
+
+      return {
+        state: { ...state, activeToolCall: { toolCallId, toolName: event.toolName, agentSlug } },
+        events,
+        effects,
+      };
+    }
+    case 'tool-output': {
+      const active = state.activeToolCall;
+      if (!active) return { state, events, effects: [] };
+      const effects: RuntimeStreamProjectionEffect[] = [
+        { type: 'update-tool-call', toolCallId: active.toolCallId, status: 'success', output: event.output },
+      ];
+      events.push({ type: 'tool_end', id: active.toolCallId, name: active.toolName, output: event.output });
+
+      if (active.agentSlug !== null) {
+        const parsed = parseDelegatedTaskOutput(event.output);
+        // D-11：解析后的标准结果覆写 DB，sessionStore 无需再做 Command 回退。
+        effects.push({
+          type: 'update-tool-call',
+          toolCallId: active.toolCallId,
+          status: parsed.status === 'failure' ? 'error' : 'success',
+          output: parsed.result,
+        });
+        events.push({
+          type: 'delegated_task_end',
+          taskId: active.toolCallId,
+          status: parsed.status,
+          result: parsed.result,
+          errorCode: parsed.errorCode,
+        });
+        if (active.agentSlug) state.subagentTaskIds.delete(active.agentSlug);
+      }
+      return { state: { ...state, activeToolCall: null }, events, effects };
+    }
+    case 'tool-failed': {
+      const active = state.activeToolCall;
+      if (!active) return { state, events, effects: [] };
+      if (event.isInterrupt) {
+        // 审批中断以 interrupt 形态浮出，错误路径保持静默（现网行为）。
+        return { state: { ...state, activeToolCall: null }, events, effects: [] };
+      }
+      const effects: RuntimeStreamProjectionEffect[] = [
+        { type: 'update-tool-call', toolCallId: active.toolCallId, status: 'error', errorMessage: event.message },
+      ];
+      events.push({ type: 'tool_error', id: active.toolCallId, name: active.toolName, error: event.message });
+
+      if (active.agentSlug !== null) {
+        const errorCode = event.message.toLowerCase().includes('timeout') ? 'TIMEOUT' : 'UNKNOWN';
+        events.push({
+          type: 'delegated_task_end',
+          taskId: active.toolCallId,
+          status: 'failure',
+          result: {
+            status: 'failure',
+            artifacts: [],
+            summary: '',
+            error: { code: errorCode, message: event.message },
+          },
+          errorCode,
+        });
+        if (active.agentSlug) state.subagentTaskIds.delete(active.agentSlug);
+      }
+      return { state: { ...state, activeToolCall: null }, events, effects };
+    }
+    case 'run-started': {
+      return {
+        state: {
+          ...state,
+          skillAttributions: event.skillAttributions,
+          emittedSkillPaths: new Set(),
+        },
+        events,
+        effects: [],
+      };
+    }
+    case 'subagent-started': {
+      if (state.subagentTaskIds.has(event.slug)) {
+        return { state, events, effects: [] };
+      }
+      const taskId = deps.generateSubagentTaskId(event.slug);
+      state.subagentTaskIds.set(event.slug, taskId);
+      events.push({
+        type: 'delegated_task_start',
+        taskId,
+        agentSlug: event.slug,
+        agentName: event.slug,
+        goal: '',
+      });
+      return { state, events, effects: [] };
+    }
+    case 'subagent-text': {
+      const taskId = state.subagentTaskIds.get(event.slug);
+      if (!taskId || !event.text) return { state, events, effects: [] };
+      events.push({ type: 'delegated_task_chunk', taskId, text: event.text });
+      return { state, events, effects: [] };
+    }
+    case 'accumulator-text': {
+      const active = state.activeToolCall;
+      if (!active || active.agentSlug === null) return { state, events, effects: [] };
+      events.push({ type: 'delegated_task_chunk', taskId: active.toolCallId, text: event.text });
+      return { state, events, effects: [] };
+    }
+    case 'accumulator-step': {
+      const active = state.activeToolCall;
+      if (!active || active.agentSlug === null) return { state, events, effects: [] };
+      events.push({ type: 'delegated_task_step', taskId: active.toolCallId, step: event.step });
+      return { state, events, effects: [] };
     }
     default:
       return { state, events, effects: [] };
