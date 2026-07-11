@@ -1,6 +1,7 @@
 import { WebContents } from 'electron';
 import { Command } from '@langchain/langgraph';
 import db from './database';
+import log from './logger';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
 import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, resetDeepAgentRuntimeThread, subagentStepStorage } from './deepagent/runtime';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
@@ -42,9 +43,6 @@ const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) =
 
 // think-tag 常量与可见文本过滤器已迁入 Runtime Stream Projection 纯核心。
 import {
-  THINK_OPEN_TAG,
-  THINK_CLOSE_TAG,
-  VisibleTextThinkTagFilter,
   createRuntimeStreamState,
   projectRuntimeStream,
   type RuntimeStreamEvent,
@@ -276,35 +274,6 @@ function toApprovalRequest(runId: string, interruptValue: any) {
   };
 }
 
-function markTextSent(accumulator: LLMStreamAccumulator): void {
-  accumulator.hasSentText = true;
-}
-
-function markReasoningSent(accumulator: LLMStreamAccumulator): void {
-  accumulator.hasSentReasoning = true;
-}
-
-function sendReasoningOpen(sender: WebContents, channel: string, accumulator: LLMStreamAccumulator): void {
-  markReasoningSent(accumulator);
-  accumulator.hasSentReasoningClosed = false;
-  sender.send(channel, { type: 'message_chunk', text: THINK_OPEN_TAG });
-}
-
-function sendReasoningClose(sender: WebContents, channel: string, accumulator: LLMStreamAccumulator): void {
-  sender.send(channel, { type: 'message_chunk', text: `${THINK_CLOSE_TAG}\n\n` });
-  accumulator.hasSentReasoningClosed = true;
-}
-
-function sendReasoningBlock(sender: WebContents, channel: string, accumulator: LLMStreamAccumulator, text: string): void {
-  sendReasoningOpen(sender, channel, accumulator);
-  sender.send(channel, { type: 'message_chunk', text });
-  sendReasoningClose(sender, channel, accumulator);
-}
-
-function sanitizeVisibleText(text: string): string {
-  const filter = new VisibleTextThinkTagFilter();
-  return filter.push(text) + filter.flush();
-}
 
 function takeReasoningText(accumulator: LLMStreamAccumulator, model: unknown): string {
   const accumulatorText = accumulator.takeReasoning();
@@ -390,7 +359,7 @@ async function checkAndSendTodos(
       }
     }
   } catch (err) {
-    console.warn('[LLM] Failed to check and send todos:', err);
+    log.warn('[LLM] Failed to check and send todos:', err);
   }
 }
 
@@ -473,7 +442,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           const agentRow = db.prepare('SELECT name FROM agents WHERE slug = ? OR name = ?').get(slug, slug) as { name: string } | undefined;
           return agentRow?.name ?? slug;
         } catch (dbErr) {
-          console.warn('[LLM] Failed to query agent name for slug:', slug, dbErr);
+          log.warn('[LLM] Failed to query agent name for slug:', slug, dbErr);
           return slug;
         }
       },
@@ -780,7 +749,7 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       try {
         await resetDeepAgentRuntimeThread(payload.sessionId);
       } catch (resetError) {
-        console.warn('[LLM] Failed to reset deepagent checkpoint after runtime error:', resetError);
+        log.warn('[LLM] Failed to reset deepagent checkpoint after runtime error:', resetError);
       }
       sender.send(channel, {
         type: 'runtime_error',

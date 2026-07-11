@@ -20,6 +20,10 @@ _Avoid_: message list mapping, transcript renderer
 The user-visible state derived from an Agent run while a Conversation is active, including streaming progress, tool activity, approvals, delegated work, parallel worker summaries, transient plans, completion, failure, and retry affordances.
 _Avoid_: stream handler, session store event reducer, runtime UI state
 
+**Runtime Stream Projection**:
+The main-process translation of an Agent run's raw runtime stream — reasoning and text tokens, tool boundaries, delegated work, subagent output, turn ends — into the Conversation event stream the renderer consumes, deciding think-block folding, text backpressure, delegated-task correlation, and turn completion versus approval hand-off.
+_Avoid_: runLLMChat internals, stream loop, iterator glue
+
 **Activity Panel Projection**:
 The user-visible projection of Agent runtime activity into a panel view, including run status, tool activity, approvals, delegated work, and parallel worker summaries.
 _Avoid_: task panel state, activity UI props
