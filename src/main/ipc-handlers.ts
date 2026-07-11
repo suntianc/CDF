@@ -73,6 +73,7 @@ import type {
   CapabilityId,
 } from '../shared/ai-subscriptions';
 import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
+import { conversationRunStreams } from './conversation-run-stream-runtime';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -183,6 +184,9 @@ export function registerIpcHandlers() {
         return backgroundCapabilityJobs.resubmit(projectId, jobId);
     }
   });
+  typedHandle('conversation:get-active-run', (_event, sessionId) =>
+    conversationRunStreams.getActive(sessionId)
+  );
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (existing) return;

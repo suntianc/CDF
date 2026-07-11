@@ -1131,3 +1131,222 @@ describe('sessionStore model overrides persistence', () => {
     expect(JSON.parse(saved!)).toEqual({});
   });
 });
+
+describe('sessionStore background continuation streaming', () => {
+  beforeEach(() => {
+    useSessionStore.setState({
+      sessions: [{
+        id: 'session-1',
+        project_id: 'project-1',
+        name: 'Test Session',
+        parent_session_id: null,
+        summary: null,
+        created_at: 1,
+        updated_at: 1,
+      }],
+      activeSessionId: 'session-1',
+      messages: [],
+      isStreaming: false,
+      streamingMessageId: null,
+      activeRunId: null,
+      agentRuns: [],
+      agentToolCalls: [],
+      delegatedTasks: [],
+      parallelBatches: [],
+      todos: [],
+      pendingApproval: null,
+      error: null,
+    });
+  });
+
+  it('projects background continuation chunks without persisting them from renderer', () => {
+    const saveMessage = vi.fn();
+    window.electronAPI = {
+      db: { saveMessage },
+      conversation: { getActiveRun: vi.fn() },
+    } as unknown as Window['electronAPI'];
+
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: '任务结果' },
+    });
+
+    expect(useSessionStore.getState()).toMatchObject({
+      isStreaming: true,
+      streamingMessageId: 'background-continuation-output:batch-1',
+    });
+    expect(useSessionStore.getState().messages).toContainEqual(expect.objectContaining({
+      id: 'background-continuation-output:batch-1',
+      role: 'assistant',
+      content: '任务结果',
+    }));
+    expect(saveMessage).not.toHaveBeenCalled();
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation',
+      sequence: 2,
+      event: { type: 'message_done' },
+    });
+  });
+
+  it('finishes the transient stream without duplicating the main-owned message', () => {
+    window.electronAPI = {
+      db: { saveMessage: vi.fn() },
+      conversation: { getActiveRun: vi.fn() },
+    } as unknown as Window['electronAPI'];
+
+    const base = {
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation' as const,
+    };
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 1,
+      event: { type: 'message_chunk', text: '已完成' },
+    });
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 2,
+      event: { type: 'message_done' },
+    });
+
+    expect(useSessionStore.getState().isStreaming).toBe(false);
+    expect(useSessionStore.getState().messages).toContainEqual(expect.objectContaining({
+      id: base.messageId,
+      content: '已完成',
+    }));
+    expect(window.electronAPI.db.saveMessage).not.toHaveBeenCalled();
+  });
+
+  it('hydrates an in-flight continuation snapshot when its Conversation becomes active', async () => {
+    window.electronAPI = {
+      conversation: {
+        getActiveRun: vi.fn().mockResolvedValue({
+          sessionId: 'session-1',
+          requestId: 'background-continuation:batch-1',
+          messageId: 'background-continuation-output:batch-1',
+          origin: 'background-capability-continuation',
+          sequence: 4,
+          content: '已经生成的内容',
+          runId: 'run-1',
+          agentId: 'agent-1',
+        }),
+      },
+    } as unknown as Window['electronAPI'];
+
+    await useSessionStore.getState().hydrateConversationRun('session-1');
+
+    expect(useSessionStore.getState()).toMatchObject({
+      isStreaming: true,
+      streamingMessageId: 'background-continuation-output:batch-1',
+      activeRunId: 'run-1',
+    });
+    expect(useSessionStore.getState().messages).toContainEqual(expect.objectContaining({
+      id: 'background-continuation-output:batch-1',
+      content: '已经生成的内容',
+    }));
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation',
+      sequence: 5,
+      event: { type: 'message_done' },
+    });
+  });
+
+  it('keeps a durable completion card when streaming starts during message reload', async () => {
+    let resolveMessages!: (messages: any[]) => void;
+    const getMessages = vi.fn(() => new Promise<any[]>((resolve) => {
+      resolveMessages = resolve;
+    }));
+    window.electronAPI = {
+      db: {
+        getMessages,
+      },
+      conversation: {
+        getActiveRun: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as Window['electronAPI'];
+
+    const selecting = useSessionStore.getState().selectSession('session-1');
+    await Promise.resolve();
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-2',
+      messageId: 'background-continuation-output:batch-2',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: '正在呈现' },
+    });
+    resolveMessages([{
+      id: 'capability-job:job-2:terminal',
+      session_id: 'session-1',
+      role: 'assistant',
+      content: JSON.stringify({
+        type: 'capability_job_event',
+        eventId: 'capability-job:job-2:terminal',
+        jobId: 'job-2',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        status: 'completed',
+        provider: 'xai-oauth',
+        mode: 'text',
+        artifacts: [],
+        error: null,
+      }),
+      tokens: 0,
+      created_at: 1,
+    }]);
+    await selecting;
+
+    expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual([
+      'capability-job:job-2:terminal',
+      'background-continuation-output:batch-2',
+    ]);
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-2',
+      messageId: 'background-continuation-output:batch-2',
+      origin: 'background-capability-continuation',
+      sequence: 2,
+      event: { type: 'message_done' },
+    });
+  });
+
+  it('does not switch the visible Conversation for an inactive continuation', () => {
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      messages: [{
+        id: 'visible-message',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: '当前会话',
+        tokens: 1,
+        created_at: 1,
+      }],
+    });
+
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-2',
+      requestId: 'background-continuation:batch-3',
+      messageId: 'background-continuation-output:batch-3',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: '后台会话' },
+    });
+
+    expect(useSessionStore.getState().activeSessionId).toBe('session-1');
+    expect(useSessionStore.getState().messages).toEqual([
+      expect.objectContaining({ id: 'visible-message', content: '当前会话' }),
+    ]);
+  });
+});

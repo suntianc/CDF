@@ -12,6 +12,7 @@ const { taskPanelRenderSpy, taskPanelMountSpy, shouldThrowTaskPanel } = vi.hoist
 }));
 
 let messagesChangedListener: ((data: { sessionId: string }) => void) | null = null;
+let runEventListener: ((data: unknown) => void) | null = null;
 
 // Phase 8 — T-08-T9: latent bug fix verification.
 // Phase 6/7 dispatcher.ts and useCommandRegistry.ts call `toast.warning/info/error`,
@@ -125,6 +126,10 @@ beforeAll(() => {
         messagesChangedListener = callback;
         return vi.fn();
       },
+      onRunEvent: (callback: (data: unknown) => void) => {
+        runEventListener = callback;
+        return vi.fn();
+      },
     },
   };
 });
@@ -134,6 +139,7 @@ beforeEach(() => {
   taskPanelMountSpy.mockClear();
   shouldThrowTaskPanel.current = false;
   messagesChangedListener = null;
+  runEventListener = null;
   useProjectStore.setState({
     activeView: 'chat',
     taskPanelOpen: false,
@@ -327,6 +333,24 @@ describe('App', () => {
 
     await waitFor(() => expect(selectSession).toHaveBeenCalledWith('session-1'));
     expect(useSessionStore.getState().activeSessionId).toBe('session-1');
+  });
+
+  it('forwards background Conversation run events to the session projection', () => {
+    const handleConversationRunEvent = vi.fn();
+    useSessionStore.setState({ handleConversationRunEvent });
+    render(<App />);
+    const envelope = {
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: '流式结果' },
+    };
+
+    act(() => runEventListener?.(envelope));
+
+    expect(handleConversationRunEvent).toHaveBeenCalledWith(envelope);
   });
 
 });

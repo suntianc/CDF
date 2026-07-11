@@ -150,6 +150,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    return window.electronAPI.conversation.onRunEvent((envelope) => {
+      useSessionStore.getState().handleConversationRunEvent(envelope);
+    });
+  }, []);
+
+  useEffect(() => {
     if (pendingApproval && activeView === 'chat') {
       activityAutoOpenedRef.current = true;
       setTaskPanelOpen(true);

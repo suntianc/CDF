@@ -14,6 +14,8 @@ import type {
   LLMStreamEvent,
   ParallelTaskStepEvent,
   BinaryFileInfo,
+  ConversationRunStreamEnvelope,
+  ConversationRunStreamSnapshot,
   DirectoryEntry,
   FileContent,
   FileError,
@@ -122,6 +124,10 @@ export interface IpcInvokeContract {
   'capability-jobs:command': {
     args: [projectId: string, jobId: string, action: CapabilityJobAction];
     result: CapabilityJobCommandResult;
+  };
+  'conversation:get-active-run': {
+    args: [sessionId: string];
+    result: ConversationRunStreamSnapshot | null;
   };
   // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
   'db:getAgents': { args: [projectId: string]; result: Agent[] };
@@ -355,6 +361,7 @@ export const IPC_INVOKE_CHANNELS = [
   'db:selectDirectory',
   'capability-jobs:list',
   'capability-jobs:command',
+  'conversation:get-active-run',
   'db:getAgents',
   'db:saveAgent',
   'db:deleteAgent',
@@ -455,6 +462,7 @@ export interface IpcEventContract {
     triggerSource: WorkflowTriggerSource;
   };
   'conversation:messages-changed': { sessionId: string };
+  'conversation:run-event': ConversationRunStreamEnvelope;
   'fs:directoryChange': { type: string; path: string };
   'commands:changed': { source: string };
   'commands:fallback': { scope: 'system' | 'project'; dir: string; error: string };

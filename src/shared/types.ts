@@ -299,6 +299,27 @@ export type LLMStreamEvent =
   | { type: 'delegated_task_step'; taskId: string; step: ExecutionStep }
   | { type: 'todos_update'; todos: TodoItem[] };
 
+export type ConversationRunOrigin = 'background-capability-continuation';
+
+export interface ConversationRunIdentity {
+  sessionId: string;
+  requestId: string;
+  messageId: string;
+  origin: ConversationRunOrigin;
+}
+
+export interface ConversationRunStreamEnvelope extends ConversationRunIdentity {
+  sequence: number;
+  event: LLMStreamEvent;
+}
+
+export interface ConversationRunStreamSnapshot extends ConversationRunIdentity {
+  sequence: number;
+  content: string;
+  runId: string | null;
+  agentId: string | null;
+}
+
 // ===== Phase 6: Slash Command Registry Types (D-01, D-06, D-07) =====
 
 /** D-06 priority order. Declaration order is informational only — actual

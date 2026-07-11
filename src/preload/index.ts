@@ -233,6 +233,19 @@ const api = {
     },
   },
   conversation: {
+    getActiveRun: (sessionId: string) => typedInvoke('conversation:get-active-run', sessionId),
+    onRunEvent: (
+      callback: (data: IpcEventPayload<'conversation:run-event'>) => void
+    ) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        data: IpcEventPayload<'conversation:run-event'>
+      ) => callback(data);
+      ipcRenderer.on('conversation:run-event', listener);
+      return () => {
+        ipcRenderer.removeListener('conversation:run-event', listener);
+      };
+    },
     onMessagesChanged: (
       callback: (data: IpcEventPayload<'conversation:messages-changed'>) => void
     ) => {

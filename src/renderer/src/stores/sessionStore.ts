@@ -12,6 +12,7 @@ import {
   AgentRun,
   AgentToolCall,
   ChatRuntimeOverrides,
+  ConversationRunStreamEnvelope,
   ConversationModelSourceType,
   ExecutionStep,
   LLMStreamEvent,
@@ -186,6 +187,8 @@ interface SessionState {
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string, force?: boolean) => Promise<void>;
   sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<void>;
+  handleConversationRunEvent: (envelope: ConversationRunStreamEnvelope) => void;
+  hydrateConversationRun: (sessionId: string) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
   getIsSessionStreaming: (sessionId: string) => boolean;
   setSessionGoal: (sessionId: string, goal: string) => void;
@@ -206,6 +209,7 @@ interface SessionState {
 type StreamingSessionState = ConversationRuntimeProjectionState;
 
 const streamingSessionsCache = new Map<string, StreamingSessionState>();
+const conversationRunSequences = new Map<string, number>();
 interface ActivityFetchEntry {
   requestId: number;
   promise: Promise<void>;
@@ -449,9 +453,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           const cachedDuringLoad = streamingSessionsCache.get(sessionId);
           const messagesChangedDuringLoad = messagesBeforeLoad !== null && get().messages !== messagesBeforeLoad;
           if (cachedDuringLoad) {
+            const persistedIds = new Set(messages.map((message) => message.id));
+            const mergedMessages = [
+              ...messages,
+              ...cachedDuringLoad.messages.filter((message) => !persistedIds.has(message.id)),
+            ];
+            cachedDuringLoad.messages = mergedMessages;
             set({
               activeSessionId: sessionId,
-              messages: cachedDuringLoad.messages,
+              messages: mergedMessages,
               todos: cachedDuringLoad.todos,
               delegatedTasks: cachedDuringLoad.delegatedTasks,
               parallelBatches: cachedDuringLoad.parallelBatches,
@@ -495,6 +505,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             await get().fetchAgentActivity(sessionId, true);
           } catch {
             // fetchAgentActivity already records the more specific activity-load error.
+          }
+        }
+        if (get().activeSessionId === sessionId) {
+          try {
+            await get().hydrateConversationRun(sessionId);
+          } catch (err) {
+            console.error('Failed to restore active Conversation run:', err);
           }
         }
       }
@@ -661,6 +678,148 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   getIsSessionStreaming: (sessionId: string) => {
     if (get().activeSessionId === sessionId) return get().isStreaming;
     return streamingSessionsCache.get(sessionId)?.isStreaming ?? false;
+  },
+
+  handleConversationRunEvent: (envelope) => {
+    const sequenceKey = `${envelope.sessionId}:${envelope.requestId}`;
+    const lastSequence = conversationRunSequences.get(sequenceKey) ?? 0;
+    if (envelope.sequence <= lastSequence) return;
+
+    const current = get();
+    const cached = streamingSessionsCache.get(envelope.sessionId);
+    if (!cached && current.activeSessionId !== envelope.sessionId) return;
+    if (cached && cached.streamingMessageId !== envelope.messageId) return;
+
+    const runtime = cached ?? createConversationRuntimeState({
+      sessionId: envelope.sessionId,
+      streamingMessageId: envelope.messageId,
+      currentAssistantMsgId: envelope.messageId,
+      messages: current.messages,
+      todos: current.todos,
+      delegatedTasks: current.delegatedTasks,
+      parallelBatches: current.parallelBatches,
+      agentRuns: current.agentRuns,
+      agentToolCalls: current.agentToolCalls,
+      activeRunId: current.activeRunId,
+      pendingApproval: current.pendingApproval,
+    });
+    const result = projectConversationRuntime(
+      runtime,
+      { kind: 'llm', event: envelope.event },
+      {
+        now: () => Date.now(),
+        createId: () => window.crypto.randomUUID(),
+        estimateTokens,
+      },
+    );
+    conversationRunSequences.set(sequenceKey, envelope.sequence);
+
+    const terminal = envelope.event.type === 'message_done'
+      || envelope.event.type === 'runtime_error';
+    if (terminal) {
+      streamingSessionsCache.delete(envelope.sessionId);
+      conversationRunSequences.delete(sequenceKey);
+    } else {
+      streamingSessionsCache.set(envelope.sessionId, result.state);
+    }
+
+    if (current.activeSessionId === envelope.sessionId) {
+      const retryableError = result.effects.find((effect) => effect.type === 'setRetryableError');
+      set({
+        messages: result.state.messages,
+        todos: result.state.todos,
+        delegatedTasks: result.state.delegatedTasks,
+        parallelBatches: result.state.parallelBatches,
+        agentRuns: result.state.agentRuns,
+        agentToolCalls: result.state.agentToolCalls,
+        activeRunId: result.state.activeRunId,
+        pendingApproval: result.state.pendingApproval,
+        isStreaming: result.state.isStreaming,
+        streamingMessageId: result.state.streamingMessageId,
+        ...(retryableError
+          ? {
+              error: {
+                message: retryableError.message,
+                messageParams: retryableError.messageParams,
+              },
+            }
+          : {}),
+      });
+    }
+  },
+
+  hydrateConversationRun: async (sessionId) => {
+    const snapshot = await window.electronAPI.conversation.getActiveRun(sessionId);
+    if (!snapshot || get().activeSessionId !== sessionId) return;
+
+    const sequenceKey = `${snapshot.sessionId}:${snapshot.requestId}`;
+    const lastSequence = conversationRunSequences.get(sequenceKey) ?? 0;
+    if (snapshot.sequence < lastSequence) return;
+
+    const current = get();
+    const existingMessage = current.messages.some((message) => message.id === snapshot.messageId);
+    const messages = snapshot.content
+      ? (existingMessage
+          ? current.messages.map((message) => (
+              message.id === snapshot.messageId
+                ? { ...message, content: snapshot.content }
+                : message
+            ))
+          : [
+              ...current.messages,
+              {
+                id: snapshot.messageId,
+                session_id: sessionId,
+                role: 'assistant' as const,
+                content: snapshot.content,
+                tokens: estimateTokens(snapshot.content),
+                created_at: Date.now(),
+              },
+            ])
+      : current.messages;
+    const agentRuns = snapshot.runId && !current.agentRuns.some((run) => run.id === snapshot.runId)
+      ? [
+          {
+            id: snapshot.runId,
+            session_id: sessionId,
+            agent_id: snapshot.agentId ?? '',
+            request_id: snapshot.requestId,
+            status: 'running' as const,
+            started_at: Date.now(),
+            ended_at: null,
+            aborted: 0,
+          },
+          ...current.agentRuns,
+        ]
+      : current.agentRuns;
+    const runtime = createConversationRuntimeState({
+      sessionId,
+      streamingMessageId: snapshot.messageId,
+      currentAssistantMsgId: snapshot.messageId,
+      messages,
+      todos: current.todos,
+      delegatedTasks: current.delegatedTasks,
+      parallelBatches: current.parallelBatches,
+      agentRuns,
+      agentToolCalls: current.agentToolCalls,
+      activeRunId: snapshot.runId,
+      pendingApproval: null,
+      accumulatedContent: snapshot.content,
+    });
+    conversationRunSequences.set(sequenceKey, snapshot.sequence);
+    streamingSessionsCache.set(sessionId, runtime);
+    set({
+      messages: runtime.messages,
+      todos: runtime.todos,
+      delegatedTasks: runtime.delegatedTasks,
+      parallelBatches: runtime.parallelBatches,
+      agentRuns: runtime.agentRuns,
+      agentToolCalls: runtime.agentToolCalls,
+      activeRunId: runtime.activeRunId,
+      pendingApproval: runtime.pendingApproval,
+      isStreaming: true,
+      streamingMessageId: snapshot.messageId,
+    });
   },
 
 
