@@ -188,6 +188,53 @@ function getSafeImageSrc(src: string): string {
   return src;
 }
 
+const audioPlayerStyle = `
+  .custom-audio-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    width: 100%;
+    height: 12px;
+    display: block;
+    margin: 0;
+    padding: 0;
+  }
+  .custom-audio-slider:focus {
+    outline: none;
+  }
+  .custom-audio-slider::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(
+      to right, 
+      var(--color-accent) 0%, 
+      var(--color-accent) var(--slider-progress, 0%), 
+      var(--color-border-strong) var(--slider-progress, 0%), 
+      var(--color-border-strong) 100%
+    );
+  }
+  .custom-audio-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -3.5px;
+    background-color: var(--color-accent);
+    height: 10px;
+    width: 10px;
+    border-radius: 50%;
+    border: none;
+    box-shadow: 0 1px 2px.5 rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .custom-audio-slider:hover::-webkit-slider-thumb {
+    transform: scale(1.25);
+  }
+  .custom-audio-slider:active::-webkit-slider-thumb {
+    transform: scale(0.9);
+  }
+`;
+
 const CustomAudioPlayer = ({ src }: { src: string }) => {
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = React.useState(false);
@@ -242,6 +289,8 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
       className="flex items-center gap-3 px-3 py-2 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)] rounded-lg w-full max-w-[320px] select-none shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
       style={{ boxSizing: 'border-box' }}
     >
+      <style>{audioPlayerStyle}</style>
+      
       <button
         type="button"
         onClick={togglePlay}
@@ -255,19 +304,19 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
         )}
       </button>
 
-      <div className="flex-1 flex flex-col gap-0.5 min-w-0">
+      <div className="flex-1 flex flex-col gap-1 min-w-0">
         <input
           type="range"
           min={0}
           max={duration || 100}
           value={currentTime}
           onChange={handleSeek}
-          className="w-full h-1 bg-[var(--color-border-strong)] rounded-lg appearance-none cursor-pointer accent-[var(--color-accent)] focus:outline-none"
+          className="custom-audio-slider"
           style={{
-            background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${progressPercent}%, var(--color-border-strong) ${progressPercent}%, var(--color-border-strong) 100%)`
-          }}
+            '--slider-progress': `${progressPercent}%`
+          } as React.CSSProperties}
         />
-        <div className="flex items-center justify-between text-[9px] font-mono text-[var(--color-text-muted)] mt-0.5">
+        <div className="flex items-center justify-between text-[9px] font-mono text-[var(--color-text-muted)] mt-0.5 leading-none">
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(duration)}</span>
         </div>
