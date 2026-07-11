@@ -1,5 +1,6 @@
 import { ipcMain, dialog, app, shell } from 'electron';
 import { typedHandle } from './typed-ipc';
+import { typedCrud } from './typed-crud';
 import log from './logger';
 import store from './store';
 import db from './database';
@@ -352,8 +353,11 @@ export function registerIpcHandlers() {
     return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
   });
 
-  typedHandle('db:deleteProject', (_, id) => {
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteProject',
+    remove: (id) => {
+      db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:renameProject', (_, id, name) => {
@@ -382,8 +386,11 @@ export function registerIpcHandlers() {
     return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
   });
 
-  typedHandle('db:deleteSession', (_, sessionId) => {
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  typedCrud({
+    channel: 'db:deleteSession',
+    remove: (sessionId) => {
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    },
   });
 
   // Database handlers: Messages
@@ -432,8 +439,11 @@ export function registerIpcHandlers() {
     db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
   });
 
-  typedHandle('db:deleteMessage', (_, id) => {
-    db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteMessage',
+    remove: (id) => {
+      db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+    },
   });
 
   // Database handlers: LLM Providers
@@ -498,8 +508,11 @@ export function registerIpcHandlers() {
     return { id, name, provider_type, api_url: normalizedApiUrl, default_model, context_limit, is_active, models, hasKey: !!finalApiKey };
   });
 
-  typedHandle('db:deleteProvider', (_, id) => {
-    db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteProvider',
+    remove: (id) => {
+      db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
+    },
   });
 
   typedHandle('db:setActiveProvider', (_, id) => {
