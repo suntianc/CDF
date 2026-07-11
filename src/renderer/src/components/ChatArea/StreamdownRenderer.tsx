@@ -212,13 +212,13 @@ const AComponent = ({ children, href }: any) => {
 
   if (isVideo) {
     return (
-      <span className="inline-block my-2 w-full max-w-[480px] block">
+      <span className="inline-block my-2 max-w-[480px] block" style={{ width: 'fit-content' }}>
         <video
           src={safeSrc}
           controls
           preload="metadata"
-          className="w-full rounded-lg bg-black/95 shadow-sm block focus-visible:outline-none"
-          style={{ maxHeight: '320px', objectFit: 'contain' }}
+          className="rounded-lg shadow-sm block focus-visible:outline-none"
+          style={{ maxWidth: '100%', maxHeight: '320px', display: 'block' }}
         />
       </span>
     );
