@@ -1,0 +1,13 @@
+# Workflow runs are session-hosted master-agent runs
+
+## Status
+
+Accepted
+
+CDF's original workflow engine executed a user-drawn node graph — five hardcoded node kinds (task, loop, review, foreach, parallel) — through a dedicated runtime in `src/main/workflow/`, with its own tables (`workflows`, `workflow_executions`, `workflow_node_runs`), its own event pipeline, and a per-node Agent instantiation path that duplicated the Conversation runtime's (issue #108). Control flow was authored statically; the engine's semantics grew by adding node kinds.
+
+Decision (2026-07-11 design session): authoritative control flow is reasoned at runtime by a single master Agent, not drawn by the user. A Workflow Run is hosted as a Conversation session — it reuses the deepagents checkpointer for resume, the Runtime Stream Projection (ADR-0053) for events, and the existing tool-approval pipeline for gates — plus one thin table linking the run to its session, stage cursor, gate states, and skeleton snapshot. The user-authored layer shrinks to a Workflow Skeleton: sequential Stages (name, task description, acceptance criteria, gate toggle) with Stage Gates, frozen at run start. Stage advancement is an `advance_stage(report)` tool that is always intercepted, so a gate is literally a tool approval: approve resumes, reject returns feedback as the tool result, and the authoritative stage cursor advances in the main process, not by model discretion. Inside a Stage the master Agent builds an explicit Run Task Graph (first-class persisted tasks with dependencies) and delegates work to subagents; react-flow becomes a two-layer projection of skeleton progress and task graph rather than a control-flow editor.
+
+Why: the alternative — upgrading the node engine in place — keeps two owners for every runtime concern (events, resume, approvals, Agent instantiation), which is exactly the drift pathology #108 diagnosed at the instantiation layer. Session hosting gets durability, streaming, and approvals for free from infrastructure that just passed live acceptance (#107). Skeleton branching/looping was deliberately excluded from v1 (C-lite): skeleton semantics are the hard-to-reverse surface users author against, and we have zero observational data on what dynamic task graphs actually look like; richer skeleton syntax is deferred to a follow-up issue to be designed against real usage.
+
+Consequences: the old engine, its three tables, and the five node kinds are deleted outright with no migration (product unlaunched). Loop/review/foreach semantics become natural language in Stage task descriptions. While a gate is pending the run is fully paused — no speculative pre-running of the next Stage (same posture as plan mode; relaxing this is a follow-up optimization).

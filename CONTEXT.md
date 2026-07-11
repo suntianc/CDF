@@ -116,6 +116,14 @@ _Avoid_: connected account, OAuth login, capability connection, tool config
 A configured app-wide route that makes one CDF capability usable through a specific authorization source, such as a Connected Account, API key, local runtime, or future provider integration. Multiple Capability Connections may exist for the same capability, and runtime selection may consider the current Conversation model context, explicit user choice, availability, quota, privacy, cost, or task fit.
 _Avoid_: account, API key, model provider, LLM provider, tool config
 
+**Background Capability Job**:
+A durable execution of a registered long-running capability request that continues independently of the Agent run that submitted it and later reports structured progress and completion back to its originating Conversation.
+_Avoid_: background tool call, detached Agent run, provider task
+
+**Provider Task**:
+A provider-owned asynchronous operation created while executing a Background Capability Job. Its provider task ID and lifecycle remain internal to the Capability Adapter and are distinct from the CDF job identity.
+_Avoid_: background capability job, CDF job, Agent task
+
 **Capability Profile**:
 The declared or discovered set of capabilities available through one authorization source or subscription plan, such as text chat, image generation, image editing, speech synthesis, video generation, music generation, search, or quota status. Capability Profiles describe what an account, LLM Provider, token plan, or local runtime can offer; Capability Connections turn those offers into callable CDF capability routes.
 _Avoid_: tool list, provider type, model list, subscription label
@@ -291,3 +299,31 @@ _Avoid_: browser fetch, scraper tool, crawler
 **Fetch Tool**:
 An Agent Tool for lightweight URL content retrieval when a browser environment is not required.
 _Avoid_: browser tool, rendered page crawler
+
+**Workflow Skeleton**:
+A user-authored sequence of Stages with Stage Gates that constrains a Workflow Run. It is frozen as a snapshot when a run starts; edits affect only future runs.
+_Avoid_: flowchart, node graph, DAG editor
+
+**Stage**:
+One unit of a Workflow Skeleton: a name, a task description, acceptance criteria, and a gate toggle. Control flow beyond stage order — iteration, review depth, per-item processing — belongs in the task description as natural language, not in stage structure.
+_Avoid_: node, step, node kind
+
+**Stage Gate**:
+The human approval boundary at the end of a Stage: the run pauses on the Stage Report and the user approves, sends it back with feedback, or aborts the run. A closed gate still records its Stage Report and passes automatically. While a gate is pending, the run is fully paused — no pre-running the next Stage.
+_Avoid_: review node, approval node
+
+**Stage Report**:
+The structured completion report a Workflow Run's master Agent submits at a Stage boundary: a self-assessment against the acceptance criteria, the produced artifacts, and the final state of the Stage's tasks in the Run Task Graph. Generated whether or not the gate is open.
+_Avoid_: chat summary, stage log
+
+**Workflow Run**:
+One execution of a Workflow Skeleton, hosted as a Conversation session and driven end-to-end by a single master Agent that delegates Stage work to subagents. It reuses Conversation infrastructure — resume, stream projection, approvals — rather than a separate execution engine.
+_Avoid_: workflow execution, node run
+
+**Run Task Graph**:
+The dependency graph of tasks the master Agent explicitly creates and updates during a Workflow Run, persisted as first-class main-process data and including planned-but-unstarted tasks. Task state advances through its link to delegated subagent work.
+_Avoid_: todo list, subtask list, inferred DAG
+
+**Workflow Run Projection**:
+The two-layer react-flow projection of a Workflow Run — outer Workflow Skeleton progress and inner Run Task Graph — serving as the run's primary view, with the Conversation timeline as drill-down.
+_Avoid_: workflow editor view, minimap
