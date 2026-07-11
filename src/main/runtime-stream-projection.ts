@@ -80,7 +80,15 @@ export type RuntimeStreamEvent =
   | { kind: 'tool-call-started'; callId: string | undefined; toolName: string; input: unknown }
   | { kind: 'tool-output'; output: unknown }
   | { kind: 'tool-failed'; message: string; isInterrupt: boolean }
-  | { kind: 'run-started'; skillAttributions: SkillAttribution[] }
+  | { kind: 'run-started'; runId: string; skillAttributions: readonly SkillAttribution[] }
+  | { kind: 'turn-started' }
+  | {
+      kind: 'turn-stream-ended';
+      interrupted: boolean;
+      terminal: 'completed' | 'interrupted' | 'failed' | null;
+      latestAssistantContent: string | null;
+    }
+  | { kind: 'run-aborted' }
   | { kind: 'subagent-started'; slug: string }
   | { kind: 'subagent-text'; slug: string; text: string }
   | { kind: 'accumulator-text'; text: string }
@@ -110,7 +118,12 @@ export type RuntimeStreamProjectionEffect =
       status: 'success' | 'error' | 'skipped';
       output?: unknown;
       errorMessage?: string;
-    };
+    }
+  | { type: 'update-run'; status: 'completed' | 'failed' | 'aborted'; aborted?: boolean }
+  | { type: 'clear-accumulator-text' }
+  | { type: 'await-approval' }
+  | { type: 'stop-turn-loop' }
+  | { type: 'continue-turn-loop' };
 
 interface ActiveToolCall {
   toolCallId: string;
@@ -129,14 +142,22 @@ interface MessageState {
   visibleTextFilter: VisibleTextThinkTagFilter;
 }
 
+interface TurnState {
+  sentText: boolean;
+  sentReasoningOpen: boolean;
+  sentReasoningClosed: boolean;
+}
+
 export interface RuntimeStreamProjectionState {
+  runId: string | null;
+  turn: TurnState;
   message: MessageState | null;
   // 工具调用在壳层是顺序 await 的，任一时刻至多一个在途。
   activeToolCall: ActiveToolCall | null;
   // slug → 在途委派任务 id（task 调用注册 / subagent 先到时合成；task_end 解注册）。
   subagentTaskIds: Map<string, string>;
   // run 级：模型可发现的 Skill 归因 + 已发路径去重。
-  skillAttributions: SkillAttribution[];
+  skillAttributions: readonly SkillAttribution[];
   emittedSkillPaths: Set<string>;
 }
 
@@ -148,12 +169,20 @@ export interface RuntimeStreamProjectionResult {
 
 export function createRuntimeStreamState(): RuntimeStreamProjectionState {
   return {
+    runId: null,
+    turn: { sentText: false, sentReasoningOpen: false, sentReasoningClosed: false },
     message: null,
     activeToolCall: null,
     subagentTaskIds: new Map(),
     skillAttributions: [],
     emittedSkillPaths: new Set(),
   };
+}
+
+// 完整文本的 think 过滤（补发路径用）：与流式过滤器同一状态机、一次吃整段。
+function sanitizeVisibleText(text: string): string {
+  const filter = new VisibleTextThinkTagFilter();
+  return filter.push(text) + filter.flush();
 }
 
 function getToolInputPath(input: unknown): string | null {
@@ -180,18 +209,30 @@ function findModelTriggeredSkill(
   return { ...attribution, phase: 'model-triggered' };
 }
 
+function pushReasoningBlock(
+  state: RuntimeStreamProjectionState,
+  text: string,
+  events: LLMStreamEvent[],
+): void {
+  state.turn.sentReasoningOpen = true;
+  state.turn.sentReasoningClosed = true;
+  events.push({ type: 'message_chunk', text: THINK_OPEN_TAG });
+  events.push({ type: 'message_chunk', text });
+  events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
+}
+
 function drainReasoningAtToolBoundary(
+  state: RuntimeStreamProjectionState,
   deps: RuntimeStreamProjectionDeps,
   events: LLMStreamEvent[],
 ): void {
   const reasoningText = deps.takeBufferedReasoning();
   if (!reasoningText) return;
-  events.push({ type: 'message_chunk', text: THINK_OPEN_TAG });
-  events.push({ type: 'message_chunk', text: reasoningText });
-  events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
+  pushReasoningBlock(state, reasoningText, events);
 }
 
 function drainBufferedReasoning(
+  state: RuntimeStreamProjectionState,
   message: MessageState,
   deps: RuntimeStreamProjectionDeps,
   events: LLMStreamEvent[],
@@ -200,9 +241,7 @@ function drainBufferedReasoning(
   const reasoningText = deps.takeBufferedReasoning();
   if (!reasoningText) return;
   message.sentReasoning = true;
-  events.push({ type: 'message_chunk', text: THINK_OPEN_TAG });
-  events.push({ type: 'message_chunk', text: reasoningText });
-  events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
+  pushReasoningBlock(state, reasoningText, events);
 }
 
 interface ParsedDelegatedOutput {
@@ -323,6 +362,8 @@ export function projectRuntimeStream(
       if (!message.reasoningStreamed) {
         message.reasoningStreamed = true;
         message.sentReasoning = true;
+        state.turn.sentReasoningOpen = true;
+        state.turn.sentReasoningClosed = false;
         events.push({ type: 'message_chunk', text: THINK_OPEN_TAG });
       }
       events.push({ type: 'message_chunk', text: event.token });
@@ -332,6 +373,7 @@ export function projectRuntimeStream(
       const message = state.message;
       if (!message) return { state, events, effects: [] };
       if (message.reasoningStreamed) {
+        state.turn.sentReasoningClosed = true;
         events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
       }
       message.reasoningDone = true;
@@ -340,7 +382,8 @@ export function projectRuntimeStream(
       for (const buffered of message.textBuffer) {
         const visibleText = message.visibleTextFilter.push(buffered);
         if (visibleText) {
-          drainBufferedReasoning(message, deps, events);
+          drainBufferedReasoning(state, message, deps, events);
+          state.turn.sentText = true;
           events.push({ type: 'message_chunk', text: visibleText });
         }
       }
@@ -357,7 +400,8 @@ export function projectRuntimeStream(
       }
       const visibleText = message.visibleTextFilter.push(event.token);
       if (visibleText) {
-        drainBufferedReasoning(message, deps, events);
+        drainBufferedReasoning(state, message, deps, events);
+        state.turn.sentText = true;
         events.push({ type: 'message_chunk', text: visibleText });
       }
       return { state, events, effects: [] };
@@ -367,7 +411,8 @@ export function projectRuntimeStream(
       if (!message) return { state, events, effects: [] };
       const remaining = message.visibleTextFilter.flush();
       if (remaining) {
-        drainBufferedReasoning(message, deps, events);
+        drainBufferedReasoning(state, message, deps, events);
+        state.turn.sentText = true;
         events.push({ type: 'message_chunk', text: remaining });
       }
       return { state: { ...state, message: null }, events, effects: [] };
@@ -375,7 +420,7 @@ export function projectRuntimeStream(
     case 'tool-call-started': {
       const effects: RuntimeStreamProjectionEffect[] = [];
       // 现网行为：任何工具调用前先冲刷 accumulator 中未呈现的思考。
-      drainReasoningAtToolBoundary(deps, events);
+      drainReasoningAtToolBoundary(state, deps, events);
       const input = event.input as {
         name?: string;
         task?: string;
@@ -491,11 +536,86 @@ export function projectRuntimeStream(
       return {
         state: {
           ...state,
+          runId: event.runId,
           skillAttributions: event.skillAttributions,
           emittedSkillPaths: new Set(),
         },
         events,
         effects: [],
+      };
+    }
+    case 'turn-started': {
+      return {
+        state: {
+          ...state,
+          turn: { sentText: false, sentReasoningOpen: false, sentReasoningClosed: false },
+        },
+        events,
+        effects: [],
+      };
+    }
+    case 'turn-stream-ended': {
+      const effects: RuntimeStreamProjectionEffect[] = [];
+      // 1) 中断残留的思考流：闭合未收口的 think 块。
+      if (state.turn.sentReasoningOpen && !state.turn.sentReasoningClosed) {
+        state.turn.sentReasoningClosed = true;
+        events.push({ type: 'message_chunk', text: THINK_CLOSE_CHUNK });
+      }
+      // 2) 整轮未呈现过思考：最后一次抽干补发。
+      if (!state.turn.sentReasoningOpen) {
+        const reasoningText = deps.takeBufferedReasoning();
+        if (reasoningText) {
+          pushReasoningBlock(state, reasoningText, events);
+        }
+      }
+      // 3) 整轮未流式过正文：output 补发 → accumulator 兜底。
+      if (!state.turn.sentText) {
+        const assistantContent = event.latestAssistantContent;
+        if (assistantContent && assistantContent.trim()) {
+          const visibleContent = sanitizeVisibleText(assistantContent);
+          state.turn.sentText = true;
+          events.push({ type: 'message_chunk', text: visibleContent });
+        } else {
+          const fallbackText = deps.takeFallbackText();
+          if (fallbackText.trim()) {
+            const visibleContent = sanitizeVisibleText(fallbackText);
+            state.turn.sentText = true;
+            events.push({ type: 'message_chunk', text: visibleContent });
+          }
+        }
+      }
+      effects.push({ type: 'clear-accumulator-text' });
+      // 4) 三向决策：审批 / 失败续跑 / 完成收束。
+      if (event.interrupted) {
+        effects.push({ type: 'await-approval' });
+      } else if (event.terminal === 'failed') {
+        if (state.runId) {
+          events.push({
+            type: 'run_updated',
+            runId: state.runId,
+            status: 'failed',
+            error: 'Subagent execution failed',
+          });
+        }
+        effects.push({ type: 'update-run', status: 'failed' });
+        effects.push({ type: 'continue-turn-loop' });
+      } else {
+        if (state.runId) {
+          events.push({ type: 'run_updated', runId: state.runId, status: 'completed' });
+        }
+        effects.push({ type: 'update-run', status: 'completed' });
+        effects.push({ type: 'stop-turn-loop' });
+      }
+      return { state, events, effects };
+    }
+    case 'run-aborted': {
+      if (state.runId) {
+        events.push({ type: 'run_updated', runId: state.runId, status: 'aborted' });
+      }
+      return {
+        state,
+        events,
+        effects: [{ type: 'update-run', status: 'aborted', aborted: true }],
       };
     }
     case 'subagent-started': {

@@ -45,6 +45,10 @@ import {
   THINK_OPEN_TAG,
   THINK_CLOSE_TAG,
   VisibleTextThinkTagFilter,
+  createRuntimeStreamState,
+  projectRuntimeStream,
+  type RuntimeStreamEvent,
+  type RuntimeStreamProjectionDeps,
 } from './runtime-stream-projection';
 
 function isInterruptError(error: unknown): boolean {
@@ -455,11 +459,68 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
     await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
 
     let nextInput: any = { messages: runtime.inputMessages };
-    const emittedModelTriggeredSkillPaths = new Set<string>();
+
+    // ── Runtime Stream Projection 壳层（ADR-0053）──
+    // 4 路并发 iterator 只做「收到即转发」：串行化为 RuntimeStreamEvent 喂纯核心；
+    // 核心产出 renderer 事件与 effect，壳层同步发送/执行。
+    // 并发交织由 JS 单线程天然全序化——原 taskId waiter/死锁隐患结构性消失。
+    let projectionState = createRuntimeStreamState();
+    const projectionDeps: RuntimeStreamProjectionDeps = {
+      takeBufferedReasoning: () => takeReasoningText(accumulator, runtime.model),
+      takeFallbackText: () => getFallbackText(accumulator, runtime.model),
+      lookupAgentName: (slug) => {
+        try {
+          const agentRow = db.prepare('SELECT name FROM agents WHERE slug = ? OR name = ?').get(slug, slug) as { name: string } | undefined;
+          return agentRow?.name ?? slug;
+        } catch (dbErr) {
+          console.warn('[LLM] Failed to query agent name for slug:', slug, dbErr);
+          return slug;
+        }
+      },
+      generateToolCallId: () => crypto.randomUUID(),
+      generateSubagentTaskId: (slug) => `subagent-${slug}-${crypto.randomUUID()}`,
+    };
+    type ControlEffect = 'await-approval' | 'stop-turn-loop' | 'continue-turn-loop';
+    const dispatch = (streamEvent: RuntimeStreamEvent): ControlEffect[] => {
+      const result = projectRuntimeStream(projectionState, streamEvent, projectionDeps);
+      projectionState = result.state;
+      for (const rendererEvent of result.events) {
+        sender.send(channel, rendererEvent);
+      }
+      const control: ControlEffect[] = [];
+      for (const effect of result.effects) {
+        switch (effect.type) {
+          case 'upsert-tool-call':
+            upsertToolCall(runId, effect.toolCallId, effect.toolName, effect.input);
+            break;
+          case 'update-tool-call':
+            updateToolCall(effect.toolCallId, effect.status, effect.output, effect.errorMessage);
+            break;
+          case 'update-run':
+            if (effect.status === 'aborted') {
+              updateRun(runId, 'aborted', undefined, true);
+            } else {
+              updateRun(runId, effect.status);
+            }
+            break;
+          case 'clear-accumulator-text':
+            accumulator.clearText();
+            break;
+          default:
+            control.push(effect.type);
+        }
+      }
+      return control;
+    };
+
+    dispatch({
+      kind: 'run-started',
+      runId,
+      skillAttributions: (runtime.skillAttributions as SkillAttribution[] | undefined) ?? [],
+    });
 
     while (!controller.signal.aborted) {
-      accumulator.hasSentText = false;
-      accumulator.hasSentReasoning = false;
+      dispatch({ kind: 'turn-started' });
       const run = await runtime.agent.streamEvents(
         nextInput,
         {
@@ -472,141 +533,32 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       );
 
-      // Correlation between toolStreamPromise and subagentsStreamPromise:
-      // toolStreamPromise registers taskId per agent slug; subagentsStreamPromise claims it.
-      const _subagentTaskIdsReady = new Map<string, string[]>();
-      const _subagentTaskIdWaiters = new Map<string, ((id: string) => void)[]>();
-      const _subagentActiveTaskIds = new Map<string, string>();
-      const registerSubagentTaskId = (slug: string, taskId: string): void => {
-        _subagentActiveTaskIds.set(slug, taskId);
-        const waiters = _subagentTaskIdWaiters.get(slug);
-        if (waiters?.length) {
-          const resolve = waiters.shift()!;
-          if (!waiters.length) _subagentTaskIdWaiters.delete(slug);
-          resolve(taskId);
-        } else {
-          const queue = _subagentTaskIdsReady.get(slug) ?? [];
-          queue.push(taskId);
-          _subagentTaskIdsReady.set(slug, queue);
-        }
-      };
-      const claimSubagentTaskId = (slug: string): Promise<string> => {
-        const queue = _subagentTaskIdsReady.get(slug);
-        if (queue?.length) {
-          const id = queue.shift()!;
-          if (!queue.length) _subagentTaskIdsReady.delete(slug);
-          return Promise.resolve(id);
-        }
-        const activeTaskId = _subagentActiveTaskIds.get(slug);
-        if (activeTaskId) {
-          return Promise.resolve(activeTaskId);
-        }
-        return new Promise<string>((resolve) => {
-          const waiters = _subagentTaskIdWaiters.get(slug) ?? [];
-          waiters.push(resolve);
-          _subagentTaskIdWaiters.set(slug, waiters);
-        });
-      };
-      const ensureSubagentTaskStarted = (slug: string): string => {
-        const activeTaskId = _subagentActiveTaskIds.get(slug);
-        if (activeTaskId) return activeTaskId;
-        const taskId = `subagent-${slug}-${crypto.randomUUID()}`;
-        _subagentActiveTaskIds.set(slug, taskId);
-        sender.send(channel, {
-          type: 'delegated_task_start',
-          taskId,
-          agentSlug: slug,
-          agentName: slug,
-          goal: '',
-        });
-        return taskId;
-      };
-
       const messageStreamPromise = (async () => {
         for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
-
-          let isReasoningDone = false;
-          let hasSentReasoning = false;
-          const textBuffer: string[] = [];
-
-          console.log(`[LLM STREAM] 是否存在 msg.reasoning:`, msg.reasoning !== undefined && msg.reasoning !== null);
-          try {
-            console.log(`[LLM STREAM] msg 所有的键:`, Object.keys(msg || {}));
-            console.log(`[LLM STREAM] msg.reasoning 的类型:`, typeof msg?.reasoning);
-            if (msg && typeof msg === 'object') {
-              for (const key of Object.getOwnPropertyNames(msg)) {
-                const val = (msg as any)[key];
-                console.log(`[LLM STREAM] 探测 msg.${key} =`, typeof val === 'object' ? safeStringify(val) : typeof val);
-              }
-            }
-          } catch (e: any) {
-            console.log(`[LLM STREAM] 深度探测失败:`, e?.message);
-          }
-
-          const checkAndFlushCache = () => {
-            const reasoningText = takeReasoningText(accumulator, runtime.model);
-            if (!hasSentReasoning && reasoningText) {
-              hasSentReasoning = true;
-              sendReasoningBlock(sender, channel, accumulator, reasoningText);
-            }
-          };
-          const visibleTextFilter = new VisibleTextThinkTagFilter();
-          const emitVisibleText = (text: string) => {
-            const visibleText = visibleTextFilter.push(text);
-            if (!visibleText) return;
-            checkAndFlushCache();
-            markTextSent(accumulator);
-            sender.send(channel, { type: 'message_chunk', text: visibleText });
-          };
-          const flushVisibleText = () => {
-            const visibleText = visibleTextFilter.flush();
-            if (!visibleText) return;
-            checkAndFlushCache();
-            markTextSent(accumulator);
-            sender.send(channel, { type: 'message_chunk', text: visibleText });
-          };
+          // reasoning 存在（不是 null/undefined/空数组）时 text 才积压。
+          const hasReasoningSource = msg.reasoning != null && !Array.isArray(msg.reasoning);
+          dispatch({ kind: 'message-started', hasReasoningSource });
 
           const consumeReasoning = async () => {
-            let hasReasoning = false;
             for await (const token of msg.reasoning ?? []) {
               if (controller.signal.aborted) break;
-              if (!hasReasoning) {
-                hasReasoning = true;
-                hasSentReasoning = true;
-                sendReasoningOpen(sender, channel, accumulator);
-              }
-              sender.send(channel, { type: 'message_chunk', text: token });
+              dispatch({ kind: 'reasoning-token', token });
             }
-            if (hasReasoning && !controller.signal.aborted) {
-              sendReasoningClose(sender, channel, accumulator);
-            }
-            isReasoningDone = true;
-            checkAndFlushCache();
-            if (textBuffer.length > 0 && !controller.signal.aborted) {
-              for (const t of textBuffer) {
-                emitVisibleText(t);
-              }
-              textBuffer.length = 0;
+            if (!controller.signal.aborted) {
+              dispatch({ kind: 'reasoning-ended' });
             }
           };
-
           const consumeText = async () => {
             for await (const token of msg.text) {
               if (controller.signal.aborted) break;
-              // reasoning 存在（不是 null/undefined/空数组）且未完成时才积压文本
-              const hasReasoningSource = msg.reasoning != null && !Array.isArray(msg.reasoning);
-              if (hasReasoningSource && !isReasoningDone) {
-                textBuffer.push(token);
-              } else {
-                emitVisibleText(token);
-              }
+              dispatch({ kind: 'text-token', token });
             }
           };
 
           await Promise.all([consumeReasoning(), consumeText()]);
           if (!controller.signal.aborted) {
-            flushVisibleText();
+            dispatch({ kind: 'message-ended' });
           }
         }
       })();
@@ -614,232 +566,43 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
       const toolStreamPromise = (async () => {
         for await (const call of run.toolCalls) {
           if (controller.signal.aborted) break;
-
-          const reasoningText = takeReasoningText(accumulator, runtime.model);
-          if (reasoningText) {
-            console.log(`[LLM STREAM] 在工具调用前冲刷发送 request accumulator 思考`);
-            sendReasoningBlock(sender, channel, accumulator, reasoningText);
-          }
-
-          const input = call.input as { name?: string; task?: string; subagent_type?: string; description?: string };
-          const agentSlug = call.name === 'task'
-            ? input?.subagent_type || input?.name || 'unknown'
-            : '';
-          const existingSubagentTaskId = call.name === 'task' ? _subagentActiveTaskIds.get(agentSlug) : undefined;
-          const toolCallId = existingSubagentTaskId || call.callId || crypto.randomUUID();
-          upsertToolCall(runId, toolCallId, call.name, call.input);
-          const triggeredSkill = findModelTriggeredSkillAttribution(
-            call.name,
-            call.input,
-            runtime.skillAttributions,
-            emittedModelTriggeredSkillPaths
-          );
-          if (triggeredSkill) {
-            sender.send(channel, {
-              type: 'skill_attribution',
-              attributions: [triggeredSkill],
-            });
-          }
-          sender.send(channel, {
-            type: 'tool_start',
-            id: toolCallId,
-            name: call.name,
+          dispatch({
+            kind: 'tool-call-started',
+            callId: call.callId,
+            toolName: call.name,
             input: call.input,
           });
 
-          // D-12: Detect task tool calls and emit delegated_task_start
-          if (call.name === 'task') {
-            const taskId = toolCallId;
-            let goal = '';
-
-            // D-03: task input's task field is a JSON string containing goal
-            if (input?.task) {
-              try {
-                const taskPackage = JSON.parse(input.task);
-                goal = taskPackage.goal || '';
-              } catch {
-                console.warn('[LLM] Failed to parse task input JSON:', input.task);
-                goal = input?.name || '任务执行';
-              }
-            } else if (input?.description) {
-              goal = input.description;
-            }
-
-            let agentName = agentSlug; // fallback to slug
-            try {
-              const agentRow = db.prepare('SELECT name FROM agents WHERE slug = ? OR name = ?').get(agentSlug, agentSlug) as { name: string } | undefined;
-              if (agentRow) {
-                agentName = agentRow.name;
-              }
-            } catch (dbErr) {
-              console.warn('[LLM] Failed to query agent name for slug:', agentSlug, dbErr);
-            }
-
-            sender.send(channel, {
-              type: 'delegated_task_start',
-              taskId,
-              agentSlug,
-              agentName,
-              goal,
-            });
-            if (!existingSubagentTaskId) {
-              registerSubagentTaskId(agentSlug, taskId);
-            }
-          }
-
-          if (call.name === 'task') {
+          const isTask = call.name === 'task';
+          if (isTask) {
             accumulator.onText = (text: string) => {
-              sender.send(channel, { type: 'delegated_task_chunk', taskId: toolCallId, text });
+              dispatch({ kind: 'accumulator-text', text });
             };
             accumulator.onSubagentStep = (step: ExecutionStep) => {
-              sender.send(channel, { type: 'delegated_task_step', taskId: toolCallId, step });
+              dispatch({ kind: 'accumulator-step', step });
             };
           }
 
           try {
-            const taskId = toolCallId;
-            const output = call.name === 'task'
+            const output = isTask
               ? await subagentStepStorage.run(
                   {
                     onStep: (step: ExecutionStep) => {
-                      sender.send(channel, { type: 'delegated_task_step', taskId, step });
+                      dispatch({ kind: 'accumulator-step', step });
                     },
                   },
                   () => call.output,
                 )
               : await call.output;
-            updateToolCall(toolCallId, 'success', output);
-            sender.send(channel, {
-              type: 'tool_end',
-              id: toolCallId,
-              name: call.name,
-              output,
-            });
-
-            // D-11/D-14: Parse task tool output and emit delegated_task_end
-            if (call.name === 'task') {
-              let parsedResult;
-              let errorCode: string | undefined;
-              let status: 'success' | 'failure' = 'success';
-
-              try {
-                const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
-                let parsed = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(rawOutput));
-                if (parsed.success) {
-                  parsedResult = parsed.data;
-                  if (parsedResult.status === 'failure') {
-                    status = 'failure';
-                    errorCode = parsedResult.error?.code;
-                  }
-                } else {
-                  // Fallback: try to extract content from LangChain Command object
-                  // Command format: {"lg_name":"Command","update":{"messages":[ToolMessage]}}
-                  const cmd = JSON.parse(rawOutput);
-                  if (cmd?.lg_name === 'Command' && cmd?.update?.messages?.length > 0) {
-                    const toolMsg = cmd.update.messages[cmd.update.messages.length - 1];
-                    const content = typeof toolMsg === 'object' ? toolMsg.kwargs?.content : toolMsg;
-                    if (typeof content === 'string') {
-                      try {
-                        const innerParsed = DELEGATED_TASK_RESULT_SCHEMA.safeParse(JSON.parse(content));
-                        if (innerParsed.success) {
-                          parsedResult = innerParsed.data;
-                          if (parsedResult.status === 'failure') {
-                            status = 'failure';
-                            errorCode = parsedResult.error?.code;
-                          }
-                        } else {
-                          // Content is not JSON - treat as plain text result
-                          parsedResult = {
-                            status: 'success' as const,
-                            artifacts: [],
-                            summary: content.slice(0, 500),
-                          };
-                        }
-                      } catch {
-                        // Content parse failed - treat as plain text
-                        parsedResult = {
-                          status: 'success' as const,
-                          artifacts: [],
-                          summary: typeof content === 'string' ? content.slice(0, 500) : String(content).slice(0, 500),
-                        };
-                      }
-                    } else {
-                      // No content found
-                      parsedResult = {
-                        status: 'success' as const,
-                        artifacts: [],
-                        summary: '任务执行完成',
-                      };
-                    }
-                  } else {
-                    status = 'failure';
-                    errorCode = 'PARSE_FAILED';
-                    parsedResult = {
-                      status: 'failure',
-                      artifacts: [],
-                      summary: '',
-                      error: { code: 'PARSE_FAILED', message: `无法解析子Agent返回: ${rawOutput.slice(0, 200)}` },
-                    };
-                  }
-                }
-              } catch (err: any) {
-                status = 'failure';
-                errorCode = 'PARSE_FAILED';
-                parsedResult = {
-                  status: 'failure',
-                  artifacts: [],
-                  summary: '',
-                  error: { code: 'PARSE_FAILED', message: err?.message || 'unknown parse error' },
-                };
-              }
-
-              // D-11: Overwrite DB with parsed standard format so sessionStore
-              // can reconstruct summary directly without LangChain Command fallback.
-              updateToolCall(toolCallId, status === 'failure' ? 'error' : 'success', parsedResult);
-
-              sender.send(channel, {
-                type: 'delegated_task_end',
-                taskId: toolCallId,
-                status,
-                result: parsedResult,
-                errorCode,
-              });
-              _subagentActiveTaskIds.delete(agentSlug);
-            }
+            dispatch({ kind: 'tool-output', output });
           } catch (error: any) {
-            if (!isInterruptError(error)) {
-              updateToolCall(toolCallId, 'error', undefined, error?.message || String(error));
-              sender.send(channel, {
-                type: 'tool_error',
-                id: toolCallId,
-                name: call.name,
-                error: error?.message || String(error),
-              });
-
-              if (call.name === 'task') {
-                let errorCode = 'UNKNOWN';
-                const msg = error?.message || '';
-                if (msg.toLowerCase().includes('timeout')) {
-                  errorCode = 'TIMEOUT';
-                }
-
-                sender.send(channel, {
-                  type: 'delegated_task_end',
-                  taskId: toolCallId,
-                  status: 'failure',
-                  result: {
-                    status: 'failure',
-                    artifacts: [],
-                    summary: '',
-                    error: { code: errorCode, message: msg },
-                  },
-                  errorCode,
-                });
-                _subagentActiveTaskIds.delete(agentSlug);
-              }
-            }
+            dispatch({
+              kind: 'tool-failed',
+              message: error?.message || String(error),
+              isInterrupt: isInterruptError(error),
+            });
           } finally {
-            if (call.name === 'task') {
+            if (isTask) {
               accumulator.onText = undefined;
               accumulator.onSubagentStep = undefined;
             }
@@ -847,20 +610,18 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       })();
 
-      // Consume run.subagents to stream sub-agent LLM tokens as delegated_task_chunk events
       const subagentsStreamPromise = (async () => {
         const subagents = (run as any).subagents;
         if (!subagents || typeof subagents[Symbol.asyncIterator] !== 'function') return;
         for await (const sub of subagents as AsyncIterable<{ name: string; messages: AsyncIterable<{ text: AsyncIterable<string> }> }>) {
           if (controller.signal.aborted) break;
-          ensureSubagentTaskStarted(sub.name);
-          const taskId = await claimSubagentTaskId(sub.name);
+          dispatch({ kind: 'subagent-started', slug: sub.name });
           for await (const message of sub.messages) {
             if (controller.signal.aborted) break;
             for await (const textDelta of message.text) {
               if (controller.signal.aborted) break;
               if (textDelta) {
-                sender.send(channel, { type: 'delegated_task_chunk', taskId, text: textDelta });
+                dispatch({ kind: 'subagent-text', slug: sub.name, text: textDelta });
               }
             }
           }
@@ -895,21 +656,11 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       })();
 
-      // subagentsStreamPromise is intentionally non-blocking: the SDK's
-      // StreamChannel may not close when the run ends, and a slug mismatch
-      // between registerSubagentTaskId (uses input.name fallback) and
-      // claimSubagentTaskId (SDK uses subagent_type only) can deadlock.
-      // Letting it race against the core promises ensures message_done fires.
+      // subagentsStreamPromise 保持非阻塞：SDK 的 StreamChannel 可能在 run
+      // 结束后不关闭。核心的关联表已消除 waiter 死锁，但让它与主 Promise
+      // 竞速仍能保证 message_done 及时发出。
       await Promise.all([messageStreamPromise, toolStreamPromise, valuesStreamPromise]);
       subagentsStreamPromise.catch(() => {});
-
-      // Drain pending subagent task ID waiters to prevent Promise leaks
-      for (const [, waiters] of _subagentTaskIdWaiters) {
-        for (const resolve of waiters) resolve('');
-      }
-      _subagentTaskIdWaiters.clear();
-      _subagentTaskIdsReady.clear();
-      _subagentActiveTaskIds.clear();
 
       let interruptValue = getStreamInterruptValue(run);
       let output: any;
@@ -919,51 +670,13 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
           const result = await waitForRunOutputOrTerminal(run, controller.signal);
           output = result.output;
           terminal = result.terminal;
-          console.log(`[LLM STREAM] run.output 已返回，是否有 value = ${!!output}`);
-          if (output) {
-            const assistantContent = getLatestAssistantContent(output);
-            console.log(`[LLM STREAM] 从 output 提取出的 latest assistantContent 长度 =`, assistantContent?.length ?? 0);
-          }
         } catch (err: any) {
           if (err?.name === 'AbortError' || controller.signal.aborted) {
             throw err;
           }
-          console.log(`[LLM STREAM] run.output 发生错误:`, err?.message);
           output = undefined;
         }
       }
-
-      if (accumulator.hasSentReasoning && !accumulator.hasSentReasoningClosed) {
-        console.log(`[LLM STREAM] 闭合未结束的实时思考流`);
-        sendReasoningClose(sender, channel, accumulator);
-      }
-
-      if (!accumulator.hasSentReasoning) {
-        const reasoningText = takeReasoningText(accumulator, runtime.model);
-        if (reasoningText) {
-          console.log(`[LLM STREAM] 轮次结束前冲刷发送残留的思考`);
-          sendReasoningBlock(sender, channel, accumulator, reasoningText);
-        }
-      }
-
-      if (!accumulator.hasSentText) {
-        const assistantContent = getLatestAssistantContent(output);
-        if (assistantContent && assistantContent.trim()) {
-          const visibleContent = sanitizeVisibleText(assistantContent);
-          console.log(`[LLM STREAM] 非流式输出检测，向前端补发正文 content length:`, visibleContent.length);
-          sender.send(channel, { type: 'message_chunk', text: visibleContent });
-          markTextSent(accumulator);
-        } else {
-          const fallbackText = getFallbackText(accumulator, runtime.model);
-          if (fallbackText.trim()) {
-            const visibleContent = sanitizeVisibleText(fallbackText);
-            console.log(`[LLM STREAM] 从 request accumulator 补发正文 content length:`, visibleContent.length);
-            sender.send(channel, { type: 'message_chunk', text: visibleContent });
-            markTextSent(accumulator);
-          }
-        }
-      }
-      accumulator.clearText();
 
       interruptValue ||= getInterruptValue(output);
       if (!interruptValue) {
@@ -974,67 +687,68 @@ export async function runLLMChat(sender: WebContents, requestId: string, payload
         }
       }
 
-      if (!interruptValue) {
-        if (terminal === 'failed') {
-          // 根据官方文档模式：将失败信息存入状态，让 LLM 看到并决定如何处理
-          // 不 break，让 while 循环继续，LLM 可以看到失败结果
-          updateRun(runId, 'failed');
-          sender.send(channel, { type: 'run_updated', runId, status: 'failed', error: 'Subagent execution failed' });
-          // output 包含失败信息，继续让 LLM 看到并处理
-        } else {
-          updateRun(runId, 'completed');
-          sender.send(channel, { type: 'run_updated', runId, status: 'completed' });
-          break;
-        }
-      }
-
-      const approval = toApprovalRequest(runId, interruptValue);
-      db.exec('BEGIN');
-      updateRun(runId, 'waiting_approval');
-      markApprovalStatus(runId, 'pending');
-      db.exec('COMMIT');
-      sender.send(channel, { type: 'run_updated', runId, status: 'waiting_approval' });
-      sender.send(channel, { type: 'approval_required', approval });
-
-      const resolution = await new Promise<AgentApprovalResolution>((resolve, reject) => {
-        const key = `${requestId}:${approval.id}`;
-        pendingApprovals.set(key, resolve);
-        controller.signal.addEventListener('abort', () => {
-          pendingApprovals.delete(key);
-          reject(new DOMException('Aborted', 'AbortError'));
-        }, { once: true });
+      const controlEffects = dispatch({
+        kind: 'turn-stream-ended',
+        interrupted: !!interruptValue,
+        terminal,
+        latestAssistantContent: getLatestAssistantContent(output),
       });
 
-      const approvalStatus = resolution.decisions.some((decision) => decision.type === 'edit')
-        ? 'edited'
-        : resolution.decisions.every((decision) => decision.type === 'approve')
-          ? 'approved'
-          : 'rejected';
-      db.exec('BEGIN');
-      markApprovalStatus(runId, approvalStatus);
-      sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
-
-      if (approvalStatus === 'rejected') {
-        const runningTools = db.prepare(`
-          SELECT id, tool_name FROM agent_tool_calls
-          WHERE run_id = ? AND status = 'running'
-        `).all(runId) as Array<{ id: string; tool_name: string }>;
-
-        for (const tool of runningTools) {
-          updateToolCall(tool.id, 'skipped');
-          sender.send(channel, {
-            type: 'tool_error',
-            id: tool.id,
-            name: tool.tool_name,
-            error: '用户拒绝执行该操作',
-          });
-        }
+      if (controlEffects.includes('stop-turn-loop')) {
+        break;
       }
 
-      updateRun(runId, 'running');
-      db.exec('COMMIT');
-      sender.send(channel, { type: 'run_updated', runId, status: 'running' });
-      nextInput = new Command({ resume: { decisions: resolution.decisions } });
+      if (controlEffects.includes('await-approval')) {
+        // —— 审批中断持久化：裸 BEGIN/COMMIT 块原样搬运（ADR-0053 决策 3；升级事务 API 另行立项）——
+        const approval = toApprovalRequest(runId, interruptValue);
+        db.exec('BEGIN');
+        updateRun(runId, 'waiting_approval');
+        markApprovalStatus(runId, 'pending');
+        db.exec('COMMIT');
+        sender.send(channel, { type: 'run_updated', runId, status: 'waiting_approval' });
+        sender.send(channel, { type: 'approval_required', approval });
+
+        const resolution = await new Promise<AgentApprovalResolution>((resolve, reject) => {
+          const key = `${requestId}:${approval.id}`;
+          pendingApprovals.set(key, resolve);
+          controller.signal.addEventListener('abort', () => {
+            pendingApprovals.delete(key);
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        });
+
+        const approvalStatus = resolution.decisions.some((decision) => decision.type === 'edit')
+          ? 'edited'
+          : resolution.decisions.every((decision) => decision.type === 'approve')
+            ? 'approved'
+            : 'rejected';
+        db.exec('BEGIN');
+        markApprovalStatus(runId, approvalStatus);
+        sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
+
+        if (approvalStatus === 'rejected') {
+          const runningTools = db.prepare(`
+            SELECT id, tool_name FROM agent_tool_calls
+            WHERE run_id = ? AND status = 'running'
+          `).all(runId) as Array<{ id: string; tool_name: string }>;
+
+          for (const tool of runningTools) {
+            updateToolCall(tool.id, 'skipped');
+            sender.send(channel, {
+              type: 'tool_error',
+              id: tool.id,
+              name: tool.tool_name,
+              error: '用户拒绝执行该操作',
+            });
+          }
+        }
+
+        updateRun(runId, 'running');
+        db.exec('COMMIT');
+        sender.send(channel, { type: 'run_updated', runId, status: 'running' });
+        nextInput = new Command({ resume: { decisions: resolution.decisions } });
+      }
+      // continue-turn-loop：终态 failed 场景，不动 nextInput，让 LLM 看到失败输出继续处理。
     }
 
     if (controller.signal.aborted) {

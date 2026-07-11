@@ -329,6 +329,7 @@ describe('Runtime Stream Projection — model-triggered skill attribution', () =
       [
         {
           kind: 'run-started',
+          runId: 'run-attr',
           skillAttributions: [attribution],
         },
         {
@@ -352,6 +353,124 @@ describe('Runtime Stream Projection — model-triggered skill attribution', () =
     expect(attributions[0]).toMatchObject({
       attributions: [{ phase: 'model-triggered', skillPath: '/repo/.cdf/skills/deploy/SKILL.md' }],
     });
+  });
+});
+
+describe('Runtime Stream Projection — turn end protocol', () => {
+  const runStart = { kind: 'run-started', runId: 'run-1', skillAttributions: [] } as const;
+
+  it('completes the run: run_updated completed + update-run effect + stop directive', () => {
+    const { emitted, effects } = drive([
+      runStart,
+      { kind: 'turn-started' },
+      { kind: 'turn-stream-ended', interrupted: false, terminal: 'completed', latestAssistantContent: null },
+    ]);
+
+    expect(emitted.at(-1)).toEqual({ type: 'run_updated', runId: 'run-1', status: 'completed' });
+    expect(effects).toEqual([
+      { type: 'clear-accumulator-text' },
+      { type: 'update-run', status: 'completed' },
+      { type: 'stop-turn-loop' },
+    ]);
+  });
+
+  it('requests approval on interrupt instead of completing', () => {
+    const { emitted, effects } = drive([
+      runStart,
+      { kind: 'turn-started' },
+      { kind: 'turn-stream-ended', interrupted: true, terminal: null, latestAssistantContent: null },
+    ]);
+
+    expect(emitted.filter((e) => (e as { type: string }).type === 'run_updated')).toHaveLength(0);
+    expect(effects).toEqual([
+      { type: 'clear-accumulator-text' },
+      { type: 'await-approval' },
+    ]);
+  });
+
+  it('keeps looping on subagent failure so the LLM can react to the failure output', () => {
+    const { emitted, effects } = drive([
+      runStart,
+      { kind: 'turn-started' },
+      { kind: 'turn-stream-ended', interrupted: false, terminal: 'failed', latestAssistantContent: null },
+    ]);
+
+    expect(emitted.at(-1)).toEqual({
+      type: 'run_updated',
+      runId: 'run-1',
+      status: 'failed',
+      error: 'Subagent execution failed',
+    });
+    expect(effects).toEqual([
+      { type: 'clear-accumulator-text' },
+      { type: 'update-run', status: 'failed' },
+      { type: 'continue-turn-loop' },
+    ]);
+  });
+
+  it('closes a dangling think block left open by an aborted reasoning stream', () => {
+    const { emitted } = drive([
+      runStart,
+      { kind: 'turn-started' },
+      { kind: 'message-started', hasReasoningSource: true },
+      { kind: 'reasoning-token', token: '未闭合的思考' },
+      // reasoning-ended 缺失（中断场景），message-ended 也未到达
+      { kind: 'turn-stream-ended', interrupted: false, terminal: 'completed', latestAssistantContent: null },
+    ]);
+
+    const closeChunks = emitted.filter(
+      (e) => (e as { text?: string }).text === '</think>\n\n',
+    );
+    expect(closeChunks).toHaveLength(1);
+  });
+
+  it('backfills the assistant content when streaming produced no visible text', () => {
+    const { emitted } = drive([
+      runStart,
+      { kind: 'turn-started' },
+      { kind: 'turn-stream-ended', interrupted: false, terminal: 'completed', latestAssistantContent: '<think>内心</think>补发的完整回答' },
+    ]);
+
+    expect(emitted).toContainEqual({
+      type: 'message_chunk',
+      text: '<think>内心</think>补发的完整回答',
+    });
+  });
+
+  it('falls back to accumulator text when neither stream nor output produced content', () => {
+    const deps = makeDeps({ takeFallbackText: () => '兜底正文' });
+    const { emitted } = drive(
+      [
+        runStart,
+        { kind: 'turn-started' },
+        { kind: 'turn-stream-ended', interrupted: false, terminal: 'completed', latestAssistantContent: null },
+      ],
+      deps,
+    );
+
+    expect(emitted).toContainEqual({ type: 'message_chunk', text: '兜底正文' });
+  });
+
+  it('does not backfill when visible text already streamed this turn', () => {
+    const { emitted } = drive([
+      runStart,
+      { kind: 'turn-started' },
+      { kind: 'message-started', hasReasoningSource: false },
+      { kind: 'text-token', token: '已流式的正文' },
+      { kind: 'message-ended' },
+      { kind: 'turn-stream-ended', interrupted: false, terminal: 'completed', latestAssistantContent: '不该出现' },
+    ]);
+
+    expect(emitted.filter((e) => (e as { text?: string }).text === '不该出现')).toHaveLength(0);
+  });
+
+  it('marks the run aborted on run-aborted', () => {
+    const { emitted, effects } = drive([
+      runStart,
+      { kind: 'run-aborted' },
+    ]);
+    expect(emitted).toEqual([{ type: 'run_updated', runId: 'run-1', status: 'aborted' }]);
+    expect(effects).toEqual([{ type: 'update-run', status: 'aborted', aborted: true }]);
   });
 });
 
