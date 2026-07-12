@@ -28,6 +28,7 @@ interface ConversationWorkspaceModel {
   };
   viewport: {
     messages: Message[];
+    isConversationLoading: boolean;
     isStreaming: boolean;
     error: SessionError | null;
     timelineItems: ConversationTimelineItem[];
@@ -69,6 +70,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     sessions,
     activeSessionId,
     messages,
+    isConversationLoading,
     isStreaming,
     streamingMessageId,
     activeRunId,
@@ -146,6 +148,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     },
     viewport: {
       messages,
+      isConversationLoading,
       isStreaming,
       error,
       timelineItems,

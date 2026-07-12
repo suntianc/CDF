@@ -1,7 +1,7 @@
 import type { RefObject, UIEventHandler } from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, LoaderCircle, ShieldAlert, X } from 'lucide-react';
 import type { AgentApprovalRequest, Message } from '@shared/types';
 import type { DelegatedTask, ParallelWorker, SessionError } from '../../stores/sessionStore';
 import { projectVideoApprovalSummary } from '../shared/videoApprovalSummary';
@@ -15,6 +15,7 @@ type ConversationViewportSurfaceProps = {
   activeSessionId: string | null;
   timelineItems: ConversationTimelineItem[];
   messages: Message[];
+  isConversationLoading: boolean;
   isStreaming: boolean;
   hasActiveGoal: boolean;
   viewingTask: DelegatedTask | null;
@@ -147,6 +148,7 @@ export function ConversationViewportSurface({
   activeSessionId,
   timelineItems,
   messages,
+  isConversationLoading,
   isStreaming,
   hasActiveGoal,
   viewingTask,
@@ -182,7 +184,18 @@ export function ConversationViewportSurface({
           paddingTop: hasActiveGoal ? '64px' : '0px',
         }}
       >
-        {timelineItems.map((item, idx) => {
+        {isConversationLoading && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex h-full items-center justify-center gap-2 text-xs text-[var(--color-text-muted)]"
+          >
+            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+            <span>{t('chat.loadingConversation')}</span>
+          </div>
+        )}
+
+        {!isConversationLoading && timelineItems.map((item, idx) => {
           if (item.type === 'pending_approval_block') {
             return (
               <PendingApprovalCard
@@ -238,7 +251,7 @@ export function ConversationViewportSurface({
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   {error.recoverableActions.map((a) => (
                     <button key={a.label} type="button" onClick={() => { a.action(); onClearError(); }} className="text-[var(--color-danger)] underline underline-offset-2 hover:no-underline font-medium cursor-pointer">
-                      {a.label}
+                      {t(a.label, { defaultValue: a.label })}
                     </button>
                   ))}
                 </div>

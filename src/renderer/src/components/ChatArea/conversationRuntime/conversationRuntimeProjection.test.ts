@@ -539,6 +539,7 @@ describe('Conversation Runtime Projection', () => {
       content: '已生成',
       runId: 'run-1',
       agentId: 'agent-1',
+      events: [],
     }, deps);
 
     expect(hydrated).toMatchObject({
