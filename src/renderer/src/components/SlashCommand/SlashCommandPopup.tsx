@@ -4,6 +4,7 @@ import {
   useImperativeHandle,
   useMemo,
   useState,
+  useRef,
 } from 'react';
 import { Command } from 'cmdk';
 import { AlertCircle } from 'lucide-react';
@@ -17,14 +18,13 @@ const SYSTEM_COMMANDS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '/context', label: '/context' },
 ];
 
-// Phase 8 — D-01..D-04: 7-color source badge palette (VS Code Dark+ style).
+// Phase 8 — D-01..D-04: 6-color source badge palette (VS Code Dark+ style).
 // Static string literals (Tailwind v4 static class scan [VERIFIED: tailwindcss.com]).
 // D-02: text color only — no background/border change. D-04: no new CSS vars.
 const SOURCE_TEXT_COLOR: Record<CommandSource, string> = {
   'system': 'text-blue-400',
   'skill:global': 'text-violet-300',
   'skill:project': 'text-purple-400',
-  'workflow': 'text-green-400',
   'mcp': 'text-amber-400',
   'cmd:system': 'text-[var(--color-text-muted)]',
   'cmd:project': 'text-[var(--color-text-secondary)]',
@@ -166,11 +166,26 @@ export const SlashCommandPopup = forwardRef<
     filtered[0]?.name ?? displayCommands[0]?.name ?? ''
   );
 
+  const commandListRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (filtered[0]) {
       setSelectedValue(filtered[0].name);
     }
   }, [query, filtered]);
+
+  useEffect(() => {
+    if (!commandListRef.current) return;
+    const timer = setTimeout(() => {
+      const selectedEl = commandListRef.current?.querySelector('[data-selected="true"]');
+      if (selectedEl) {
+        selectedEl.scrollIntoView({
+          block: 'nearest',
+        });
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [selectedValue]);
 
   useImperativeHandle(
     ref,
@@ -247,7 +262,10 @@ export const SlashCommandPopup = forwardRef<
       label="Slash commands"
       className="w-full"
     >
-      <Command.List className="max-h-64 overflow-y-auto p-0">
+      <Command.List 
+        ref={commandListRef} 
+        className="max-h-64 overflow-y-auto p-0 [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar]:h-0 [scrollbar-width:none] [-ms-overflow-style:none]"
+      >
         {hasMcpWarning && (
           <div
             data-testid="mcp-health-warning"
