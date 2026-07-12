@@ -100,6 +100,7 @@ describe('Conversation Runtime Registry', () => {
       ...runtime('conversation-1', 'request-1'),
       pendingApproval: {
         id: 'approval-1',
+        runId: 'run-1',
         actions: [{ name: 'write_file', args: { path: 'README.md' } }],
       },
     };

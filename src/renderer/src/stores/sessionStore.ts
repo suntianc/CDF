@@ -826,6 +826,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { activeSessionId, sessions } = get();
     const sessionId = targetSessionId ?? activeSessionId;
     if (!sessionId) return { ok: true };
+    const legacyRuntime = streamingSessionsCache.get(sessionId);
+    const legacyRuntimeActive = sessionId === activeSessionId
+      ? get().isStreaming
+      : legacyRuntime?.isStreaming;
+    if (legacyRuntimeActive) return { ok: false, code: 'CONVERSATION_BUSY' };
     const activeSession = sessions.find((session) => session.id === sessionId);
 
     const userMsgId = window.crypto.randomUUID();
@@ -941,46 +946,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         await window.electronAPI.db.saveMessage(message);
       }
 
-      // Append User message and placeholder Assistant message
-      const assistantMsgId = window.crypto.randomUUID();
-      const assistantMsgPlaceholder: Message = {
-        id: assistantMsgId,
-        session_id: sessionId,
-        role: 'assistant',
-        content: '',
-        tokens: 0,
-        created_at: Date.now(),
-      };
-
-      const baseMessages = get().getMessagesForSession(sessionId);
-      const initialState: StreamingSessionState = createConversationRuntimeState({
-        sessionId,
-        streamingMessageId: assistantMsgId,
-        currentAssistantMsgId: assistantMsgId,
-        messages: [
-          ...baseMessages,
-          ...(options?.hiddenUserMessage ? [] : [userMsg]),
-          ...skillAttributionMessages,
-          assistantMsgPlaceholder,
-        ],
-        todos: [],
-        delegatedTasks: [],
-        parallelBatches: [],
-        agentRuns: [],
-        agentToolCalls: [],
-        activeRunId: null,
-        pendingApproval: null,
-        isStreaming: true,
-        accumulatedContent: '',
-        pendingToolMessages: {},
-        runtimeToolMessageIds: [],
+      transitionRegistry({
+        type: 'update',
+        conversationId: sessionId,
+        requestId: assistantMsgId,
+        projection: initialState,
       });
-
-      streamingSessionsCache.set(sessionId, initialState);
-
-      if (activeSessionId === sessionId) {
-        set(initialState);
-      }
 
       let cleanup = () => {};
       let parallelCleanup = () => {};
@@ -988,23 +959,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         now: () => Date.now(),
         createId: () => window.crypto.randomUUID(),
         estimateTokens,
-      };
-
-      const syncActiveSession = (nextState: StreamingSessionState) => {
-        if (get().activeSessionId === sessionId) {
-          set({
-            messages: nextState.messages,
-            todos: nextState.todos,
-            delegatedTasks: nextState.delegatedTasks,
-            parallelBatches: nextState.parallelBatches,
-            agentRuns: nextState.agentRuns,
-            agentToolCalls: nextState.agentToolCalls,
-            activeRunId: nextState.activeRunId,
-            pendingApproval: nextState.pendingApproval,
-            isStreaming: nextState.isStreaming,
-            streamingMessageId: nextState.streamingMessageId,
-          });
-        }
       };
 
       const executeRuntimeProjectionEffect = async (
@@ -1054,14 +1008,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
         if (effect.type === 'resolveStream') {
           syncActiveSession(nextState);
-          streamingSessionsCache.delete(sessionId);
+          transitionRegistry({
+            type: 'release',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+          });
           resolve();
           return true;
         }
 
         if (effect.type === 'rejectStream') {
           syncActiveSession(nextState);
-          streamingSessionsCache.delete(sessionId);
+          transitionRegistry({
+            type: 'release',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+          });
           reject(new Error(effect.error || '对话请求出错'));
           return true;
         }
@@ -1070,21 +1032,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
 
       parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; agentSlug: string; workerId: string; step: ExecutionStep }) => {
-        const cached = streamingSessionsCache.get(sessionId);
-        if (!cached) return;
-        const result = projectConversationRuntime(cached, { kind: 'parallelTaskStep', event: data }, projectionDeps);
-        streamingSessionsCache.set(sessionId, result.state);
-        syncActiveSession(result.state);
+        const runtime = get().conversationRuntimeRegistry.entries[sessionId];
+        if (!runtime || runtime.requestId !== assistantMsgId) return;
+        const result = projectConversationRuntime(runtime.projection, { kind: 'parallelTaskStep', event: data }, projectionDeps);
+        transitionRegistry({
+          type: 'update',
+          conversationId: sessionId,
+          requestId: assistantMsgId,
+          projection: result.state,
+        });
       });
 
       const streamPromise = new Promise<void>((resolve, reject) => {
         let streamEventQueue = Promise.resolve();
 
         const processStreamEvent = async (data: LLMStreamEvent) => {
-          const cached = streamingSessionsCache.get(sessionId);
-          if (!cached) return;
-          const result = projectConversationRuntime(cached, { kind: 'llm', event: data }, projectionDeps);
-          streamingSessionsCache.set(sessionId, result.state);
+          const runtime = get().conversationRuntimeRegistry.entries[sessionId];
+          if (!runtime || runtime.requestId !== assistantMsgId) return;
+          const result = projectConversationRuntime(runtime.projection, { kind: 'llm', event: data }, projectionDeps);
+          const update = transitionRegistry({
+            type: 'update',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+            projection: result.state,
+          });
+          if (!update.ok || !update.applied) return;
 
           let terminal = false;
           for (const effect of result.effects) {
@@ -1137,22 +1109,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         cleanup();
         parallelCleanup();
         // 移除未持久化的 assistant 占位和工具消息
-        const cached = streamingSessionsCache.get(sessionId);
+        const runtime = get().conversationRuntimeRegistry.entries[sessionId];
+        const projection = runtime?.requestId === assistantMsgId ? runtime.projection : undefined;
         const transientMessageIds = new Set([
           assistantMsgId,
-          cached?.currentAssistantMsgId,
-          ...Object.values(cached?.pendingToolMessages ?? {}).flat(),
-          ...(cached?.runtimeToolMessageIds ?? []),
+          projection?.currentAssistantMsgId,
+          ...Object.values(projection?.pendingToolMessages ?? {}).flat(),
+          ...(projection?.runtimeToolMessageIds ?? []),
         ].filter(Boolean));
-        if (cached) {
-          cached.messages = cached.messages.filter(
-            (m) => !transientMessageIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
-          );
-          cached.isStreaming = false;
-          cached.streamingMessageId = null;
-          cached.pendingApproval = null;
-        }
-        if (get().activeSessionId === sessionId) {
+        const release = transitionRegistry({
+          type: 'release',
+          conversationId: sessionId,
+          requestId: assistantMsgId,
+        });
+        if (release.ok && release.applied && get().activeSessionId === sessionId) {
           set((state) => ({
             messages: state.messages.filter(
               (m) => !transientMessageIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
@@ -1160,21 +1130,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             isStreaming: false,
             streamingMessageId: null,
             pendingApproval: null,
-            error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
+            error: state.error ?? { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId); } }] },
           }));
         }
-        streamingSessionsCache.delete(sessionId);
       }
     } catch (err: any) {
-      if (get().activeSessionId === sessionId) {
+      const release = transitionRegistry({
+        type: 'release',
+        conversationId: sessionId,
+        requestId: assistantMsgId,
+      });
+      if (release.ok && release.applied && get().activeSessionId === sessionId) {
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
+          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId); } }] },
         });
       }
-      streamingSessionsCache.delete(sessionId);
     }
+    return { ok: true };
   },
 
   resolveApproval: async (decision, editedArgs) => {

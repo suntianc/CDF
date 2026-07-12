@@ -45,7 +45,7 @@ export interface UseComposerSubmissionControllerOptions {
     },
     targetSessionId?: string,
     options?: { imageBase64?: string[] }
-  ) => Promise<void>;
+  ) => Promise<void | { ok: true } | { ok: false; code: 'CONVERSATION_BUSY' }>;
   getWelcomeModelOverride: () => {
     providerId: string;
     sourceId?: string;
@@ -162,7 +162,7 @@ export function useComposerSubmissionController({
     }
 
     try {
-      await sendMessage(
+      const result = await sendMessage(
         currentProjectId,
         intent.content,
         {
@@ -175,7 +175,9 @@ export function useComposerSubmissionController({
         undefined,
         { imageBase64: intent.attachments.length ? intent.attachments : undefined }
       );
-      return { type: 'submittedConversation' };
+      return result && !result.ok
+        ? { type: 'failed', phase: 'sendConversation', error: result }
+        : { type: 'submittedConversation' };
     } catch (error) {
       return { type: 'failed', phase: 'sendConversation', error };
     }
