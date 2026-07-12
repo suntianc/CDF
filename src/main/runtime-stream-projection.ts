@@ -515,7 +515,15 @@ export function projectRuntimeStream(
       events.push({ type: 'tool_error', id: active.toolCallId, name: active.toolName, error: event.message });
 
       if (active.agentSlug !== null) {
-        const errorCode = event.message.toLowerCase().includes('timeout') ? 'TIMEOUT' : 'UNKNOWN';
+        const lower = event.message.toLowerCase();
+        let errorCode = 'UNKNOWN';
+        if (lower.includes('timeout') || lower.includes('timed out')) errorCode = 'TIMEOUT';
+        // undici/fetch stream cut (TypeError: terminated) — see isTransientRuntimeError
+        else if (lower === 'terminated' || lower.includes('network') || lower.includes('fetch failed')) {
+          errorCode = 'NETWORK';
+        } else if (lower.includes('interrupt') || lower.includes('cancel') || lower.includes('aborted')) {
+          errorCode = 'INTERRUPTED';
+        }
         events.push({
           type: 'delegated_task_end',
           taskId: active.toolCallId,

@@ -268,6 +268,8 @@ function getRecoverableToolErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   if (lower.includes('timeout') || lower.includes('timed out')) return 'TIMEOUT';
+  // undici/fetch stream cut (TypeError: terminated)
+  if (lower === 'terminated' || lower.includes('network') || lower.includes('fetch failed')) return 'NETWORK';
   if (lower.includes('rate limit') || lower.includes('429')) return 'RATE_LIMIT';
   if (lower.includes('permission') || lower.includes('unauthorized') || lower.includes('forbidden')) return 'PERMISSION_DENIED';
   if (lower.includes('not found') || lower.includes('enoent')) return 'NOT_FOUND';

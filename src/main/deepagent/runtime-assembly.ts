@@ -102,7 +102,20 @@ export function registerCdfHarnessProfile(
 
   registerSafely(modelName);
 
-  if (providerType === 'anthropic') {
+  // deepagents resolveHarnessProfile uses getModelProvider(model instance):
+  // ChatAnthropic → "anthropic", ChatOpenAI → "openai". Several CDF provider
+  // types construct ChatAnthropic (minimax, deepseek, zhipu, …). Registering
+  // only openai:* leaves GP subagent enabled for those models, which then
+  // shares the master model instance and dies as TypeError: terminated.
+  const usesChatAnthropic =
+    providerType === 'anthropic'
+    || providerType === 'minimax'
+    || providerType === 'minimax-overseas'
+    || providerType === 'deepseek'
+    || providerType === 'zhipu'
+    || providerType === 'glm-overseas';
+
+  if (usesChatAnthropic) {
     registerSafely('anthropic');
     if (modelName && !modelName.includes(':')) registerSafely(`anthropic:${modelName}`);
     return;

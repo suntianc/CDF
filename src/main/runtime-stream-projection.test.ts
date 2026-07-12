@@ -223,6 +223,26 @@ describe('Runtime Stream Projection — delegated task (task tool)', () => {
       errorCode: 'TIMEOUT',
     });
   });
+
+  // undici/fetch stream cut: TypeError message is literally "terminated".
+  // Must not collapse to opaque UNKNOWN (UI shows "UNKNOWN terminated").
+  it('classifies undici stream termination as NETWORK in delegated_task_end', () => {
+    const { emitted } = drive([
+      startTask(),
+      { kind: 'tool-failed', message: 'terminated', isInterrupt: false },
+    ]);
+    expect(emitted.at(-1)).toMatchObject({
+      type: 'delegated_task_end',
+      status: 'failure',
+      errorCode: 'NETWORK',
+      result: {
+        status: 'failure',
+        artifacts: [],
+        summary: '',
+        error: { code: 'NETWORK', message: 'terminated' },
+      },
+    });
+  });
 });
 
 describe('Runtime Stream Projection — subagent stream correlation', () => {

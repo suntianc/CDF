@@ -248,9 +248,15 @@ function parseDelegatedTaskOutput(call: AgentToolCall): {
 } {
   if (call.status === 'error') {
     const message = call.error || '';
+    const lower = message.toLowerCase();
     let errorCode = 'UNKNOWN';
-    if (message.toLowerCase().includes('timeout')) errorCode = 'TIMEOUT';
-    else if (message.toLowerCase().includes('interrupt') || message.toLowerCase().includes('cancel')) errorCode = 'INTERRUPTED';
+    if (lower.includes('timeout') || lower.includes('timed out')) errorCode = 'TIMEOUT';
+    // undici/fetch stream cut — was shown as opaque "UNKNOWN terminated"
+    else if (lower === 'terminated' || lower.includes('network') || lower.includes('fetch failed')) {
+      errorCode = 'NETWORK';
+    } else if (lower.includes('interrupt') || lower.includes('cancel') || lower.includes('aborted')) {
+      errorCode = 'INTERRUPTED';
+    }
     return {
       status: 'failure',
       errorCode,

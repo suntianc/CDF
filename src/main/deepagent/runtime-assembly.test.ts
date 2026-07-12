@@ -334,6 +334,38 @@ describe('registerCdfHarnessProfile', () => {
     );
   });
 
+  // ChatAnthropic-backed providers (minimax/deepseek/zhipu/…) resolve harness profiles via
+  // getModelProvider(model) === "anthropic". If we only register openai:* keys, the GP
+  // subagent stays enabled, shares the master model instance, and concurrent task() calls
+  // surface as TypeError: terminated → UI "UNKNOWN terminated".
+  it('registers anthropic keys for MiniMax so general-purpose stays disabled', () => {
+    registerCdfHarnessProfile('minimax', 'MiniMax-M3');
+    expect(registerHarnessProfileMock).toHaveBeenCalledWith(
+      'MiniMax-M3',
+      expect.objectContaining({ generalPurposeSubagent: { enabled: false } }),
+    );
+    expect(registerHarnessProfileMock).toHaveBeenCalledWith(
+      'anthropic',
+      expect.objectContaining({ generalPurposeSubagent: { enabled: false } }),
+    );
+    expect(registerHarnessProfileMock).toHaveBeenCalledWith(
+      'anthropic:MiniMax-M3',
+      expect.objectContaining({ generalPurposeSubagent: { enabled: false } }),
+    );
+  });
+
+  it('registers anthropic keys for other ChatAnthropic-backed providers', () => {
+    for (const providerType of ['minimax-overseas', 'deepseek', 'zhipu', 'glm-overseas'] as const) {
+      registerHarnessProfileMock.mockClear();
+      registerCdfHarnessProfile(providerType, 'some-model');
+      expect(registerHarnessProfileMock).toHaveBeenCalledWith('anthropic', expect.any(Object));
+      expect(registerHarnessProfileMock).toHaveBeenCalledWith(
+        'anthropic:some-model',
+        expect.any(Object),
+      );
+    }
+  });
+
   it('skips registration when overrides.modelSource is ai_subscription', () => {
     registerCdfHarnessProfile('openai', 'gpt-4', { modelSource: 'ai_subscription' } as any);
     expect(registerHarnessProfileMock).not.toHaveBeenCalled();

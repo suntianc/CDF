@@ -209,6 +209,42 @@ describe('createParallelTaskTool', () => {
     expect(createBuiltInToolsMock).toHaveBeenCalledWith('/tmp/project', 'session-1');
   });
 
+  // Skill descriptors are prompt metadata, not LangChain tools. Putting them in
+  // createDeepAgent({ tools }) makes ChatAnthropic throw
+  // "Unknown tool type passed to ChatAnthropic: knowledge-base".
+  it('does not pass Skill descriptors into createDeepAgent tools', async () => {
+    const skillDescriptor = {
+      name: 'knowledge-base',
+      qualifiedName: 'knowledge-base',
+      description: 'Enable and use the project Knowledge Base',
+      allowedTools: [] as string[],
+      whenToUse: 'when remembering project knowledge',
+      arguments: [] as unknown[],
+      sourceKind: 'built-in',
+    };
+    buildCdfSkillsRuntimeMock.mockReturnValue({
+      skills: [skillDescriptor],
+      prompt: '## Skills System\n\nparallel skills prompt',
+      warnings: [],
+    });
+    createBuiltInToolsMock.mockReturnValueOnce([{ name: 'bash' }]);
+    loadMcpToolsMock.mockResolvedValueOnce({
+      client: null,
+      tools: [{ name: 'alpha__search' }],
+    });
+
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+    await parallelTool.invoke({
+      tasks: [{ name: 'worker', description: 'Do worker task' }],
+    });
+
+    const params = createDeepAgentMock.mock.calls[0][0];
+    const toolNames = (params.tools as Array<{ name?: string }>).map((t) => t.name);
+    expect(toolNames).not.toContain('knowledge-base');
+    expect(params.tools).not.toContainEqual(skillDescriptor);
+    expect(toolNames).toEqual(expect.arrayContaining(['bash', 'alpha__search']));
+  });
+
   it('preserves qualified additional worker skill names when building preload hints', async () => {
     getAgentSkillNamesMock.mockReturnValueOnce(['project-additional:docs:review']);
 

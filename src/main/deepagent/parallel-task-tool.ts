@@ -155,7 +155,10 @@ async function invokeWorker(
     backend,
     systemPrompt: assembly.systemPrompt || undefined,
     permissions: assembly.permissions,
-    tools: [...assembly.skillsRuntime.skills, ...mcpRuntime.tools, ...builtInTools],
+    // Skills stay in systemPrompt (via assembleDeepAgentRuntime). Skill
+    // descriptors are not LangChain tools — spreading them into `tools`
+    // makes ChatAnthropic throw "Unknown tool type passed to ChatAnthropic".
+    tools: [...mcpRuntime.tools, ...builtInTools],
     // worker 不挂 interruptOn：worker 图没有 checkpointer，LangGraph 的
     // interrupt() 会直接抛 "No checkpointer set" 打死任务。与单委派 task
     // subagent 的免审批语义一致；Claude Code 式审批路由另行立项。
