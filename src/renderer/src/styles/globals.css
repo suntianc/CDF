@@ -1169,12 +1169,21 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 .message.user .message-row {
   background: var(--accent-dim);
-  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   padding: 10px 14px;
-  border-radius: var(--radius-md);
+  border-radius: 14px 4px 14px 14px;
+  box-shadow: 
+    0 2px 8px -1px color-mix(in srgb, var(--accent) 8%, transparent),
+    0 1px 3px -1px color-mix(in srgb, var(--accent) 4%, transparent);
   display: inline-block;
   text-align: left;
   max-width: 100%;
+}
+
+.message.user .message-row code {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .message-row code {

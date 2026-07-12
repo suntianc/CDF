@@ -635,12 +635,6 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         <div
           className="message-row"
           style={{
-            background: 'var(--accent-dim)',
-            border: '1px solid var(--border)',
-            padding: '10px 14px',
-            borderRadius: 'var(--radius-md)',
-            textAlign: 'left',
-            maxWidth: '100%',
             wordBreak: 'break-word'
           }}
         >
