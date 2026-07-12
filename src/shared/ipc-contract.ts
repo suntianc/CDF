@@ -2,54 +2,58 @@
 // preload 侧 typedInvoke 与主进程侧 typedHandle 均从这张表推导类型；
 // 参数保持位置元组形态（与线上 invoke 形态一致），以 handler 实际消费为真。
 // 纯类型层契约：不做运行时校验，运行时行为不变。
+import type { Agent, AgentSaveInput, AgentSaveResult } from './agents';
 import type {
-  Agent,
   AgentApprovalResolution,
   AgentRun,
-  AgentSaveInput,
-  AgentSaveResult,
   AgentToolCall,
-  ChatPayload,
-  JudgePayload,
-  LLMStreamEvent,
   ParallelTaskStepEvent,
-  BinaryFileInfo,
+} from './agent-runtime';
+import type { AtMentionCandidateList } from './at-mention';
+import type { SlashCommand, CommandConflictError } from './commands';
+import type {
+  ChatPayload,
   ConversationRunStreamEnvelope,
   ConversationRunStreamSnapshot,
-  DirectoryEntry,
-  FileContent,
-  FileError,
-  FileInfo,
-  SlashCommand,
+  JudgePayload,
+  LLMStreamEvent,
+  Message,
+  MessageSaveInput,
+  Session,
+} from './conversations';
+import type { ContextAggregate } from './context';
+import type { BinaryFileInfo, DirectoryEntry, FileContent, FileError, FileInfo } from './filesystem';
+import type {
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntrySummary,
   KnowledgeEntryUpdateInput,
+  PaperSearchConfigKey,
+  PaperSearchConfigSettings,
+} from './knowledge';
+import type { Project, ProjectScene } from './projects';
+import type {
   LLMProvider,
   LLMProviderSaveInput,
   LLMProviderSaveResult,
   MCPServer,
   MCPServerSaveInput,
   MCPServerSaveResult,
-  Message,
-  MessageSaveInput,
-  Project,
-  ProjectScene,
   SearchProvider,
   SearchProviderSaveInput,
   SearchProviderSaveResult,
-  Session,
-  Skill,
-  SkillSaveInput,
-  Workflow,
-  WorkflowSaveInput,
-  WorkflowRunProjectionEvent,
-  WorkflowRun,
-  WorkflowRunTask,
-  WorkflowStageGate,
+} from './providers';
+import type { Skill, SkillSaveInput } from './skills';
+import type {
   StageGateResolution,
+  Workflow,
+  WorkflowRun,
+  WorkflowRunProjectionEvent,
+  WorkflowRunTask,
+  WorkflowSaveInput,
   WorkflowStage,
-} from './types';
+  WorkflowStageGate,
+} from './workflows';
 import type {
   CapabilityJobAction,
   CapabilityJobCommandResult,
@@ -57,13 +61,6 @@ import type {
   CapabilityJobSnapshot,
 } from './capability-jobs';
 import type { SkillOverrideState } from './skill-overrides';
-import type {
-  AtMentionCandidateList,
-  CommandConflictError,
-  ContextAggregate,
-  PaperSearchConfigKey,
-  PaperSearchConfigSettings,
-} from './types';
 import type {
   AISubscriptionCapabilityRoute,
   AISubscriptionEntry,

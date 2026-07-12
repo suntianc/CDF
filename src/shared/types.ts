@@ -1,873 +1,116 @@
-import { z } from 'zod';
-import type { ReasoningEffort } from './ai-subscriptions';
-import type { SkillEffectiveVisibility, SkillModelDiscovery, SkillOverrideState, SkillVisibilitySource } from './skill-overrides';
-
-// D-03/D-10: Schema for subagent delegated task results
-export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
-  status: z.enum(['success', 'failure']),
-  artifacts: z.array(z.string()),
-  summary: z.string(),
-  error: z.object({
-    code: z.string(),
-    message: z.string(),
-  }).optional(),
-});
-export type DelegatedTaskResult = z.infer<typeof DELEGATED_TASK_RESULT_SCHEMA>;
-
-export type ProjectScene = 'general' | 'research';
-
-export interface Project {
-  id: string;
-  name: string;
-  path: string;
-  scene: ProjectScene;
-  created_at: number;
-  updated_at: number;
-  isGit?: boolean;
-}
-
-export interface Session {
-  id: string;
-  project_id: string;
-  name: string;
-  agent_id?: string | null;
-  parent_session_id?: string | null;
-  summary?: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface Message {
-  id: string;
-  session_id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  created_at: number;
-  tokens?: number | null;
-  think_duration_seconds?: number | null;
-  imageBase64?: string[];
-}
-
-// IPC 保存入参：以 db:saveMessage handler 实际消费的字段为真（created_at 由主进程生成）。
-export interface MessageSaveInput {
-  id: string;
-  session_id: string;
-  role: Message['role'];
-  content: string;
-  tokens?: number | null;
-  think_duration_seconds?: number | null;
-  imageBase64?: string[];
-}
-
-export interface LLMProvider {
-  id: string;
-  name: string;
-  provider_type: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'zhipu' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'moonshot' | 'qwen' | 'xiaomimimo';
-  api_key?: string;
-  api_url?: string;
-  default_model: string;
-  context_limit: number;
-  is_active: number;
-  hasKey?: boolean;
-  models?: string[];
-  created_at: number;
-  updated_at: number;
-}
-
-// IPC 保存入参：以 db:saveProvider handler 实际消费的字段为真。
-// api_key 传 '••••••••' 表示保留已存密钥；created_at/updated_at 由主进程生成。
-export interface LLMProviderSaveInput {
-  id: string;
-  name: string;
-  provider_type: LLMProvider['provider_type'];
-  api_key?: string;
-  api_url?: string;
-  default_model: string;
-  context_limit: number;
-  is_active: number | boolean;
-  models?: string[];
-}
-
-// db:saveProvider 的真实返回：不含 created_at/updated_at/api_key（handler 为真）。
-export interface LLMProviderSaveResult {
-  id: string;
-  name: string;
-  provider_type: LLMProvider['provider_type'];
-  api_url?: string;
-  default_model: string;
-  context_limit: number;
-  is_active: number | boolean;
-  models?: string[];
-  hasKey: boolean;
-}
-
-export interface Agent {
-  id: string;
-  project_id: string;
-  name: string;
-  description?: string;
-  provider_id?: string;
-  system_prompt?: string;
-  config?: Record<string, unknown>;
-  is_default: number;
-  mcpServerExclusionIds?: string[];
-  skillNames?: string[];
-  created_at: number;
-  updated_at: number;
-}
-
-// IPC 保存入参：以 db:saveAgent handler 实际消费的字段为真（slug 与时间戳由主进程生成）。
-export interface AgentSaveInput {
-  id: string;
-  project_id: string;
-  name: string;
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: Record<string, unknown> | null;
-  is_default?: number | boolean;
-  mcpServerExclusionIds?: string[];
-  skillNames?: string[];
-}
-
-// db:saveAgent 的真实返回：入参回显 + 归一化的 is_default/关联数组（handler 为真）。
-export interface AgentSaveResult {
-  id: string;
-  project_id: string;
-  name: string;
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: Record<string, unknown> | null;
-  is_default: number;
-  mcpServerExclusionIds: string[];
-  skillNames: string[];
-}
-
-// IPC 保存入参：以 db:saveSkill handler 实际消费的字段为真（写入物理 Skill 文件）。
-export interface SkillSaveInput {
-  name: string;
-  description?: string;
-  script_type?: string;
-  script_content?: string;
-  scope?: 'project' | 'global';
-}
-
-export interface Skill {
-  id: string;
-  name: string;
-  qualifiedName?: string;
-  description?: string;
-  scope: 'project' | 'global';
-  sourceKind?: SkillCommandSourceKind;
-  sourceLabel?: string;
-  sourcePath?: string;
-  skillPath?: string;
-  skillVisibility?: SkillEffectiveVisibility;
-  visibilitySource?: SkillVisibilitySource;
-  modelDiscovery?: SkillModelDiscovery;
-  userInvocable?: boolean;
-  editable?: boolean;
-  resourceFiles: string[];
-  created_at: number;
-  updated_at: number;
-  shadowedSkills?: SkillShadowedEntry[];
-}
-
-export interface SkillShadowedEntry {
-  name: string;
-  qualifiedName?: string;
-  sourceKind?: SkillCommandSourceKind;
-  sourceLabel?: string;
-  sourcePath?: string;
-  skillPath?: string;
-}
-
-export type SkillAttributionPhase =
-  | 'model-discovery'
-  | 'preload'
-  | 'explicit-invocation'
-  | 'model-triggered';
-
-export interface SkillAttribution {
-  phase: SkillAttributionPhase;
-  name: string;
-  qualifiedName: string;
-  sourceKind: SkillCommandSourceKind;
-  sourceLabel: string;
-  skillPath: string;
-  visibility: SkillEffectiveVisibility;
-  modelDiscovery: SkillModelDiscovery;
-  userInvocable: boolean;
-}
-
-export interface MCPServer {
-  id: string;
-  name: string;
-  server_type: 'stdio' | 'sse' | 'http';
-  config: Record<string, unknown>;
-  is_connected: boolean;
-  last_health_check?: number;
-  created_at: number;
-  updated_at: number;
-}
-
-export type SearchProviderType = 'tavily' | 'anysearch';
-
-// IPC 保存入参：以 db:saveMcpServer handler 实际消费的字段为真。
-export interface MCPServerSaveInput {
-  id: string;
-  name: string;
-  server_type: MCPServer['server_type'];
-  config?: Record<string, unknown> | null;
-}
-
-// db:saveMcpServer 的真实返回：新建/更新后连接状态一律回报 false（handler 为真）。
-export interface MCPServerSaveResult {
-  id: string;
-  name: string;
-  server_type: MCPServer['server_type'];
-  config?: Record<string, unknown> | null;
-  is_connected: boolean;
-}
-
-// IPC 保存入参：以 db:saveToolConfig handler 实际消费的字段为真。
-// api_key 传 '••••••••' 表示保留已存密钥。
-export interface SearchProviderSaveInput {
-  id: string;
-  tool_type: SearchProviderType;
-  name: string;
-  api_key?: string;
-  config?: Record<string, unknown> | null;
-  is_enabled?: number | boolean;
-  is_default?: number | boolean;
-}
-
-// db:saveToolConfig 的真实返回：不含时间戳与 api_key（handler 为真）。
-export interface SearchProviderSaveResult {
-  id: string;
-  tool_type: SearchProviderType;
-  name: string;
-  config?: Record<string, unknown> | null;
-  is_enabled: boolean;
-  is_default: boolean;
-  hasKey: boolean;
-}
-
-export interface SearchProvider {
-  id: string;
-  tool_type: SearchProviderType;  // 'tavily' | 'anysearch'
-  name: string;
-  api_key?: string;
-  config?: Record<string, unknown>;
-  is_enabled: boolean;
-  is_default: boolean;
-  hasKey?: boolean;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface SearchResult {
-  title: string;
-  url: string;
-  content: string;
-  source: SearchProviderType;
-  score: number;
-  published_at?: string;
-}
-
-export interface TodoItem {
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-}
-
-export type LLMStreamEvent =
-  | { type: 'run_started'; runId: string; agentId: string; status: AgentRunStatus }
-  | { type: 'run_updated'; runId: string; status: AgentRunStatus; error?: string }
-  | { type: 'message_chunk'; text: string }
-  | { type: 'message_done' }
-  | { type: 'tool_start'; id?: string; name: string; input?: unknown }
-  | { type: 'tool_end'; id?: string; name: string; output?: unknown }
-  | { type: 'tool_error'; id?: string; name: string; error: string }
-  | { type: 'skill_attribution'; attributions: SkillAttribution[] }
-  | { type: 'approval_required'; approval: AgentApprovalRequest }
-  | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
-  | { type: 'runtime_error'; error: string; errorCode?: string; errorMessageKey?: string; errorMessageParams?: Record<string, string | number> }
-  | { type: 'delegated_task_start'; taskId: string; agentSlug: string; agentName: string; goal: string }
-  | { type: 'delegated_task_chunk'; taskId: string; text: string }
-  | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
-  | { type: 'delegated_task_step'; taskId: string; step: ExecutionStep }
-  | { type: 'todos_update'; todos: TodoItem[] };
-
-export type ConversationRunOrigin = 'background-capability-continuation' | 'workflow-resume';
-
-export interface ConversationRunIdentity {
-  sessionId: string;
-  requestId: string;
-  messageId: string;
-  origin: ConversationRunOrigin;
-}
-
-export interface ConversationRunStreamEnvelope extends ConversationRunIdentity {
-  sequence: number;
-  event: LLMStreamEvent;
-}
-
-export interface ConversationRunStreamSnapshot extends ConversationRunIdentity {
-  sequence: number;
-  content: string;
-  runId: string | null;
-  agentId: string | null;
-  /** Complete ordered event history for deterministic renderer hydration. */
-  events: LLMStreamEvent[];
-}
-
-// ===== Phase 6: Slash Command Registry Types (D-01, D-06, D-07) =====
-
-/** D-06 priority order. Declaration order is informational only — actual
- *  priority numbers live in renderer useCommandRegistry.ts. */
-export type CommandSource =
-  | 'system'
-  | 'mcp'
-  | 'skill:project'
-  | 'skill:global'
-  | 'cmd:project'
-  | 'cmd:system';
-
-export type SkillCommandSourceKind =
-  | 'built-in'
-  | 'project'
-  | 'project-nested'
-  | 'project-additional'
-  | 'user'
-  | 'enterprise';
-
-export interface SlashCommand {
-  /** Command name without the leading `/` */
-  name: string;
-  /** One-line description. MCP tools collect but do not render (D-09). */
-  description: string;
-  /** Where this command was registered from. */
-  source: CommandSource;
-  /** Dispatch target: system enum key / MCP tool name / skill id / workflow id / command file path. */
-  target: string;
-  /** Display label for source discrimination. */
-  sourceLabel: string;
-  /** Source badge text rendered in popup, e.g. `[system]`, `[mcp:arxiv_search]`. */
-  badge: string;
-  /** Skill short name. Present for Skill commands. */
-  skillName?: string;
-  /** Skill invocation name without the leading `/`; may include a qualified prefix. */
-  qualifiedName?: string;
-  /** Resolved Skill source kind. Present for Skill commands. */
-  skillSourceKind?: SkillCommandSourceKind;
-  /** Directory that contributed the Skill. Present for Skill commands. */
-  sourcePath?: string;
-  /** Absolute path to the Skill's SKILL.md. Present for Skill commands. */
-  skillPath?: string;
-  /** Effective Skill Override state. Present for Skill commands. */
-  skillVisibility?: SkillEffectiveVisibility;
-  /** Effective model-discovery exposure. Present for Skill commands. */
-  modelDiscovery?: SkillModelDiscovery;
-  /** Whether this Skill can be explicitly invoked by the user. Present for Skill commands. */
-  userInvocable?: boolean;
-  /** Optional arg hint for custom commands (D-20). */
-  argumentHint?: string;
-  /** D-05: absolute path to the .md file. Set for cmd:project / cmd:system;
-   *  absent for system-hardcoded / mcp / skill / workflow entries. */
-  bodyPath?: string;
-  /** D-07: parsed frontmatter object; absent for system-hardcoded commands. */
-  frontmatter?: ParsedFrontmatter;
-  /** 08.2 polish: when true, the command is omitted from the `/` popup
-   *  rendering — typically because a persistent UI affordance (e.g. the
-   *  ContextButton 📊) already exposes the same action. Slash input
-   *  (`/cmd …`) still dispatches via the dispatcher. Default: false. */
-  hideFromPopup?: boolean;
-}
-
-/** D-07 / D-10: typed frontmatter fields supported in custom command `.md` files.
- *  Field names are camelCase (consumer side); they map 1:1 to the kebab-case
- *  keys used in the frontmatter YAML (e.g. `disable-model-invocation`).
- *  Defaults are applied at parse time per D-10. */
-export interface ParsedFrontmatter {
-  /** Default: false (D-10) */
-  disableModelInvocation?: boolean;
-  /** Default: true (D-10) */
-  userInvocable?: boolean;
-  /** Default: [] — empty means all tools available (D-10) */
-  allowedTools?: string[];
-  /** Default: "" — empty means no soft hint (D-10) */
-  whenToUse?: string;
-  /** D-02: declaration of $name placeholders used in body. Default: [] */
-  arguments?: string[];
-}
-
-/** D-01 four dispatch kinds. args is always a passthrough string (D-02).
- *  08.2 extensions: GoalLoop kind (C1-05). */
-export type CommandDispatchAction =
-  | { kind: 'SystemSilent'; command: SlashCommand; args: string }
-  | { kind: 'SystemLocal'; command: SlashCommand; args: string }
-  | { kind: 'PluginRewrite'; command: SlashCommand; args: string; prompt: string }
-  | { kind: 'GoalLoop'; command: SlashCommand; args: string; goal: string };
-
-/** D-07 lock: build phase RETURNS errors (does NOT throw). Renderer consumes
- *  the array to fire sonner toasts; both rows are preserved (D-05). */
-export class CommandConflictError extends Error {
-  constructor(
-    public readonly commandName: string,
-    public readonly conflicts: ReadonlyArray<{ source: CommandSource; badge: string }>
-  ) {
-    super(`Command conflict: ${commandName} registered from ${conflicts.length} sources`);
-    this.name = 'CommandConflictError';
-  }
-}
-
-// ===== Phase 08.3: @Mention file candidate types (E-01, B-04) =====
-// Minimal payload — renderer infers `kind` from `path.endsWith('/')`.
-// `truncated: true` signals the popup should display a banner.
-export interface AtMentionCandidateList {
-  candidates: string[];
-  truncated: boolean;
-}
-
-// Phase 08.3 fix #8+#9+#14: shared constant so the cap is enforced in one
-// place. The main-side BFS caps results at this number; the store's
-// defensive slice and the truncated-banner string both reference it.
-export const MAX_AT_MENTION_CANDIDATES = 5000;
-
-export type ConversationModelSourceType = 'llm_provider' | 'ai_subscription';
-
-// llm:chat 的真实入参（handler 为真，原 src/main/llm.ts 定义迁移至此）。
-export interface ChatPayload {
-  projectId: string;
-  sessionId: string;
-  agentId?: string | null;
-  message: {
-    id: string;
-    content: string;
-    imageBase64?: string[];
-  };
-  overrides?: ChatRuntimeOverrides;
-  resume?: {
-    decisions: Array<{ type: 'approve' | 'reject'; message?: string }>;
-  };
-}
-
-// llm:judge 的真实入参（handler 为真，原 src/main/llm.ts 定义迁移至此）。
-export interface JudgePayload {
-  projectId: string;
-  agentId?: string | null;
-  prompt: string;
-  overrides?: ChatRuntimeOverrides;
-}
-
-export interface ChatRuntimeOverrides {
-  modelSource?: ConversationModelSourceType;
-  sourceId?: string;
-  providerId?: string;
-  model?: string;
-  reasoningEffort?: ReasoningEffort;
-  /** D-09: frontmatter `allowed-tools` whitelist. Non-empty lists are enforced
-   *  at runtime by the deepagent tool-call middleware. Empty/absent means all
-   *  otherwise available tools remain available. */
-  allowedTools?: string[];
-}
-
-export interface MCPToolDetail {
-  tool: string;
-  server: string;
-  tokens: number;
-}
-
-export interface SkillDetail {
-  name: string;
-  scope: 'global' | 'project';
-  tokens: number;
-}
-
-export interface WorkflowDetail {
-  id: string;
-  name: string;
-  tokens: number;
-}
-
-export interface SystemToolDetail {
-  name: string;
-  tokens: number;
-}
-
-export interface ProjectCommandDetail {
-  name: string;
-  tokens: number;
-}
-
-export interface ContextBreakdown {
-  conversation: number;
-  skills: number;
-  mcp: number;
-  workflows: number;
-  systemPrompt: number;
-  systemTools: number;
-  customAgents: number;
-  memoryFiles: number;
-  messages: number;
-  projectCommandBodies: number;
-  freeSpace: number;
-  autocompactBuffer: number;
-  mcpPerTool: MCPToolDetail[];
-  skillsPerSkill: SkillDetail[];
-  workflowsPerWorkflow: WorkflowDetail[];
-  systemToolsPerTool: SystemToolDetail[];
-  projectCommandsPerFile: ProjectCommandDetail[];
-}
-
-export interface ContextAggregate {
-  breakdown: ContextBreakdown;
-  total: number;
-  modelName: string;
-  contextLimit: number;
-  used: number;
-  usedPct: number;
-  freePct: number;
-  mcpPerTool: MCPToolDetail[];
-}
-
-export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted';
-export type AgentToolCallStatus = 'running' | 'success' | 'error' | 'skipped';
-export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited';
-export type AgentApprovalDecisionType = 'approve' | 'reject' | 'edit';
-
-export interface AgentRun {
-  id: string;
-  session_id: string;
-  agent_id: string;
-  request_id: string;
-  status: AgentRunStatus;
-  error?: string | null;
-  started_at: number;
-  ended_at?: number | null;
-  aborted: number;
-}
-
-export interface AgentToolCall {
-  id: string;
-  run_id: string;
-  tool_name: string;
-  input?: string | null;
-  output?: string | null;
-  status: AgentToolCallStatus;
-  error?: string | null;
-  approval_status?: AgentApprovalStatus | null;
-  started_at: number;
-  ended_at?: number | null;
-}
-
-export interface AgentApprovalAction {
-  name: string;
-  args?: unknown;
-  description?: string;
-  allowedDecisions?: AgentApprovalDecisionType[];
-}
-
-export interface AgentApprovalRequest {
-  id: string;
-  runId: string;
-  actions: AgentApprovalAction[];
-}
-
-export interface AgentApprovalResolution {
-  approvalId: string;
-  decisions: Array<{
-    type: AgentApprovalDecisionType;
-    editedAction?: unknown;
-    message?: string;
-  }>;
-}
-
-// ===== File Management Types =====
-
-export interface DirectoryEntry {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size?: number;
-  mtimeMs?: number;
-}
-
-export interface FileContent {
-  content: string;
-  encoding: string;
-  size: number;
-  mtimeMs: number;
-}
-
-export interface BinaryFileInfo {
-  binary: true;
-  size: number;
-  mtimeMs: number;
-}
-
-export interface FileInfo {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  isSymlink: boolean;
-  size: number;
-  mtimeMs: number;
-  ctimeMs: number;
-}
-
-export interface FileError {
-  code: string;
-  message: string;
-}
-
-// ===== C-lite Workflow Skeleton =====
-
-export interface Workflow {
-  id: string;
-  project_id: string;
-  name: string;
-  description?: string;
-  stages: WorkflowStage[];
-  master_agent_id?: string;
-  status: 'draft' | 'active';
-  created_at: number;
-  updated_at: number;
-}
-
-// IPC 保存入参：时间戳由主进程生成。
-export interface WorkflowSaveInput {
-  id?: string;
-  project_id: string;
-  name: string;
-  description?: string;
-  stages?: WorkflowStage[];
-  master_agent_id?: string;
-  status?: Workflow['status'];
-}
-
-// 全局审批模式：strict = 全量 DEFAULT_INTERRUPT_ON；agent_decides = 提示词引导；bypass = 不拦截。
-export type ApprovalMode = 'strict' | 'agent_decides' | 'bypass';
-
-// ===== 时序执行轨迹 =====
-
-export type ExecutionStepType =
-  | 'task_start' | 'task_end'
-  | 'thinking'
-  | 'text'
-  | 'text_chunk'
-  | 'tool_call' | 'tool_result'
-  | 'system' | 'validation';
-
-export interface ExecutionStep {
-  type: ExecutionStepType;
-  ts: number;
-  label?: string;       // task_start: agent 显示名
-  goal?: string;        // task_start: 任务描述（原始 description，不含附加上下文）
-  summary?: string;     // task_end: worker 最终输出的简短摘要
-  content?: string;     // thinking / system
-  tool?: string;        // tool_call / tool_result
-  args?: unknown;       // tool_call
-  success?: boolean;    // tool_result / task_end
-  output?: unknown;     // tool_result(成功)
-  error?: string;       // tool_result(失败) / task_end(失败)
-  duration_ms?: number; // tool_result
-  spanId?: string;       // 当前步骤的 span 标识
-  parentSpanId?: string; // 父级 span 标识
-}
-
-// agent:parallel-task-step-* 动态通道的 payload（原 parallel-task-tool.ts 定义迁移至此）。
-export interface ParallelTaskStepEvent {
-  batchId: string;
-  agentSlug: string;
-  workerId: string;
-  runTaskId?: string;
-  step: ExecutionStep;
-}
-
-
-
-// ===== Phase 14+: C-lite Workflow Run Types (Workflow Skeleton execution) =====
-
-export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'aborted' | 'waiting_gate';
-
-export interface WorkflowStage {
-  id: string;
-  name: string;
-  taskDescription: string;
-  acceptanceCriteria: string | string[];
-  gateEnabled: boolean;
-}
-
-export interface WorkflowStageReport {
-  acceptanceSelfCheck: Array<{ criterion: string; passed: boolean; notes?: string }>;
-  artifacts: Array<{ path: string; description?: string }>;
-  summary: string;
-  tasks?: WorkflowRunTask[];
-}
-
-export interface WorkflowRun {
-  id: string;
-  workflow_id: string;
-  project_id: string;
-  session_id: string;
-  master_agent_id: string;
-  status: WorkflowRunStatus;
-  current_stage_index: number;
-  total_stages: number;
-  stages: string;
-  skeleton_snapshot: string | null;
-  error: string | null;
-  started_at: number;
-  ended_at: number | null;
-  created_at: number;
-  updated_at: number;
-}
-
-export type WorkflowTaskStatus = 'planned' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
-
-export interface WorkflowRunTask {
-  id: string;
-  run_id: string;
-  stage_id: string;
-  title: string;
-  description: string;
-  status: WorkflowTaskStatus;
-  dependencies: string[];
-  delegation_batch_id: string | null;
-  delegation_worker_id: string | null;
-  delegation_agent_slug: string | null;
-  created_at: number;
-  updated_at: number;
-  completed_at: number | null;
-}
-
-export interface WorkflowStageGate {
-  id: string;
-  run_id: string;
-  stage_id: string;
-  stage_name: string;
-  report: WorkflowStageReport;
-  status: 'pending' | 'approved' | 'rejected' | 'auto_approved';
-  feedback: string | null;
-  created_at: number;
-  decided_at: number | null;
-}
-
-export interface StageGateResolution {
-  decision: 'approve' | 'reject' | 'terminate';
-  feedback?: string;
-}
-
-// ===== Workflow Run Projection Event (main→renderer) =====
-
-export type WorkflowRunProjectionEvent =
-  | { type: 'snapshot'; run: WorkflowRun; gates: WorkflowStageGate[]; tasks: WorkflowRunTask[] }
-  | { type: 'run'; runId?: string; status: WorkflowRunStatus; currentStageIndex: number; error: string | null }
-  | { type: 'stage_gate'; gate: WorkflowStageGate }
-  | { type: 'task'; task: WorkflowRunTask }
-  | { type: 'delegation'; taskId: string; batchId: string; workerId: string; agentSlug: string }
-  | { type: 'replay'; events: WorkflowRunProjectionEvent[] };
-
-export interface KnowledgeEntrySearchOptions {
-  keyword?: string;
-  tags?: string[];
-  tagMatch?: 'all' | 'any';
-  dateField?: 'timestamp';
-  dateFrom?: string;
-  dateTo?: string;
-  sortBy?: 'timestamp' | 'title';
-  sortOrder?: 'asc' | 'desc';
-  limit?: number;
-}
-
-export interface KnowledgeEntrySummary {
-  relativePath: string;
-  title?: string;
-  tags: string[];
-  body: string;
-  frontmatter: Record<string, unknown>;
-  warnings: string[];
-  invalidFrontmatter: boolean;
-}
-
-export interface JournalMetricsSnapshot {
-  impactFactor?: number | string;
-  casTier?: string;
-  jcrQuartile?: string;
-  indexing?: string[];
-  year: number | string;
-  source: string;
-}
-
-export const PAPER_SEARCH_CONFIG_KEYS = [
-  'SEMANTIC_SCHOLAR_API_KEY',
-  'UNPAYWALL_EMAIL',
-  'CORE_API_KEY',
-  'WOS_API_KEY',
-  'PUBMED_API_KEY',
-  'ELSEVIER_API_KEY',
-  'IEEE_API_KEY',
-  'EASYSCHOLAR_KEY',
-  'SPRINGER_API_KEY',
-  'SPRINGER_OPENACCESS_API_KEY',
-  'WILEY_TDM_TOKEN',
-  'CROSSREF_MAILTO',
-  'OPENAIRE_API_KEY',
-] as const;
-
-export type PaperSearchConfigKey = typeof PAPER_SEARCH_CONFIG_KEYS[number];
-export type PaperSearchConfigSource = 'user_config' | 'environment' | 'missing';
-
-export interface PaperSearchConfigEntry {
-  key: PaperSearchConfigKey;
-  configured: boolean;
-  value: string;
-  source: PaperSearchConfigSource;
-  secret: boolean;
-}
-
-export interface PaperSearchConfigSettings {
-  configPath: string;
-  entries: PaperSearchConfigEntry[];
-  configuredCount: number;
-  totalCount: number;
-}
-
-export interface KnowledgeEntryCreateInput {
-  relativePath?: string;
-  type?: string;
-  title: string;
-  description?: string;
-  resource?: string;
-  authors?: string[];
-  source?: string;
-  journal?: string;
-  volume?: string;
-  issue?: string;
-  pages?: string;
-  year?: string | number;
-  doi?: string;
-  journalMetrics?: JournalMetricsSnapshot;
-  tags?: string[];
-  body?: string;
-}
-
-export interface KnowledgeEntryUpdateInput {
-  type?: string;
-  title?: string;
-  description?: string;
-  resource?: string;
-  authors?: string[];
-  source?: string;
-  journal?: string;
-  volume?: string;
-  issue?: string;
-  pages?: string;
-  year?: string | number;
-  doi?: string;
-  journalMetrics?: JournalMetricsSnapshot;
-  tags?: string[];
-  body?: string;
-}
+export type { Project, ProjectScene } from './projects';
+
+export type { Agent, AgentSaveInput, AgentSaveResult } from './agents';
+
+export type {
+  LLMProvider,
+  LLMProviderSaveInput,
+  LLMProviderSaveResult,
+  MCPServer,
+  MCPServerSaveInput,
+  MCPServerSaveResult,
+  SearchProvider,
+  SearchProviderSaveInput,
+  SearchProviderSaveResult,
+  SearchProviderType,
+  SearchResult,
+} from './providers';
+
+export type {
+  Skill,
+  SkillAttribution,
+  SkillAttributionPhase,
+  SkillCommandSourceKind,
+  SkillSaveInput,
+  SkillShadowedEntry,
+} from './skills';
+
+export { CommandConflictError } from './commands';
+export type {
+  CommandDispatchAction,
+  CommandSource,
+  ParsedFrontmatter,
+  SlashCommand,
+} from './commands';
+
+export { MAX_AT_MENTION_CANDIDATES } from './at-mention';
+export type { AtMentionCandidateList } from './at-mention';
+
+export type {
+  ContextAggregate,
+  ContextBreakdown,
+  MCPToolDetail,
+  ProjectCommandDetail,
+  SkillDetail,
+  SystemToolDetail,
+  WorkflowDetail,
+} from './context';
+
+export { DELEGATED_TASK_RESULT_SCHEMA } from './agent-runtime';
+export type {
+  AgentApprovalAction,
+  AgentApprovalDecisionType,
+  AgentApprovalRequest,
+  AgentApprovalResolution,
+  AgentApprovalStatus,
+  AgentRun,
+  AgentRunStatus,
+  AgentToolCall,
+  AgentToolCallStatus,
+  ApprovalMode,
+  DelegatedTaskResult,
+  ExecutionStep,
+  ExecutionStepType,
+  ParallelTaskStepEvent,
+} from './agent-runtime';
+
+export type {
+  ChatPayload,
+  ChatRuntimeOverrides,
+  ConversationModelSourceType,
+  ConversationRunIdentity,
+  ConversationRunOrigin,
+  ConversationRunStreamEnvelope,
+  ConversationRunStreamSnapshot,
+  JudgePayload,
+  LLMStreamEvent,
+  Message,
+  MessageSaveInput,
+  Session,
+  TodoItem,
+} from './conversations';
+
+export type {
+  BinaryFileInfo,
+  DirectoryEntry,
+  FileContent,
+  FileError,
+  FileInfo,
+} from './filesystem';
+
+export type {
+  StageGateResolution,
+  Workflow,
+  WorkflowRun,
+  WorkflowRunProjectionEvent,
+  WorkflowRunStatus,
+  WorkflowRunTask,
+  WorkflowSaveInput,
+  WorkflowStage,
+  WorkflowStageGate,
+  WorkflowStageReport,
+  WorkflowTaskStatus,
+} from './workflows';
+
+export { PAPER_SEARCH_CONFIG_KEYS } from './knowledge';
+export type {
+  JournalMetricsSnapshot,
+  KnowledgeEntryCreateInput,
+  KnowledgeEntrySearchOptions,
+  KnowledgeEntrySummary,
+  KnowledgeEntryUpdateInput,
+  PaperSearchConfigEntry,
+  PaperSearchConfigKey,
+  PaperSearchConfigSettings,
+  PaperSearchConfigSource,
+} from './knowledge';
