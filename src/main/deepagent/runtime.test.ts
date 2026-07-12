@@ -661,6 +661,16 @@ describe('createDeepAgentRuntime', () => {
     });
   });
 
+  it('should equip the master agent with modelRetryMiddleware for transient model failures', async () => {
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' });
+
+    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
+    const middlewareNames = (params.middleware as Array<{ name?: string }>).map((item) => item.name);
+    expect(middlewareNames).toEqual(
+      expect.arrayContaining(['RecoverableToolErrorMiddleware', 'modelRetryMiddleware']),
+    );
+  });
+
   it('blocks main-agent tool calls that are outside runtime allowedTools overrides', async () => {
     await createDeepAgentRuntime(
       'project-1',

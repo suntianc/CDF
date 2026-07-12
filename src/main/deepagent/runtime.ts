@@ -33,6 +33,8 @@ import {
 import { createAgentTools } from './agent-tools';
 import { createParallelTaskTool } from './parallel-task-tool';
 import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createTaskGraphTools } from '../workflow-run';
+import { isTransientRuntimeError } from './runtime-errors';
+export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
 // advance_stage 推进阶段、先规划任务图再派单——避免把多阶段工作流当成一次性任务收尾。
@@ -340,27 +342,6 @@ function createAllowedToolsMiddleware(allowedTools?: string[]) {
 function getAllowedToolsMiddlewares(allowedTools?: string[]) {
   const middleware = createAllowedToolsMiddleware(allowedTools);
   return middleware ? [middleware] : [];
-}
-
-function isTransientRuntimeError(error: Error): boolean {
-  const message = error.message.toLowerCase();
-  const name = error.name.toLowerCase();
-  return (
-    name.includes('timeout') ||
-    name.includes('network') ||
-    name.includes('rate') ||
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('rate limit') ||
-    message.includes('429') ||
-    message.includes('500') ||
-    message.includes('502') ||
-    message.includes('503') ||
-    message.includes('504') ||
-    message.includes('econnreset') ||
-    message.includes('econnrefused') ||
-    message.includes('etimedout')
-  );
 }
 
 function isAbortError(error: unknown): boolean {
@@ -687,6 +668,11 @@ export async function createDeepAgentRuntime(
     middleware: [
       ...getAllowedToolsMiddlewares(overrides?.allowedTools),
       createRecoverableToolErrorMiddleware(),
+      modelRetryMiddleware({
+        maxRetries: 2,
+        retryOn: isTransientRuntimeError,
+        onFailure: formatRecoverableModelErrorObservation,
+      }),
     ],
     interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
     checkpointer,

@@ -3,6 +3,7 @@ import db from './database';
 import log from './logger';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
 import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, resetDeepAgentRuntimeThread, subagentStepStorage } from './deepagent/runtime';
+import { isTransientRuntimeError } from './deepagent/runtime-errors';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
@@ -521,6 +522,13 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         }
       );
 
+      // Graph failures reject run.output even when stream iterators fail first.
+      // Attach a no-op catch so a later reject cannot become UnhandledPromiseRejection
+      // before waitForRunOutputOrTerminal races it (same settled promise can still be awaited).
+      if (run?.output != null) {
+        Promise.resolve(run.output).catch(() => {});
+      }
+
       const messageStreamPromise = (async () => {
         for await (const msg of run.messages) {
           if (controller.signal.aborted) break;
@@ -647,8 +655,22 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
       // subagentsStreamPromise 保持非阻塞：SDK 的 StreamChannel 可能在 run
       // 结束后不关闭。核心的关联表已消除 waiter 死锁，但让它与主 Promise
       // 竞速仍能保证 message_done 及时发出。
-      await Promise.all([messageStreamPromise, toolStreamPromise, valuesStreamPromise]);
+      //
+      // 多路 iterator 在图失败时会同时 reject。Promise.all 在第一个 reject 后
+      // 不再 await 其余 promise，sibling 的后续 reject 会变成 UnhandledPromiseRejection。
+      // 用 allSettled 等全部结束后再抛出第一个 error。
+      const streamSettled = await Promise.allSettled([
+        messageStreamPromise,
+        toolStreamPromise,
+        valuesStreamPromise,
+      ]);
       subagentsStreamPromise.catch(() => {});
+      const firstStreamError = streamSettled.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      if (firstStreamError) {
+        throw firstStreamError.reason;
+      }
 
       let interruptValue = getStreamInterruptValue(run);
       let output: any;
@@ -801,22 +823,29 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         error: error?.message || String(error),
       });
     }
-    // Propagate error to workflow_runs / sessions if this is a workflow session
+    // Propagate terminal errors to workflow_runs / sessions if this is a workflow session.
+    // Transient network stream failures (e.g. TypeError: terminated) only fail the Agent Run;
+    // the Workflow Run stays open so the user can continue.
     try {
       const sessionRow = db.prepare('SELECT workflow_run_id FROM sessions WHERE id = ?').get(payload.sessionId) as { workflow_run_id: string | null } | undefined;
       if (sessionRow?.workflow_run_id) {
-        const wfStatus: WorkflowRunStatus = error?.name === 'AbortError' || controller.signal.aborted ? 'aborted' : 'failed';
-        updateRunStatus(sessionRow.workflow_run_id, wfStatus, error?.message || String(error));
-        sender.send('conversation:messages-changed', { sessionId: payload.sessionId });
-        const workflowRun = getRunBySessionId(payload.sessionId);
-        if (workflowRun) {
-          sender.send('workflow-run:projection-event', {
-            type: 'run',
-            runId: workflowRun.id,
-            status: wfStatus,
-            currentStageIndex: workflowRun.current_stage_index,
-            error: error?.message || String(error),
-          });
+        const isAbort = error?.name === 'AbortError' || controller.signal.aborted;
+        const errorForClassify = error instanceof Error ? error : new Error(String(error));
+        const isTransient = !isAbort && isTransientRuntimeError(errorForClassify);
+        if (!isTransient) {
+          const wfStatus: WorkflowRunStatus = isAbort ? 'aborted' : 'failed';
+          updateRunStatus(sessionRow.workflow_run_id, wfStatus, error?.message || String(error));
+          sender.send('conversation:messages-changed', { sessionId: payload.sessionId });
+          const workflowRun = getRunBySessionId(payload.sessionId);
+          if (workflowRun) {
+            sender.send('workflow-run:projection-event', {
+              type: 'run',
+              runId: workflowRun.id,
+              status: wfStatus,
+              currentStageIndex: workflowRun.current_stage_index,
+              error: error?.message || String(error),
+            });
+          }
         }
       }
     } catch (wfErr) {

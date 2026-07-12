@@ -498,6 +498,99 @@ describe('runLLMChat', () => {
     );
   });
 
+  it('should not permanently fail a workflow run on transient network stream termination', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      run: vi.fn(),
+      all: vi.fn(() => []),
+      get: () => {
+        if (sql.includes('FROM sessions')) return { workflow_run_id: 'wf-run-transient' };
+        if (sql.includes('FROM agent_runs')) return { id: 'run-transient' };
+        return undefined;
+      },
+    }));
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn(async () => {
+          throw Object.assign(new TypeError('terminated'), { name: 'TypeError' });
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'continue workflow' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await expect(runLLMChat({ send } as any, 'req-wf-transient', {
+      projectId: 'project-1',
+      sessionId: 'session-wf-transient',
+      message: {
+        id: 'message-wf-transient',
+        content: 'continue workflow',
+      },
+    })).rejects.toThrow('terminated');
+
+    expect(dbPrepareMock).not.toHaveBeenCalledWith(expect.stringContaining('UPDATE workflow_runs'));
+    expect(send).not.toHaveBeenCalledWith(
+      'workflow-run:projection-event',
+      expect.objectContaining({ type: 'run', status: 'failed' }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.stringMatching(/^llm:chunk-/),
+      expect.objectContaining({ type: 'runtime_error', error: 'terminated' }),
+    );
+  });
+
+  it('should not leave unhandled rejections when concurrent streams fail together', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {
+            yield {
+              text: (async function* () {
+                yield 'partial';
+                throw Object.assign(new TypeError('terminated'), { name: 'TypeError' });
+              })(),
+            };
+          })(),
+          toolCalls: (async function* () {
+            // Sibling stream also dies when the graph fails mid-turn.
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            throw Object.assign(new TypeError('terminated'), { name: 'TypeError' });
+          })(),
+          output: Promise.reject(Object.assign(new TypeError('terminated'), { name: 'TypeError' })),
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'stream' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    try {
+      await expect(runLLMChat({ send } as any, 'req-stream-race', {
+        projectId: 'project-1',
+        sessionId: 'session-stream-race',
+        message: {
+          id: 'message-stream-race',
+          content: 'stream',
+        },
+      })).rejects.toThrow('terminated');
+
+      // Allow any late sibling-stream rejections to surface if unhandled.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('should not update workflow runs on LLM error for a regular conversation', async () => {
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
