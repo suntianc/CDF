@@ -320,34 +320,25 @@ describe('App', () => {
     expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
     expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
   });
-  it('refreshes the visible Conversation after a durable background message arrives', async () => {
-    const selectSession = vi.fn().mockResolvedValue(undefined);
-    useSessionStore.setState({
-      activeSessionId: 'session-1',
-      isStreaming: false,
-      selectSession,
-    });
+  it('delegates durable Conversation refresh events to the store adapter', () => {
+    const handleMessagesChanged = vi.fn();
+    useSessionStore.setState({ handleMessagesChanged });
     render(<App />);
 
     act(() => messagesChangedListener?.({ sessionId: 'session-1' }));
 
-    await waitFor(() => expect(selectSession).toHaveBeenCalledWith('session-1'));
-    expect(useSessionStore.getState().activeSessionId).toBe('session-1');
+    expect(handleMessagesChanged).toHaveBeenCalledWith('session-1');
   });
-  it('refreshes a durable background message even while its live stream is settling', async () => {
-    const selectSession = vi.fn().mockResolvedValue(undefined);
-    useSessionStore.setState({
-      activeSessionId: 'session-1',
-      isStreaming: true,
-      selectSession,
-    });
+
+  it('does not keep component-local pending refresh state while a stream settles', () => {
+    const handleMessagesChanged = vi.fn();
+    useSessionStore.setState({ handleMessagesChanged, isStreaming: true });
     render(<App />);
 
     act(() => messagesChangedListener?.({ sessionId: 'session-1' }));
-    expect(selectSession).not.toHaveBeenCalled();
 
-    act(() => useSessionStore.setState({ isStreaming: false }));
-    await waitFor(() => expect(selectSession).toHaveBeenCalledWith('session-1'));
+    expect(handleMessagesChanged).toHaveBeenCalledTimes(1);
+    expect(handleMessagesChanged).toHaveBeenCalledWith('session-1');
   });
 
   it('forwards background Conversation run events to the session projection', () => {

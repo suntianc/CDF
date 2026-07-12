@@ -12,7 +12,12 @@ describe('ConversationRunStreams', () => {
       origin: 'background-capability-continuation',
     });
 
+    stream.sender.send('ignored-channel', { type: 'run_started', runId: 'run-1', agentId: 'agent-1', status: 'running' });
     stream.sender.send('ignored-channel', { type: 'message_chunk', text: '结果' });
+    stream.sender.send('ignored-channel', {
+      type: 'todos_update',
+      todos: [{ content: '检查结果', status: 'in_progress' }],
+    });
     stream.sender.send('ignored-channel', { type: 'message_chunk', text: '已完成' });
 
     expect(emit.mock.calls.map(([event]) => event)).toEqual([
@@ -20,16 +25,30 @@ describe('ConversationRunStreams', () => {
         sessionId: 'session-1',
         messageId: 'background-continuation-output:batch-1',
         sequence: 1,
-        event: { type: 'message_chunk', text: '结果' },
+        event: { type: 'run_started', runId: 'run-1', agentId: 'agent-1', status: 'running' },
       }),
       expect.objectContaining({
         sequence: 2,
+        event: { type: 'message_chunk', text: '结果' },
+      }),
+      expect.objectContaining({
+        sequence: 3,
+        event: { type: 'todos_update', todos: [{ content: '检查结果', status: 'in_progress' }] },
+      }),
+      expect.objectContaining({
+        sequence: 4,
         event: { type: 'message_chunk', text: '已完成' },
       }),
     ]);
     expect(streams.getActive('session-1')).toEqual(expect.objectContaining({
       content: '结果已完成',
-      sequence: 2,
+      sequence: 4,
+      events: [
+        { type: 'run_started', runId: 'run-1', agentId: 'agent-1', status: 'running' },
+        { type: 'message_chunk', text: '结果' },
+        { type: 'todos_update', todos: [{ content: '检查结果', status: 'in_progress' }] },
+        { type: 'message_chunk', text: '已完成' },
+      ],
     }));
   });
 

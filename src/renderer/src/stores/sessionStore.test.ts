@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LLMStreamEvent } from '@shared/types';
+import { createConversationRuntimeRegistryState } from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
 import { useSessionStore } from './sessionStore';
+
+beforeEach(() => {
+  useSessionStore.setState({
+    conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
+    pendingHistoryRefreshes: {},
+    isConversationLoading: false,
+  });
+});
 
 describe('sessionStore sendMessage', () => {
   beforeEach(() => {
@@ -1036,8 +1045,9 @@ describe('sessionStore selectSession activity errors', () => {
     await useSessionStore.getState().selectSession('session-new');
 
     const state = useSessionStore.getState();
-    expect(state.activeSessionId).toBe('session-old');
-    expect(state.messages).toBe(existingMessages);
+    expect(state.activeSessionId).toBe('session-new');
+    expect(state.messages).toEqual([]);
+    expect(state.isConversationLoading).toBe(false);
     expect(state.error?.message).toBe('message db failed');
   });
 
@@ -1203,10 +1213,20 @@ describe('sessionStore model overrides persistence', () => {
       sessionGoals: new Map(),
       goalJudgeStatus: new Map(),
     });
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'request-delete',
+      messageId: 'message-delete',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: 'transient' },
+    });
+    expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-1']).toBeDefined();
 
     await useSessionStore.getState().deleteSession('session-1');
 
     expect(useSessionStore.getState().sessionModelOverrides['session-1']).toBeUndefined();
+    expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-1']).toBeUndefined();
     const saved = localStorage.getItem('sessionModelOverrides');
     expect(JSON.parse(saved!)).toEqual({});
   });
@@ -1511,6 +1531,15 @@ describe('sessionStore background continuation streaming', () => {
       tokens: 1,
       created_at: 1,
     };
+    window.electronAPI = {
+      db: {
+        getMessages: vi.fn().mockResolvedValue([sourceMessage]),
+        getAgentRuns: vi.fn().mockResolvedValue([]),
+        getAgentToolCalls: vi.fn().mockResolvedValue([]),
+        getLatestTodos: vi.fn().mockResolvedValue([]),
+      },
+      conversation: { getActiveRun: vi.fn().mockResolvedValue(null) },
+    } as unknown as Window['electronAPI'];
     useSessionStore.setState({
       activeSessionId: 'session-1',
       messages: [sourceMessage],
@@ -1561,5 +1590,184 @@ describe('sessionStore background continuation streaming', () => {
       event: { type: 'message_done' },
     });
   });
+});
 
+describe('sessionStore Conversation Runtime Registry adapter', () => {
+  beforeEach(() => {
+    useSessionStore.setState({
+      activeSessionId: 'session-old',
+      messages: [{
+        id: 'old-message',
+        session_id: 'session-old',
+        role: 'assistant',
+        content: 'old Conversation',
+        tokens: 1,
+        created_at: 1,
+      }],
+      todos: [{ content: 'old todo', status: 'in_progress' }],
+      isStreaming: false,
+      streamingMessageId: null,
+      error: { message: 'old error' },
+    });
+  });
+
+  it('switches identity immediately and exposes target-specific loading before history resolves', async () => {
+    let resolveMessages: ((messages: any[]) => void) | undefined;
+    window.electronAPI = {
+      db: {
+        getMessages: vi.fn(() => new Promise((resolve) => { resolveMessages = resolve; })),
+        getAgentRuns: vi.fn().mockResolvedValue([]),
+        getAgentToolCalls: vi.fn().mockResolvedValue([]),
+        getLatestTodos: vi.fn().mockResolvedValue([]),
+      },
+      conversation: { getActiveRun: vi.fn().mockResolvedValue(null) },
+    } as unknown as Window['electronAPI'];
+
+    const selecting = useSessionStore.getState().selectSession('session-new');
+
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionId: 'session-new',
+      messages: [],
+      todos: [],
+      error: null,
+      isConversationLoading: true,
+    });
+
+    resolveMessages?.([{ id: 'new-message', session_id: 'session-new', role: 'assistant', content: 'new Conversation' }]);
+    await selecting;
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionId: 'session-new',
+      isConversationLoading: false,
+    });
+  });
+
+  it('keeps a background failure on its source Conversation and restores it on selection', async () => {
+    let resolveMessages: ((messages: any[]) => void) | undefined;
+    window.electronAPI = {
+      db: {
+        getMessages: vi.fn(() => new Promise((resolve) => { resolveMessages = resolve; })),
+        getAgentRuns: vi.fn().mockResolvedValue([]),
+        getAgentToolCalls: vi.fn().mockResolvedValue([]),
+        getLatestTodos: vi.fn().mockResolvedValue([]),
+      },
+      conversation: { getActiveRun: vi.fn().mockResolvedValue(null) },
+    } as unknown as Window['electronAPI'];
+    useSessionStore.setState({ activeSessionId: 'session-1', error: null });
+
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-2',
+      requestId: 'request-error',
+      messageId: 'message-error',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'runtime_error', error: 'source failed' },
+    });
+
+    expect(useSessionStore.getState().activeSessionId).toBe('session-1');
+    expect(useSessionStore.getState().error).toBeNull();
+    const selecting = useSessionStore.getState().selectSession('session-2');
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionId: 'session-2',
+      error: { message: 'source failed' },
+      isConversationLoading: false,
+    });
+    resolveMessages?.([]);
+    await selecting;
+  });
+
+  it('translates a sequence gap into complete snapshot hydration', async () => {
+    const base = {
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      messageId: 'message-1',
+      origin: 'background-capability-continuation' as const,
+    };
+    const getActiveRun = vi.fn().mockResolvedValue({
+      ...base,
+      sequence: 3,
+      content: '完整结果',
+      runId: 'run-1',
+      agentId: 'agent-1',
+      events: [
+        { type: 'run_started', runId: 'run-1', agentId: 'agent-1', status: 'running' },
+        { type: 'message_chunk', text: '完整结果' },
+        { type: 'todos_update', todos: [{ content: 'snapshot todo', status: 'in_progress' }] },
+      ],
+    });
+    window.electronAPI = {
+      db: { getMessages: vi.fn().mockResolvedValue([]) },
+      conversation: { getActiveRun },
+    } as unknown as Window['electronAPI'];
+    useSessionStore.setState({ activeSessionId: 'session-1', messages: [], todos: [] });
+
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 1,
+      event: { type: 'message_chunk', text: '不完整' },
+    });
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 3,
+      event: { type: 'message_chunk', text: '跳过的增量' },
+    });
+
+    await vi.waitFor(() => expect(getActiveRun).toHaveBeenCalledWith('session-1'));
+    await vi.waitFor(() => expect(useSessionStore.getState().messages).toContainEqual(
+      expect.objectContaining({ id: 'message-1', content: '完整结果' }),
+    ));
+    expect(useSessionStore.getState().todos).toEqual([
+      { content: 'snapshot todo', status: 'in_progress' },
+    ]);
+    expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-1']).toMatchObject({
+      lastSequence: 3,
+      hydrationPending: false,
+    });
+  });
+
+  it('keeps a failed terminal save visible, releases busy state, and retries persistence', async () => {
+    let chunkListener: ((event: unknown, data: LLMStreamEvent) => void | Promise<void>) | null = null;
+    let assistantSaveAttempts = 0;
+    const saveMessage = vi.fn(async (message: any) => {
+      if (message.role === 'assistant') {
+        assistantSaveAttempts += 1;
+        if (assistantSaveAttempts === 1) throw new Error('disk temporarily unavailable');
+      }
+      return message;
+    });
+    window.electronAPI = {
+      db: { saveMessage },
+      llm: {
+        onChunk: vi.fn((_requestId, callback) => {
+          chunkListener = callback;
+          return () => { chunkListener = null; };
+        }),
+        chat: vi.fn(async () => {
+          await chunkListener?.(null, { type: 'message_chunk', text: 'terminal answer' });
+          await chunkListener?.(null, { type: 'message_done' });
+        }),
+      },
+      deepagents: { onParallelTaskStep: vi.fn(() => () => {}) },
+    } as unknown as Window['electronAPI'];
+    useSessionStore.setState({
+      sessions: [{ id: 'session-1', project_id: 'project-1', name: 'One', created_at: 1, updated_at: 1 }],
+      activeSessionId: 'session-1',
+      messages: [],
+      error: null,
+    });
+
+    await useSessionStore.getState().sendMessage('project-1', 'question');
+
+    const failed = useSessionStore.getState();
+    const entry = failed.conversationRuntimeRegistry.entries['session-1'];
+    expect(entry).toMatchObject({ active: false, reconciliation: 'failed' });
+    expect(failed.isStreaming).toBe(false);
+    expect(failed.messages).toContainEqual(expect.objectContaining({ content: 'terminal answer' }));
+    expect(failed.error?.recoverableActions).toHaveLength(1);
+
+    failed.error?.recoverableActions?.[0]?.action();
+    await vi.waitFor(() => {
+      expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-1']).toBeUndefined();
+    });
+    expect(assistantSaveAttempts).toBe(2);
+  });
 });

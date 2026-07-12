@@ -131,17 +131,41 @@ export function hydrateConversationRuntimeStream(
   snapshot: ConversationRunStreamSnapshot,
   deps: ConversationRuntimeProjectionDeps,
 ): ConversationRuntimeProjectionState {
+  const base: ConversationRuntimeProjectionState = {
+    ...state,
+    sessionId: snapshot.sessionId,
+    requestId: snapshot.requestId,
+    streamingMessageId: snapshot.messageId,
+    currentAssistantMsgId: snapshot.messageId,
+    activeRunId: null,
+    pendingApproval: null,
+    isStreaming: true,
+    accumulatedContent: '',
+  };
+
+  if (snapshot.events.length > 0) {
+    return snapshot.events.reduce<ConversationRuntimeProjectionState>(
+      (projection, event) => projectConversationRuntime(
+        projection,
+        { kind: 'llm', event },
+        deps,
+      ).state,
+      base,
+    );
+  }
+
+  // Compatibility fallback for snapshots created before complete event replay.
   const tokens = deps.estimateTokens(snapshot.content);
-  const hasMessage = state.messages.some((message) => message.id === snapshot.messageId);
+  const hasMessage = base.messages.some((message) => message.id === snapshot.messageId);
   const messages = snapshot.content
     ? (hasMessage
-        ? state.messages.map((message) => (
+        ? base.messages.map((message) => (
             message.id === snapshot.messageId
               ? { ...message, content: snapshot.content, tokens }
               : message
           ))
         : [
-            ...state.messages,
+            ...base.messages,
             {
               id: snapshot.messageId,
               session_id: snapshot.sessionId,
@@ -151,10 +175,10 @@ export function hydrateConversationRuntimeStream(
               created_at: deps.now(),
             },
           ])
-    : state.messages;
+    : base.messages;
   const agentRuns = snapshot.runId
     && snapshot.agentId
-    && !state.agentRuns.some((run) => run.id === snapshot.runId)
+    && !base.agentRuns.some((run) => run.id === snapshot.runId)
     ? [
         {
           id: snapshot.runId,
@@ -166,21 +190,15 @@ export function hydrateConversationRuntimeStream(
           ended_at: null,
           aborted: 0,
         },
-        ...state.agentRuns,
+        ...base.agentRuns,
       ]
-    : state.agentRuns;
+    : base.agentRuns;
 
   return {
-    ...state,
-    sessionId: snapshot.sessionId,
-    requestId: snapshot.requestId,
-    streamingMessageId: snapshot.messageId,
-    currentAssistantMsgId: snapshot.messageId,
+    ...base,
     messages,
     agentRuns,
     activeRunId: snapshot.runId,
-    pendingApproval: null,
-    isStreaming: true,
     accumulatedContent: snapshot.content,
   };
 }

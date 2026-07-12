@@ -44,6 +44,7 @@ function renderSurface(overrides: Partial<ComponentProps<typeof ConversationView
     activeSessionId: 'session-1',
     timelineItems: [],
     messages: [],
+    isConversationLoading: false,
     isStreaming: false,
     hasActiveGoal: false,
     viewingTask: null,
@@ -65,6 +66,18 @@ function renderSurface(overrides: Partial<ComponentProps<typeof ConversationView
 }
 
 describe('ConversationViewportSurface', () => {
+  it('shows an independent loading state instead of stale timeline content', () => {
+    const staleMessage = message({ id: 'stale', role: 'assistant', content: 'stale Conversation' });
+    renderSurface({
+      isConversationLoading: true,
+      messages: [staleMessage],
+      timelineItems: [{ type: 'message', id: 'stale', message: staleMessage }],
+    });
+
+    expect(screen.getByRole('status').textContent).toContain('chat.loadingConversation');
+    expect(screen.queryByText('stale Conversation')).toBeNull();
+  });
+
   it('renders master Conversation timeline items and pending approval affordance', () => {
     const userMessage = message({ id: 'user-1', role: 'user', content: '请写两个文件' });
     const assistantMessage = message({ id: 'assistant-1', role: 'assistant', content: '完成了' });

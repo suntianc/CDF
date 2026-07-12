@@ -36,6 +36,7 @@ export class ConversationRunStreams {
       content: '',
       runId: null,
       agentId: null,
+      events: [],
       deferredDone: false,
     };
     this.active.set(identity.sessionId, state);
@@ -80,10 +81,11 @@ export class ConversationRunStreams {
     const state = this.active.get(sessionId);
     if (!state) return null;
     const { deferredDone: _deferredDone, ...snapshot } = state;
-    return snapshot;
+    return { ...snapshot, events: [...snapshot.events] };
   }
 
   private publish(state: ActiveConversationRun, event: LLMStreamEvent): void {
+    state.events.push(event);
     state.sequence += 1;
     this.deps.emit({
       sessionId: state.sessionId,

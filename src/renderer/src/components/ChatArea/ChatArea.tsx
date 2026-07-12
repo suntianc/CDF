@@ -83,6 +83,7 @@ export function ChatArea({
   } = workspaceModel.workspace;
   const {
     messages,
+    isConversationLoading,
     isStreaming,
     error,
     timelineItems,
@@ -387,6 +388,7 @@ export function ChatArea({
             activeSessionId={activeSessionId}
             timelineItems={timelineItems}
             messages={messages}
+            isConversationLoading={isConversationLoading}
             isStreaming={isStreaming}
             hasActiveGoal={hasActiveGoal}
             viewingTask={viewingTask}

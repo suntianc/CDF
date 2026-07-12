@@ -318,6 +318,8 @@ export interface ConversationRunStreamSnapshot extends ConversationRunIdentity {
   content: string;
   runId: string | null;
   agentId: string | null;
+  /** Complete ordered event history for deterministic renderer hydration. */
+  events: LLMStreamEvent[];
 }
 
 // ===== Phase 6: Slash Command Registry Types (D-01, D-06, D-07) =====

@@ -142,32 +142,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    let pendingSessionId: string | null = null;
-    const unsubscribeStore = useSessionStore.subscribe((state, previousState) => {
-      if (!pendingSessionId) return;
-      if (state.activeSessionId !== pendingSessionId) {
-        pendingSessionId = null;
-        return;
-      }
-      if (previousState.isStreaming && !state.isStreaming) {
-        const sessionId = pendingSessionId;
-        pendingSessionId = null;
-        void state.selectSession(sessionId);
-      }
+    return window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
+      useSessionStore.getState().handleMessagesChanged(sessionId);
     });
-    const unsubscribeMessages = window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
-      const sessionState = useSessionStore.getState();
-      if (sessionState.activeSessionId !== sessionId) return;
-      if (sessionState.isStreaming) {
-        pendingSessionId = sessionId;
-        return;
-      }
-      void sessionState.selectSession(sessionId);
-    });
-    return () => {
-      unsubscribeMessages();
-      unsubscribeStore();
-    };
   }, []);
 
   useEffect(() => {
