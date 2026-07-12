@@ -1,12 +1,10 @@
 import type Database from 'better-sqlite3';
+import {
+  CONVERSATION_DELETE_ERROR_CODES,
+  type ConversationDeleteErrorCode,
+} from '../shared/conversation-deletion';
 
-export const CONVERSATION_DELETE_ERROR_CODES = {
-  ACTIVE_AGENT_RUN: 'CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN',
-  ACTIVE_CAPABILITY_JOB: 'CONVERSATION_DELETE_BLOCKED_ACTIVE_CAPABILITY_JOB',
-} as const;
-
-export type ConversationDeleteErrorCode =
-  typeof CONVERSATION_DELETE_ERROR_CODES[keyof typeof CONVERSATION_DELETE_ERROR_CODES];
+export { CONVERSATION_DELETE_ERROR_CODES } from '../shared/conversation-deletion';
 
 export class ConversationDeleteError extends Error {
   constructor(

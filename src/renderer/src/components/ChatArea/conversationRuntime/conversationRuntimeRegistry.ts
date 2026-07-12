@@ -1,4 +1,9 @@
-import type { ConversationRunStreamEnvelope, Message } from '@shared/types';
+import type {
+  ChatRuntimeOverrides,
+  ConversationRunStreamEnvelope,
+  Message,
+  SkillAttribution,
+} from '@shared/types';
 import type {
   ConversationRuntimeProjectionState,
   RuntimeMessageDraft,
@@ -10,6 +15,17 @@ export interface ConversationRuntimeRegistryError {
   message: string;
   messageParams?: Record<string, string | number>;
   retryablePersistence?: boolean;
+  retrySubmission?: {
+    projectId: string;
+    content: string;
+    overrides?: ChatRuntimeOverrides;
+    targetSessionId?: string;
+    options?: {
+      hiddenUserMessage?: boolean;
+      imageBase64?: string[];
+      skillAttributions?: SkillAttribution[];
+    };
+  };
 }
 
 export interface ConversationRuntimeRegistryEntry {
@@ -224,11 +240,28 @@ function removeRequest(
   conversationId: string,
   requestId: string,
   effect?: ConversationRuntimeRegistryEffect,
+  carryActiveProjection = false,
 ): ConversationRuntimeRegistryResult {
   const active = state.entries[conversationId];
   if (active?.requestId === requestId) {
     const { [conversationId]: _removed, ...entries } = state.entries;
-    return success({ ...state, entries }, true, effect ? [effect] : []);
+    const overlays = state.terminalOverlays[conversationId];
+    const terminalOverlays = carryActiveProjection && overlays
+      ? {
+          ...state.terminalOverlays,
+          [conversationId]: Object.fromEntries(
+            Object.entries(overlays).map(([overlayRequestId, overlay]) => [
+              overlayRequestId,
+              {
+                ...overlay,
+                projection: active.projection,
+                baseProjection: active.baseProjection,
+              },
+            ]),
+          ),
+        }
+      : state.terminalOverlays;
+    return success({ ...state, entries, terminalOverlays }, true, effect ? [effect] : []);
   }
 
   const overlays = state.terminalOverlays[conversationId];
@@ -551,7 +584,7 @@ export function transitionConversationRuntimeRegistry(
       type: 'releaseRuntime',
       conversationId: action.conversationId,
       requestId: action.requestId,
-    });
+    }, action.type === 'persistenceSucceeded');
   }
 
   if (action.type === 'historyRefreshFailed') {

@@ -335,6 +335,57 @@ describe('Conversation Runtime Registry', () => {
     expect(staleSuccess.state.terminalOverlays['conversation-1']?.['request-1']).toBeUndefined();
   });
 
+  it('keeps a newly persisted Run visible while an older terminal overlay awaits retry', () => {
+    const firstProjection = {
+      ...runtime('conversation-1', 'request-1'),
+      isStreaming: false,
+      messages: [{
+        id: 'request-1',
+        session_id: 'conversation-1',
+        role: 'assistant' as const,
+        content: 'older unsaved answer',
+        tokens: 3,
+        created_at: 1,
+      }],
+    };
+    const first = transitionConversationRuntimeRegistry(createConversationRuntimeRegistryState(), {
+      type: 'claim', conversationId: 'conversation-1', requestId: 'request-1', projection: firstProjection,
+    });
+    const failed = transitionConversationRuntimeRegistry(first.state, {
+      type: 'persistenceFailed',
+      conversationId: 'conversation-1',
+      requestId: 'request-1',
+      projection: firstProjection,
+      message: firstProjection.messages[0],
+      error: { message: 'save failed' },
+    });
+    const secondProjection = {
+      ...runtime('conversation-1', 'request-2'),
+      isStreaming: false,
+      messages: [
+        ...firstProjection.messages,
+        {
+          id: 'request-2',
+          session_id: 'conversation-1',
+          role: 'assistant' as const,
+          content: 'new durable answer',
+          tokens: 3,
+          created_at: 2,
+        },
+      ],
+    };
+    const second = transitionConversationRuntimeRegistry(failed.state, {
+      type: 'claim', conversationId: 'conversation-1', requestId: 'request-2', projection: secondProjection,
+    });
+    const persisted = transitionConversationRuntimeRegistry(second.state, {
+      type: 'persistenceSucceeded', conversationId: 'conversation-1', requestId: 'request-2',
+    });
+
+    expect(persisted.state.entries['conversation-1']).toBeUndefined();
+    expect(persisted.state.terminalOverlays['conversation-1']?.['request-1']?.projection.messages)
+      .toContainEqual(expect.objectContaining({ content: 'new durable answer' }));
+  });
+
   it('translates persistence retry and successful reconciliation into effects', () => {
     const projection = { ...runtime('conversation-1', 'request-1'), isStreaming: false };
     const claimed = transitionConversationRuntimeRegistry(createConversationRuntimeRegistryState(), {

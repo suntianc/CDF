@@ -35,6 +35,7 @@ import {
   TodoItem,
 } from '../../../shared/types';
 import type { ReasoningEffort } from '../../../shared/ai-subscriptions';
+import { CONVERSATION_DELETE_ERROR_CODES } from '../../../shared/conversation-deletion';
 
 export function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -178,7 +179,6 @@ interface SessionState {
   pendingApproval: AgentApprovalRequest | null;
   error: SessionError | null;
   isConversationLoading: boolean;
-  pendingHistoryRefreshes: Readonly<Record<string, true>>;
   conversationRuntimeRegistry: ConversationRuntimeRegistryState;
   // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
   sessionGoals: Map<string, string>;
@@ -288,18 +288,27 @@ export const useSessionStore = create<SessionState>((set, get) => {
                   },
                 }],
               }
-            : {}),
+            : errorEntry.error.retrySubmission
+              ? {
+                  recoverableActions: [{
+                    label: '重试',
+                    action: () => {
+                      const retry = errorEntry.error?.retrySubmission;
+                      if (!retry) return;
+                      void get().sendMessage(
+                        retry.projectId,
+                        retry.content,
+                        retry.overrides,
+                        retry.targetSessionId,
+                        retry.options,
+                      );
+                    },
+                  }],
+                }
+              : {}),
         }
       : null;
     set({ ...projectionPatch(entry.projection), error });
-  };
-
-  const clearPendingHistoryRefresh = (conversationId: string) => {
-    if (!get().pendingHistoryRefreshes[conversationId]) return;
-    set((state) => {
-      const { [conversationId]: _removed, ...pendingHistoryRefreshes } = state.pendingHistoryRefreshes;
-      return { pendingHistoryRefreshes };
-    });
   };
 
   const refreshRegistryHistory = async (conversationId: string, requestId: string) => {
@@ -323,7 +332,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
           isConversationLoading: false,
         });
       }
-      clearPendingHistoryRefresh(conversationId);
       transitionRegistry({ type: 'historyRefreshSucceeded', conversationId, requestId });
       if (get().activeSessionId === conversationId) {
         void get().fetchAgentActivity(conversationId, true).catch(() => {});
@@ -395,12 +403,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
           set({ error: null });
         }
       }
-      if (get().pendingHistoryRefreshes[effect.conversationId]) {
-        clearPendingHistoryRefresh(effect.conversationId);
-        if (get().activeSessionId === effect.conversationId) {
-          void get().selectSession(effect.conversationId);
-        }
-      }
     }
   };
 
@@ -428,7 +430,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
   pendingApproval: null,
   error: null,
   isConversationLoading: false,
-  pendingHistoryRefreshes: {},
   conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
@@ -591,7 +592,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
         };
       });
       transitionRegistry({ type: 'removeConversation', conversationId: sessionId });
-      clearPendingHistoryRefresh(sessionId);
 
       const { activeSessionId } = get();
       if (activeSessionId) {
@@ -603,9 +603,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
       const message = err instanceof Error ? err.message : String(err);
       set({
         error: {
-          message: message.includes('CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN')
+          message: message.includes(CONVERSATION_DELETE_ERROR_CODES.ACTIVE_AGENT_RUN)
             ? 'chat.deleteConversationBlockedActiveRun'
-            : message.includes('CONVERSATION_DELETE_BLOCKED_ACTIVE_CAPABILITY_JOB')
+            : message.includes(CONVERSATION_DELETE_ERROR_CODES.ACTIVE_CAPABILITY_JOB)
               ? 'chat.deleteConversationBlockedCapabilityJob'
               : message || 'Failed to delete session',
         },
@@ -964,15 +964,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
   handleMessagesChanged: (sessionId) => {
     const entry = get().conversationRuntimeRegistry.entries[sessionId];
-    if (entry?.active) {
-      set((state) => ({
-        pendingHistoryRefreshes: {
-          ...state.pendingHistoryRefreshes,
-          [sessionId]: true,
-        },
-      }));
-      return;
-    }
+    // Active foreground state is already current in the Registry; background
+    // completion emits its own request-scoped refreshHistory effect.
+    if (entry?.active) return;
     if (get().activeSessionId === sessionId) {
       void get().selectSession(sessionId);
     }
@@ -983,13 +977,15 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const snapshot = await window.electronAPI.conversation.getActiveRun(sessionId);
     const existing = get().conversationRuntimeRegistry.entries[sessionId];
     if (!snapshot) {
-      transitionRegistry({
-        type: 'hydrateMissing',
-        conversationId: sessionId,
-        ...(expectedRequestId ?? existing?.requestId
-          ? { requestId: expectedRequestId ?? existing?.requestId }
-          : {}),
-      });
+      // A request-less hydration may race with a newly claimed foreground Run.
+      // Only the identity that requested hydration may release ownership.
+      if (expectedRequestId) {
+        transitionRegistry({
+          type: 'hydrateMissing',
+          conversationId: sessionId,
+          requestId: expectedRequestId,
+        });
+      }
       return;
     }
 
@@ -1191,6 +1187,13 @@ export const useSessionStore = create<SessionState>((set, get) => {
             error: {
               message: effect.message || '对话请求出错',
               messageParams: effect.messageParams,
+              retrySubmission: {
+                projectId,
+                content,
+                overrides,
+                targetSessionId,
+                options,
+              },
             },
           });
           if (get().activeSessionId === sessionId) {
@@ -1198,7 +1201,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
               error: {
                 message: effect.message || '对话请求出错',
                 messageParams: effect.messageParams,
-                recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }],
+                recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId, options) }],
               },
             });
           }
@@ -1328,7 +1331,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             isStreaming: false,
             streamingMessageId: null,
             pendingApproval: null,
-            error: state.error ?? { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId); } }] },
+            error: state.error ?? { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
           }));
         }
       }
@@ -1342,7 +1345,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId); } }] },
+          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
         });
       }
     }

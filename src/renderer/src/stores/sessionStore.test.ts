@@ -6,7 +6,6 @@ import { useSessionStore } from './sessionStore';
 beforeEach(() => {
   useSessionStore.setState({
     conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
-    pendingHistoryRefreshes: {},
     isConversationLoading: false,
   });
 });
@@ -1674,6 +1673,32 @@ describe('sessionStore Conversation Runtime Registry adapter', () => {
     expect(useSessionStore.getState()).toMatchObject({
       activeSessionId: 'session-new',
       isConversationLoading: false,
+    });
+  });
+
+  it('does not let request-less null hydration release a newly claimed Run', async () => {
+    let resolveSnapshot: ((snapshot: null) => void) | undefined;
+    window.electronAPI = {
+      conversation: {
+        getActiveRun: vi.fn(() => new Promise<null>((resolve) => { resolveSnapshot = resolve; })),
+      },
+    } as unknown as Window['electronAPI'];
+
+    const hydration = useSessionStore.getState().hydrateConversationRun('session-new');
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-new',
+      requestId: 'request-new',
+      messageId: 'message-new',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: 'new work' },
+    });
+    resolveSnapshot?.(null);
+    await hydration;
+
+    expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-new']).toMatchObject({
+      requestId: 'request-new',
+      active: true,
     });
   });
 
