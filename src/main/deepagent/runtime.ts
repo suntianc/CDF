@@ -8,11 +8,14 @@ import { isGraphInterrupt } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
 import store from '../store';
-import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
-import { createLangChainModel, type RuntimeProviderModelConfig } from './llm-adapter';
-import { prepareAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
-import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from './skill-manager';
-import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
+import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
+import { createLangChainModel } from './llm-adapter';
+import {
+  assembleDeepAgentRuntime,
+  resolveRuntimeProviderModelConfig,
+  registerCdfHarnessProfile,
+  extractPathMentionContext,
+} from './runtime-assembly';
 import {
   getProvider,
   getAgentMcpServers,
@@ -28,9 +31,18 @@ import {
   type ProviderRow,
 } from './shared-infra';
 import { createAgentTools } from './agent-tools';
-import { createWorkflowTools } from '../workflow/tools';
 import { createParallelTaskTool } from './parallel-task-tool';
-import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
+import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createTaskGraphTools } from '../workflow-run';
+
+// 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
+// advance_stage 推进阶段、先规划任务图再派单——避免把多阶段工作流当成一次性任务收尾。
+const WORKFLOW_RUN_PROMPT = `
+
+[工作流运行纪律]
+你正在以主 Agent 身份执行一个多阶段工作流（Workflow Run）。请严格遵守：
+- 每完成一个阶段并对照验收标准自检通过后，必须调用 advance_stage 工具提交结构化验收报告（逐条自评 + 产物清单 + 总结）；这会触发阶段门禁并推进到下一阶段。不要只用文字宣布"完成"就停下——不调用 advance_stage 工作流不会前进。
+- 阶段内先用 create_task 一次性规划任务图并用 set_task_dependencies 标注依赖，再用 parallel_tasks 派子 Agent 执行，用 update_task_status / list_tasks 跟踪进度。
+- 阶段游标由主进程在门禁通过后权威推进，你无需自行编号或跳跃阶段。`;
 import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
 import { getCurrentStreamAccumulator } from './stream-accumulator';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
@@ -71,36 +83,6 @@ interface RuntimeInputMessage {
   imageBase64?: string[];
 }
 
-async function resolveRuntimeProviderModelConfig(
-  agentRow: RuntimeAgentRow,
-  overrides?: RuntimeModelOverrides
-): Promise<{ config: RuntimeProviderModelConfig; fallbackProvider: ProviderRow }> {
-  if (overrides?.modelSource === 'ai_subscription') {
-    return {
-      config: await prepareAISubscriptionRuntimeModel(
-        overrides.sourceId || overrides.providerId,
-        overrides.model,
-        undefined,
-        overrides.reasoningEffort
-      ),
-      fallbackProvider: getProvider(agentRow.provider_id),
-    };
-  }
-
-  const provider = getProvider(normalizeProviderId(overrides?.sourceId || overrides?.providerId) || agentRow.provider_id);
-  const modelName = overrides?.model || provider.default_model;
-  return {
-    config: {
-      apiKey: provider.api_key ?? undefined,
-      apiUrl: provider.api_url ?? undefined,
-      defaultModel: provider.default_model,
-      providerType: provider.provider_type as RuntimeProviderModelConfig['providerType'],
-      model: modelName,
-      contextLimit: provider.context_limit ?? undefined,
-    },
-    fallbackProvider: provider,
-  };
-}
 
 export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
 
@@ -229,35 +211,6 @@ function getRuntimeAgent(projectId: string, agentId?: string | null): RuntimeAge
   return ensureDefaultAgent(projectId);
 }
 
-function registerCdfHarnessProfile(providerType: string, modelName: string): void {
-  const profile = {
-    generalPurposeSubagent: { enabled: false },
-    excludedTools: [],  // D-15: task tool enabled for subagent delegation
-  };
-
-  const registerSafely = (key: string | null | undefined) => {
-    const trimmed = key?.trim();
-    if (!trimmed || trimmed.split(':').length > 2) return;
-    try {
-      registerHarnessProfile(trimmed, profile);
-    } catch (error) {
-      console.warn(`Failed to register DeepAgents harness profile for "${trimmed}":`, error);
-    }
-  };
-
-  registerSafely(modelName);
-
-  if (providerType === 'anthropic') {
-    registerSafely('anthropic');
-    if (modelName && !modelName.includes(':')) registerSafely(`anthropic:${modelName}`);
-    return;
-  }
-
-  if (providerType !== 'ollama') {
-    registerSafely('openai');
-    if (modelName && !modelName.includes(':')) registerSafely(`openai:${modelName}`);
-  }
-}
 
 function getSessionMessages(sessionId: string) {
   return db.prepare("SELECT id, role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant') ORDER BY created_at ASC").all(sessionId) as Array<{ id: string; role: 'user' | 'assistant'; content: string }>;
@@ -300,9 +253,6 @@ async function buildInputMessages(sessionId: string, currentMessage: RuntimeInpu
   ];
 }
 
-function buildProjectContext(project: RuntimeProjectRow): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${project.path}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（对所有项目默认可见）\n- Agent 选择 Skill 只表示预加载或强调，不表示访问授权\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
-}
 
 function generateSlug(name: string): string {
   return name
@@ -572,68 +522,6 @@ function createSubagentResilienceMiddleware(allowedTools?: string[]) {
   ];
 }
 
-function buildSkillOverrideOptions(agentRow: RuntimeAgentRow) {
-  const resolved = resolveAgentSkillConfigOptions(agentRow.config, (key) => store.get(key));
-  for (const warning of resolved.warnings) {
-    console.warn('[runtime] Ignored invalid Skill override:', warning);
-  }
-  return resolved.options;
-}
-
-function getPreloadSkillNames(skillIds: string[]): string[] {
-  return skillReferencesToPreloadNames(skillIds);
-}
-
-function extractPathMentionContext(content: string): string[] {
-  const seen = new Set<string>();
-  for (const match of content.matchAll(/@([^\s]+)/g)) {
-    const normalized = match[1]
-      .trim()
-      .replace(/[),.;:，。；：）]+$/g, '')
-      .replace(/\\/g, '/')
-      .replace(/^\.\//g, '')
-      .replace(/^\/+/g, '');
-    if (normalized) seen.add(normalized);
-  }
-  return Array.from(seen);
-}
-
-function appendRuntimePrompt(basePrompt: string, runtimePrompt: string): string {
-  const trimmedRuntimePrompt = runtimePrompt.trim();
-  if (!trimmedRuntimePrompt) return basePrompt;
-  return `${basePrompt}\n\n${trimmedRuntimePrompt}`;
-}
-
-/**
- * deepagents base prompt only documents filesystem tools. Models often claim
- * those are the only tools. Explicitly list CDF media tools so bindTools
- * and the system prompt stay consistent.
- */
-function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
-  const lines: string[] = [
-    '## CDF media capability tools',
-    'In addition to filesystem tools, you have these CDF tools (use them by name when needed):',
-  ];
-  const catalog: Record<string, string> = {
-    generate_image:
-      'Text-to-image or image-to-image via MiniMax Token Plan or Codex OAuth. After success, display with ![alt](path).',
-    synthesize_speech:
-      'Text-to-speech (Speech 2.8 only: speech-2.8-hd / speech-2.8-turbo). Link audio as [label](path).',
-    generate_music:
-      'Generate songs (music-2.6 only). Needs lyrics unless instrumental/lyrics_optimizer. Link as [title](path).',
-  };
-  let any = false;
-  for (const [name, desc] of Object.entries(catalog)) {
-    if (!toolNames.includes(name)) continue;
-    any = true;
-    lines.push(`- \`${name}\`: ${desc}`);
-  }
-  if (!any) return '';
-  lines.push(
-    'These tools require a connected subscription route with the matching capability enabled.'
-  );
-  return lines.join('\n');
-}
 
 export async function createDeepAgentRuntime(
   projectId: string,
@@ -645,29 +533,12 @@ export async function createDeepAgentRuntime(
 ) {
   const project = getProject(projectId);
   const agentRow = getRuntimeAgent(projectId, agentId);
-  const { config: runtimeModelConfig, fallbackProvider: provider } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
-  registerCdfHarnessProfile(runtimeModelConfig.providerType, runtimeModelConfig.model || runtimeModelConfig.defaultModel);
-  const model = createLangChainModel(runtimeModelConfig);
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
   const checkpointer = getCheckpointSaver();
-  const skillOverrideOptions = buildSkillOverrideOptions(agentRow);
   const agentSkillNames = getAgentSkillNames(agentRow.id);
   const pathContext = extractPathMentionContext(currentMessage.content);
-  const { permissions } = skillOverrideOptions
-    ? resolveAgentSkillsConfig(project.path, agentSkillNames, skillOverrideOptions)
-    : resolveAgentSkillsConfig(project.path, agentSkillNames);
-  const skillsRuntime = buildCdfSkillsRuntime(project.path, {
-    ...skillOverrideOptions,
-    builtInSkillDirs: getBuiltInSkillDirs(),
-    userSkillsDir: getScopePath(project.path, 'global'),
-    preloadSkillNames: getPreloadSkillNames(agentSkillNames),
-    pathContext,
-  });
-  for (const warning of skillsRuntime.warnings) {
-    console.warn('[runtime] Ignored invalid Skill runtime input:', warning);
-  }
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
   const allMcpServers = getConnectedMcpServers();
   const mcpServers = getAgentMcpServers(agentRow.id);
@@ -686,13 +557,6 @@ export async function createDeepAgentRuntime(
     console.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
   }
 
-  // D-16c: 注册工作流工具 — Master Agent 可通过 Chat 触发工作流执行
-  try {
-    const workflowTools = createWorkflowTools(projectId);
-    builtInTools.push(...workflowTools);
-  } catch (err) {
-    console.warn('[RUNTIME] Failed to load workflow tools:', err);
-  }
 
   // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
   const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
@@ -704,14 +568,27 @@ export async function createDeepAgentRuntime(
 
   const builtInToolNames = getRuntimeToolNames(builtInTools);
   console.log('[runtime] built-in tool names:', builtInToolNames.join(', '));
-
-  const systemPrompt = appendRuntimePrompt(
-    appendRuntimePrompt(
-      (agentRow.system_prompt || '') + buildProjectContext(project),
-      skillsRuntime.prompt
-    ),
-    buildCdfCapabilityToolsPrompt(builtInToolNames)
+  const runtimeAssembly = await assembleDeepAgentRuntime(
+    agentRow,
+    undefined,
+    project,
+    agentSkillNames,
+    pathContext,
+    builtInToolNames,
+    overrides,
   );
+  const {
+    model,
+    provider,
+    permissions,
+    skillsRuntime,
+    systemPrompt,
+    assemblyWarnings,
+  } = runtimeAssembly;
+  for (const warning of assemblyWarnings) {
+    console.warn('[runtime] Ignored invalid Skill runtime input:', warning);
+  }
+
 
   console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);
 
@@ -751,51 +628,59 @@ export async function createDeepAgentRuntime(
         mcpApprovalToolNames.add(toolName);
       }
       const subSkillNames = getAgentSkillNames(agentRow.id);
-      const subSkillOverrideOptions = buildSkillOverrideOptions(agentRow);
-      const { permissions: _subPermissions } =
-        subSkillOverrideOptions
-          ? resolveAgentSkillsConfig(project.path, subSkillNames, subSkillOverrideOptions)
-          : resolveAgentSkillsConfig(project.path, subSkillNames);
-      const subSkillsRuntime = buildCdfSkillsRuntime(project.path, {
-        ...subSkillOverrideOptions,
-        builtInSkillDirs: getBuiltInSkillDirs(),
-        userSkillsDir: getScopePath(project.path, 'global'),
-        preloadSkillNames: getPreloadSkillNames(subSkillNames),
+      const subAssembly = await assembleDeepAgentRuntime(
+        agentRow,
+        provider.id,
+        project,
+        subSkillNames,
         pathContext,
-      });
-      for (const warning of subSkillsRuntime.warnings) {
+        builtInToolNames,
+      );
+      for (const warning of subAssembly.assemblyWarnings) {
         console.warn('[runtime] Ignored invalid subagent Skill runtime input:', warning);
       }
-
-      const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
-      const subagentModel = createLangChainModel({
-        apiKey: providerRow.api_key ?? undefined,
-        apiUrl: providerRow.api_url ?? undefined,
-        defaultModel: providerRow.default_model,
-        providerType: providerRow.provider_type as RuntimeProviderModelConfig['providerType'],
-      });
-
-      console.log(`[runtime] Subagent ${agentSlug}: provider_id=${agentRow.provider_id}, default_model=${providerRow?.default_model}, provider_type=${providerRow?.provider_type}`);
 
       subagents.push({
         name: agentSlug,  // D-03: slug as stable key
         description: agentRow.description || '',
-        systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', subSkillsRuntime.prompt),
+        systemPrompt: subAssembly.systemPrompt,
         tools: [...subMcpRuntime.tools, ...builtInTools],
-        model: subagentModel,
+        model: subAssembly.model,
         middleware: createSubagentResilienceMiddleware(overrides?.allowedTools),
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
       });
     }
   }
 
-  const masterAgentTools = createAgentTools(projectId, { activeAgentId: agentRow.id });
+  const masterAgentTools: any[] = createAgentTools(projectId, { activeAgentId: agentRow.id });
+
+  // Workflow Run（运行即会话）：当本 session 是某个 Workflow Run 的宿主、且当前 Agent
+  // 就是该运行的主 Agent 时，注入阶段推进工具 advance_stage（门禁即一次工具审批）。
+  const workflowRun = getRunBySessionId(sessionId);
+  const isWorkflowMasterAgent = !!workflowRun && workflowRun.master_agent_id === agentRow.id;
+  if (isWorkflowMasterAgent) {
+    const runId = workflowRun!.id;
+    const getRun = () => getWorkflowRun(runId);
+    const stages = JSON.parse(workflowRun!.stages) as Array<{ id: string }>;
+    const currentStageId = stages[workflowRun!.current_stage_index]?.id ?? '';
+    masterAgentTools.push(createAdvanceStageTool({ runId, projectId, getRun }));
+    masterAgentTools.push(...createTaskGraphTools({ runId, currentStageId, getRun }));
+  }
+
   const interruptOn = resolveInterruptOn(currentApprovalMode, [...mcpApprovalToolNames]);
+  if (isWorkflowMasterAgent) {
+    // 门禁即一次工具审批：advance_stage 始终拦截，无视全局 approvalMode（含 bypass）。
+    (interruptOn as Record<string, unknown>)['advance_stage'] = { allowedDecisions: ['approve', 'reject'] };
+  }
+
+  const effectiveSystemPrompt = isWorkflowMasterAgent
+    ? `${systemPrompt}${WORKFLOW_RUN_PROMPT}`
+    : systemPrompt;
 
   const deepAgent = createDeepAgent({
     model,
     backend,
-    systemPrompt: systemPrompt || undefined,
+    systemPrompt: effectiveSystemPrompt || undefined,
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
@@ -827,6 +712,6 @@ export async function createRuntimeModel(
 ) {
   const agentRow = getRuntimeAgent(projectId, agentId);
   const { config } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
-  registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel);
+  registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel, overrides);
   return createLangChainModel(config);
 }

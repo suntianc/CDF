@@ -17,8 +17,10 @@ const {
   buildCdfSkillsRuntimeMock,
   loadMcpToolsMock,
   registerHarnessProfileMock,
+  getRunBySessionIdMock,
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(() => ({ streamEvents: vi.fn() })),
+  getRunBySessionIdMock: vi.fn(),
   fromConnStringMock: vi.fn(),
   checkpointGetTupleMock: vi.fn(),
   dbPrepareMock: vi.fn(),
@@ -114,6 +116,13 @@ vi.mock('./skills-runtime/cdf-skills-runtime', () => ({
   buildCdfSkillsRuntime: buildCdfSkillsRuntimeMock,
 }));
 
+// 保留真实的 workflow-run 工具工厂（createAdvanceStageTool / createTaskGraphTools），
+// 只让 getRunBySessionId 可控——用于区分 workflow session 与普通对话。
+vi.mock('../workflow-run', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../workflow-run')>();
+  return { ...actual, getRunBySessionId: getRunBySessionIdMock };
+});
+
 import { createDeepAgentRuntime } from './runtime';
 import { createLangChainModel } from './llm-adapter';
 import { createStreamAccumulator, runWithStreamAccumulator } from './stream-accumulator';
@@ -123,6 +132,7 @@ interface CreateDeepAgentParams {
   systemPrompt?: string;
   tools: Array<{ name: string }>;
   subagents?: unknown;
+  interruptOn?: Record<string, unknown>;
 }
 
 function firstCreateDeepAgentParams(): CreateDeepAgentParams {
@@ -177,6 +187,7 @@ describe('createDeepAgentRuntime', () => {
       options: undefined,
       warnings: [],
     });
+    getRunBySessionIdMock.mockReturnValue(undefined);
     const checkpointer = { getTuple: checkpointGetTupleMock };
     fromConnStringMock.mockReturnValue(checkpointer);
     checkpointGetTupleMock.mockResolvedValue(undefined);
@@ -938,5 +949,91 @@ describe('createDeepAgentRuntime', () => {
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents[0].name).toBe('code-agent');  // generated from 'Code Agent'
+  });
+
+  describe('workflow run session tooling', () => {
+    const workflowRun = {
+      id: 'run-1',
+      workflow_id: 'wf-1',
+      project_id: 'project-1',
+      session_id: 'session-wf',
+      master_agent_id: 'agent-1',
+      status: 'running',
+      current_stage_index: 0,
+      total_stages: 1,
+      stages: JSON.stringify([
+        { id: 'stage-1', name: '调研', taskDescription: '调研任务', acceptanceCriteria: [], gateEnabled: true },
+      ]),
+      skeleton_snapshot: null,
+      error: null,
+      started_at: Date.now(),
+      ended_at: null,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
+
+    it('injects advance_stage into the master Agent tools for a workflow run session', async () => {
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
+
+      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
+
+      const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
+      expect(toolNames).toContain('advance_stage');
+    });
+
+    it('injects the Run Task Graph tools into the master Agent for a workflow run session', async () => {
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
+
+      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
+
+      const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
+      expect(toolNames).toEqual(expect.arrayContaining([
+        'create_task',
+        'set_task_dependencies',
+        'update_task_status',
+        'list_tasks',
+      ]));
+    });
+
+    it('always intercepts advance_stage even when the approval mode is bypass', async () => {
+      storeGetMock.mockImplementation((key?: string) => (key === 'skillOverrides' ? {} : 'bypass'));
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
+
+      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
+
+      const interruptOn = firstCreateDeepAgentParams().interruptOn;
+      expect(interruptOn).toBeDefined();
+      expect(interruptOn).toHaveProperty('advance_stage');
+    });
+
+    it('does not inject workflow tools into a plain chat session', async () => {
+      getRunBySessionIdMock.mockReturnValue(undefined);
+
+      await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '你好' });
+
+      const params = firstCreateDeepAgentParams();
+      const toolNames = params.tools.map((t) => t.name);
+      expect(toolNames).not.toContain('advance_stage');
+      expect(toolNames).not.toContain('create_task');
+      expect(params.interruptOn ?? {}).not.toHaveProperty('advance_stage');
+    });
+
+    it('does not inject workflow tools when the session run belongs to a different master Agent', async () => {
+      getRunBySessionIdMock.mockReturnValue({ ...workflowRun, master_agent_id: 'someone-else' });
+
+      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
+
+      const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
+      expect(toolNames).not.toContain('advance_stage');
+    });
+
+    it('adds workflow discipline guidance referencing advance_stage to the system prompt', async () => {
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
+
+      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
+
+      const systemPrompt = firstCreateDeepAgentParams().systemPrompt ?? '';
+      expect(systemPrompt).toContain('advance_stage');
+    });
   });
 });

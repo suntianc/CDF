@@ -63,6 +63,7 @@ vi.mock('./shared-infra', () => ({
     api_url: 'https://example.invalid',
     default_model: 'fake-model',
   })),
+  normalizeProviderId: vi.fn((value?: string | null) => value || undefined),
   getAgentMcpServers: vi.fn(() => []),
   getConnectedMcpServers: vi.fn(() => []),
   getAgentSkillNames: vi.fn(() => []),
@@ -142,7 +143,7 @@ describe('parallel worker + real deepagents approval boundary', () => {
     createLangChainModelMock.mockImplementation(() => new FakeToolCallingChatModel({}));
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: () => {
-        if (sql.includes('SELECT path FROM projects')) return { path: TMP_DIR };
+        if (sql.includes('FROM projects')) return { name: 'Test Project', path: TMP_DIR };
         return undefined;
       },
       all: () => {

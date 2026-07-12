@@ -1,6 +1,6 @@
 // D-07/D-08/D-09: Aggregate token breakdown for the current session's loaded context.
 // Data sources: conversation (messages table), skills (resolved CDF Skill catalog),
-// MCP tools (loadMcpTools), workflows (workflows table graph_data),
+// MCP tools (loadMcpTools), workflows (workflows table stages),
 // system prompt (agents.system_prompt + buildProjectContext),
 // system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/knowledge_create/tavily/anysearch/arxiv).
 // Token heuristic: Math.ceil(chars * 0.25) — OpenAI rough 1 token ≈ 4 chars.
@@ -413,7 +413,7 @@ function safeStringifyLen(v: unknown): number {
  * - Conversation: SUM(LENGTH(content)) FROM messages WHERE session_id = ?
  * - Skills:      sum SKILL.md file sizes for the project's physical skills
  * - MCP tools:   sum JSON.stringify(tool.schema || tool.inputSchema).length
- * - Workflows:   SUM(LENGTH(graph_data)) FROM workflows WHERE status = 'active' AND project_id = ?
+ * - Workflows:   SUM(LENGTH(stages)) FROM workflows WHERE status = 'active' AND project_id = ?
  * - Project command bodies (08.2 P4 NEW, v1.1 real): sum .cdf/commands/*.md bytes × 0.25
  * - Per-MCP-tool (08.2 P4 NEW, v1.1 real): [{ tool, server, tokens }]
  * - System prompt / system tools / custom agents / memory files
@@ -633,7 +633,7 @@ export async function aggregateCurrentSessionContext(
   try {
     const rows = db
       .prepare(
-        `SELECT id, name, LENGTH(graph_data) AS len
+        `SELECT id, name, LENGTH(stages) AS len
          FROM workflows
          WHERE status = 'active' AND project_id = (
            SELECT project_id FROM sessions WHERE id = ?

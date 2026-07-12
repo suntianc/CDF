@@ -43,6 +43,8 @@ db.exec(`
     name TEXT NOT NULL,
     agent_id TEXT,
     summary TEXT,
+    workflow_run_id TEXT,
+    workflow_run_status TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -101,6 +103,10 @@ safeMigrate('llm_providers table (models)', `ALTER TABLE llm_providers ADD COLUM
 
 // Safe migration for sessions summary
 safeMigrate('sessions table (summary)', `ALTER TABLE sessions ADD COLUMN summary TEXT;`);
+
+// Safe migration for sessions workflow_run_id & workflow_run_status
+safeMigrate('sessions table (workflow_run_id)', `ALTER TABLE sessions ADD COLUMN workflow_run_id TEXT;`);
+safeMigrate('sessions table (workflow_run_status)', `ALTER TABLE sessions ADD COLUMN workflow_run_status TEXT;`);
 
 // Think duration: store real LLM thinking wall-clock time so historical messages show accurate timing
 safeMigrate('messages table (think_duration_seconds)', `ALTER TABLE messages ADD COLUMN think_duration_seconds INTEGER;`);
@@ -420,7 +426,25 @@ try {
   console.error('Failed to initialize default LLM providers:', error);
 }
 
-// ===== Phase 4: Workflow System Tables =====
+// ===== Workflow Skeleton + Workflow Run tables =====
+// The product has not shipped legacy workflow data. If the old graph schema is
+// present, reset it instead of carrying two execution models indefinitely.
+try {
+  const legacyGraphColumn = db.prepare(
+    "SELECT name FROM pragma_table_info('workflows') WHERE name = 'graph_data'"
+  ).get();
+  if (legacyGraphColumn) {
+    db.exec('DROP TABLE IF EXISTS workflow_run_tasks');
+    db.exec('DROP TABLE IF EXISTS workflow_stage_gates');
+    db.exec('DROP TABLE IF EXISTS workflow_runs');
+    db.exec('DROP TABLE IF EXISTS workflow_node_runs');
+    db.exec('DROP TABLE IF EXISTS workflow_executions');
+    db.exec('DROP TABLE IF EXISTS workflows');
+    console.log('[DB] Destructive reset: dropped legacy workflow tables');
+  }
+} catch {
+  // A fresh database has no workflows table yet.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflows (
@@ -428,64 +452,71 @@ db.exec(`
     project_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    graph_data TEXT NOT NULL,
+    stages TEXT NOT NULL DEFAULT '[]',
+    master_agent_id TEXT,
     status TEXT NOT NULL DEFAULT 'draft',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS workflow_executions (
+  CREATE TABLE IF NOT EXISTS workflow_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
-    trigger_source TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    input TEXT,
-    output TEXT,
+    session_id TEXT NOT NULL,
+    master_agent_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    current_stage_index INTEGER NOT NULL DEFAULT 0,
+    total_stages INTEGER NOT NULL,
+    stages TEXT NOT NULL,
+    skeleton_snapshot TEXT,
     error TEXT,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
-    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS workflow_node_runs (
+  CREATE TABLE IF NOT EXISTS workflow_stage_gates (
     id TEXT PRIMARY KEY,
-    execution_id TEXT NOT NULL,
-    node_id TEXT NOT NULL,
-    node_name TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    stage_id TEXT NOT NULL,
+    stage_name TEXT NOT NULL,
+    report TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
-    input TEXT,
-    output TEXT,
-    error TEXT,
-    error_type TEXT,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    started_at INTEGER NOT NULL,
-    ended_at INTEGER,
-    logs TEXT,
-    FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE
+    feedback TEXT,
+    created_at INTEGER NOT NULL,
+    decided_at INTEGER,
+    FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS workflow_run_tasks (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    stage_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planned',
+    dependencies TEXT NOT NULL DEFAULT '[]',
+    delegation_batch_id TEXT,
+    delegation_worker_id TEXT,
+    delegation_agent_slug TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    completed_at INTEGER,
+    FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_id);
-  CREATE INDEX IF NOT EXISTS idx_executions_workflow ON workflow_executions(workflow_id);
-  CREATE INDEX IF NOT EXISTS idx_node_runs_execution ON workflow_node_runs(execution_id);
+  CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_runs_session ON workflow_runs(session_id);
+  CREATE INDEX IF NOT EXISTS idx_stage_gates_run ON workflow_stage_gates(run_id);
+  CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run ON workflow_run_tasks(run_id);
+  CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run_stage ON workflow_run_tasks(run_id, stage_id);
 `);
-
-try {
-  db.prepare('ALTER TABLE workflow_node_runs ADD COLUMN logs TEXT').run();
-} catch (err) {
-  // Column already exists
-}
-
-// 工具调用结构化记录（导出 JSON 用,跨 invokeAgent 累积）
-try { db.exec(`ALTER TABLE workflow_node_runs ADD COLUMN tool_calls TEXT`); } catch {}
-
-// 工作流配置快照（执行时固化 agents/mcp/skills 引用配置，导出用）
-try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN config_snapshot TEXT`); } catch {}
-// 完整事件流时间线（导出用）
-try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN events_snapshot TEXT`); } catch {}
-
-// 时序执行轨迹(替代 logs[] 的并列结构,带 type + ts)
-try { db.exec(`ALTER TABLE workflow_node_runs ADD COLUMN execution_trace TEXT`); } catch {}
 
 export default db;

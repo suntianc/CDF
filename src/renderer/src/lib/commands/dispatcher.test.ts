@@ -67,15 +67,6 @@ const mcpCmd: SlashCommand = {
   badge: '[mcp:arxiv]',
 };
 
-const workflowCmd: SlashCommand = {
-  name: 'pr-review',
-  description: 'PR review workflow',
-  source: 'workflow',
-  target: 'pr-review',
-  sourceLabel: 'workflow',
-  badge: '[workflow]',
-};
-
 const skillCmd: SlashCommand = {
   name: 'apps/web:deploy',
   qualifiedName: 'apps/web:deploy',
@@ -134,15 +125,6 @@ describe('dispatcher.resolve', () => {
     });
   });
 
-  it('PluginRewrite for workflow (stays per-workflow, not server-dim)', () => {
-    const plan = resolve('/pr-review', [workflowCmd]);
-    expect(plan).toEqual({
-      kind: 'PluginRewrite',
-      command: workflowCmd,
-      args: '',
-      prompt: '请调用 pr-review 工具，参数：(无参数)',
-    });
-  });
 
   it('PluginRewrite for Skill keeps fallback prompt free of instruction paths', () => {
     const plan = resolve('/apps/web:deploy prod', [skillCmd]);

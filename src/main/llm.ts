@@ -689,6 +689,20 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         // Phase 15: 检查是否 Workflow Stage Gate 中断（deepagents 标准 actionRequests 格式）
         const stageInfo = isAdvanceStageInterrupt(interruptValue);
         if (stageInfo) {
+          if ('error' in stageInfo) {
+            // 多 actionRequests 混合 advance_stage — 不能绕过门禁，终止该 turn
+            const run = getRunBySessionId(payload.sessionId);
+            if (run) {
+              updateRunStatus(run.id, 'aborted');
+              db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('aborted', run.session_id);
+            }
+            sender.send(channel, {
+              type: 'runtime_error',
+              error: stageInfo.error,
+            });
+            controller.abort();
+            break;
+          }
           // 通过 session 查 run（runId/stageIndex 不在 actionRequests 中）
           const run = getRunBySessionId(payload.sessionId);
           if (!run) throw new Error('Workflow run not found for advance_stage interrupt');
@@ -697,6 +711,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
             stageInfo.report,
             sender,
             channel,
+            controller.signal,
           );
           if (result.terminate) {
             controller.abort();
@@ -793,6 +808,16 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         const wfStatus: WorkflowRunStatus = error?.name === 'AbortError' || controller.signal.aborted ? 'aborted' : 'failed';
         updateRunStatus(sessionRow.workflow_run_id, wfStatus, error?.message || String(error));
         sender.send('conversation:messages-changed', { sessionId: payload.sessionId });
+        const workflowRun = getRunBySessionId(payload.sessionId);
+        if (workflowRun) {
+          sender.send('workflow-run:projection-event', {
+            type: 'run',
+            runId: workflowRun.id,
+            status: wfStatus,
+            currentStageIndex: workflowRun.current_stage_index,
+            error: error?.message || String(error),
+          });
+        }
       }
     } catch (wfErr) {
       log.warn('[LLM] Failed to propagate error to workflow run:', wfErr);

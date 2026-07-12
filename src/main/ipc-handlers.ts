@@ -43,7 +43,7 @@ import type {
 } from '../shared/types';
 import { generateSlug } from './deepagent/agent-slug';
 import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
-import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
+import { registerWorkflowRunIpcHandlers } from './workflow-run';
 import { collectAllCommands } from './commands/command-registry';
 import { listProjectCommands } from './commands/project-commands';
 import { ensureProjectWatcher } from './commands/chokidar-watcher';
@@ -993,9 +993,10 @@ export function registerIpcHandlers() {
 
   typedHandle('db:getWorkflows', (_, projectId) => {
     const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
-    return rows.map(r => ({
-      ...r,
-      graph_data: r.graph_data ? JSON.parse(r.graph_data) : { nodes: [], edges: [] },
+    return rows.map((row) => ({
+      ...row,
+      stages: row.stages ? JSON.parse(row.stages) : [],
+      master_agent_id: row.master_agent_id ?? undefined,
     }));
   });
 
@@ -1004,29 +1005,42 @@ export function registerIpcHandlers() {
     if (!row) return undefined;
     return {
       ...row,
-      graph_data: row.graph_data ? JSON.parse(row.graph_data) : { nodes: [], edges: [] },
+      stages: row.stages ? JSON.parse(row.stages) : [],
+      master_agent_id: row.master_agent_id ?? undefined,
     };
   });
 
   typedHandle('db:saveWorkflow', (_, workflow) => {
-    const { id, project_id, name, description, graph_data, status } = workflow;
+    const { project_id, name, description, stages = [], master_agent_id, status } = workflow;
+    const id = workflow.id?.trim() || crypto.randomUUID();
     const now = Date.now();
-    const graphDataStr = graph_data ? JSON.stringify(graph_data) : '{"nodes":[],"edges":[]}';
+    const stagesJson = JSON.stringify(stages);
+    const existing = db.prepare('SELECT created_at FROM workflows WHERE id = ?').get(id) as { created_at: number } | undefined;
 
-    const existing = db.prepare('SELECT id FROM workflows WHERE id = ?').get(id);
     if (existing) {
       db.prepare(`
-        UPDATE workflows SET name = ?, description = ?, graph_data = ?, status = ?, updated_at = ?
+        UPDATE workflows
+        SET name = ?, description = ?, stages = ?, master_agent_id = ?, status = ?, updated_at = ?
         WHERE id = ?
-      `).run(name, description || null, graphDataStr, status || 'draft', now, id);
+      `).run(name, description || null, stagesJson, master_agent_id || null, status || 'draft', now, id);
     } else {
       db.prepare(`
-        INSERT INTO workflows (id, project_id, name, description, graph_data, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, project_id, name, description || null, graphDataStr, status || 'draft', now, now);
+        INSERT INTO workflows (id, project_id, name, description, stages, master_agent_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, project_id, name, description || null, stagesJson, master_agent_id || null, status || 'draft', now, now);
     }
 
-    return { id, project_id, name, description, graph_data: graph_data || { nodes: [], edges: [] }, status: status || 'draft', created_at: now, updated_at: now };
+    return {
+      id,
+      project_id,
+      name,
+      description,
+      stages,
+      master_agent_id,
+      status: status || 'draft',
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    };
   });
 
   typedCrud({
@@ -1036,36 +1050,6 @@ export function registerIpcHandlers() {
     },
   });
 
-  typedHandle('db:getWorkflowExecutions', (_, workflowId) => {
-    const rows = db.prepare('SELECT * FROM workflow_executions WHERE workflow_id = ? ORDER BY started_at DESC').all(workflowId) as any[];
-    return rows.map(r => ({
-      ...r,
-      input: r.input ? JSON.parse(r.input) : {},
-      output: r.output ? JSON.parse(r.output) : undefined,
-    }));
-  });
-
-  typedHandle('db:getWorkflowExecution', (_, id) => {
-    const row = db.prepare('SELECT * FROM workflow_executions WHERE id = ?').get(id) as any;
-    if (!row) return undefined;
-    return {
-      ...row,
-      input: row.input ? JSON.parse(row.input) : {},
-      output: row.output ? JSON.parse(row.output) : undefined,
-    };
-  });
-
-  typedHandle('db:getWorkflowNodeRuns', (_, executionId) => {
-    const rows = db.prepare('SELECT * FROM workflow_node_runs WHERE execution_id = ? ORDER BY started_at').all(executionId) as any[];
-    return rows.map(r => ({
-      ...r,
-      input: r.input ? JSON.parse(r.input) : undefined,
-      output: r.output ? JSON.parse(r.output) : undefined,
-      logs: r.logs ? JSON.parse(r.logs) : undefined,
-      execution_trace: r.execution_trace ? JSON.parse(r.execution_trace) : undefined,
-      tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : undefined,
-    }));
-  });
 
   typedHandle('db:openFile', async (_, filePath, projectId) => {
     const { shell } = require('electron');
@@ -1207,8 +1191,6 @@ export function registerIpcHandlers() {
     return { ok: true };
   });
 
-  // ===== Phase 4: Workflow Runtime IPC Handlers =====
-  registerWorkflowIpcHandlers();
 
   // ===== Phase 08.3 Plan 01: @Mention file candidate IPC (E-01..E-05) =====
   // B-01: enum range = active project root (resolved server-side from projectId).
@@ -1386,4 +1368,5 @@ export function registerIpcHandlers() {
       };
     }
   });
+  registerWorkflowRunIpcHandlers();
 }

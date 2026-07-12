@@ -69,7 +69,6 @@ describe('projectActivityPanel', () => {
       delegatedTasks: [],
       parallelBatches: [],
       pendingApproval: null,
-      pendingWorkflowApproval: null,
       agents: [],
       viewingSubagentId: null,
       viewingParallelWorker: null,
@@ -105,7 +104,6 @@ describe('projectActivityPanel', () => {
         delegatedTasks: [],
         parallelBatches: [],
         pendingApproval: null,
-        pendingWorkflowApproval: null,
         agents: [],
         viewingSubagentId: null,
         viewingParallelWorker: null,
@@ -123,7 +121,6 @@ describe('projectActivityPanel', () => {
         delegatedTasks: [],
         parallelBatches: [],
         pendingApproval: null,
-        pendingWorkflowApproval: null,
         agents: [],
         viewingSubagentId: null,
         viewingParallelWorker: null,
@@ -155,7 +152,6 @@ describe('projectActivityPanel', () => {
           runId: 'run-1',
           actions: [writeAction],
         },
-        pendingWorkflowApproval: null,
         agents: [],
         viewingSubagentId: null,
         viewingParallelWorker: null,
@@ -206,7 +202,6 @@ describe('projectActivityPanel', () => {
             },
           })],
         },
-        pendingWorkflowApproval: null,
         agents: [],
         viewingSubagentId: null,
         viewingParallelWorker: null,
@@ -239,7 +234,6 @@ describe('projectActivityPanel', () => {
           runId: 'run-1',
           actions: [action({ name: 'generate_video', args })],
         },
-        pendingWorkflowApproval: null,
         agents: [],
         viewingSubagentId: null,
         viewingParallelWorker: null,
@@ -261,48 +255,6 @@ describe('projectActivityPanel', () => {
       })).toContain('6s · 480p');
     });
 
-    it('projects workflow approval separately from conversation approval', () => {
-      const projection = projectActivityPanel({
-        activeSessionId: 'session-1',
-        activeRunId: null,
-        agentRuns: [],
-        agentToolCalls: [],
-        delegatedTasks: [],
-        parallelBatches: [],
-        pendingApproval: null,
-        pendingWorkflowApproval: {
-          id: 'workflow-approval-1',
-          executionId: 'execution-1',
-          nodeId: 'node-1',
-          actions: [
-            action({ name: 'write_file' }),
-            action({ name: 'delete_file' }),
-          ],
-        },
-        agents: [],
-        viewingSubagentId: null,
-        viewingParallelWorker: null,
-        t,
-      });
-
-      expect(projection.workflowApprovalSection).toEqual({
-        approvalId: 'workflow-approval-1',
-        title: 'workflow.approval.title',
-        description: 'workflow.approval.description',
-        actions: [
-          {
-            key: 'write_file-0',
-            name: 'write_file',
-            label: 'workflow.approval.toolAction:{"tool":"write_file"}',
-          },
-          {
-            key: 'delete_file-1',
-            name: 'delete_file',
-            label: 'workflow.approval.toolAction:{"tool":"delete_file"}',
-          },
-        ],
-      });
-    });
 
     it('projects delegated work sorting, progress, metrics, and synthesis state', () => {
       const activeRun = run({ id: 'run-1', status: 'running' });
@@ -334,7 +286,6 @@ describe('projectActivityPanel', () => {
         delegatedTasks: [olderTask, newerTask],
         parallelBatches: [],
         pendingApproval: null,
-        pendingWorkflowApproval: null,
         agents: [reviewerAgent],
         viewingSubagentId: 'task-newer',
         viewingParallelWorker: null,
@@ -403,7 +354,6 @@ describe('projectActivityPanel', () => {
         delegatedTasks: [],
         parallelBatches: [batch],
         pendingApproval: null,
-        pendingWorkflowApproval: null,
         agents: [],
         viewingSubagentId: null,
         viewingParallelWorker: { batchId: 'batch-1', agentSlug: 'writer', workerId: 'worker-1' },

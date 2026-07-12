@@ -377,7 +377,7 @@ describe('projectConversationTimeline', () => {
     ]);
   });
 
-  it('appends pending approval only while the conversation is streaming', () => {
+  it('keeps a pending approval visible after streaming stops', () => {
     const userMessage = message({ id: 'user-1', role: 'user', content: 'run it' });
     const pendingApproval: AgentApprovalRequest = {
       id: 'approval-1',
@@ -408,6 +408,11 @@ describe('projectConversationTimeline', () => {
 
     expect(completedTimelineItems).toEqual([
       { type: 'message', id: 'user-1', message: userMessage },
+      {
+        type: 'pending_approval_block',
+        id: 'pending-approval-approval-1',
+        approval: pendingApproval,
+      },
     ]);
   });
 });

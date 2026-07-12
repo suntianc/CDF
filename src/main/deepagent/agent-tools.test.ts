@@ -734,22 +734,19 @@ describe('createAgentTools', () => {
       expect(result.mcpServerExclusionIds).toEqual(['m1']);
     });
 
-    it('rejects provider_id: null (P2 #3 residual)', async () => {
-      // Codex P2 #3: update_agent's original `if (input.provider_id)` truthy
-      // guard silently allowed clearing the provider (null → provider_id=NULL
-      // in DB). That breaks workflow node-executor.ts:303 getProvider(null)
-      // AND the chat runtime, which both read provider_id. Fix: explicitly
-      // reject null and '' with a clear error pointing the model at the
-      // valid paths (pass a valid id to switch, omit the field to keep).
+    it('rejects provider_id: null because runtime assembly requires a provider', async () => {
+      // update_agent must not silently persist provider_id=NULL. The unified
+      // runtime assembly requires a resolvable provider. To preserve the
+      // current provider, callers omit the field.
       const a = seedAgent({ provider_id: 'p-existing' });
       const result = await invoke('update_agent', { id: a.id, provider_id: null });
       expect(result.error).toMatch(/Cannot clear provider_id/);
-      expect(result.error).toMatch(/workflow node-executor/);
+      expect(result.error).toMatch(/runtime assembly/i);
       // Existing provider NOT cleared
       expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
     });
 
-    it('rejects provider_id: "" (P2 #3 residual)', async () => {
+    it('rejects provider_id: "" because runtime assembly requires a provider', async () => {
       const a = seedAgent({ provider_id: 'p-existing' });
       const result = await invoke('update_agent', { id: a.id, provider_id: '' });
       expect(result.error).toMatch(/Cannot clear provider_id/);

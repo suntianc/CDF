@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { collectSystemCommandsMock, collectMcpCommandsMock, collectSkillCommandsMock, collectWorkflowCommandsMock, collectProjectCommandsMock } = vi.hoisted(() => ({
+const { collectSystemCommandsMock, collectMcpCommandsMock, collectSkillCommandsMock, collectProjectCommandsMock } = vi.hoisted(() => ({
   collectSystemCommandsMock: vi.fn(),
   collectMcpCommandsMock: vi.fn(),
   collectSkillCommandsMock: vi.fn(),
-  collectWorkflowCommandsMock: vi.fn(),
   collectProjectCommandsMock: vi.fn(),
 }));
 
@@ -16,9 +15,6 @@ vi.mock('./collectors/mcp', () => ({
 }));
 vi.mock('./collectors/skill', () => ({
   collectSkillCommands: collectSkillCommandsMock,
-}));
-vi.mock('./collectors/workflow', () => ({
-  collectWorkflowCommands: collectWorkflowCommandsMock,
 }));
 vi.mock('./collectors/project', () => ({
   collectProjectCommands: collectProjectCommandsMock,
@@ -35,14 +31,13 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockReturnValue([{ name: 'goal', description: '', source: 'system', target: 'goal', sourceLabel: 'system', badge: '[system]' }]);
     collectMcpCommandsMock.mockResolvedValue({ commands: [{ name: 'mcp1', description: '', source: 'mcp', target: 'mcp1', sourceLabel: 'mcp:mcp1', badge: '[mcp:mcp1]' }], hasAgentMcp: true });
     collectSkillCommandsMock.mockResolvedValue([{ name: 'sk1', description: '', source: 'skill:project', target: 'project:sk1', sourceLabel: 'skill:project', badge: '[skill:project]' }]);
-    collectWorkflowCommandsMock.mockResolvedValue([{ name: 'wf1', description: '', source: 'workflow', target: 'wf-uuid', sourceLabel: 'workflow', badge: '[workflow]' }]);
     collectProjectCommandsMock.mockResolvedValue([{ name: 'cmd1', description: '', source: 'cmd:project', target: '/path/cmd1.md', sourceLabel: 'cmd:project', badge: '[cmd:project]' }]);
   }
 
-  it('all 5 collectors succeed: returns 5 commands + 0 conflicts + 0 warnings', async () => {
+  it('all 4 collectors succeed: returns 4 commands + 0 conflicts + 0 warnings', async () => {
     setupAllSucceed();
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
-    expect(result.commands).toHaveLength(5);
+    expect(result.commands).toHaveLength(4);
     expect(result.conflicts).toEqual([]);
     expect(result.warnings).toEqual([]);
   });
@@ -73,12 +68,11 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockReturnValue([{ name: 'goal', description: '', source: 'system', target: 'goal', sourceLabel: 'system', badge: '[system]' }]);
     collectMcpCommandsMock.mockRejectedValue(new Error('mcp server down'));
     collectSkillCommandsMock.mockResolvedValue([{ name: 'sk1', description: '', source: 'skill:project', target: 'project:sk1', sourceLabel: 'skill:project', badge: '[skill:project]' }]);
-    collectWorkflowCommandsMock.mockResolvedValue([{ name: 'wf1', description: '', source: 'workflow', target: 'wf-uuid', sourceLabel: 'workflow', badge: '[workflow]' }]);
     collectProjectCommandsMock.mockResolvedValue([{ name: 'cmd1', description: '', source: 'cmd:project', target: '/path/cmd1.md', sourceLabel: 'cmd:project', badge: '[cmd:project]' }]);
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
-    expect(result.commands).toHaveLength(4);
-    expect(result.commands.map((c) => c.source)).toEqual(['system', 'skill:project', 'workflow', 'cmd:project']);
+    expect(result.commands).toHaveLength(3);
+    expect(result.commands.map((c) => c.source)).toEqual(['system', 'skill:project', 'cmd:project']);
     expect(result.warnings).toEqual([]);
   });
 
@@ -86,7 +80,6 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockReturnValue([]);
     collectMcpCommandsMock.mockResolvedValue({ commands: [], hasAgentMcp: true });
     collectSkillCommandsMock.mockResolvedValue([]);
-    collectWorkflowCommandsMock.mockResolvedValue([]);
     collectProjectCommandsMock.mockResolvedValue([]);
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
@@ -98,7 +91,6 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockReturnValue([]);
     collectMcpCommandsMock.mockResolvedValue({ commands: [], hasAgentMcp: false });
     collectSkillCommandsMock.mockResolvedValue([]);
-    collectWorkflowCommandsMock.mockResolvedValue([]);
     collectProjectCommandsMock.mockResolvedValue([]);
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
@@ -110,7 +102,6 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockReturnValue([{ ...shared, source: 'system', target: 'dup', sourceLabel: 'system', badge: '[system]' }]);
     collectMcpCommandsMock.mockResolvedValue({ commands: [], hasAgentMcp: false });
     collectSkillCommandsMock.mockResolvedValue([{ ...shared, source: 'skill:project', target: 'project:dup', sourceLabel: 'skill:project', badge: '[skill:project]' }]);
-    collectWorkflowCommandsMock.mockResolvedValue([]);
     collectProjectCommandsMock.mockResolvedValue([]);
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
@@ -123,7 +114,6 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockImplementation(() => { throw new Error('system boom'); });
     collectMcpCommandsMock.mockRejectedValue(new Error('mcp boom'));
     collectSkillCommandsMock.mockRejectedValue(new Error('skills boom'));
-    collectWorkflowCommandsMock.mockRejectedValue(new Error('workflows boom'));
     collectProjectCommandsMock.mockRejectedValue(new Error('projects boom'));
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
@@ -139,7 +129,6 @@ describe('command-registry', () => {
       hasAgentMcp: true,
     });
     collectSkillCommandsMock.mockResolvedValue([]);
-    collectWorkflowCommandsMock.mockResolvedValue([]);
     collectProjectCommandsMock.mockResolvedValue([]);
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
@@ -151,11 +140,10 @@ describe('command-registry', () => {
     collectSystemCommandsMock.mockReturnValue([{ name: 's', description: '', source: 'system', target: 's', sourceLabel: 'system', badge: '[system]' }]);
     collectMcpCommandsMock.mockRejectedValue(new Error('first'));
     collectSkillCommandsMock.mockResolvedValue([{ name: 'k', description: '', source: 'skill:project', target: 'project:k', sourceLabel: 'skill:project', badge: '[skill:project]' }]);
-    collectWorkflowCommandsMock.mockImplementation(() => Promise.reject(new Error('workflow error')));
     collectProjectCommandsMock.mockResolvedValue([]);
 
     const result = await collectAllCommands('/tmp/proj', 'agent-1');
-    // system and skill should still be there; workflow throws; project is empty
+    // system and skill should still be there; project is empty
     expect(result.commands.map((c) => c.name)).toEqual(['s', 'k']);
   });
 });

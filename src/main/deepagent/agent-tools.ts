@@ -7,7 +7,7 @@
  * - 更新已有 agent
  * - 删除 agent
  *
- * 设计原则(参考 createWorkflowTools):
+ * 设计原则:
  * - 闭包注入 projectId,不允许工具跨项目操作
  * - 复用 db.* 表;与 AgentEditDialog 走同一条 schema 校验
  * - 错误以 JSON.stringify 形式返回给模型,而不是抛异常
@@ -157,10 +157,9 @@ export function createAgentTools(
           });
         }
 
-        // provider 必填语义:workflow 后续 getProvider(null) 会抛错,
-        // 工具兜底:省略时回退到 active provider(与 runtime.ts:78-89
-        // getFallbackProviderId 同款逻辑);没有 provider 则拒绝。
-        // 注:不能简单 ORDER BY id 取字典序第一个,可能是未激活的旧 provider。
+        // provider 是统一 Agent runtime 装配的必填输入。省略时回退到
+        // active provider；没有 active provider 则拒绝。不能按 id 排序
+        // 随意选取旧 provider。
         let effectiveProviderId = input.provider_id ?? null;
         if (!effectiveProviderId) {
           const activeProvider = db
@@ -367,19 +366,15 @@ export function createAgentTools(
               'Invalid agent name. Must contain only English letters, numbers, spaces, hyphens, or underscores.',
           });
         }
-        // P2 #3(residual): 不允许显式清空 provider。
-        // workflow node-executor.ts:303 调 getProvider(agentRow.provider_id) 抛错;
-        // chat runtime 也会读 provider_id,所以 null provider 让 agent 在两个路径都跑不起来。
-        // create_agent 在缺省时回退到 active provider(runtime.ts:78-89 同款);update_agent
-        // 对齐 — 想换 provider 显式传合法 id,想保留 omit(不传)字段,不要传 null/''。
+        // 不允许显式清空 provider：统一 Agent runtime 装配要求 provider_id
+        // 可解析。想换 provider 时传合法 id，想保留时省略该字段。
         if (input.provider_id !== undefined) {
           if (input.provider_id === null || input.provider_id === '') {
             return JSON.stringify({
               error:
-                `Cannot clear provider_id on update_agent. provider_id must remain set: ` +
-                `workflow node-executor.ts calls getProvider(agentRow.provider_id) which throws ` +
-                `when null, and the chat runtime also reads it. To change the provider, pass a ` +
-                `valid id; to keep the current provider, omit the field. ` +
+                `Cannot clear provider_id on update_agent. provider_id must remain set because ` +
+                `Agent runtime assembly requires a resolvable provider. To change the provider, ` +
+                `pass a valid id; to keep the current provider, omit the field. ` +
                 `Use list_agents to inspect the current provider_id.`,
             });
           }
@@ -528,8 +523,8 @@ export function createAgentTools(
         description:
           '更新已有 agent。仅更新提供的字段;未提供的字段保持不变。' +
           'mcpServerExclusionIds / skillNames 整体替换(若提供,内部去重);skillNames 表示 Agent Skill Preload,不是访问授权。' +
-          'provider_id 不允许传 null 或空字符串(workflow node-executor.ts 读 provider_id,' +
-          'null 会抛错;chat runtime 也读);想换 provider 显式传合法 id,想保留 omit(不传)该字段。' +
+          'provider_id 不允许传 null 或空字符串（统一 Agent runtime 装配要求可解析的 provider）；' +
+          '想换 provider 显式传合法 id，想保留则省略该字段。' +
           '**Slug 跟随 name**:改 name 会重算 effective_slug,自动用 `generateSlug(name)` ' +
           '并加 `-2`/`-3` 直至项目内唯一(同 create_agent)。若重命名后 effective_slug 与 ' +
           '旧值一致(仅大小写/标点差异),保留旧 slug 不变更。' +

@@ -4,27 +4,34 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import db from '../database';
-import store from '../store';
 import { resolveAgentSlug } from './agent-slug';
-import { createLangChainModel } from './llm-adapter';
-import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions, resolveAgentSkillsConfig } from './skill-manager';
-import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
-import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import {
-  getProvider,
+  extractPathMentionContext,
+  assembleDeepAgentRuntime,
+} from './runtime-assembly';
+import {
   getAgentMcpServers,
   getConnectedMcpServers,
   getAgentSkillNames,
   createBuiltInTools,
   loadRegistryTools,
   loadMcpTools,
+  getRuntimeToolNames,
   createSpanId,
   createChildSpan,
   type AgentRow,
 } from './shared-infra';
 import type { ExecutionStep, ParallelTaskStepEvent } from '../../shared/types';
+import {
+  getRunBySessionId,
+  getCurrentStage,
+  createTask,
+  setTaskDelegation,
+  updateTaskStatus,
+  getTask,
+} from '../workflow-run/db';
 import { parallelTaskStepChannel } from '../../shared/ipc-contract';
-
+import { pushProjectionEvent } from '../workflow-run/notify';
 const WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ParallelTaskStepEvent 已迁移至 src/shared/types.ts（IPC 契约共享）。
@@ -101,29 +108,6 @@ function normalizeToolArgs(input: unknown): unknown {
   return input;
 }
 
-function getPreloadSkillNames(skillIds: string[]): string[] {
-  return skillReferencesToPreloadNames(skillIds);
-}
-
-function extractPathMentionContext(content: string): string[] {
-  const seen = new Set<string>();
-  for (const match of content.matchAll(/@([^\s]+)/g)) {
-    const normalized = match[1]
-      .trim()
-      .replace(/[),.;:，。；：）]+$/g, '')
-      .replace(/\\/g, '/')
-      .replace(/^\.\//g, '')
-      .replace(/^\/+/g, '');
-    if (normalized) seen.add(normalized);
-  }
-  return Array.from(seen);
-}
-
-function appendRuntimePrompt(basePrompt: string, runtimePrompt: string): string {
-  const trimmedRuntimePrompt = runtimePrompt.trim();
-  if (!trimmedRuntimePrompt) return basePrompt;
-  return `${basePrompt}\n\n${trimmedRuntimePrompt}`;
-}
 
 // ---- Worker invocation ----
 
@@ -131,52 +115,47 @@ async function invokeWorker(
   agentRow: AgentRow,
   taskDescription: string,
   projectPath: string,
+  projectName: string,
   sourceSessionId: string,
   onStep: (step: ExecutionStep) => void,
 ): Promise<string> {
-  const provider = getProvider(agentRow.provider_id);
-  const agentId = agentRow.id;
-  const model = createLangChainModel({
-    apiKey: provider.api_key ?? undefined,
-    apiUrl: provider.api_url ?? undefined,
-    defaultModel: provider.default_model,
-    providerType: provider.provider_type as any,
-  });
+  const skillNames = getAgentSkillNames(agentRow.id);
+  const pathContext = extractPathMentionContext(taskDescription);
 
-  const allMcpServers = getConnectedMcpServers();
-  const mcpServers = getAgentMcpServers(agentId);
-  const skillNames = getAgentSkillNames(agentId);
-  const mcpRuntime = await loadMcpTools(agentId, mcpServers, allMcpServers);
-  const skillOverrideOptions = resolveAgentSkillConfigOptions(agentRow.config, (key) => store.get(key));
-  for (const warning of skillOverrideOptions.warnings) {
-    console.warn('[parallel-task] Ignored invalid Skill override:', warning);
+  const builtInTools = createBuiltInTools(projectPath, sourceSessionId);
+  try {
+    builtInTools.push(...loadRegistryTools());
+  } catch (err) {
+    console.warn('[parallel-task] Failed to load registry tools:', err);
   }
-  const { permissions } = skillOverrideOptions.options
-    ? resolveAgentSkillsConfig(projectPath, skillNames, skillOverrideOptions.options)
-    : resolveAgentSkillsConfig(projectPath, skillNames);
-  const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
-    ...skillOverrideOptions.options,
-    builtInSkillDirs: getBuiltInSkillDirs(),
-    userSkillsDir: getScopePath(projectPath, 'global'),
-    preloadSkillNames: getPreloadSkillNames(skillNames),
-    pathContext: extractPathMentionContext(taskDescription),
-  });
-  for (const warning of skillsRuntime.warnings) {
+  const capabilityToolNames = getRuntimeToolNames(builtInTools);
+
+  const assembly = await assembleDeepAgentRuntime(
+    agentRow,
+    undefined,
+    { name: projectName, path: projectPath },
+    skillNames,
+    pathContext,
+    capabilityToolNames,
+  );
+  for (const warning of assembly.assemblyWarnings) {
     console.warn('[parallel-task] Ignored invalid Skill runtime input:', warning);
   }
+
+  const allMcpServers = getConnectedMcpServers();
+  const mcpServers = getAgentMcpServers(agentRow.id);
+  const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers, allMcpServers);
 
   const backend = new CompositeBackend(new StateBackend(), {
     '/': new FilesystemBackend({ rootDir: '/', virtualMode: false }),
   });
-  const builtInTools: any[] = createBuiltInTools(projectPath, sourceSessionId);
-  builtInTools.push(...loadRegistryTools());
 
   const agent = createDeepAgent({
-    model,
+    model: assembly.model,
     backend,
-    systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', skillsRuntime.prompt) || undefined,
-    permissions,
-    tools: [...mcpRuntime.tools, ...builtInTools],
+    systemPrompt: assembly.systemPrompt || undefined,
+    permissions: assembly.permissions,
+    tools: [...assembly.skillsRuntime.skills, ...mcpRuntime.tools, ...builtInTools],
     // worker 不挂 interruptOn：worker 图没有 checkpointer，LangGraph 的
     // interrupt() 会直接抛 "No checkpointer set" 打死任务。与单委派 task
     // subagent 的免审批语义一致；Claude Code 式审批路由另行立项。
@@ -318,26 +297,87 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
       }
 
       const projectRow = db
-        .prepare('SELECT path FROM projects WHERE id = ?')
-        .get(projectId) as { path: string } | undefined;
+        .prepare('SELECT name, path FROM projects WHERE id = ?')
+        .get(projectId) as { name: string; path: string } | undefined;
       const projectPath = projectRow?.path ?? '';
-
+      const projectName = projectRow?.name ?? 'Project';
       const allAgents = db
         .prepare('SELECT * FROM agents WHERE project_id = ?')
         .all(projectId) as AgentRow[];
+
+      // Phase 16+: Task Graph 关联验证 — 防跨 Run/Stage 污染
+      const workflowRun = getRunBySessionId(sessionId);
+      let currentStageIdForFallback: string | undefined;
+      if (workflowRun) {
+        const stage = getCurrentStage(workflowRun);
+        if (stage) currentStageIdForFallback = stage.id;
+      }
+
+      // 批内已使用的 runTaskId 集合 — 防同批重复绑定
+      const usedRunTaskIds = new Set<string>();
 
       const workerPromises = tasks.map(async (task) => {
         const startTime = Date.now();
         const workerId = crypto.randomUUID();
         const agentRow = allAgents.find((row) => resolveAgentSlug(row) === task.name);
 
+        // Phase 16+: 验证 runTaskId 归属边界
+        let runTaskId: string | undefined = task.runTaskId ?? undefined;
+        const fallbackTitle = task.name || task.description?.slice(0, 60) || 'parallel-task';
+
+        if (runTaskId) {
+          // 无 Workflow Run 上下文 → 普通聊天不得触碰 Workflow Run task
+          if (!workflowRun) {
+            runTaskId = undefined;
+          } else {
+            const existingTask = getTask(runTaskId);
+            if (!existingTask) {
+              // task 不存在 → 忽略 runTaskId
+              runTaskId = undefined;
+            } else if (existingTask.run_id !== workflowRun.id) {
+              // 跨 Run 污染 → 忽略
+              runTaskId = undefined;
+            } else if (!currentStageIdForFallback || existingTask.stage_id !== currentStageIdForFallback) {
+              // 跨 Stage 污染 → 忽略
+              runTaskId = undefined;
+            } else if (usedRunTaskIds.has(runTaskId)) {
+              // 批内重复绑定 → 忽略重复项
+              runTaskId = undefined;
+            } else {
+              usedRunTaskIds.add(runTaskId);
+            }
+          }
+        }
+
+        if (!runTaskId && workflowRun && currentStageIdForFallback) {
+          // 无 runTaskId 但处于 Workflow 上下文 → 创建 persisted fallback task
+          const fb = createTask(
+            workflowRun.id,
+            currentStageIdForFallback,
+            fallbackTitle,
+            task.description || '',
+          );
+          runTaskId = fb.id;
+          pushProjectionEvent({ type: 'task', task: fb });
+        }
+
         if (!agentRow) {
+          if (runTaskId) {
+            const updated = updateTaskStatus(runTaskId, 'failed');
+            if (updated) pushProjectionEvent({ type: 'task', task: updated });
+          }
           return {
             name: task.name,
             status: 'failure' as const,
             error: `Agent not found: ${task.name}`,
             duration_ms: Date.now() - startTime,
           };
+        }
+
+        // Phase 16: 开始执行 → in_progress + 记录 delegation
+        if (runTaskId) {
+          setTaskDelegation(runTaskId, batchId, workerId, resolveAgentSlug(agentRow));
+          pushProjectionEvent({ type: 'delegation', taskId: runTaskId, batchId, workerId, agentSlug: resolveAgentSlug(agentRow) });
         }
 
         try {
@@ -349,15 +389,16 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
             batchId,
             agentSlug: task.name,
             workerId,
+            runTaskId,
             step: { type: 'task_start', ts: Date.now(), label: agentRow.name, goal: task.description },
           });
-
           const output = await invokeWorker(
             agentRow,
             taskContext,
             projectPath,
+            projectName,
             sessionId,
-            (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, workerId, step }),
+            (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, workerId, runTaskId, step }),
           );
 
           const summary = output.slice(0, 300);
@@ -365,8 +406,13 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
             batchId,
             agentSlug: task.name,
             workerId,
+            runTaskId,
             step: { type: 'task_end', ts: Date.now(), success: true, summary },
           });
+          if (runTaskId) {
+            const updated = updateTaskStatus(runTaskId, 'completed');
+            if (updated) pushProjectionEvent({ type: 'task', task: updated });
+          }
 
           return {
             name: task.name,
@@ -381,8 +427,16 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
             batchId,
             agentSlug: task.name,
             workerId,
+            runTaskId,
             step: { type: 'task_end', ts: Date.now(), success: false, error: errMsg },
           });
+
+          // Phase 16: 失败 → failed
+          if (runTaskId) {
+            const updated = updateTaskStatus(runTaskId, 'failed');
+            if (updated) pushProjectionEvent({ type: 'task', task: updated });
+          }
+
           return {
             name: task.name,
             agentName: agentRow.name,
@@ -406,13 +460,16 @@ export function createParallelTaskTool(projectId: string, sessionId: string) {
       name: 'parallel_tasks',
       description:
         '并发调用多个子 Agent 执行独立任务。执行期间每个 worker 的步骤实时推送到 UI；' +
-        '所有 worker 完成后返回聚合结果。name 使用 agent 的 effective_slug（用 list_agents 查询）。',
+        '所有 worker 完成后返回聚合结果。name 使用 agent 的 effective_slug（用 list_agents 查询）。' +
+        '若当前处于 Workflow Run，每个任务会绑定到当前 Stage 的 Task Graph 以追踪状态。' +
+        'runTaskId 可选：若传入则绑定该现有 Task 的 ID 更新状态；否则自动创建。',
       schema: z.object({
         tasks: z.array(
           z.object({
             name: z.string().describe('agent effective_slug'),
             description: z.string().describe('给该 agent 的任务描述'),
             input: z.record(z.string(), z.unknown()).optional().describe('附加上下文（可选）'),
+            runTaskId: z.string().optional().describe('绑定到此现有 Task ID（可选）'),
           }),
         ).describe('要并发执行的任务列表'),
       }),

@@ -21,11 +21,6 @@ import type {
   FileError,
   FileInfo,
   SlashCommand,
-  ApprovalMode,
-  WorkflowApprovalResolution,
-  WorkflowExportResult,
-  WorkflowStreamEvent,
-  WorkflowTriggerSource,
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
   KnowledgeEntrySummary,
@@ -47,9 +42,13 @@ import type {
   Skill,
   SkillSaveInput,
   Workflow,
-  WorkflowExecution,
-  WorkflowNodeRun,
   WorkflowSaveInput,
+  WorkflowRunProjectionEvent,
+  WorkflowRun,
+  WorkflowRunTask,
+  WorkflowStageGate,
+  StageGateResolution,
+  WorkflowStage,
 } from './types';
 import type {
   CapabilityJobAction,
@@ -167,9 +166,6 @@ export interface IpcInvokeContract {
   'db:getWorkflow': { args: [id: string]; result: Workflow | undefined };
   'db:saveWorkflow': { args: [workflow: WorkflowSaveInput]; result: Workflow };
   'db:deleteWorkflow': { args: [id: string]; result: void };
-  'db:getWorkflowExecutions': { args: [workflowId: string]; result: WorkflowExecution[] };
-  'db:getWorkflowExecution': { args: [id: string]; result: WorkflowExecution | undefined };
-  'db:getWorkflowNodeRuns': { args: [executionId: string]; result: WorkflowNodeRun[] };
   'db:openFile': {
     args: [filePath: string, projectId?: string];
     result: { success: boolean; error?: string };
@@ -224,26 +220,6 @@ export interface IpcInvokeContract {
     args: [config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }];
     result: { agentId: string };
   };
-  // ===== workflow 运行时 =====
-  'workflow:run': {
-    args: [
-      workflowId: string,
-      projectId: string,
-      triggerSource: WorkflowTriggerSource,
-      input?: Record<string, unknown>,
-      approvalMode?: ApprovalMode,
-    ];
-    result: string;
-  };
-  'workflow:stop': { args: [executionId: string]; result: void };
-  'workflow:getEvents': { args: [executionId: string]; result: WorkflowStreamEvent[] };
-  'workflow:approve': {
-    args: [executionId: string, approvalId: string, resolution: WorkflowApprovalResolution];
-    result: void;
-  };
-  'workflow:listExecutions': { args: [workflowId: string]; result: WorkflowExecution[] };
-  'workflow:deleteExecution': { args: [executionId: string]; result: void };
-  'workflow:exportExecution': { args: [executionId: string]; result: WorkflowExportResult };
   // ===== 文件管理 =====
   'fs:readDirectory': {
     args: [rootPath: string, dirPath: string, showHidden?: boolean];
@@ -334,6 +310,18 @@ export interface IpcInvokeContract {
     args: [sessionId: string, contextLimit?: number, overriddenModelName?: string];
     result: ContextAggregate;
   };
+  // ===== Phase 14+: C-lite Workflow Run =====
+  'workflow-run:start': {
+    args: [workflowId: string, projectId: string];
+    result: { runId: string; sessionId: string; firstStage: WorkflowStage };
+  };
+  'workflow-run:get-runs': { args: [workflowId: string]; result: WorkflowRun[] };
+  'workflow-run:get-run': { args: [runId: string]; result: WorkflowRun | undefined };
+  'workflow-run:get-run-by-session': { args: [sessionId: string]; result: WorkflowRun | null };
+  'workflow-run:get-stage-gates': { args: [runId: string]; result: WorkflowStageGate[] };
+  'workflow-run:resolve-stage-gate': { args: [gateId: string, resolution: StageGateResolution]; result: void };
+  'workflow-run:abort': { args: [runId: string]; result: void };
+  'workflow-run:get-tasks': { args: [runId: string, stageId?: string]; result: WorkflowRunTask[] };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract;
@@ -387,9 +375,6 @@ export const IPC_INVOKE_CHANNELS = [
   'db:getWorkflow',
   'db:saveWorkflow',
   'db:deleteWorkflow',
-  'db:getWorkflowExecutions',
-  'db:getWorkflowExecution',
-  'db:getWorkflowNodeRuns',
   'db:openFile',
   'db:revealFile',
   'knowledge:list',
@@ -407,13 +392,14 @@ export const IPC_INVOKE_CHANNELS = [
   'llm:fetchProviderModels',
   'llm:fetchOllamaModels',
   'deepagents:createAgent',
-  'workflow:run',
-  'workflow:stop',
-  'workflow:getEvents',
-  'workflow:approve',
-  'workflow:listExecutions',
-  'workflow:deleteExecution',
-  'workflow:exportExecution',
+  'workflow-run:start',
+  'workflow-run:get-runs',
+  'workflow-run:get-run',
+  'workflow-run:get-run-by-session',
+  'workflow-run:get-stage-gates',
+  'workflow-run:resolve-stage-gate',
+  'workflow-run:abort',
+  'workflow-run:get-tasks',
   'fs:readDirectory',
   'fs:readFile',
   'fs:getFileInfo',
@@ -456,17 +442,13 @@ export type _AllInvokeChannelsListed = AssertNever<MissingInvokeChannels>;
 
 // ===== 静态事件通道（main → renderer）：channel 名 → payload =====
 export interface IpcEventContract {
-  'workflow:execution-started': {
-    executionId: string;
-    workflowId: string;
-    triggerSource: WorkflowTriggerSource;
-  };
   'conversation:messages-changed': { sessionId: string };
   'conversation:run-event': ConversationRunStreamEnvelope;
   'fs:directoryChange': { type: string; path: string };
   'commands:changed': { source: string };
   'commands:fallback': { scope: 'system' | 'project'; dir: string; error: string };
   'capability-jobs:changed': CapabilityJobEvent;
+  'workflow-run:projection-event': WorkflowRunProjectionEvent;
 }
 
 export type IpcEventChannel = keyof IpcEventContract;
@@ -487,6 +469,3 @@ export const llmChunkChannel = dynamicIpcChannel<LLMStreamEvent>('llm:chunk-');
 
 // 并行任务步进：主进程发送侧与 preload 监听侧共用（按 sessionId 拼名）。
 export const parallelTaskStepChannel = dynamicIpcChannel<ParallelTaskStepEvent>('agent:parallel-task-step-');
-
-// workflow 执行事件：主进程发送侧与 preload 监听侧共用（按 executionId 拼名）。
-export const workflowEventChannel = dynamicIpcChannel<WorkflowStreamEvent>('workflow:event-');

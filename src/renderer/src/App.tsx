@@ -18,6 +18,7 @@ import { useI18nStore } from './stores/i18nStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
+import { useWorkflowRunStore } from './stores/workflowRunStore';
 
 import { Workflow } from '@shared/types';
 import { PanelLeft, PanelRight, SlidersHorizontal } from 'lucide-react';
@@ -176,6 +177,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const subscribe = window.electronAPI.workflowRun?.onProjectionEvent;
+    if (typeof subscribe !== 'function') return;
+    return subscribe((event) => {
+      useWorkflowRunStore.getState().dispatchProjectionEvent(event);
+    });
+  }, []);
+
+  useEffect(() => {
     if (pendingApproval && activeView === 'chat') {
       activityAutoOpenedRef.current = true;
       setTaskPanelOpen(true);
@@ -240,8 +249,19 @@ export default function App() {
                 setEditingWorkflow(wf);
               }}
               onCreateWorkflow={() => {
-                setCurrentWorkflow(null);
-                setEditingWorkflow({ id: '', name: '', project_id: '', graph_data: { nodes: [], edges: [] }, status: 'draft', created_at: 0, updated_at: 0 } as Workflow);
+                const workflowProjectId = currentProjectId ?? projects[0]?.id ?? '';
+                const workflow: Workflow = {
+                  id: '',
+                  name: '',
+                  project_id: workflowProjectId,
+                  stages: [],
+                  master_agent_id: '',
+                  status: 'draft',
+                  created_at: 0,
+                  updated_at: 0,
+                };
+                setCurrentWorkflow(workflow);
+                setEditingWorkflow(workflow);
               }}
             />
           )}

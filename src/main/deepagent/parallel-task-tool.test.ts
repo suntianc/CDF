@@ -21,6 +21,13 @@ const {
   resolveAgentSkillsConfigMock,
   resolveAgentSkillConfigOptionsMock,
   buildCdfSkillsRuntimeMock,
+  getRunBySessionIdMock,
+  getCurrentStageMock,
+  createTaskMock,
+  setTaskDelegationMock,
+  updateTaskStatusMock,
+  getTaskMock,
+  normalizeProviderIdMock,
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(),
   dbPrepareMock: vi.fn(),
@@ -59,8 +66,14 @@ const {
     prompt: '## Skills System\n\nparallel skills prompt',
     warnings: [],
   })),
+  getRunBySessionIdMock: vi.fn(),
+  getCurrentStageMock: vi.fn(),
+  createTaskMock: vi.fn(),
+  setTaskDelegationMock: vi.fn(),
+  updateTaskStatusMock: vi.fn(),
+  getTaskMock: vi.fn(),
+  normalizeProviderIdMock: vi.fn((v: string | null | undefined) => v ?? null),
 }));
-
 vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: vi.fn(() => []),
@@ -72,6 +85,7 @@ vi.mock('deepagents', () => ({
   CompositeBackend: class {},
   FilesystemBackend: class {},
   StateBackend: class {},
+  registerHarnessProfile: vi.fn(),
 }));
 
 vi.mock('../database', () => ({
@@ -86,12 +100,22 @@ vi.mock('../store', () => ({
   },
 }));
 
+vi.mock('../workflow-run/db', () => ({
+  getRunBySessionId: getRunBySessionIdMock,
+  getCurrentStage: getCurrentStageMock,
+  createTask: createTaskMock,
+  setTaskDelegation: setTaskDelegationMock,
+  updateTaskStatus: updateTaskStatusMock,
+  getTask: getTaskMock,
+}));
+
 vi.mock('./llm-adapter', () => ({
   createLangChainModel: createLangChainModelMock,
 }));
 
 vi.mock('./shared-infra', () => ({
   getProvider: getProviderMock,
+  normalizeProviderId: normalizeProviderIdMock,
   getAgentMcpServers: getAgentMcpServersMock,
   getConnectedMcpServers: getConnectedMcpServersMock,
   getAgentSkillNames: getAgentSkillNamesMock,
@@ -136,9 +160,13 @@ describe('createParallelTaskTool', () => {
         messages: [{ role: 'assistant', content: 'worker done' }],
       })),
     });
+    getRunBySessionIdMock.mockReturnValue(undefined);
+    getCurrentStageMock.mockReturnValue(null);
+    createTaskMock.mockReturnValue({ id: 'fallback-task' });
+    getTaskMock.mockReturnValue(undefined);
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: () => {
-        if (sql.includes('SELECT path FROM projects')) return { path: '/tmp/project' };
+        if (sql.includes('FROM projects')) return { name: 'Test Project', path: '/tmp/project' };
         return undefined;
       },
       all: () => {
@@ -238,5 +266,209 @@ describe('createParallelTaskTool', () => {
     expect(resolveInterruptOnMock).not.toHaveBeenCalled();
     const params = createDeepAgentMock.mock.calls[0][0];
     expect(params.interruptOn).toBeUndefined();
+  });
+
+  it('links a Workflow Run task using runTaskId and advances it when the worker completes', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    getTaskMock.mockReturnValue({ id: 'task-1', run_id: 'run-1', stage_id: 'stage-1' });
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Do linked work',
+        runTaskId: 'task-1',
+      }],
+    });
+
+    expect(setTaskDelegationMock).toHaveBeenCalledWith(
+      'task-1',
+      expect.any(String),
+      expect.any(String),
+      'worker',
+    );
+    expect(updateTaskStatusMock).toHaveBeenCalledWith('task-1', 'completed');
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('persists an unowned Workflow Run dispatch under the current Stage', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    createTaskMock.mockReturnValue({ id: 'fallback-task' });
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Unplanned delegated work',
+      }],
+    });
+
+    expect(createTaskMock).toHaveBeenCalledWith(
+      'run-1',
+      'stage-1',
+      'worker',
+      'Unplanned delegated work',
+    );
+    expect(setTaskDelegationMock).toHaveBeenCalledWith(
+      'fallback-task',
+      expect.any(String),
+      expect.any(String),
+      'worker',
+    );
+    expect(updateTaskStatusMock).toHaveBeenCalledWith('fallback-task', 'completed');
+  });
+
+  it('marks the linked Workflow Run task failed when the worker fails', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    getTaskMock.mockReturnValue({ id: 'task-failed', run_id: 'run-1', stage_id: 'stage-1' });
+    createDeepAgentMock.mockReturnValueOnce({
+      invoke: vi.fn(async () => {
+        throw new Error('worker failed');
+      }),
+    });
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    const result = JSON.parse(String(await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Failing linked work',
+        runTaskId: 'task-failed',
+      }],
+    }))) as { results: Array<{ status: string }> };
+
+    expect(result.results[0].status).toBe('failure');
+    expect(updateTaskStatusMock).toHaveBeenCalledWith('task-failed', 'failed');
+  });
+
+  it('rejects runTaskId when there is no Workflow Run context (normal chat)', async () => {
+    // No getRunBySessionIdMock set — defaults to undefined from beforeEach
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Chat-dispatched task',
+        runTaskId: 'task-in-run',
+      }],
+    });
+
+    // Normal chat: no Workflow Run, so runTaskId is ignored
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(setTaskDelegationMock).not.toHaveBeenCalled();
+    expect(updateTaskStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects runTaskId when the task does not exist', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    getTaskMock.mockReturnValue(undefined); // task doesn't exist
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Task with bogus id',
+        runTaskId: 'non-existent-task',
+      }],
+    });
+
+    // Non-existent task should be ignored; fallback created instead
+    expect(createTaskMock).toHaveBeenCalledTimes(1);
+    expect(setTaskDelegationMock).toHaveBeenCalledWith(
+      'fallback-task',
+      expect.any(String),
+      expect.any(String),
+      'worker',
+    );
+  });
+
+  it('rejects runTaskId belonging to a different run', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    getTaskMock.mockReturnValue({ id: 'other-run-task', run_id: 'run-2', stage_id: 'stage-1' });
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Cross-run task',
+        runTaskId: 'other-run-task',
+      }],
+    });
+
+    expect(createTaskMock).toHaveBeenCalledTimes(1);
+    expect(updateTaskStatusMock).toHaveBeenCalledWith('fallback-task', 'completed');
+  });
+
+  it('rejects runTaskId belonging to a different stage', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }, { id: 'stage-2' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    getTaskMock.mockReturnValue({ id: 'other-stage-task', run_id: 'run-1', stage_id: 'stage-2' });
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [{
+        name: 'worker',
+        description: 'Cross-stage task',
+        runTaskId: 'other-stage-task',
+      }],
+    });
+
+    expect(createTaskMock).toHaveBeenCalledWith('run-1', 'stage-1', 'worker', 'Cross-stage task');
+    expect(updateTaskStatusMock).toHaveBeenCalledWith('fallback-task', 'completed');
+  });
+
+  it('rejects duplicate runTaskId within the same batch, using only the first occurrence', async () => {
+    getRunBySessionIdMock.mockReturnValue({
+      id: 'run-1',
+      current_stage_index: 0,
+      stages: JSON.stringify([{ id: 'stage-1' }]),
+    });
+    getCurrentStageMock.mockReturnValue({ id: 'stage-1' });
+    getTaskMock.mockReturnValue({ id: 'shared-task', run_id: 'run-1', stage_id: 'stage-1' });
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
+
+    await parallelTool.invoke({
+      tasks: [
+        { name: 'worker', description: 'First use', runTaskId: 'shared-task' },
+        { name: 'worker', description: 'Duplicate use', runTaskId: 'shared-task' },
+      ],
+    });
+
+    expect(setTaskDelegationMock).toHaveBeenCalledTimes(2);
+    expect(setTaskDelegationMock).toHaveBeenCalledWith(
+      'shared-task',
+      expect.any(String),
+      expect.any(String),
+      'worker',
+    );
+    expect(createTaskMock).toHaveBeenCalledWith('run-1', 'stage-1', 'worker', 'Duplicate use');
   });
 });

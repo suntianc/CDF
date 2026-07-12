@@ -12,7 +12,7 @@
 - 文件树和编辑预览：`components/FilePanel/`
 - Agent 活动、委派、并行任务、审批：`components/TaskPanel/`
 - Agents、Skills、MCP、Tools、Provider 与系统设置：`components/AgentLibrary/`、`components/PluginsPanel/`、`components/Settings/`
-- Workflow 列表、画布、Node Palette、配置 Drawer 和执行面板：`components/WorkflowEditor/`
+- Workflow 列表、Stage 编辑器和 Run Projection UI：`components/WorkflowEditor/`、`components/WorkflowRunView/`
 - General / Research Scene，以及 Paper Library、Writing、Experiments：`components/SceneWorkspace/`
 - 当前主题、圆角、层级、动效和 Workflow 色块：`styles/globals.css`
 
@@ -180,7 +180,7 @@ Files 和 Agent Activity 的使用频率与持续时间不同，不能合并为�
 - Files：FileTree 与 EditorPane 分区滚动，分隔明显。
 - Activity Popover：头部固定，轨迹内容在 70vh 内滚动。
 - Resource 页面：页面级滚动，不在每个资源块内再滚动。
-- Workflow Canvas 不随页面滚动；Palette、Inspector 和 Execution Panel 独立滚动。
+- Workflow Skeleton 编辑区与 Workflow Run Projection 不随页面滚动；Stage 列表、任务图和 Stage Report 各自管理有边界的滚动。
 - 禁止两个无边界的同方向嵌套滚动区。
 
 ---
@@ -646,51 +646,45 @@ Settings 保留 LLM Provider、AI Subscription、Agents、Skills/MCP、Workflows
 
 ## 11. Workflow Editor
 
-Workflow Editor 是唯一允许自动折叠 Project Ledger 的视图，以最大化画布。
+Workflow Editor 是唯一允许自动折叠 Project Ledger 的视图，以最大化编辑区域。
 
 ### 11.1 布局
 
 ```text
 48px Workflow toolbar
-┌─────────────┬───────────────────────┬──────────────────┐
-│ Node palette│ React Flow canvas     │ one side panel   │
-│ 208px       │ flexible, min 520px   │ 360–400px        │
-└─────────────┴───────────────────────┴──────────────────┘
+┌─────────────────────────────────────┬──────────────────┐
+│ Stage Editor                        │ Run Projection   │
+│ flexible                            │ 360–400px        │
+└─────────────────────────────────────┴──────────────────┘
 ```
 
-右侧一次只显示一种：Node/Edge Config、Execution、History。禁止三者并排连续压缩 Canvas。
+右侧 Run Projection 面板展示 workflow 运行时每个 Stage 的执行投影。
 
 ### 11.2 Toolbar
 
 - Back、workflow name、Save state、Undo/Redo、History、Run/Stop。
 - 高 48px；macOS drag region 与普通 topbar 共享规则。
 - 保存中、已保存、保存失败是可见状态。
-- Run 前验证失败在画布和 Validation summary 同时显示，不只发 Toast。
+- Run 前验证失败在编辑区和 Validation summary 同时显示，不只发 Toast。
 - `⌘/Ctrl + S` Save，`⌘/Ctrl + Z` Undo，`⌘/Ctrl + Shift + Z` Redo。
 
-### 11.3 Node
+### 11.3 Stage
 
-- Start/End：150 × 50px。
-- 可执行 Node：210 × 100px 基线，可因必要摘要增高但不缩小命中区。
-- Node header 展示 type 和 label；body 展示 Agent/goal/failure strategy 等一项关键配置。
+- Stage 是 workflow 的一个独立执行单元，包含 Agent 配置、输入和失败策略。
+- 编辑器中显示为卡片，展示 Agent 名称、Goal 摘要和状态标记。
 - 选中：accent Ledger Edge + strong border。
 - Pending：neutral status marker。
-- Running：info marker，禁止整个 Node pulse。
+- Running：info marker。
 - Success：success marker + check。
 - Failed：danger marker + error icon。
 - Disabled：降低文字对比并显示 Disabled label。
 - 分类色只出现在 4px 顶边或 header tint。
 
-### 11.4 Canvas 与面板
+### 11.4 面板
 
-- Palette 同时支持 Drag 和 Click-to-add；键盘用户使用 Add Node Menu。
-- Canvas 使用 subtle dot grid；Light/Dark 对比一致。
-- MiniMap 默认在节点超过 8 个后显示，少量节点不占空间。
-- Node/Edge Inspector 宽 380px，与当前代码一致。
-- Execution Panel 显示节点执行轨迹、Approval、Stop 和输出。
-- History Drawer 选择一次运行后复用 Execution Panel 详情，不再打开第三层面板。
-
----
+- Skeleton 面板管理 Stage 的执行顺序和并行策略。
+- Run Projection 面板显示 workflow 运行时每个 Stage 的执行轨迹、Agent 消息、输出和状态。
+- History 面板浏览历史运行记录，选中后复用 Run Projection 布局。
 
 ## 12. 动效
 

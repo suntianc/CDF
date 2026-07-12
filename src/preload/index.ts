@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcRendererEvent } from 'electron';
 import { typedInvoke } from './typed-ipc';
-import { llmChunkChannel, parallelTaskStepChannel, workflowEventChannel } from '../shared/ipc-contract';
+import { llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
 import type { IpcEventPayload } from '../shared/ipc-contract';
 import type {
   AgentApprovalResolution,
@@ -21,10 +21,8 @@ import type {
   SearchProviderSaveInput,
   SkillSaveInput,
   WorkflowSaveInput,
-  ApprovalMode,
-  WorkflowApprovalResolution,
-  WorkflowStreamEvent,
-  WorkflowTriggerSource,
+  StageGateResolution,
+  WorkflowRunProjectionEvent,
 } from '../shared/types';
 import type { SkillOverrideState } from '../shared/skill-overrides';
 import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
@@ -108,9 +106,6 @@ const api = {
     getWorkflow: (id: string) => typedInvoke('db:getWorkflow', id),
     saveWorkflow: (workflow: WorkflowSaveInput) => typedInvoke('db:saveWorkflow', workflow),
     deleteWorkflow: (id: string) => typedInvoke('db:deleteWorkflow', id),
-    getWorkflowExecutions: (workflowId: string) => typedInvoke('db:getWorkflowExecutions', workflowId),
-    getWorkflowExecution: (id: string) => typedInvoke('db:getWorkflowExecution', id),
-    getWorkflowNodeRuns: (executionId: string) => typedInvoke('db:getWorkflowNodeRuns', executionId),
     openFile: (filePath: string, projectId?: string) => typedInvoke('db:openFile', filePath, projectId),
     revealFile: (filePath: string, projectId?: string) => typedInvoke('db:revealFile', filePath, projectId),
   },
@@ -139,37 +134,6 @@ const api = {
       const listener = (event: IpcRendererEvent, data: ParallelTaskStepEvent) => callback(event, data);
       ipcRenderer.on(channel, listener);
       return () => { ipcRenderer.removeListener(channel, listener); };
-    },
-  },
-  workflow: {
-    runWorkflow: (workflowId: string, projectId: string, triggerSource: WorkflowTriggerSource, input?: Record<string, unknown>, approvalMode?: ApprovalMode) =>
-      typedInvoke('workflow:run', workflowId, projectId, triggerSource, input, approvalMode),
-    stopWorkflow: (executionId: string) =>
-      typedInvoke('workflow:stop', executionId),
-    getWorkflowEvents: (executionId: string) =>
-      typedInvoke('workflow:getEvents', executionId),
-    onWorkflowEvent: (executionId: string, callback: (event: IpcRendererEvent, data: WorkflowStreamEvent) => void) => {
-      const channel = workflowEventChannel(executionId);
-      const listener = (event: IpcRendererEvent, data: WorkflowStreamEvent) => callback(event, data);
-      ipcRenderer.on(channel, listener);
-      return () => {
-        ipcRenderer.removeListener(channel, listener);
-      };
-    },
-    // 历史执行记录
-    listExecutions: (workflowId: string) =>
-      typedInvoke('workflow:listExecutions', workflowId),
-    deleteExecution: (executionId: string) =>
-      typedInvoke('workflow:deleteExecution', executionId),
-    exportExecution: (executionId: string) =>
-      typedInvoke('workflow:exportExecution', executionId),
-    // Phase 14: HITL 审批
-    resolveApproval: (executionId: string, approvalId: string, resolution: WorkflowApprovalResolution) =>
-      typedInvoke('workflow:approve', executionId, approvalId, resolution),
-    onExecutionStarted: (callback: (data: IpcEventPayload<'workflow:execution-started'>) => void) => {
-      const listener = (_event: IpcRendererEvent, data: IpcEventPayload<'workflow:execution-started'>) => callback(data);
-      ipcRenderer.on('workflow:execution-started', listener);
-      return () => { ipcRenderer.removeListener('workflow:execution-started', listener); };
     },
   },
   // ===== File Management =====
@@ -230,6 +194,29 @@ const api = {
       return () => {
         ipcRenderer.removeListener('commands:fallback', listener);
       };
+    },
+  },
+  workflowRun: {
+    start: (workflowId: string, projectId: string) =>
+      typedInvoke('workflow-run:start', workflowId, projectId),
+    getRuns: (workflowId: string) =>
+      typedInvoke('workflow-run:get-runs', workflowId),
+    getRun: (runId: string) =>
+      typedInvoke('workflow-run:get-run', runId),
+    getRunBySession: (sessionId: string) =>
+      typedInvoke('workflow-run:get-run-by-session', sessionId),
+    getStageGates: (runId: string) =>
+      typedInvoke('workflow-run:get-stage-gates', runId),
+    resolveStageGate: (gateId: string, resolution: StageGateResolution) =>
+      typedInvoke('workflow-run:resolve-stage-gate', gateId, resolution),
+    abort: (runId: string) =>
+      typedInvoke('workflow-run:abort', runId),
+    getTasks: (runId: string) =>
+      typedInvoke('workflow-run:get-tasks', runId),
+    onProjectionEvent: (callback: (data: WorkflowRunProjectionEvent) => void) => {
+      const listener = (_event: IpcRendererEvent, data: WorkflowRunProjectionEvent) => callback(data);
+      ipcRenderer.on('workflow-run:projection-event', listener);
+      return () => { ipcRenderer.removeListener('workflow-run:projection-event', listener); };
     },
   },
   conversation: {

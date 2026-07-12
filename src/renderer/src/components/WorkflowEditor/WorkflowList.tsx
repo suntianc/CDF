@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useWorkflowRunStore } from '../../stores/workflowRunStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { Workflow } from '../../../../shared/types';
 import { Plus, Trash2, GitBranch, Clock, Play, Info, Edit } from 'lucide-react';
@@ -17,8 +18,9 @@ interface WorkflowListProps {
 }
 
 export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowListProps) {
-  const { t } = useTranslation();
-  const { workflows, isLoading, error, fetchWorkflows, deleteWorkflow, saveWorkflow, runWorkflow } = useWorkflowStore();
+  const { t, i18n } = useTranslation();
+  const { workflows, isLoading, error, fetchWorkflows, deleteWorkflow, saveWorkflow } = useWorkflowStore();
+  const startRun = useWorkflowRunStore((state) => state.startRun);
   const { currentProjectId } = useProjectStore();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -64,19 +66,15 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
 
   const handleRunWorkflow = async (workflow: Workflow, e: React.MouseEvent) => {
     e.stopPropagation();
-    const startNode = workflow.graph_data?.nodes?.find((n) => n.type === 'start');
-    const taskGoal = (startNode?.data?.taskGoal as string || '').trim();
-    if (!taskGoal) {
-      showToast(t('workflow.list.runRequiresGoal'), 'error');
+    if (workflow.stages.length === 0) {
+      showToast(t('workflow.list.runRequiresStage'), 'error');
       return;
     }
 
     if (!currentProjectId) return;
     try {
       showToast(t('workflow.list.startingWorkflow'), 'info');
-      await runWorkflow(workflow.id, currentProjectId, 'editor', {
-        taskGoal,
-      });
+      await startRun(workflow.id, currentProjectId);
       showToast(t('workflow.list.workflowStarted'), 'success');
     } catch (err: any) {
       showToast(err.message || t('workflow.list.runFailed'), 'error');
@@ -84,7 +82,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   };
 
   const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString('zh-CN', {
+    return new Date(timestamp).toLocaleDateString(i18n.language, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -95,7 +93,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       {/* Toast Notification Container */}
-      <div className="absolute top-12 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div 
             key={t.id} 
@@ -225,7 +223,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   <Clock className="w-3 h-3" />
                   <span>{formatDate(workflow.updated_at)}</span>
                   <span className="mx-1">·</span>
-                  <span>{t('workflow.list.nodeCount', { count: workflow.graph_data?.nodes?.length || 0 })}</span>
+                  <span>{t('workflow.list.stageCount', { count: workflow.stages.length })}</span>
                 </div>
               </div>
 

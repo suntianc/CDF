@@ -459,6 +459,73 @@ describe('runLLMChat', () => {
     );
   });
 
+  it('should mark workflow run as failed when LLM errors for a workflow session', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      run: vi.fn(),
+      all: vi.fn(() => []),
+      get: () => {
+        if (sql.includes('FROM sessions')) return { workflow_run_id: 'wf-run-123' };
+        if (sql.includes('FROM agent_runs')) return { id: 'run-1' };
+        return undefined;
+      },
+    }));
+
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn(async () => {
+          throw new Error('provider connection failed');
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'run' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await expect(runLLMChat({ send } as any, 'req-wf-fail', {
+      projectId: 'project-1',
+      sessionId: 'session-wf-fail',
+      message: {
+        id: 'message-wf-fail',
+        content: 'run',
+      },
+    })).rejects.toThrow('provider connection failed');
+
+    expect(dbPrepareMock).toHaveBeenCalledWith(expect.stringContaining('UPDATE workflow_runs'));
+    expect(send).toHaveBeenCalledWith(
+      'conversation:messages-changed',
+      { sessionId: 'session-wf-fail' }
+    );
+  });
+
+  it('should not update workflow runs on LLM error for a regular conversation', async () => {
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn(async () => {
+          throw new Error('regular error');
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'run' }],
+      agentId: 'agent-1',
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    await expect(runLLMChat({ send } as any, 'req-regular', {
+      projectId: 'project-1',
+      sessionId: 'session-regular',
+      message: {
+        id: 'message-regular',
+        content: 'run',
+      },
+    })).rejects.toThrow('regular error');
+
+    expect(send).not.toHaveBeenCalledWith(
+      'conversation:messages-changed',
+      expect.any(Object)
+    );
+  });
+
   it('should not complete before run.output resolves after streams finish', async () => {
     vi.useFakeTimers();
     let resolveOutput!: (value: unknown) => void;

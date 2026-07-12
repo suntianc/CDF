@@ -54,7 +54,7 @@ export function projectConversationTimeline(input: {
     timelineItems.push(...foldResponseItems(turn.responseItems, turnIndex));
   });
 
-  if (input.isStreaming && input.pendingApproval) {
+  if (input.pendingApproval) {
     timelineItems.push({
       type: 'pending_approval_block',
       id: `pending-approval-${input.pendingApproval.id}`,

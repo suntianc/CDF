@@ -57,7 +57,7 @@ export function resolve(
     return null;
   }
 
-  // MCP / Skills / Workflows / Custom commands all use PluginRewrite.
+  // MCP / Skills / Custom commands all use PluginRewrite.
   // D-18: args are appended to the natural-language prompt and passed as
   // message.content; they are NOT injected into the tool's schema args.
   // v1.1 polish: MCP commands are server-dimension (one `/<server>` per MCP
@@ -338,7 +338,7 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
           }
         }
         // Fall through (D-18): existing prompt-rewrite path for system/MCP
-        // /workflow commands (no bodyPath) or when body read returned empty.
+        // commands (no bodyPath) or when body read returned empty.
         if (hasOverrides) {
           await sendMessage(projectId, plan.prompt, overrides);
         } else {

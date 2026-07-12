@@ -299,7 +299,7 @@ export type LLMStreamEvent =
   | { type: 'delegated_task_step'; taskId: string; step: ExecutionStep }
   | { type: 'todos_update'; todos: TodoItem[] };
 
-export type ConversationRunOrigin = 'background-capability-continuation';
+export type ConversationRunOrigin = 'background-capability-continuation' | 'workflow-resume';
 
 export interface ConversationRunIdentity {
   sessionId: string;
@@ -329,7 +329,6 @@ export type CommandSource =
   | 'mcp'
   | 'skill:project'
   | 'skill:global'
-  | 'workflow'
   | 'cmd:project'
   | 'cmd:system';
 
@@ -447,6 +446,9 @@ export interface ChatPayload {
     imageBase64?: string[];
   };
   overrides?: ChatRuntimeOverrides;
+  resume?: {
+    decisions: Array<{ type: 'approve' | 'reject'; message?: string }>;
+  };
 }
 
 // llm:judge 的真实入参（handler 为真，原 src/main/llm.ts 定义迁移至此）。
@@ -618,132 +620,33 @@ export interface FileError {
   message: string;
 }
 
-// ===== Phase 4: Workflow System Types =====
-
-export type WorkflowNodeType = 'start' | 'agent' | 'task' | 'loop' | 'review' | 'foreach' | 'parallel' | 'end';
-export type WorkflowAgentNodeKind = 'task' | 'loop' | 'review' | 'foreach' | 'parallel';
-export type WorkflowEdgeOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte';
-
-/** Node port — 统一输入/输出端口定义（参考 Flowise INode） */
-export interface NodePort {
-  id: string;
-  label: string;
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any';
-  required?: boolean;
-  defaultValue?: unknown;
-}
-
-/** Node category for palette grouping */
-export type WorkflowNodeCategory = 'flow' | 'agent';
-
-/** 统一节点配置接口 */
-export interface WorkflowNodeConfig {
-  /** 节点分类（用于侧边栏分组） */
-  category: WorkflowNodeCategory;
-  /** 输入端口定义 */
-  inputs: NodePort[];
-  /** 输出端口定义 */
-  outputs: NodePort[];
-  /** 节点图标（lucide icon name） */
-  icon?: string;
-  /** 节点颜色主题 */
-  color?: string;
-}
-
-export interface WorkflowNode {
-  id: string;
-  type: WorkflowNodeType;
-  position: { x: number; y: number };
-  data: {
-    label: string;
-    nodeKind?: WorkflowAgentNodeKind;
-    agentId?: string;
-    description?: string;
-    taskDescription?: string;
-    workspace?: string;
-    workArea?: string;
-    loopCount?: number;
-    reviewSpec?: string;
-    reviewRules?: string;
-    retryCount?: number;
-    failureStrategy?: 'retry' | 'skip' | 'stop';
-    taskGoal?: string;
-    bgColor?: string;
-    dataSource?: string;
-    itemPrompt?: string;
-    concurrencyLimit?: number;
-  };
-}
-
-export interface WorkflowEdge {
-  id: string;
-  source: string;
-  target: string;
-  sourceHandle?: string;
-  targetHandle?: string;
-  metadata?: {
-    condition?: string;
-    operator?: WorkflowEdgeOperator;
-    routeValue?: string;
-    compareValue?: string;
-    targets?: Record<string, string>;
-  };
-}
-
-export interface WorkflowDefinition {
-  nodes: WorkflowNode[];
-  edges: WorkflowEdge[];
-  viewport?: { x: number; y: number; zoom: number };
-}
+// ===== C-lite Workflow Skeleton =====
 
 export interface Workflow {
   id: string;
   project_id: string;
   name: string;
   description?: string;
-  graph_data: WorkflowDefinition;
+  stages: WorkflowStage[];
+  master_agent_id?: string;
   status: 'draft' | 'active';
   created_at: number;
   updated_at: number;
 }
 
-// IPC 保存入参：以 db:saveWorkflow handler 实际消费的字段为真（时间戳由主进程生成）。
+// IPC 保存入参：时间戳由主进程生成。
 export interface WorkflowSaveInput {
-  id: string;
+  id?: string;
   project_id: string;
   name: string;
   description?: string;
-  graph_data?: WorkflowDefinition | null;
+  stages?: WorkflowStage[];
+  master_agent_id?: string;
   status?: Workflow['status'];
 }
 
-export type WorkflowExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
-
-// workflow:run 的触发来源（handler 为真：runWorkflow 消费的三种入口）。
-export type WorkflowTriggerSource = 'editor' | 'chat' | 'schedule';
-
-// workflow:exportExecution 的真实返回（原 log-exporter.ts 定义镜像至 shared）。
-export interface WorkflowExportResult {
-  saved: boolean;
-  path?: string;
-  canceled?: boolean;
-  error?: string;
-}
-
-export interface WorkflowExecution {
-  id: string;
-  workflow_id: string;
-  project_id: string;
-  trigger_source: 'editor' | 'chat' | 'schedule';
-  status: WorkflowExecutionStatus;
-  input: Record<string, unknown>;
-  output?: Record<string, unknown>;
-  error?: string;
-  started_at: number;
-  ended_at?: number;
-}
-
-export type WorkflowNodeRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped' | 'waiting';
+// 全局审批模式：strict = 全量 DEFAULT_INTERRUPT_ON；agent_decides = 提示词引导；bypass = 不拦截。
+export type ApprovalMode = 'strict' | 'agent_decides' | 'bypass';
 
 // ===== 时序执行轨迹 =====
 
@@ -777,61 +680,93 @@ export interface ParallelTaskStepEvent {
   batchId: string;
   agentSlug: string;
   workerId: string;
+  runTaskId?: string;
   step: ExecutionStep;
 }
 
-export interface WorkflowNodeRun {
+
+
+// ===== Phase 14+: C-lite Workflow Run Types (Workflow Skeleton execution) =====
+
+export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'aborted' | 'waiting_gate';
+
+export interface WorkflowStage {
   id: string;
-  execution_id: string;
-  node_id: string;
-  node_name: string;
-  status: WorkflowNodeRunStatus;
-  input?: Record<string, unknown>;
-  output?: Record<string, unknown>;
-  error?: string;
-  error_type?: string;
-  retry_count: number;
+  name: string;
+  taskDescription: string;
+  acceptanceCriteria: string | string[];
+  gateEnabled: boolean;
+}
+
+export interface WorkflowStageReport {
+  acceptanceSelfCheck: Array<{ criterion: string; passed: boolean; notes?: string }>;
+  artifacts: Array<{ path: string; description?: string }>;
+  summary: string;
+  tasks?: WorkflowRunTask[];
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  project_id: string;
+  session_id: string;
+  master_agent_id: string;
+  status: WorkflowRunStatus;
+  current_stage_index: number;
+  total_stages: number;
+  stages: string;
+  skeleton_snapshot: string | null;
+  error: string | null;
   started_at: number;
-  ended_at?: number;
-  logs?: string[];                  // 保留(向后兼容)
-  execution_trace?: ExecutionStep[]; // 新增:时序执行轨迹
+  ended_at: number | null;
+  created_at: number;
+  updated_at: number;
 }
 
-// ===== Phase 14: 审批模式 =====
+export type WorkflowTaskStatus = 'planned' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
 
-/** 全局审批模式：strict = 全量 DEFAULT_INTERRUPT_ON；agent_decides = 提示词引导；bypass = 不拦截 */
-export type ApprovalMode = 'strict' | 'agent_decides' | 'bypass';
-
-/** 工作流审批请求 */
-export interface WorkflowApprovalRequest {
+export interface WorkflowRunTask {
   id: string;
-  executionId: string;
-  nodeId: string;
-  actions: AgentApprovalAction[];
+  run_id: string;
+  stage_id: string;
+  title: string;
+  description: string;
+  status: WorkflowTaskStatus;
+  dependencies: string[];
+  delegation_batch_id: string | null;
+  delegation_worker_id: string | null;
+  delegation_agent_slug: string | null;
+  created_at: number;
+  updated_at: number;
+  completed_at: number | null;
 }
 
-/** 工作流审批决策 */
-export interface WorkflowApprovalResolution {
-  approvalId: string;
-  decisions: Array<{
-    type: AgentApprovalDecisionType;
-    editedAction?: unknown;
-    message?: string;
-  }>;
+export interface WorkflowStageGate {
+  id: string;
+  run_id: string;
+  stage_id: string;
+  stage_name: string;
+  report: WorkflowStageReport;
+  status: 'pending' | 'approved' | 'rejected' | 'auto_approved';
+  feedback: string | null;
+  created_at: number;
+  decided_at: number | null;
 }
 
-export type WorkflowStreamEvent = (
-  | { type: 'workflow_start'; executionId: string; workflowId: string }
-  | { type: 'node_start'; executionId: string; nodeId: string; nodeName: string; spanId?: string }
-  | { type: 'node_end'; executionId: string; nodeId: string; duration_ms: number; outputKeys: string[] }
-  | { type: 'node_error'; executionId: string; nodeId: string; errorType: string; errorMessage: string; retryCount: number }
-  | { type: 'workflow_end'; executionId: string; status: 'completed' | 'failed' | 'stopped'; duration_ms: number }
-  | { type: 'loop_terminated'; executionId: string; edgeId: string; iterationCount: number }
-  | { type: 'node_log'; executionId: string; nodeId: string; step: ExecutionStep }
-  // ===== Phase 14 新增：HITL 审批事件 =====
-  | { type: 'node_waiting_approval'; executionId: string; nodeId: string; nodeName: string; approval: WorkflowApprovalRequest }
-  | { type: 'node_approval_resolved'; executionId: string; nodeId: string; status: 'approved' | 'rejected' }
-) & { seq?: number };
+export interface StageGateResolution {
+  decision: 'approve' | 'reject' | 'terminate';
+  feedback?: string;
+}
+
+// ===== Workflow Run Projection Event (main→renderer) =====
+
+export type WorkflowRunProjectionEvent =
+  | { type: 'snapshot'; run: WorkflowRun; gates: WorkflowStageGate[]; tasks: WorkflowRunTask[] }
+  | { type: 'run'; runId?: string; status: WorkflowRunStatus; currentStageIndex: number; error: string | null }
+  | { type: 'stage_gate'; gate: WorkflowStageGate }
+  | { type: 'task'; task: WorkflowRunTask }
+  | { type: 'delegation'; taskId: string; batchId: string; workerId: string; agentSlug: string }
+  | { type: 'replay'; events: WorkflowRunProjectionEvent[] };
 
 export interface KnowledgeEntrySearchOptions {
   keyword?: string;

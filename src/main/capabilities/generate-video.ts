@@ -62,6 +62,9 @@ export async function generateVideo(
 ): Promise<GenerateVideoResult> {
   const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
   if (!prompt) return { ok: false, error: 'prompt is required', code: 'INVALID_INPUT' };
+  if (input.route_hint && input.route_hint !== 'auto' && input.route_hint !== 'xai-oauth') {
+    return { ok: false, error: `Unsupported video route: ${input.route_hint}`, code: 'ROUTE_UNAVAILABLE' };
+  }
 
   const route = deps.resolveXaiVideoRoute();
   const notConnected = 'xAI Grok OAuth is not connected for video generation';

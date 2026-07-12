@@ -7,7 +7,7 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import {
-  Plus, Image, BarChart3
+  Plus, Image, BarChart3, GitBranch, MessagesSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -33,6 +33,8 @@ import { useConversationWorkspaceModel } from './useConversationWorkspaceModel';
 import { useConversationPlanDisclosure } from './useConversationPlanDisclosure';
 import { useConversationWorkspaceBootstrap } from './useConversationWorkspaceBootstrap';
 import { CreateProjectDialog } from '@/components/ProjectTree/CreateProjectDialog';
+import { WorkflowRunView } from '../WorkflowRunView/WorkflowRunView';
+import { useWorkflowRunStore } from '../../stores/workflowRunStore';
 
 interface ChatAreaProps {
   onOpenSettings?: () => void;
@@ -68,6 +70,9 @@ export function ChatArea({
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
   const setViewingSubagent = useSessionStore((s) => s.setViewingSubagent);
   const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
+  const activeWorkflowRun = useWorkflowRunStore((s) => s.activeRun);
+  const isWorkflowGraphView = useWorkflowRunStore((s) => s.isGraphView);
+  const setWorkflowGraphView = useWorkflowRunStore((s) => s.setGraphView);
   const workspaceModel = useConversationWorkspaceModel();
   const {
     currentProjectId,
@@ -240,6 +245,15 @@ export function ChatArea({
     await fetchSessions(project.id);
   };
 
+  useEffect(() => {
+    if (!activeSessionId) {
+      useWorkflowRunStore.getState().clear();
+      return;
+    }
+    if (!window.electronAPI?.workflowRun?.getRunBySession) return;
+    void useWorkflowRunStore.getState().loadRunForSession(activeSessionId);
+  }, [activeSessionId]);
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden relative">
       <input
@@ -336,6 +350,39 @@ export function ChatArea({
 
         {/* Messages Viewport — sub-agent view or master conversation */}
         <div className="flex-1 relative overflow-hidden">
+          {activeWorkflowRun && (
+            <div className="absolute right-3 top-2 z-20 flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-1 shadow-sm">
+              <button
+                type="button"
+                aria-pressed={!isWorkflowGraphView}
+                onClick={() => setWorkflowGraphView(false)}
+                className={`flex items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1 text-xs ${
+                  !isWorkflowGraphView
+                    ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
+                    : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
+                }`}
+              >
+                <MessagesSquare className="h-3.5 w-3.5" />
+                {t('workflow.runView.chatTimeline')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={isWorkflowGraphView}
+                onClick={() => setWorkflowGraphView(true)}
+                className={`flex items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1 text-xs ${
+                  isWorkflowGraphView
+                    ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
+                    : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
+                }`}
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                {t('workflow.runView.runGraph')}
+              </button>
+            </div>
+          )}
+          {activeWorkflowRun && isWorkflowGraphView ? (
+            <WorkflowRunView />
+          ) : (
           <ConversationViewportSurface
             activeSessionId={activeSessionId}
             timelineItems={timelineItems}
@@ -352,11 +399,12 @@ export function ChatArea({
             onBackFromParallelWorker={() => setViewingParallelWorker(null)}
             onClearError={clearError}
           />
+          )}
         </div>
 
         {activeSessionId &&
           <ConversationComposerDock
-            hidden={Boolean(viewingTask || viewingWorkerData)}
+            hidden={Boolean(viewingTask || viewingWorkerData || (activeWorkflowRun && isWorkflowGraphView))}
             showTodos={planDisclosure.showTodos}
             todos={todos}
             todoExpanded={planDisclosure.todoExpanded}

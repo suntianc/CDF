@@ -1092,8 +1092,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   resolveApproval: async (decision, editedArgs) => {
     const { streamingMessageId, pendingApproval } = get();
-    if (!streamingMessageId || !pendingApproval) return;
+    if (!pendingApproval) return;
 
+    const isWorkflowStageGate = pendingApproval.actions.length === 1
+      && pendingApproval.actions[0].name === 'advance_stage';
+    if (isWorkflowStageGate) {
+      if (decision === 'edit') {
+        set({ error: { message: '阶段门禁仅支持批准或打回。' } });
+        return;
+      }
+      try {
+        await window.electronAPI.workflowRun.resolveStageGate(pendingApproval.id, {
+          decision: decision === 'approve' ? 'approve' : 'reject',
+          feedback: decision === 'reject' ? '用户打回了当前阶段，请继续完善。' : undefined,
+        });
+        set({ pendingApproval: null });
+      } catch (err: unknown) {
+        set({ error: { message: err instanceof Error ? err.message : String(err) } });
+      }
+      return;
+    }
+
+    if (!streamingMessageId) return;
     let editedAction: unknown;
     if (decision === 'edit') {
       try {

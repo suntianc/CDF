@@ -24,8 +24,6 @@ function getTokenColorClass(token: ComposerInputLeadingItem): string {
     case 'skill:project':
     case 'skill:global':
       return 'text-[var(--color-warning)]';
-    case 'workflow':
-      return 'text-[var(--color-danger)]';
     case 'system':
     case 'cmd:project':
     case 'cmd:system':

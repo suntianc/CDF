@@ -80,6 +80,24 @@ describe('generateVideo', () => {
     expect(writeArtifact).toHaveBeenCalledWith(Buffer.from('mp4-bytes'), { extension: 'mp4' });
   });
 
+  it('rejects unsupported route hints with the video-specific message', async () => {
+    const xaiFetch = vi.fn();
+    const result = await generateVideo(
+      { prompt: 'a cat playing with a ball', route_hint: 'minimax-token-plan' as any },
+      {
+        resolveXaiVideoRoute: () => ({ enabled: true, fetch: xaiFetch }),
+        writeArtifact: vi.fn(),
+      }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Unsupported video route: minimax-token-plan',
+      code: 'ROUTE_UNAVAILABLE',
+    });
+    expect(xaiFetch).not.toHaveBeenCalled();
+  });
+
   it('downloads the temporary video through Electron transport without OAuth headers', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = globalFetchMock as typeof fetch;

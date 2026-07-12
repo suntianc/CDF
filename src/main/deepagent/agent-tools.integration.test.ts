@@ -56,8 +56,9 @@ const TABLES_IN_DELETE_ORDER = [
   // Children first to avoid FK violations during the wipe.
   'agent_tool_calls',
   'agent_runs',
-  'workflow_node_runs',
-  'workflow_executions',
+  'workflow_run_tasks',
+  'workflow_stage_gates',
+  'workflow_runs',
   'workflows',
   'agent_skills',
   'agent_mcp_exclusions',

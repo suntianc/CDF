@@ -1,4 +1,4 @@
-import type { Agent, AgentApprovalRequest, AgentRun, AgentToolCall, WorkflowApprovalRequest } from '@shared/types';
+import type { Agent, AgentApprovalRequest, AgentRun, AgentToolCall } from '@shared/types';
 import { estimateTokens } from '@/stores/sessionStore';
 import type { DelegatedTask, ParallelBatch, ParallelWorker } from '@/stores/sessionStore';
 import { projectVideoApprovalSummary } from '../../shared/videoApprovalSummary';
@@ -45,16 +45,6 @@ export type ActivityPanelConversationApprovalSection = {
   actions: ActivityPanelApprovalActionSummary[];
 };
 
-export type ActivityPanelWorkflowApprovalSection = {
-  approvalId: string;
-  title: string;
-  description: string;
-  actions: Array<{
-    key: string;
-    name: string;
-    label: string;
-  }>;
-};
 
 export type ActivityPanelDelegatedTaskItem = {
   task: DelegatedTask;
@@ -98,7 +88,6 @@ export type ActivityPanelProjection = {
   runSection: ActivityPanelRunSection | null;
   toolSummarySection: ActivityPanelToolSummarySection | null;
   conversationApprovalSection: ActivityPanelConversationApprovalSection | null;
-  workflowApprovalSection: ActivityPanelWorkflowApprovalSection | null;
   delegatedWorkSection: ActivityPanelDelegatedWorkSection | null;
   parallelWorkSection: ActivityPanelParallelWorkSection | null;
 };
@@ -111,7 +100,6 @@ export type ProjectActivityPanelInput = {
   delegatedTasks: DelegatedTask[];
   parallelBatches: ParallelBatch[];
   pendingApproval: AgentApprovalRequest | null;
-  pendingWorkflowApproval: WorkflowApprovalRequest | null;
   agents: Agent[];
   viewingSubagentId: string | null;
   viewingParallelWorker: { batchId: string; agentSlug: string; workerId?: string } | null;
@@ -218,22 +206,6 @@ function projectConversationApproval(
   };
 }
 
-function projectWorkflowApproval(
-  approval: WorkflowApprovalRequest | null,
-  t: ProjectActivityPanelInput['t'],
-): ActivityPanelWorkflowApprovalSection | null {
-  if (!approval) return null;
-  return {
-    approvalId: approval.id,
-    title: t('workflow.approval.title'),
-    description: t('workflow.approval.description'),
-    actions: approval.actions.map((action, index) => ({
-      key: `${action.name}-${index}`,
-      name: action.name,
-      label: t('workflow.approval.toolAction', { tool: action.name }),
-    })),
-  };
-}
 
 function tokenDisplayForText(text: string): string {
   const tokenEstimate = estimateTokens(text);
@@ -359,7 +331,6 @@ export function projectActivityPanel(input: ProjectActivityPanelInput): Activity
         }
       : null,
     conversationApprovalSection: projectConversationApproval(input.pendingApproval, input.t),
-    workflowApprovalSection: projectWorkflowApproval(input.pendingWorkflowApproval, input.t),
     delegatedWorkSection: projectDelegatedWork(input, activeRun),
     parallelWorkSection: projectParallelWork(input),
   };
