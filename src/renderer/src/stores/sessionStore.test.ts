@@ -26,7 +26,7 @@ describe('sessionStore sendMessage', () => {
     });
   });
 
-  it('claims the Conversation before persistence and rejects a concurrent submission', async () => {
+  it('claims the target Conversation before persistence and rejects a concurrent submission', async () => {
     let releaseFirstSave: (() => void) | undefined;
     const saveMessage = vi.fn(async (message) => {
       await new Promise<void>((resolve) => {
@@ -35,6 +35,22 @@ describe('sessionStore sendMessage', () => {
       return message;
     });
     let chunkListener: ((event: unknown, data: LLMStreamEvent) => void | Promise<void>) | null = null;
+
+    useSessionStore.setState((state) => ({
+      sessions: [
+        ...state.sessions,
+        {
+          id: 'session-2',
+          project_id: 'project-1',
+          name: 'Background Session',
+          parent_session_id: null,
+          summary: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ],
+      todos: [{ id: 'visible-todo', content: 'Keep visible', status: 'in_progress' }],
+    }));
 
     window.electronAPI = {
       store: { get: vi.fn(), set: vi.fn() },
@@ -59,10 +75,26 @@ describe('sessionStore sendMessage', () => {
       platform: 'darwin',
     } as unknown as Window['electronAPI'];
 
-    const firstSubmission = useSessionStore.getState().sendMessage('project-1', 'first');
+    const firstSubmission = useSessionStore.getState().sendMessage(
+      'project-1',
+      'first',
+      undefined,
+      'session-2',
+    );
     await vi.waitFor(() => expect(saveMessage).toHaveBeenCalledTimes(1));
 
-    const secondResult = await useSessionStore.getState().sendMessage('project-1', 'second');
+    const ownedRuntime = useSessionStore.getState().conversationRuntimeRegistry.entries['session-2'];
+    expect(ownedRuntime?.requestId).toBeTruthy();
+    expect(useSessionStore.getState().todos).toEqual([
+      { id: 'visible-todo', content: 'Keep visible', status: 'in_progress' },
+    ]);
+
+    const secondResult = await useSessionStore.getState().sendMessage(
+      'project-1',
+      'second',
+      undefined,
+      'session-2',
+    );
 
     expect(secondResult).toEqual({ ok: false, code: 'CONVERSATION_BUSY' });
     expect(saveMessage).toHaveBeenCalledTimes(1);
@@ -71,6 +103,7 @@ describe('sessionStore sendMessage', () => {
     releaseFirstSave?.();
     await firstSubmission;
     expect(window.electronAPI.llm.chat).toHaveBeenCalledTimes(1);
+    expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-2']).toBeUndefined();
   });
 
   it('should register stream listener before starting llm chat', async () => {

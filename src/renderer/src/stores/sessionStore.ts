@@ -935,8 +935,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
     if (!claim.ok) return { ok: false, code: claim.code };
 
-    // Clear old todos only after this request owns the Conversation.
-    set({ todos: [] });
+    // Clear old todos only when this request owns the visible Conversation.
+    if (get().activeSessionId === sessionId) {
+      set({ todos: [] });
+    }
 
     try {
       if (!options?.hiddenUserMessage) {
