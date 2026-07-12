@@ -179,10 +179,26 @@ describe('Conversation Runtime Registry', () => {
 
     expect(gap.state.entries['conversation-1']).toMatchObject({
       lastSequence: 1,
+      minimumHydrationSequence: 3,
       hydrationPending: true,
       projection: { accumulatedContent: 'one' },
     });
     expect(gap.effects).toEqual([{
+      type: 'hydrateRuntime',
+      conversationId: 'conversation-1',
+      requestId: 'request-1',
+    }]);
+
+    const staleSnapshot = transitionConversationRuntimeRegistry(gap.state, {
+      type: 'hydrateSnapshot',
+      conversationId: 'conversation-1',
+      requestId: 'request-1',
+      sequence: 2,
+      projection: { ...initial, accumulatedContent: 'incomplete' },
+      baseProjection: initial,
+    });
+    expect(staleSnapshot.state.entries['conversation-1']?.projection.accumulatedContent).toBe('one');
+    expect(staleSnapshot.effects).toEqual([{
       type: 'hydrateRuntime',
       conversationId: 'conversation-1',
       requestId: 'request-1',
@@ -245,7 +261,8 @@ describe('Conversation Runtime Registry', () => {
       requestId: 'request-1',
     });
 
-    expect(missing.state.entries['conversation-1']).toMatchObject({
+    expect(missing.state.entries['conversation-1']).toBeUndefined();
+    expect(missing.state.terminalOverlays['conversation-1']?.['request-1']).toMatchObject({
       active: false,
       reconciliation: 'pending',
       projection: { accumulatedContent: 'visible', isStreaming: false },
@@ -280,7 +297,8 @@ describe('Conversation Runtime Registry', () => {
       error: { message: 'chat.persistenceFailed' },
     });
 
-    expect(failed.state.entries['conversation-1']).toMatchObject({
+    expect(failed.state.entries['conversation-1']).toBeUndefined();
+    expect(failed.state.terminalOverlays['conversation-1']?.['request-1']).toMatchObject({
       active: false,
       reconciliation: 'failed',
       error: { message: 'chat.persistenceFailed', retryablePersistence: true },
@@ -292,14 +310,29 @@ describe('Conversation Runtime Registry', () => {
       projection: runtime('conversation-1', 'request-2'),
     });
     expect(nextRun.ok).toBe(true);
+    expect(nextRun.state.entries['conversation-1']?.requestId).toBe('request-2');
+    expect(nextRun.state.terminalOverlays['conversation-1']?.['request-1']).toMatchObject({
+      reconciliation: 'failed',
+      persistenceMessage: { content: 'terminal answer' },
+    });
 
-    const staleSuccess = transitionConversationRuntimeRegistry(nextRun.state, {
+    const retry = transitionConversationRuntimeRegistry(nextRun.state, {
+      type: 'retryPersistence',
+      conversationId: 'conversation-1',
+      requestId: 'request-1',
+    });
+    expect(retry.effects).toEqual([expect.objectContaining({
+      type: 'persistTerminal',
+      requestId: 'request-1',
+    })]);
+
+    const staleSuccess = transitionConversationRuntimeRegistry(retry.state, {
       type: 'persistenceSucceeded',
       conversationId: 'conversation-1',
       requestId: 'request-1',
     });
-    expect(staleSuccess.state).toBe(nextRun.state);
     expect(staleSuccess.state.entries['conversation-1']?.requestId).toBe('request-2');
+    expect(staleSuccess.state.terminalOverlays['conversation-1']?.['request-1']).toBeUndefined();
   });
 
   it('translates persistence retry and successful reconciliation into effects', () => {

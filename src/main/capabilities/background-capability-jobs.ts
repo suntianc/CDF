@@ -187,6 +187,8 @@ export function initializeCapabilityJobSchema(db: Database.Database): void {
     ON capability_jobs(connection_id, status, created_at)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_capability_jobs_retention
     ON capability_jobs(terminal_at, details_pruned)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_capability_jobs_source_session_status
+    ON capability_jobs(source_session_id, status)`);
 }
 
 export class BackgroundCapabilityJobService {
@@ -250,18 +252,39 @@ export class BackgroundCapabilityJobService {
       return { ok: false, error: message(error), code: 'INVALID_INPUT' };
     }
     const now = (this.deps.now ?? Date.now)();
+    let inserted = false;
     try {
-      this.db.prepare(`INSERT INTO capability_jobs
-        (id, project_id, project_path, type, status, input, provider, connection_id,
-         provider_task_id, source_session_id, related_job_id, artifacts, error,
-         status_message, submission_attempted, created_at, updated_at)
-        VALUES (?, ?, ?, 'video.generate', 'queued', ?, ?, ?,
-         NULL, ?, NULL, '[]', NULL, 'waiting_connection_slot', 0, ?, ?)`)
-        .run(id, project.id, project.path, JSON.stringify(persistedInput),
-          connectionId, connectionId, sourceSessionId ?? null, now, now);
+      inserted = this.db.transaction(() => {
+        const hasSessionsTable = this.db.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions' LIMIT 1"
+        ).get();
+        if (sourceSessionId && hasSessionsTable) {
+          const source = this.db.prepare(
+            'SELECT project_id FROM sessions WHERE id = ? LIMIT 1'
+          ).get(sourceSessionId) as { project_id: string } | undefined;
+          if (!source || source.project_id !== project.id) return false;
+        }
+        this.db.prepare(`INSERT INTO capability_jobs
+          (id, project_id, project_path, type, status, input, provider, connection_id,
+           provider_task_id, source_session_id, related_job_id, artifacts, error,
+           status_message, submission_attempted, created_at, updated_at)
+          VALUES (?, ?, ?, 'video.generate', 'queued', ?, ?, ?,
+           NULL, ?, NULL, '[]', NULL, 'waiting_connection_slot', 0, ?, ?)`)
+          .run(id, project.id, project.path, JSON.stringify(persistedInput),
+            connectionId, connectionId, sourceSessionId ?? null, now, now);
+        return true;
+      })();
     } catch (error) {
       await fs.rm(videoInputSnapshotDir(project.path, id), { recursive: true, force: true });
       throw error;
+    }
+    if (!inserted) {
+      await fs.rm(videoInputSnapshotDir(project.path, id), { recursive: true, force: true });
+      return {
+        ok: false,
+        error: 'Source Conversation no longer exists',
+        code: 'SOURCE_CONVERSATION_NOT_FOUND',
+      };
     }
     this.emit(id);
     this.schedulePump(connectionId);

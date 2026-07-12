@@ -21,6 +21,7 @@ export interface ConversationRuntimeRegistryEntry {
   active: boolean;
   streamSource: 'foreground' | 'envelope';
   lastSequence: number;
+  minimumHydrationSequence: number;
   hydrationPending: boolean;
   reconciliation: 'none' | 'pending' | 'failed';
   persistenceMessage?: RuntimeMessageDraft;
@@ -28,7 +29,10 @@ export interface ConversationRuntimeRegistryEntry {
 }
 
 export interface ConversationRuntimeRegistryState {
+  /** At most one active Agent Run owner per Conversation. */
   entries: Readonly<Record<string, ConversationRuntimeRegistryEntry>>;
+  /** Terminal projections awaiting durable reconciliation, keyed by request identity. */
+  terminalOverlays: Readonly<Record<string, Readonly<Record<string, ConversationRuntimeRegistryEntry>>>>;
 }
 
 export type ConversationRuntimeRegistryAction =
@@ -167,7 +171,7 @@ export type ConversationRuntimeRegistryResult =
     };
 
 export function createConversationRuntimeRegistryState(): ConversationRuntimeRegistryState {
-  return { entries: {} };
+  return { entries: {}, terminalOverlays: {} };
 }
 
 function success(
@@ -184,6 +188,7 @@ function replaceEntry(
   effects: ConversationRuntimeRegistryEffect[] = [],
 ): ConversationRuntimeRegistryResult {
   return success({
+    ...state,
     entries: {
       ...state.entries,
       [entry.conversationId]: entry,
@@ -191,14 +196,81 @@ function replaceEntry(
   }, true, effects);
 }
 
-function removeEntry(
+function storeTerminalOverlay(
+  state: ConversationRuntimeRegistryState,
+  entry: ConversationRuntimeRegistryEntry,
+  effects: ConversationRuntimeRegistryEffect[] = [],
+): ConversationRuntimeRegistryResult {
+  const active = state.entries[entry.conversationId];
+  const entries = active?.requestId === entry.requestId
+    ? Object.fromEntries(
+        Object.entries(state.entries).filter(([conversationId]) => conversationId !== entry.conversationId),
+      )
+    : state.entries;
+  return success({
+    entries,
+    terminalOverlays: {
+      ...state.terminalOverlays,
+      [entry.conversationId]: {
+        ...state.terminalOverlays[entry.conversationId],
+        [entry.requestId]: entry,
+      },
+    },
+  }, true, effects);
+}
+
+function removeRequest(
   state: ConversationRuntimeRegistryState,
   conversationId: string,
+  requestId: string,
   effect?: ConversationRuntimeRegistryEffect,
 ): ConversationRuntimeRegistryResult {
-  if (!state.entries[conversationId]) return success(state);
-  const { [conversationId]: _removed, ...entries } = state.entries;
-  return success({ entries }, true, effect ? [effect] : []);
+  const active = state.entries[conversationId];
+  if (active?.requestId === requestId) {
+    const { [conversationId]: _removed, ...entries } = state.entries;
+    return success({ ...state, entries }, true, effect ? [effect] : []);
+  }
+
+  const overlays = state.terminalOverlays[conversationId];
+  if (!overlays?.[requestId]) return success(state);
+  const { [requestId]: _removed, ...remainingOverlays } = overlays;
+  const terminalOverlays = { ...state.terminalOverlays };
+  if (Object.keys(remainingOverlays).length > 0) {
+    terminalOverlays[conversationId] = remainingOverlays;
+  } else {
+    delete terminalOverlays[conversationId];
+  }
+  return success({ ...state, terminalOverlays }, true, effect ? [effect] : []);
+}
+
+export function getConversationRuntimeEntry(
+  state: ConversationRuntimeRegistryState,
+  conversationId: string,
+): ConversationRuntimeRegistryEntry | undefined {
+  const active = state.entries[conversationId];
+  if (active) return active;
+  const overlays = Object.values(state.terminalOverlays[conversationId] ?? {});
+  return overlays.at(-1);
+}
+
+export function getConversationRuntimeRequest(
+  state: ConversationRuntimeRegistryState,
+  conversationId: string,
+  requestId: string,
+): ConversationRuntimeRegistryEntry | undefined {
+  const active = state.entries[conversationId];
+  return active?.requestId === requestId
+    ? active
+    : state.terminalOverlays[conversationId]?.[requestId];
+}
+
+export function getConversationRuntimeErrorEntry(
+  state: ConversationRuntimeRegistryState,
+  conversationId: string,
+): ConversationRuntimeRegistryEntry | undefined {
+  const active = state.entries[conversationId];
+  if (active?.error) return active;
+  return Object.values(state.terminalOverlays[conversationId] ?? {}).filter((entry) => entry.error).at(-1);
 }
 
 export function mergeConversationRuntimeMessages(
@@ -217,12 +289,19 @@ export function transitionConversationRuntimeRegistry(
   action: ConversationRuntimeRegistryAction,
 ): ConversationRuntimeRegistryResult {
   if (action.type === 'reset') {
-    if (Object.keys(state.entries).length === 0) return success(state);
+    if (Object.keys(state.entries).length === 0 && Object.keys(state.terminalOverlays).length === 0) {
+      return success(state);
+    }
     return success(createConversationRuntimeRegistryState(), true);
   }
 
   if (action.type === 'removeConversation') {
-    return removeEntry(state, action.conversationId);
+    const hasActive = Boolean(state.entries[action.conversationId]);
+    const hasOverlays = Boolean(state.terminalOverlays[action.conversationId]);
+    if (!hasActive && !hasOverlays) return success(state);
+    const { [action.conversationId]: _active, ...entries } = state.entries;
+    const { [action.conversationId]: _overlays, ...terminalOverlays } = state.terminalOverlays;
+    return success({ entries, terminalOverlays }, true);
   }
 
   const conversationId = action.type === 'receiveEnvelope'
@@ -231,7 +310,7 @@ export function transitionConversationRuntimeRegistry(
   const current = state.entries[conversationId];
 
   if (action.type === 'claim') {
-    if (current?.active) {
+    if (current) {
       if (current.requestId === action.requestId) return success(state);
       return { ok: false, code: CONVERSATION_BUSY, state, effects: [] };
     }
@@ -244,6 +323,7 @@ export function transitionConversationRuntimeRegistry(
       active: true,
       streamSource: 'foreground',
       lastSequence: 0,
+      minimumHydrationSequence: 0,
       hydrationPending: false,
       reconciliation: 'none',
       error: null,
@@ -264,9 +344,8 @@ export function transitionConversationRuntimeRegistry(
 
   if (action.type === 'receiveEnvelope') {
     const { envelope } = action;
-    if (current && current.requestId !== envelope.requestId) {
-      return success(state);
-    }
+    if (current && current.requestId !== envelope.requestId) return success(state);
+    if (!current && state.terminalOverlays[conversationId]?.[envelope.requestId]) return success(state);
 
     const entry = current ?? {
       conversationId: envelope.sessionId,
@@ -276,15 +355,25 @@ export function transitionConversationRuntimeRegistry(
       active: true,
       streamSource: 'envelope' as const,
       lastSequence: 0,
+      minimumHydrationSequence: 0,
       hydrationPending: false,
       reconciliation: 'none' as const,
       error: null,
     };
 
-    if (!entry.active || envelope.sequence <= entry.lastSequence) return success(state);
+    if (envelope.sequence <= entry.lastSequence) return success(state);
     if (envelope.sequence !== entry.lastSequence + 1) {
-      if (entry.hydrationPending) return success(state);
-      return replaceEntry(state, { ...entry, hydrationPending: true }, [{
+      const minimumHydrationSequence = Math.max(entry.minimumHydrationSequence, envelope.sequence);
+      if (entry.hydrationPending) {
+        return minimumHydrationSequence === entry.minimumHydrationSequence
+          ? success(state)
+          : replaceEntry(state, { ...entry, minimumHydrationSequence });
+      }
+      return replaceEntry(state, {
+        ...entry,
+        hydrationPending: true,
+        minimumHydrationSequence,
+      }, [{
         type: 'hydrateRuntime',
         conversationId: envelope.sessionId,
         requestId: envelope.requestId,
@@ -297,6 +386,7 @@ export function transitionConversationRuntimeRegistry(
       projection: action.projection,
       active: !terminal,
       lastSequence: envelope.sequence,
+      minimumHydrationSequence: envelope.sequence,
       hydrationPending: false,
       reconciliation: terminal ? (envelope.event.type === 'message_done' ? 'pending' : 'failed') : 'none',
       error: action.error ?? (terminal ? entry.error : null),
@@ -314,12 +404,22 @@ export function transitionConversationRuntimeRegistry(
         requestId: envelope.requestId,
       });
     }
-    return replaceEntry(state, next, effects);
+    return terminal
+      ? storeTerminalOverlay(state, next, effects)
+      : replaceEntry(state, next, effects);
   }
 
   if (action.type === 'hydrateSnapshot') {
     if (current && current.requestId !== action.requestId) return success(state);
+    if (!current && state.terminalOverlays[conversationId]?.[action.requestId]) return success(state);
     if (current && action.sequence < current.lastSequence) return success(state);
+    if (current?.hydrationPending && action.sequence < current.minimumHydrationSequence) {
+      return replaceEntry(state, current, [{
+        type: 'hydrateRuntime',
+        conversationId: action.conversationId,
+        requestId: action.requestId,
+      }]);
+    }
     return replaceEntry(state, {
       conversationId: action.conversationId,
       requestId: action.requestId,
@@ -328,6 +428,7 @@ export function transitionConversationRuntimeRegistry(
       active: true,
       streamSource: 'envelope',
       lastSequence: action.sequence,
+      minimumHydrationSequence: action.sequence,
       hydrationPending: false,
       reconciliation: 'none',
       error: null,
@@ -341,14 +442,13 @@ export function transitionConversationRuntimeRegistry(
 
   if (action.type === 'hydrateMissing') {
     if (!current || (action.requestId && current.requestId !== action.requestId)) return success(state);
-    if (!current.active && !current.hydrationPending) return success(state);
     const projection = {
       ...current.projection,
       isStreaming: false,
       streamingMessageId: null,
       pendingApproval: null,
     };
-    return replaceEntry(state, {
+    return storeTerminalOverlay(state, {
       ...current,
       projection,
       active: false,
@@ -369,10 +469,21 @@ export function transitionConversationRuntimeRegistry(
     ]);
   }
 
-  if (!current || current.requestId !== action.requestId) return success(state);
+  const request = action.type === 'update'
+    || action.type === 'mergeHistory'
+    || action.type === 'terminalFailed'
+    || action.type === 'persistenceFailed'
+    || action.type === 'persistenceSucceeded'
+    || action.type === 'historyRefreshSucceeded'
+    || action.type === 'historyRefreshFailed'
+    || action.type === 'retryPersistence'
+    || action.type === 'release'
+    ? getConversationRuntimeRequest(state, conversationId, action.requestId)
+    : undefined;
+  if (!request) return success(state);
 
   if (action.type === 'update') {
-    if (!current.active) return success(state);
+    if (!current || current.requestId !== action.requestId) return success(state);
     return replaceEntry(state, { ...current, projection: action.projection }, [{
       type: 'projectRuntime',
       conversationId: action.conversationId,
@@ -382,21 +493,29 @@ export function transitionConversationRuntimeRegistry(
   }
 
   if (action.type === 'mergeHistory') {
-    return replaceEntry(state, {
-      ...current,
+    const next = {
+      ...request,
       projection: action.projection,
       baseProjection: action.baseProjection,
-    }, [{
-      type: 'projectRuntime',
-      conversationId: action.conversationId,
-      requestId: action.requestId,
-      projection: action.projection,
-    }]);
+    };
+    return current?.requestId === action.requestId
+      ? replaceEntry(state, next, [{
+          type: 'projectRuntime',
+          conversationId: action.conversationId,
+          requestId: action.requestId,
+          projection: action.projection,
+        }])
+      : storeTerminalOverlay(state, next, [{
+          type: 'projectRuntime',
+          conversationId: action.conversationId,
+          requestId: action.requestId,
+          projection: action.projection,
+        }]);
   }
 
   if (action.type === 'terminalFailed') {
-    return replaceEntry(state, {
-      ...current,
+    return storeTerminalOverlay(state, {
+      ...request,
       projection: action.projection,
       active: false,
       hydrationPending: false,
@@ -411,8 +530,8 @@ export function transitionConversationRuntimeRegistry(
   }
 
   if (action.type === 'persistenceFailed') {
-    return replaceEntry(state, {
-      ...current,
+    return storeTerminalOverlay(state, {
+      ...request,
       projection: action.projection,
       active: false,
       hydrationPending: false,
@@ -428,7 +547,7 @@ export function transitionConversationRuntimeRegistry(
   }
 
   if (action.type === 'persistenceSucceeded' || action.type === 'historyRefreshSucceeded') {
-    return removeEntry(state, action.conversationId, {
+    return removeRequest(state, action.conversationId, action.requestId, {
       type: 'releaseRuntime',
       conversationId: action.conversationId,
       requestId: action.requestId,
@@ -436,8 +555,8 @@ export function transitionConversationRuntimeRegistry(
   }
 
   if (action.type === 'historyRefreshFailed') {
-    return replaceEntry(state, {
-      ...current,
+    return storeTerminalOverlay(state, {
+      ...request,
       active: false,
       reconciliation: 'failed',
       error: action.error,
@@ -445,21 +564,21 @@ export function transitionConversationRuntimeRegistry(
   }
 
   if (action.type === 'retryPersistence') {
-    if (current.reconciliation !== 'failed' || !current.persistenceMessage) return success(state);
-    return replaceEntry(state, {
-      ...current,
+    if (request.reconciliation !== 'failed' || !request.persistenceMessage) return success(state);
+    return storeTerminalOverlay(state, {
+      ...request,
       reconciliation: 'pending',
       error: null,
     }, [{
       type: 'persistTerminal',
       conversationId: action.conversationId,
       requestId: action.requestId,
-      message: current.persistenceMessage,
+      message: request.persistenceMessage,
     }]);
   }
 
-  if (!current.active) return success(state);
-  return removeEntry(state, action.conversationId, {
+  if (!current || current.requestId !== action.requestId) return success(state);
+  return removeRequest(state, action.conversationId, action.requestId, {
     type: 'releaseRuntime',
     conversationId: action.conversationId,
     requestId: action.requestId,

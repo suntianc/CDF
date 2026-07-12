@@ -10,6 +10,9 @@ import {
 } from '../components/ChatArea/conversationRuntime/conversationRuntimeProjection';
 import {
   createConversationRuntimeRegistryState,
+  getConversationRuntimeEntry,
+  getConversationRuntimeErrorEntry,
+  getConversationRuntimeRequest,
   mergeConversationRuntimeMessages,
   transitionConversationRuntimeRegistry,
   type ConversationRuntimeRegistryAction,
@@ -229,10 +232,6 @@ interface ActivityFetchEntry {
   requestId: number;
   promise: Promise<void>;
 }
-const activityFetches = new Map<string, ActivityFetchEntry>();
-const latestActivityFetchRequestIds = new Map<string, number>();
-let latestSelectSessionRequestId = 0;
-let nextActivityFetchRequestId = 0;
 
 interface SendMessageOptions {
   hiddenUserMessage?: boolean;
@@ -241,6 +240,11 @@ interface SendMessageOptions {
 }
 
 export const useSessionStore = create<SessionState>((set, get) => {
+  const activityFetches = new Map<string, ActivityFetchEntry>();
+  const latestActivityFetchRequestIds = new Map<string, number>();
+  let latestSelectSessionRequestId = 0;
+  let nextActivityFetchRequestId = 0;
+
   const projectionDeps = {
     now: () => Date.now(),
     createId: () => window.crypto.randomUUID(),
@@ -263,13 +267,15 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
   const publishRegistryEntry = (conversationId: string) => {
     if (get().activeSessionId !== conversationId) return;
-    const entry = get().conversationRuntimeRegistry.entries[conversationId];
+    const registry = get().conversationRuntimeRegistry;
+    const entry = getConversationRuntimeEntry(registry, conversationId);
     if (!entry) return;
-    const error = entry.error
+    const errorEntry = getConversationRuntimeErrorEntry(registry, conversationId);
+    const error = errorEntry?.error
       ? {
-          message: entry.error.message,
-          messageParams: entry.error.messageParams,
-          ...(entry.error.retryablePersistence
+          message: errorEntry.error.message,
+          messageParams: errorEntry.error.messageParams,
+          ...(errorEntry.error.retryablePersistence
             ? {
                 recoverableActions: [{
                   label: 'chat.retryPersistence',
@@ -277,7 +283,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
                     transitionRegistry({
                       type: 'retryPersistence',
                       conversationId,
-                      requestId: entry.requestId,
+                      requestId: errorEntry.requestId,
                     });
                   },
                 }],
@@ -301,9 +307,17 @@ export const useSessionStore = create<SessionState>((set, get) => {
     if (typeof getMessages !== 'function') return;
     try {
       const persisted = await getMessages(conversationId);
-      const entry = get().conversationRuntimeRegistry.entries[conversationId];
-      if (!entry || entry.requestId !== requestId) return;
-      if (get().activeSessionId === conversationId) {
+      const entry = getConversationRuntimeRequest(
+        get().conversationRuntimeRegistry,
+        conversationId,
+        requestId,
+      );
+      if (!entry) return;
+      const visibleEntry = getConversationRuntimeEntry(
+        get().conversationRuntimeRegistry,
+        conversationId,
+      );
+      if (get().activeSessionId === conversationId && visibleEntry?.requestId === requestId) {
         set({
           messages: mergeConversationRuntimeMessages(persisted, entry.projection),
           isConversationLoading: false,
@@ -351,8 +365,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
             });
           })
           .catch((err: unknown) => {
-            const entry = get().conversationRuntimeRegistry.entries[effect.conversationId];
-            if (!entry || entry.requestId !== effect.requestId) return;
+            const entry = getConversationRuntimeRequest(
+              get().conversationRuntimeRegistry,
+              effect.conversationId,
+              effect.requestId,
+            );
+            if (!entry) return;
             transitionRegistry({
               type: 'persistenceFailed',
               conversationId: effect.conversationId,
@@ -367,7 +385,15 @@ export const useSessionStore = create<SessionState>((set, get) => {
         continue;
       }
       if (get().activeSessionId === effect.conversationId) {
-        set({ error: null });
+        const remainingEntry = getConversationRuntimeEntry(
+          get().conversationRuntimeRegistry,
+          effect.conversationId,
+        );
+        if (remainingEntry) {
+          publishRegistryEntry(effect.conversationId);
+        } else {
+          set({ error: null });
+        }
       }
       if (get().pendingHistoryRefreshes[effect.conversationId]) {
         clearPendingHistoryRefresh(effect.conversationId);
@@ -573,8 +599,17 @@ export const useSessionStore = create<SessionState>((set, get) => {
       } else {
         set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null });
       }
-    } catch (err: any) {
-      set({ error: { message: err.message || 'Failed to delete session' } });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({
+        error: {
+          message: message.includes('CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN')
+            ? 'chat.deleteConversationBlockedActiveRun'
+            : message.includes('CONVERSATION_DELETE_BLOCKED_ACTIVE_CAPABILITY_JOB')
+              ? 'chat.deleteConversationBlockedCapabilityJob'
+              : message || 'Failed to delete session',
+        },
+      });
     }
   },
  
@@ -585,7 +620,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       return;
     }
 
-    const selectedEntry = get().conversationRuntimeRegistry.entries[sessionId];
+    const selectedEntry = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
     set({
       activeSessionId: sessionId,
       viewingSubagentId: null,
@@ -622,7 +657,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       if (latestSelectSessionRequestId !== requestId || get().activeSessionId !== sessionId) return;
 
       if (messages) {
-        const entryDuringLoad = get().conversationRuntimeRegistry.entries[sessionId];
+        const entryDuringLoad = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
         if (entryDuringLoad) {
           const baseProjection = {
             ...entryDuringLoad.baseProjection,
@@ -771,7 +806,10 @@ export const useSessionStore = create<SessionState>((set, get) => {
         // DB-reconstructed tasks always have chunks: [] (streaming chunks are
         // transient and not persisted to SQLite). Merging from both sources
         // prevents "0 块 / 0 tokens" flash on every reopen / session switch.
-        const streamProjection = get().conversationRuntimeRegistry.entries[sessionId]?.projection;
+        const streamProjection = getConversationRuntimeEntry(
+          get().conversationRuntimeRegistry,
+          sessionId,
+        )?.projection;
         const storeTasks = get().delegatedTasks ?? [];
 
         for (const t of tasks) {
@@ -809,7 +847,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
         const messages = reconcilePersistedToolMessages(get().messages, messageToolCalls);
 
-        const currentEntry = get().conversationRuntimeRegistry.entries[sessionId];
+        const currentEntry = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
         if (currentEntry) {
           const baseProjection = {
             ...currentEntry.baseProjection,
@@ -864,7 +902,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
   getMessagesForSession: (sessionId: string) => {
     if (get().activeSessionId === sessionId) return get().messages;
-    return get().conversationRuntimeRegistry.entries[sessionId]?.projection.messages ?? [];
+    return getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId)?.projection.messages ?? [];
   },
 
   getIsSessionStreaming: (sessionId: string) => {
@@ -874,22 +912,27 @@ export const useSessionStore = create<SessionState>((set, get) => {
   handleConversationRunEvent: (envelope) => {
     const current = get();
     const existing = current.conversationRuntimeRegistry.entries[envelope.sessionId];
+    const visibleEntry = getConversationRuntimeEntry(
+      current.conversationRuntimeRegistry,
+      envelope.sessionId,
+    );
+    const visibleProjection = visibleEntry?.projection;
     const isSelected = current.activeSessionId === envelope.sessionId;
     const initialProjection = existing?.baseProjection ?? createConversationRuntimeState({
       sessionId: envelope.sessionId,
       requestId: envelope.requestId,
       streamingMessageId: envelope.messageId,
       currentAssistantMsgId: envelope.messageId,
-      ...(isSelected
+      ...((isSelected || visibleProjection)
         ? {
-            messages: current.messages,
-            todos: current.todos,
-            delegatedTasks: current.delegatedTasks,
-            parallelBatches: current.parallelBatches,
-            agentRuns: current.agentRuns,
-            agentToolCalls: current.agentToolCalls,
-            activeRunId: current.activeRunId,
-            pendingApproval: current.pendingApproval,
+            messages: visibleProjection?.messages ?? current.messages,
+            todos: visibleProjection?.todos ?? current.todos,
+            delegatedTasks: visibleProjection?.delegatedTasks ?? current.delegatedTasks,
+            parallelBatches: visibleProjection?.parallelBatches ?? current.parallelBatches,
+            agentRuns: visibleProjection?.agentRuns ?? current.agentRuns,
+            agentToolCalls: visibleProjection?.agentToolCalls ?? current.agentToolCalls,
+            activeRunId: visibleProjection?.activeRunId ?? current.activeRunId,
+            pendingApproval: visibleProjection?.pendingApproval ?? current.pendingApproval,
           }
         : {}),
     });
@@ -1260,8 +1303,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
         cleanup();
         parallelCleanup();
         // 移除未持久化的 assistant 占位和工具消息
-        const runtime = get().conversationRuntimeRegistry.entries[sessionId];
-        const projection = runtime?.requestId === assistantMsgId ? runtime.projection : undefined;
+        const runtime = getConversationRuntimeRequest(
+          get().conversationRuntimeRegistry,
+          sessionId,
+          assistantMsgId,
+        );
+        const projection = runtime?.projection;
         const transientMessageIds = new Set([
           assistantMsgId,
           projection?.currentAssistantMsgId,

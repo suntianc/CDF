@@ -588,6 +588,8 @@
     "loadingConversation": "Loading conversation…",
     "persistenceFailed": "The final response could not be saved. It remains visible and can be retried.",
     "retryPersistence": "Retry save",
+    "deleteConversationBlockedActiveRun": "This conversation has an Agent Run in progress. Stop or finish it before deleting the conversation.",
+    "deleteConversationBlockedCapabilityJob": "This conversation has a Background Capability Job in progress. Wait for it to finish or cancel it before deleting the conversation.",
     "welcomePlaceholder": "Give CDF an instruction, or ask a question...",
     "addAttachment": "Add attachment",
     "noProvidersAvailable": "No providers available, click to configure",

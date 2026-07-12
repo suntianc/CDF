@@ -97,6 +97,30 @@ afterEach(async () => {
 });
 
 describe('BackgroundCapabilityJobService safety lifecycle', () => {
+  it('does not create a Job after its source Conversation has been deleted', async () => {
+    const db = database();
+    db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL)');
+    const dir = await projectDir();
+    const queue = scheduler();
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ enabled: true, fetch: vi.fn() }),
+      download: async () => ({ bytes: Buffer.from('video'), mimeType: 'video/mp4' }),
+      sleep: async () => undefined,
+      schedule: queue.schedule,
+    });
+
+    const result = await service.submitVideo({ prompt: 'orphan prevention' }, dir, 'deleted-session');
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'SOURCE_CONVERSATION_NOT_FOUND',
+      error: 'Source Conversation no longer exists',
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM capability_jobs').get()).toEqual({ count: 0 });
+    expect(queue.count()).toBe(0);
+  });
+
   it('queues locally and submits at most one video per frozen connection', async () => {
     const db = database();
     const dir = await projectDir();

@@ -1198,6 +1198,42 @@ describe('sessionStore model overrides persistence', () => {
       }));
   });
 
+  it('keeps the Conversation and runtime projection when authoritative deletion is rejected', async () => {
+    window.electronAPI = {
+      db: {
+        deleteSession: vi.fn().mockRejectedValue(new Error(
+          '[CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN] Cannot delete Conversation while an Agent Run is in progress.'
+        )),
+      },
+    } as any;
+
+    useSessionStore.setState({
+      sessions: [{ id: 'session-1', project_id: 'project-1', name: 'Protected', created_at: 0, updated_at: 0 }],
+      activeSessionId: 'session-1',
+      messages: [{ id: 'message-1', session_id: 'session-1', role: 'user', content: 'Keep me', tokens: 2, created_at: 1 }],
+      conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
+      error: null,
+    });
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      messageId: 'assistant-1',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: 'working' },
+    });
+    const registryBeforeDelete = useSessionStore.getState().conversationRuntimeRegistry;
+
+    await useSessionStore.getState().deleteSession('session-1');
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toHaveLength(1);
+    expect(state.activeSessionId).toBe('session-1');
+    expect(state.messages).toContainEqual(expect.objectContaining({ content: 'working' }));
+    expect(state.conversationRuntimeRegistry).toBe(registryBeforeDelete);
+    expect(state.error?.message).toBe('chat.deleteConversationBlockedActiveRun');
+  });
+
   it('cleans up overrides when a session is deleted', async () => {
     window.electronAPI = {
       db: {
@@ -1758,7 +1794,9 @@ describe('sessionStore Conversation Runtime Registry adapter', () => {
     await useSessionStore.getState().sendMessage('project-1', 'question');
 
     const failed = useSessionStore.getState();
-    const entry = failed.conversationRuntimeRegistry.entries['session-1'];
+    const entry = Object.values(
+      failed.conversationRuntimeRegistry.terminalOverlays['session-1'] ?? {},
+    )[0];
     expect(entry).toMatchObject({ active: false, reconciliation: 'failed' });
     expect(failed.isStreaming).toBe(false);
     expect(failed.messages).toContainEqual(expect.objectContaining({ content: 'terminal answer' }));
@@ -1766,7 +1804,7 @@ describe('sessionStore Conversation Runtime Registry adapter', () => {
 
     failed.error?.recoverableActions?.[0]?.action();
     await vi.waitFor(() => {
-      expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-1']).toBeUndefined();
+      expect(useSessionStore.getState().conversationRuntimeRegistry.terminalOverlays['session-1']).toBeUndefined();
     });
     expect(assistantSaveAttempts).toBe(2);
   });
