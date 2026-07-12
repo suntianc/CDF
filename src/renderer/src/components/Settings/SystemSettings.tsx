@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useI18nStore } from '@/stores/i18nStore';
 import { useTranslation } from 'react-i18next';
-import { Sliders, Globe, Palette, Info, Save } from 'lucide-react';
+import { Globe, Palette, Info, Save } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
 export function SystemSettings() {
@@ -36,20 +36,16 @@ export function SystemSettings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden animate-fade-up">
       {/* Topbar */}
-      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.system')}</h1></div></header>
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.systemDesc', '配置系统的语言、主题外观及其他全局性参数')}
+          </span>
+        </div>
+      </header>
 
       {/* Settings Content Container */}
       <div className="settings-content !pt-3 max-w-2xl space-y-6 px-6">
-        {/* Header Title */}
-        <div className="flex flex-col gap-1 shrink-0 pb-4 border-b border-[var(--color-border)]/30">
-          <h1 className="text-lg font-bold text-[var(--color-text-primary)] flex items-center gap-2.5">
-            <Sliders className="w-5 h-5 text-[var(--color-accent)]" />
-            <span>{t('sidebar.settings.system', '系统设置')}</span>
-          </h1>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            {t('sidebar.settings.systemDesc', '配置系统的语言、主题外观及其他全局性参数')}
-          </p>
-        </div>
 
         {/* Long form container */}
         <div className="space-y-6">

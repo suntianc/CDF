@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlaskConical, FolderOpen, FolderPlus, MessageSquare } from 'lucide-react';
+import { GraduationCap, FolderOpen, FolderPlus, LayoutGrid } from 'lucide-react';
 import type { Project, ProjectScene } from '@shared/types';
 import {
   Dialog,
@@ -172,14 +172,14 @@ export function CreateProjectDialog({
               {sceneOptions.map((option) => (
                 <label
                   key={option.value}
-                  className={`flex min-h-20 items-start gap-2.5 rounded-[var(--radius-md)] border p-3 transition-[background-color,border-color] duration-150 ease-[var(--ease-out)] ${
+                  className={`flex min-h-20 items-start gap-2.5 rounded-[var(--radius-md)] border p-3 transition-[background-color,border-color,box-shadow] duration-150 ease-[var(--ease-out)] ${
                     creating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                   } ${
                     scene === option.value
                       ? option.value === 'research'
-                        ? 'border-[var(--color-info)] bg-[var(--color-info-dim)]'
-                        : 'border-[var(--color-accent)] bg-[var(--color-accent-dim)]'
-                      : 'border-[var(--color-border)] bg-[var(--color-bg-sunken)] hover:bg-[var(--color-bg-hover)]'
+                        ? 'border-[var(--color-info)] bg-[var(--color-info-dim)] shadow-[0_2px_8px_color-mix(in_srgb,var(--color-info)_8%,transparent)]'
+                        : 'border-[var(--color-accent)] bg-[var(--color-accent-dim)] shadow-[0_2px_8px_color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
+                      : 'border-[var(--color-border)] bg-[var(--color-bg-sunken)] hover:bg-[var(--color-bg-hover)] hover:border-[var(--color-border-strong)]'
                   }`}
                 >
                   <input
@@ -194,9 +194,9 @@ export function CreateProjectDialog({
                     className={`mt-0.5 shrink-0 ${option.value === 'research' ? 'accent-[var(--color-info)]' : 'accent-[var(--color-accent)]'}`}
                   />
                   {option.value === 'research' ? (
-                    <FlaskConical className={`mt-0.5 h-4 w-4 shrink-0 ${scene === 'research' ? 'text-[var(--color-info)]' : 'text-[var(--color-text-secondary)]'}`} aria-hidden="true" />
+                    <GraduationCap className={`mt-0.5 h-4 w-4 shrink-0 transition-colors ${scene === 'research' ? 'text-[var(--color-info)]' : 'text-[var(--color-text-secondary)]'}`} aria-hidden="true" />
                   ) : (
-                    <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" aria-hidden="true" />
+                    <LayoutGrid className={`mt-0.5 h-4 w-4 shrink-0 transition-colors ${scene === 'general' ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-secondary)]'}`} aria-hidden="true" />
                   )}
                   <span className="min-w-0">
                     <span className="block text-[13px] font-medium text-[var(--color-text-primary)]">

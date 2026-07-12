@@ -13,12 +13,19 @@
       "system": "系统设置",
       "systemDesc": "配置系统的语言、主题外观及其他全局性参数",
       "llm": "LLM 管理",
+      "llmDesc": "添加和管理模型供应商",
       "aiSubscriptions": "AI 订阅",
+      "aiSubscriptionsDesc": "配置和管理全局 AI 智能体订阅状态与额度分配",
       "agents": "Agents 管理",
+      "agentsDesc": "配置和管理具有不同角色人设、专属能力与工作目录的 Agent 智能体",
       "skillsMcp": "Skills & MCP 管理",
+      "skillsMcpDesc": "管理 Skills 与 MCP 集成",
       "tools": "工具配置",
+      "toolsDesc": "配置和管理 Agents 可调用的外部工具接口与参数",
       "research": "科研配置",
-      "workflows": "工作流"
+      "researchDesc": "配置论文收集和科研工作流中使用的科研凭据和来源身份标识",
+      "workflows": "工作流",
+      "workflowsDesc": "配置和管理自动化开发工作流运行时"
     },
     "language": {
       "label": "界面语言",

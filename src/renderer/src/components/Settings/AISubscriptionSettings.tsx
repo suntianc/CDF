@@ -187,25 +187,23 @@ export function AISubscriptionSettings() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-bg-app overflow-hidden">
-      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.aiSubscriptions')}</h1></div></header>
-
-      <div className="settings-content !pt-3 w-full max-w-none flex-1 overflow-y-auto flex flex-col">
-        <div className="flex items-center justify-between gap-4 mb-5 shrink-0">
-          <div>
-            <div className="text-sm font-semibold text-text-primary tracking-tight">
-              {t('settings.aiSubscriptions.title')}
-            </div>
-            <div className="text-xs text-text-muted mt-1 leading-relaxed">
-              {t('settings.aiSubscriptions.desc')}
-            </div>
-          </div>
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-text-muted font-normal">
+            {t('sidebar.settings.aiSubscriptionsDesc')}
+          </span>
+        </div>
+        <div className="main-topbar-right">
           {isLoading && (
-            <div className="text-xs text-text-muted flex items-center gap-1.5 px-2.5 py-1 rounded bg-bg-sunken border border-border/10">
+            <div className="text-xs text-text-muted flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-bg-sunken border border-border/10">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
               <span>{t('settings.aiSubscriptions.loading')}</span>
             </div>
           )}
         </div>
+      </header>
+
+      <div className="settings-content !pt-3 w-full max-w-none flex-1 overflow-y-auto flex flex-col">
 
         {error && (
           <div className="mb-5 p-3.5 bg-danger-dim/30 border border-danger/25 rounded-lg flex items-start gap-2.5 text-xs text-danger animate-fade-in">

@@ -283,7 +283,13 @@ export function ToolSettings() {
       </div>
 
       {/* Topbar */}
-      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.tools')}</h1></div></header>
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.toolsDesc')}
+          </span>
+        </div>
+      </header>
 
       {/* Main Settings Content */}
       <div className="settings-content !pt-3 flex-1 overflow-y-auto flex flex-col">

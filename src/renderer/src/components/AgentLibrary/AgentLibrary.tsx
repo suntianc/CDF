@@ -78,9 +78,11 @@ export function AgentLibrary() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
-      <header className="main-topbar shrink-0 h-10">
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
         <div className="main-topbar-left">
-          <h1>{t('sidebar.agents')}</h1>
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.agentsDesc')}
+          </span>
         </div>
       </header>
 

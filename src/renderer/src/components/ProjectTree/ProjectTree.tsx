@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Folder, Plus, ChevronDown, ChevronRight, FolderPlus, FolderGit2,
-  MessageSquare, GitFork, Trash2, MoreHorizontal, FlaskConical
+  MessageSquare, GitFork, Trash2, MoreHorizontal, GraduationCap, LayoutGrid
 } from 'lucide-react';
 import type { Project } from '@shared/types';
 import { useProjectStore } from '@/stores/projectStore';
@@ -18,7 +18,7 @@ function ProjectFolder({ project }: ProjectFolderProps) {
   const { t } = useTranslation();
   const projectScene = normalizeProjectScene(project.scene);
   const isSceneProject = projectScene !== 'general';
-  const ProjectIcon = projectScene === 'research' ? FlaskConical : project.isGit ? FolderGit2 : Folder;
+  const ProjectIcon = projectScene === 'research' ? GraduationCap : LayoutGrid;
   const projectSceneTitle = isSceneProject ? t(`projectTree.scene.${projectScene}`, projectScene) : undefined;
   const projectIconClassName = `w-4 h-4 shrink-0 transition-colors ${
     projectScene === 'research'

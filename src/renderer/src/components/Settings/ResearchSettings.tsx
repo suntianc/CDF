@@ -203,34 +203,27 @@ export function ResearchSettings() {
         ))}
       </div>
 
-      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.header')}</h1></div></header>
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.researchDesc')}
+          </span>
+        </div>
+        <div className="main-topbar-right">
+          <button
+            type="button"
+            onClick={loadSettings}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border)] rounded-md px-2.5 py-1.5 disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            {t('settings.research.refresh')}
+          </button>
+        </div>
+      </header>
 
       <div className="settings-content !pt-3 flex-1 overflow-y-auto flex flex-col">
         <div className="max-w-[1200px] w-full flex flex-col gap-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-accent)] mt-0.5">
-                <Microscope className="w-4 h-4" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-bold text-[var(--color-text-primary)]">
-                  {t('settings.research.title')}
-                </h2>
-                <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed max-w-3xl">
-                  {t('settings.research.desc')}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={loadSettings}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border)] rounded-md px-2.5 py-1.5 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-              {t('settings.research.refresh')}
-            </button>
-          </div>
 
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-3 py-2 text-xs w-fit">
             <span className="text-[var(--color-text-muted)]">{t('settings.research.configuredCount')}</span>

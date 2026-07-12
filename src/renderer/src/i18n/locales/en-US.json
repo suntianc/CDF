@@ -13,12 +13,19 @@
       "system": "System Settings",
       "systemDesc": "Configure interface language, appearance theme, and other global configurations",
       "llm": "LLM Management",
+      "llmDesc": "Add and manage large language model providers",
       "aiSubscriptions": "AI Subscriptions",
+      "aiSubscriptionsDesc": "Configure and manage global AI agent subscription statuses and quotas",
       "agents": "Agents",
+      "agentsDesc": "Configure and manage agent personas, skills, and private workspace directories",
       "skillsMcp": "Skills & MCP",
+      "skillsMcpDesc": "Manage integrated skills and Model Context Protocol (MCP) integrations",
       "tools": "Tools",
+      "toolsDesc": "Configure and manage external tool interfaces and API credentials for Agents",
       "research": "Research Config",
-      "workflows": "Workflows"
+      "researchDesc": "Configure research credentials and identity parameters used in literature search and research workflows",
+      "workflows": "Workflows",
+      "workflowsDesc": "Configure and manage automated development workflow runtimes"
     },
     "language": {
       "label": "Language",

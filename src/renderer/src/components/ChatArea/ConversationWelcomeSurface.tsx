@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
-import { AlertCircle, Layers, Plus, Sliders, X } from 'lucide-react';
+import { AlertCircle, FolderPlus, Brain, Puzzle, X } from 'lucide-react';
 import type { SlashCommand } from '@shared/types';
 import type { RegistryLoadingState, RegistryWarning } from '@/hooks/useCommandRegistry';
 import type { SessionError } from '../../stores/sessionStore';
@@ -141,7 +141,7 @@ export function ConversationWelcomeSurface({
         <div className="feature-rows">
           <button type="button" className="feature-card" onClick={onCreateProject}>
             <div className="feature-card-icon">
-              <Plus className="w-4 h-4" />
+              <FolderPlus className="w-4 h-4" />
             </div>
             <div className="feature-card-title">{t('chat.createProjectTitle')}</div>
             <div className="feature-card-desc">{t('chat.createProjectDesc')}</div>
@@ -149,7 +149,7 @@ export function ConversationWelcomeSurface({
 
           <button type="button" className="feature-card" onClick={onOpenPlugins}>
             <div className="feature-card-icon">
-              <Layers className="w-4 h-4" />
+              <Puzzle className="w-4 h-4" />
             </div>
             <div className="feature-card-title">{t('chat.configurePluginsTitle')}</div>
             <div className="feature-card-desc">{t('chat.configurePluginsDesc')}</div>
@@ -157,7 +157,7 @@ export function ConversationWelcomeSurface({
 
           <button type="button" className="feature-card" onClick={onOpenSettings}>
             <div className="feature-card-icon">
-              <Sliders className="w-4 h-4" />
+              <Brain className="w-4 h-4" />
             </div>
             <div className="feature-card-title">{t('chat.configureModelsTitle')}</div>
             <div className="feature-card-desc">{t('chat.configureModelsDesc')}</div>

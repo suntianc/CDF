@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders, Microscope, Sparkles } from 'lucide-react';
+import { PanelLeft, Settings, Workflow, ArrowLeft, Brain, SquarePen, Puzzle, UserCog, Wrench, SlidersHorizontal, GraduationCap, Gem } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
 import { type AppView, useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -122,7 +122,7 @@ export function Sidebar({
               className={`${styles.sidebarMenuBtn} ${activeView === 'agents' ? styles.active : ''}`}
               aria-current={activeView === 'agents' ? 'page' : undefined}
             >
-              <Bot className="w-4 h-4" />
+              <UserCog className="w-4 h-4" />
               <span>{t('sidebar.agents')}</span>
             </button>
 
@@ -131,7 +131,7 @@ export function Sidebar({
               className={`${styles.sidebarMenuBtn} ${activeView === 'plugins' ? styles.active : ''}`}
               aria-current={activeView === 'plugins' ? 'page' : undefined}
             >
-              <LayoutGrid className="w-4 h-4" />
+              <Puzzle className="w-4 h-4" />
               <span>{t('sidebar.plugins')}</span>
             </button>
 
@@ -140,7 +140,7 @@ export function Sidebar({
               className={`${styles.sidebarMenuBtn} ${activeView === 'workflows' ? styles.active : ''}`}
               aria-current={activeView === 'workflows' ? 'page' : undefined}
             >
-              <GitFork className="w-4 h-4" />
+              <Workflow className="w-4 h-4" />
               <span>{t('sidebar.workflows')}</span>
             </button>
           </>
@@ -184,7 +184,7 @@ export function Sidebar({
             onClick={() => onChangeView('settings')}
             aria-current={activeView === 'settings' ? 'page' : undefined}
           >
-            <Monitor className="w-4 h-4" />
+            <Brain className="w-4 h-4" />
             {t('sidebar.settings.llm')}
           </button>
           <button
@@ -193,7 +193,7 @@ export function Sidebar({
             onClick={() => onChangeView('ai-subscriptions')}
             aria-current={activeView === 'ai-subscriptions' ? 'page' : undefined}
           >
-            <Sparkles className="w-4 h-4" />
+            <Gem className="w-4 h-4" />
             {t('sidebar.settings.aiSubscriptions')}
           </button>
           <button
@@ -202,7 +202,7 @@ export function Sidebar({
             onClick={() => onChangeView('agents')}
             aria-current={activeView === 'agents' ? 'page' : undefined}
           >
-            <Bot className="w-4 h-4" />
+            <UserCog className="w-4 h-4" />
             {t('sidebar.settings.agents')}
           </button>
           <button
@@ -211,7 +211,7 @@ export function Sidebar({
             onClick={() => onChangeView('plugins')}
             aria-current={activeView === 'plugins' ? 'page' : undefined}
           >
-            <LayoutGrid className="w-4 h-4" />
+            <Puzzle className="w-4 h-4" />
             {t('sidebar.settings.skillsMcp')}
           </button>
           <button
@@ -220,7 +220,7 @@ export function Sidebar({
             onClick={() => onChangeView('workflows')}
             aria-current={activeView === 'workflows' ? 'page' : undefined}
           >
-            <GitFork className="w-4 h-4" />
+            <Workflow className="w-4 h-4" />
             {t('sidebar.settings.workflows')}
           </button>
           <button
@@ -238,7 +238,7 @@ export function Sidebar({
             onClick={() => onChangeView('research')}
             aria-current={activeView === 'research' ? 'page' : undefined}
           >
-            <Microscope className="w-4 h-4" />
+            <GraduationCap className="w-4 h-4" />
             {t('sidebar.settings.research')}
           </button>
           <button
@@ -247,7 +247,7 @@ export function Sidebar({
             onClick={() => onChangeView('system')}
             aria-current={activeView === 'system' ? 'page' : undefined}
           >
-            <Sliders className="w-4 h-4" />
+            <SlidersHorizontal className="w-4 h-4" />
             {t('sidebar.settings.system')}
           </button>
         </nav>

@@ -341,7 +341,13 @@ export function ModelSettings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Topbar */}
-      <header className="main-topbar shrink-0 h-10"><div className="main-topbar-left"><h1>{t('sidebar.settings.llm')}</h1></div></header>
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.llmDesc')}
+          </span>
+        </div>
+      </header>
 
       {/* Main Settings Content */}
       <div className="settings-content !pt-3">
