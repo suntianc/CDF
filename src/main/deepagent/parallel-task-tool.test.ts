@@ -218,16 +218,13 @@ describe('createParallelTaskTool', () => {
     }));
   });
 
-  it('adds loaded MCP tools to the worker approval boundary', async () => {
+  it('compiles workers without an approval boundary (no checkpointer → interrupt would kill the task)', async () => {
     loadMcpToolsMock.mockResolvedValueOnce({
       client: null,
       tools: [{ name: 'alpha__search' }],
     });
-    resolveInterruptOnMock.mockImplementation((_mode: string, toolNames: string[] = []) => {
-      return Object.fromEntries(toolNames.map((name) => [name, { allowedDecisions: ['approve', 'reject'] }]));
-    });
 
-    const parallelTool = createParallelTaskTool('project-1', 'session-1', 'strict');
+    const parallelTool = createParallelTaskTool('project-1', 'session-1');
 
     await parallelTool.invoke({
       tasks: [
@@ -238,8 +235,8 @@ describe('createParallelTaskTool', () => {
       ],
     });
 
-    expect(resolveInterruptOnMock).toHaveBeenCalledWith('strict', ['alpha__search']);
+    expect(resolveInterruptOnMock).not.toHaveBeenCalled();
     const params = createDeepAgentMock.mock.calls[0][0];
-    expect(params.interruptOn.alpha__search).toEqual({ allowedDecisions: ['approve', 'reject'] });
+    expect(params.interruptOn).toBeUndefined();
   });
 });

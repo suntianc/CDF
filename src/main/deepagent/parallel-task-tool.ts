@@ -20,11 +20,9 @@ import {
   loadMcpTools,
   createSpanId,
   createChildSpan,
-  resolveInterruptOn,
-  getRuntimeToolNames,
   type AgentRow,
 } from './shared-infra';
-import type { ApprovalMode, ExecutionStep, ParallelTaskStepEvent } from '../../shared/types';
+import type { ExecutionStep, ParallelTaskStepEvent } from '../../shared/types';
 import { parallelTaskStepChannel } from '../../shared/ipc-contract';
 
 const WORKER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -135,7 +133,6 @@ async function invokeWorker(
   projectPath: string,
   sourceSessionId: string,
   onStep: (step: ExecutionStep) => void,
-  approvalMode: ApprovalMode = 'strict',
 ): Promise<string> {
   const provider = getProvider(agentRow.provider_id);
   const agentId = agentRow.id;
@@ -174,14 +171,15 @@ async function invokeWorker(
   const builtInTools: any[] = createBuiltInTools(projectPath, sourceSessionId);
   builtInTools.push(...loadRegistryTools());
 
-  const interruptOn = resolveInterruptOn(approvalMode, getRuntimeToolNames(mcpRuntime.tools));
   const agent = createDeepAgent({
     model,
     backend,
     systemPrompt: appendRuntimePrompt(agentRow.system_prompt || '', skillsRuntime.prompt) || undefined,
     permissions,
     tools: [...mcpRuntime.tools, ...builtInTools],
-    interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
+    // worker 不挂 interruptOn：worker 图没有 checkpointer，LangGraph 的
+    // interrupt() 会直接抛 "No checkpointer set" 打死任务。与单委派 task
+    // subagent 的免审批语义一致；Claude Code 式审批路由另行立项。
     // worker 不挂载 subagents / parallel_tasks（防递归）
   });
 
@@ -309,7 +307,7 @@ async function invokeWorker(
 
 // ---- Tool factory ----
 
-export function createParallelTaskTool(projectId: string, sessionId: string, approvalMode: ApprovalMode = 'strict') {
+export function createParallelTaskTool(projectId: string, sessionId: string) {
   return tool(
     async (input) => {
       const batchId = crypto.randomUUID();
@@ -360,7 +358,6 @@ export function createParallelTaskTool(projectId: string, sessionId: string, app
             projectPath,
             sessionId,
             (step) => pushParallelTaskStep(sessionId, { batchId, agentSlug: task.name, workerId, step }),
-            approvalMode,
           );
 
           const summary = output.slice(0, 300);

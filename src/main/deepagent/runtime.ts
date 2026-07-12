@@ -697,7 +697,7 @@ export async function createDeepAgentRuntime(
   // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
   const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
   try {
-    builtInTools.push(createParallelTaskTool(projectId, sessionId, currentApprovalMode));
+    builtInTools.push(createParallelTaskTool(projectId, sessionId));
   } catch (err) {
     console.warn('[RUNTIME] Failed to load parallel task tool:', err);
   }
