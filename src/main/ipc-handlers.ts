@@ -74,6 +74,7 @@ import type {
 } from '../shared/ai-subscriptions';
 import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
+import { deleteConversation } from './conversation-deletion';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -410,11 +411,8 @@ export function registerIpcHandlers() {
     return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
   });
 
-  typedCrud({
-    channel: 'db:deleteSession',
-    remove: (sessionId) => {
-      db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
-    },
+  typedHandle('db:deleteSession', (_, sessionId) => {
+    deleteConversation(db, sessionId);
   });
 
   // Database handlers: Messages

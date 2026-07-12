@@ -21,6 +21,7 @@ const {
   shellOpenExternalMock,
   startAISubscriptionLoginMock,
   pollAISubscriptionLoginMock,
+  deleteConversationMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -43,6 +44,7 @@ const {
   shellOpenExternalMock: vi.fn(async () => undefined),
   startAISubscriptionLoginMock: vi.fn(),
   pollAISubscriptionLoginMock: vi.fn(),
+  deleteConversationMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -81,6 +83,10 @@ vi.mock('./database', () => ({
     prepare: dbPrepareMock,
     transaction: vi.fn((fn) => fn),
   },
+}));
+
+vi.mock('./conversation-deletion', () => ({
+  deleteConversation: deleteConversationMock,
 }));
 
 vi.mock('./security', () => ({
@@ -145,6 +151,7 @@ describe('IPC handlers', () => {
     shellOpenExternalMock.mockClear();
     startAISubscriptionLoginMock.mockReset();
     pollAISubscriptionLoginMock.mockReset();
+    deleteConversationMock.mockReset();
   });
 
   it('registers exactly the channels declared in the IPC contract — no missing, no ghosts', () => {
@@ -248,6 +255,33 @@ describe('IPC handlers', () => {
 
     await expect(pollLoginHandler({}, 'codex-oauth', 'attempt-1')).resolves.toEqual(result);
     expect(pollAISubscriptionLoginMock).toHaveBeenCalledWith('codex-oauth', 'attempt-1');
+  });
+
+  it('routes db:deleteSession through the authoritative Conversation deletion seam', async () => {
+    registerIpcHandlers();
+    const deleteSessionHandler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'db:deleteSession'
+    )?.[1];
+    expect(deleteSessionHandler).toBeTypeOf('function');
+    dbPrepareMock.mockClear();
+
+    await expect(Promise.resolve(deleteSessionHandler({}, 'conversation-1'))).resolves.toBeUndefined();
+
+    expect(deleteConversationMock).toHaveBeenCalledWith(expect.any(Object), 'conversation-1');
+    expect(dbPrepareMock).not.toHaveBeenCalled();
+  });
+
+  it('passes Conversation deletion rejection errors through db:deleteSession', () => {
+    const rejection = new Error('[CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN] Conversation is busy');
+    deleteConversationMock.mockImplementationOnce(() => {
+      throw rejection;
+    });
+    registerIpcHandlers();
+    const deleteSessionHandler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'db:deleteSession'
+    )?.[1];
+
+    expect(() => deleteSessionHandler({}, 'conversation-1')).toThrow(rejection);
   });
 
   it('should acknowledge llm:chat immediately and stream asynchronously', () => {
