@@ -2,8 +2,24 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { WorkflowRun, WorkflowStageGate, WorkflowRunTask } from '../../../../shared/types';
 
-// Mock @xyflow/react so Handle renders as a plain div
+// Mock @xyflow/react so the view renders each projected node through its registered component.
 vi.mock('@xyflow/react', () => ({
+  ReactFlow: ({ nodes, nodeTypes, children }: {
+    nodes: Array<{ id: string; type: string; data: Record<string, unknown>; selected?: boolean }>;
+    nodeTypes: Record<string, React.ComponentType<{ data: Record<string, unknown>; selected: boolean }>>;
+    children?: React.ReactNode;
+  }) => (
+    <div>
+      {nodes.map((node) => {
+        const NodeComponent = nodeTypes[node.type];
+        return <NodeComponent key={node.id} data={node.data} selected={!!node.selected} />;
+      })}
+      {children}
+    </div>
+  ),
+  Background: () => null,
+  Controls: () => null,
+  Panel: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Handle: () => null,
   Position: { Left: 'left', Right: 'right' },
 }));
@@ -349,6 +365,8 @@ describe('WorkflowRunProjection – Gate operations', () => {
 
 import { StageNode } from './StageNode';
 import { TaskNode } from './TaskNode';
+import { WorkflowRunView } from './WorkflowRunView';
+import { useWorkflowRunStore } from '../../stores/workflowRunStore';
 
 describe('StageNode i18n labels', () => {
   const baseData = {
@@ -375,6 +393,29 @@ describe('StageNode i18n labels', () => {
     render(<StageNode data={withDesc} selected={false} />);
     expect(screen.getByText('Do research')).toBeTruthy();
     expect(screen.queryByText('No description')).toBeNull();
+  });
+});
+
+describe('WorkflowRunView task projection', () => {
+  it('renders a task from the selected stage', () => {
+    const run = createMockRun({ current_stage_index: 1 });
+    const task = createMockTask({ title: 'Design database' });
+    const projectionState = projectWorkflowRun(initialProjectionState, {
+      type: 'snapshot',
+      run,
+      gates: [],
+      tasks: [task],
+    });
+    useWorkflowRunStore.setState({
+      activeRun: run,
+      projectionState,
+      isLoading: false,
+      error: null,
+    });
+
+    render(<WorkflowRunView />);
+
+    expect(screen.getByText('Design database')).toBeTruthy();
   });
 });
 

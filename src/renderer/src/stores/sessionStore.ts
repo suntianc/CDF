@@ -9,6 +9,13 @@ import {
   type ConversationRuntimeProjectionState,
 } from '../components/ChatArea/conversationRuntime/conversationRuntimeProjection';
 import {
+  createConversationRuntimeRegistryState,
+  transitionConversationRuntimeRegistry,
+  type ConversationRuntimeRegistryAction,
+  type ConversationRuntimeRegistryEffect,
+  type ConversationRuntimeRegistryState,
+} from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
+import {
   AgentApprovalRequest,
   AgentRun,
   AgentToolCall,
@@ -96,6 +103,10 @@ export interface SessionError {
   recoverableActions?: { label: string; action: () => void }[];
 }
 
+export type SendMessageResult =
+  | { ok: true }
+  | { ok: false; code: 'CONVERSATION_BUSY' };
+
 export interface ParallelWorker {
   workerId?: string;    // 运行时唯一 ID，解决同 batch 同 agentSlug 碰撞
   agentSlug: string;
@@ -161,6 +172,7 @@ interface SessionState {
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
   error: SessionError | null;
+  conversationRuntimeRegistry: ConversationRuntimeRegistryState;
   // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
   sessionGoals: Map<string, string>;
   // 08.2 P3 C1-05: per-session /goal judge status (iteration + reason).
@@ -187,7 +199,7 @@ interface SessionState {
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string, force?: boolean) => Promise<void>;
-  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<void>;
+  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<SendMessageResult>;
   handleConversationRunEvent: (envelope: ConversationRunStreamEnvelope) => void;
   hydrateConversationRun: (sessionId: string) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
@@ -241,6 +253,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   todos: [],
   pendingApproval: null,
   error: null,
+  conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
   sessionModelOverrides: (() => {
@@ -812,16 +825,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => {
     const { activeSessionId, sessions } = get();
     const sessionId = targetSessionId ?? activeSessionId;
-    if (!sessionId) return;
-    const cachedSession = streamingSessionsCache.get(sessionId);
-    const isSessionStreaming = sessionId === activeSessionId ? get().isStreaming : cachedSession?.isStreaming;
-    if (isSessionStreaming) return;
+    if (!sessionId) return { ok: true };
     const activeSession = sessions.find((session) => session.id === sessionId);
 
-    // Clear old todos immediately to prevent stale data flashing
-    set({ todos: [] });
-
     const userMsgId = window.crypto.randomUUID();
+    const assistantMsgId = window.crypto.randomUUID();
     const userTokens = estimateTokens(content);
     const userMsg: Message = {
       id: userMsgId,
@@ -845,6 +853,85 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         created_at: Date.now(),
       }]
       : [];
+    const assistantMsgPlaceholder: Message = {
+      id: assistantMsgId,
+      session_id: sessionId,
+      role: 'assistant',
+      content: '',
+      tokens: 0,
+      created_at: Date.now(),
+    };
+    const initialState: StreamingSessionState = createConversationRuntimeState({
+      sessionId,
+      requestId: assistantMsgId,
+      streamingMessageId: assistantMsgId,
+      currentAssistantMsgId: assistantMsgId,
+      messages: [
+        ...get().getMessagesForSession(sessionId),
+        ...(options?.hiddenUserMessage ? [] : [userMsg]),
+        ...skillAttributionMessages,
+        assistantMsgPlaceholder,
+      ],
+      todos: [],
+      delegatedTasks: [],
+      parallelBatches: [],
+      agentRuns: [],
+      agentToolCalls: [],
+      activeRunId: null,
+      pendingApproval: null,
+      isStreaming: true,
+      accumulatedContent: '',
+      pendingToolMessages: {},
+      runtimeToolMessageIds: [],
+    });
+
+    const syncActiveSession = (nextState: StreamingSessionState) => {
+      if (get().activeSessionId === sessionId) {
+        set({
+          messages: nextState.messages,
+          todos: nextState.todos,
+          delegatedTasks: nextState.delegatedTasks,
+          parallelBatches: nextState.parallelBatches,
+          agentRuns: nextState.agentRuns,
+          agentToolCalls: nextState.agentToolCalls,
+          activeRunId: nextState.activeRunId,
+          pendingApproval: nextState.pendingApproval,
+          isStreaming: nextState.isStreaming,
+          streamingMessageId: nextState.streamingMessageId,
+        });
+      }
+    };
+
+    const applyRegistryEffects = (effects: ConversationRuntimeRegistryEffect[]) => {
+      for (const effect of effects) {
+        if (effect.type === 'projectRuntime') {
+          streamingSessionsCache.set(effect.conversationId, effect.projection);
+          syncActiveSession(effect.projection);
+        } else if (streamingSessionsCache.get(effect.conversationId)?.requestId === effect.requestId) {
+          streamingSessionsCache.delete(effect.conversationId);
+        }
+      }
+    };
+
+    const transitionRegistry = (action: ConversationRuntimeRegistryAction) => {
+      const result = transitionConversationRuntimeRegistry(get().conversationRuntimeRegistry, action);
+      if (result.ok && result.applied) {
+        set({ conversationRuntimeRegistry: result.state });
+        applyRegistryEffects(result.effects);
+      }
+      return result;
+    };
+
+    const claim = transitionRegistry({
+      type: 'claim',
+      conversationId: sessionId,
+      requestId: assistantMsgId,
+      projection: initialState,
+    });
+    if (!claim.ok) return { ok: false, code: claim.code };
+
+    // Clear old todos only after this request owns the Conversation.
+    set({ todos: [] });
 
     try {
       if (!options?.hiddenUserMessage) {

@@ -12,6 +12,10 @@ _Avoid_: chat page, SaaS dashboard
 The user-visible exchange in a session, including user prompts, Agent responses, tool activity, approvals, and process status.
 _Avoid_: chat log, message list
 
+**Agent Run**:
+One execution initiated by a Conversation instruction, ending in completion, failure, or explicit termination; waiting for approval remains in progress. A Conversation may host many sequential Agent Runs but at most one in progress, and cannot be deleted while one is in progress.
+_Avoid_: running Conversation, generation, Workflow Run
+
 **Conversation Timeline Projection**:
 The user-visible ordering of Conversation events as a readable timeline of messages, tool activity, folded process, streaming state, and approvals.
 _Avoid_: message list mapping, transcript renderer
@@ -19,6 +23,10 @@ _Avoid_: message list mapping, transcript renderer
 **Conversation Runtime Projection**:
 The user-visible state derived from an Agent run while a Conversation is active, including streaming progress, tool activity, approvals, delegated work, parallel worker summaries, transient plans, completion, failure, and retry affordances.
 _Avoid_: stream handler, session store event reducer, runtime UI state
+
+**Conversation Runtime Registry**:
+The per-Conversation registry of in-progress runtime projections and terminal projections not yet reconciled with durable Conversation history, including background Conversations that are not currently visible. A Conversation has at most one in-progress Agent Run, while different Conversations may run concurrently.
+_Avoid_: active-session streaming cache, global streaming state, session store cache
 
 **Runtime Stream Projection**:
 The main-process translation of an Agent run's raw runtime stream — reasoning and text tokens, tool boundaries, delegated work, subagent output, turn ends — into the Conversation event stream the renderer consumes, deciding think-block folding, text backpressure, delegated-task correlation, and turn completion versus approval hand-off.
@@ -117,8 +125,8 @@ A configured app-wide route that makes one CDF capability usable through a speci
 _Avoid_: account, API key, model provider, LLM provider, tool config
 
 **Background Capability Job**:
-A durable execution of a registered long-running capability request that continues independently of the Agent run that submitted it and later reports structured progress and completion back to its originating Conversation.
-_Avoid_: background tool call, detached Agent run, provider task
+A durable execution of a registered long-running capability request that continues independently of the Agent Run that submitted it and later reports structured progress and completion back to its originating Conversation. Its originating Conversation cannot be deleted while the job is non-terminal.
+_Avoid_: background tool call, detached Agent Run, provider task
 
 **Provider Task**:
 A provider-owned asynchronous operation created while executing a Background Capability Job. Its provider task ID and lifecycle remain internal to the Capability Adapter and are distinct from the CDF job identity.

@@ -1,0 +1,5 @@
+# Conversation Runtime Registry owns cross-Conversation run coordination
+
+Renderer coordination for concurrent Conversation activity belongs to a pure Conversation Runtime Registry: each Conversation may have at most one in-progress Agent Run, different Conversations may run concurrently, and every transition is owned by `conversationId + requestId`. The Registry holds in-progress projections and terminal projections not yet reconciled with durable history, while `sessionStore` remains the side-effecting Electron/Zustand adapter and historical messages remain owned by the Conversation.
+
+We choose this over a side-effecting runtime service or generic request coordinator because cross-Conversation ownership, hydration, sequence gaps, and persistence reconciliation must be replayable as deterministic state transitions. Conversation deletion is rejected by the main process while it has an in-progress Agent Run or a non-terminal Background Capability Job, preventing renderer races or bypasses from orphaning work.

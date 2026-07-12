@@ -134,7 +134,7 @@ function calculateLayout(stages: ProjectedStage[], tasks: Record<string, Workflo
         id: `task-${t.id}`,
         type: 'task',
         position: { x, y },
-        data: t as unknown as Record<string, unknown>,
+        data: { task: t },
       });
 
       // Add task edges

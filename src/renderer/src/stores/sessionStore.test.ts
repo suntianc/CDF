@@ -26,6 +26,53 @@ describe('sessionStore sendMessage', () => {
     });
   });
 
+  it('claims the Conversation before persistence and rejects a concurrent submission', async () => {
+    let releaseFirstSave: (() => void) | undefined;
+    const saveMessage = vi.fn(async (message) => {
+      await new Promise<void>((resolve) => {
+        releaseFirstSave = resolve;
+      });
+      return message;
+    });
+    let chunkListener: ((event: unknown, data: LLMStreamEvent) => void | Promise<void>) | null = null;
+
+    window.electronAPI = {
+      store: { get: vi.fn(), set: vi.fn() },
+      db: {
+        getMessages: vi.fn(async () => []),
+        saveMessage,
+      },
+      llm: {
+        chat: vi.fn(async () => {
+          await chunkListener?.(null, { type: 'message_done' });
+        }),
+        onChunk: vi.fn((_requestId, callback) => {
+          chunkListener = callback;
+          return () => {
+            chunkListener = null;
+          };
+        }),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
+      },
+      platform: 'darwin',
+    } as unknown as Window['electronAPI'];
+
+    const firstSubmission = useSessionStore.getState().sendMessage('project-1', 'first');
+    await vi.waitFor(() => expect(saveMessage).toHaveBeenCalledTimes(1));
+
+    const secondResult = await useSessionStore.getState().sendMessage('project-1', 'second');
+
+    expect(secondResult).toEqual({ ok: false, code: 'CONVERSATION_BUSY' });
+    expect(saveMessage).toHaveBeenCalledTimes(1);
+    expect(window.electronAPI.llm.chat).not.toHaveBeenCalled();
+
+    releaseFirstSave?.();
+    await firstSubmission;
+    expect(window.electronAPI.llm.chat).toHaveBeenCalledTimes(1);
+  });
+
   it('should register stream listener before starting llm chat', async () => {
     const saveMessage = vi.fn(async (message) => {
       if (!message.session_id) {
