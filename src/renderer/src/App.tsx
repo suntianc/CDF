@@ -141,12 +141,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    return window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
-      const sessionState = useSessionStore.getState();
-      if (sessionState.activeSessionId === sessionId && !sessionState.isStreaming) {
-        void sessionState.selectSession(sessionId);
+    let pendingSessionId: string | null = null;
+    const unsubscribeStore = useSessionStore.subscribe((state, previousState) => {
+      if (!pendingSessionId) return;
+      if (state.activeSessionId !== pendingSessionId) {
+        pendingSessionId = null;
+        return;
+      }
+      if (previousState.isStreaming && !state.isStreaming) {
+        const sessionId = pendingSessionId;
+        pendingSessionId = null;
+        void state.selectSession(sessionId);
       }
     });
+    const unsubscribeMessages = window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
+      const sessionState = useSessionStore.getState();
+      if (sessionState.activeSessionId !== sessionId) return;
+      if (sessionState.isStreaming) {
+        pendingSessionId = sessionId;
+        return;
+      }
+      void sessionState.selectSession(sessionId);
+    });
+    return () => {
+      unsubscribeMessages();
+      unsubscribeStore();
+    };
   }, []);
 
   useEffect(() => {

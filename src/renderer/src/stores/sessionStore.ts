@@ -210,6 +210,7 @@ interface SessionState {
 type StreamingSessionState = ConversationRuntimeProjectionState;
 
 const streamingSessionsCache = new Map<string, StreamingSessionState>();
+const streamingSessionsNeedingHydration = new Set<string>();
 const conversationRunSequences = new Map<string, number>();
 interface ActivityFetchEntry {
   requestId: number;
@@ -420,7 +421,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
     try {
       const cached = streamingSessionsCache.get(sessionId);
-      if (cached) {
+      if (cached && !streamingSessionsNeedingHydration.has(sessionId)) {
         set({
           activeSessionId: sessionId,
           messages: cached.messages,
@@ -497,6 +498,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               pendingApproval: null,
             });
           }
+          streamingSessionsNeedingHydration.delete(sessionId);
         } else {
           set({ error: { message: messageError?.message || 'Failed to load messages for session' } });
         }
@@ -687,23 +689,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (envelope.sequence <= lastSequence) return;
 
     const current = get();
+    const isActiveSession = current.activeSessionId === envelope.sessionId;
     const cached = streamingSessionsCache.get(envelope.sessionId);
-    if (!cached && current.activeSessionId !== envelope.sessionId) return;
     if (cached && cached.streamingMessageId !== envelope.messageId) return;
+    if (!cached && !isActiveSession) {
+      streamingSessionsNeedingHydration.add(envelope.sessionId);
+    }
 
     const runtime = cached ?? createConversationRuntimeState({
       sessionId: envelope.sessionId,
       requestId: envelope.requestId,
       streamingMessageId: envelope.messageId,
       currentAssistantMsgId: envelope.messageId,
-      messages: current.messages,
-      todos: current.todos,
-      delegatedTasks: current.delegatedTasks,
-      parallelBatches: current.parallelBatches,
-      agentRuns: current.agentRuns,
-      agentToolCalls: current.agentToolCalls,
-      activeRunId: current.activeRunId,
-      pendingApproval: current.pendingApproval,
+      ...(isActiveSession
+        ? {
+            messages: current.messages,
+            todos: current.todos,
+            delegatedTasks: current.delegatedTasks,
+            parallelBatches: current.parallelBatches,
+            agentRuns: current.agentRuns,
+            agentToolCalls: current.agentToolCalls,
+            activeRunId: current.activeRunId,
+            pendingApproval: current.pendingApproval,
+          }
+        : {}),
     });
     const result = projectConversationRuntime(
       runtime,
@@ -720,6 +729,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       || envelope.event.type === 'runtime_error';
     if (terminal) {
       streamingSessionsCache.delete(envelope.sessionId);
+      streamingSessionsNeedingHydration.delete(envelope.sessionId);
       conversationRunSequences.delete(sequenceKey);
     } else {
       streamingSessionsCache.set(envelope.sessionId, result.state);

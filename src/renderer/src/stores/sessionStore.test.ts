@@ -1348,5 +1348,138 @@ describe('sessionStore background continuation streaming', () => {
     expect(useSessionStore.getState().messages).toEqual([
       expect.objectContaining({ id: 'visible-message', content: '当前会话' }),
     ]);
+    expect(useSessionStore.getState().getMessagesForSession('session-2')).toContainEqual(
+      expect.objectContaining({
+        id: 'background-continuation-output:batch-3',
+        content: '后台会话',
+      }),
+    );
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-2',
+      requestId: 'background-continuation:batch-3',
+      messageId: 'background-continuation-output:batch-3',
+      origin: 'background-capability-continuation',
+      sequence: 2,
+      event: { type: 'message_done' },
+    });
   });
+
+  it('merges persisted history with an inactive continuation when its Conversation becomes active', async () => {
+    const persistedMessage = {
+      id: 'persisted-message',
+      session_id: 'session-2',
+      role: 'assistant' as const,
+      content: '历史消息',
+      tokens: 1,
+      created_at: 1,
+    };
+    window.electronAPI = {
+      db: {
+        getMessages: vi.fn().mockResolvedValue([persistedMessage]),
+        getAgentRuns: vi.fn().mockResolvedValue([]),
+        getAgentToolCalls: vi.fn().mockResolvedValue([]),
+        getLatestTodos: vi.fn().mockResolvedValue([]),
+      },
+      conversation: {
+        getActiveRun: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as Window['electronAPI'];
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      messages: [{
+        id: 'visible-message',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: '当前会话',
+        tokens: 1,
+        created_at: 1,
+      }],
+    });
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-2',
+      requestId: 'background-continuation:batch-4',
+      messageId: 'background-continuation-output:batch-4',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: '实时结果' },
+    });
+
+    await useSessionStore.getState().selectSession('session-2');
+
+    expect(useSessionStore.getState().messages).toEqual([
+      persistedMessage,
+      expect.objectContaining({
+        id: 'background-continuation-output:batch-4',
+        content: '实时结果',
+      }),
+    ]);
+    useSessionStore.getState().handleConversationRunEvent({
+      sessionId: 'session-2',
+      requestId: 'background-continuation:batch-4',
+      messageId: 'background-continuation-output:batch-4',
+      origin: 'background-capability-continuation',
+      sequence: 2,
+      event: { type: 'message_done' },
+    });
+  });
+  it('keeps streaming into the source Conversation after the user switches away', async () => {
+    const sourceMessage = {
+      id: 'source-message',
+      session_id: 'session-1',
+      role: 'assistant' as const,
+      content: '来源会话',
+      tokens: 1,
+      created_at: 1,
+    };
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      messages: [sourceMessage],
+    });
+    const base = {
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-5',
+      messageId: 'background-continuation-output:batch-5',
+      origin: 'background-capability-continuation' as const,
+    };
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 1,
+      event: { type: 'message_chunk', text: '第一段' },
+    });
+    useSessionStore.setState({
+      activeSessionId: 'session-2',
+      messages: [{
+        id: 'other-message',
+        session_id: 'session-2',
+        role: 'assistant',
+        content: '其它会话',
+        tokens: 1,
+        created_at: 2,
+      }],
+    });
+
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 2,
+      event: { type: 'message_chunk', text: '第二段' },
+    });
+
+    expect(useSessionStore.getState().messages).toEqual([
+      expect.objectContaining({ id: 'other-message', content: '其它会话' }),
+    ]);
+    await useSessionStore.getState().selectSession('session-1');
+    expect(useSessionStore.getState().messages).toEqual([
+      sourceMessage,
+      expect.objectContaining({
+        id: base.messageId,
+        content: '第一段第二段',
+      }),
+    ]);
+    useSessionStore.getState().handleConversationRunEvent({
+      ...base,
+      sequence: 3,
+      event: { type: 'message_done' },
+    });
+  });
+
 });

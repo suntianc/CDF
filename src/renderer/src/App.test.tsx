@@ -334,6 +334,21 @@ describe('App', () => {
     await waitFor(() => expect(selectSession).toHaveBeenCalledWith('session-1'));
     expect(useSessionStore.getState().activeSessionId).toBe('session-1');
   });
+  it('refreshes a durable background message even while its live stream is settling', async () => {
+    const selectSession = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      isStreaming: true,
+      selectSession,
+    });
+    render(<App />);
+
+    act(() => messagesChangedListener?.({ sessionId: 'session-1' }));
+    expect(selectSession).not.toHaveBeenCalled();
+
+    act(() => useSessionStore.setState({ isStreaming: false }));
+    await waitFor(() => expect(selectSession).toHaveBeenCalledWith('session-1'));
+  });
 
   it('forwards background Conversation run events to the session projection', () => {
     const handleConversationRunEvent = vi.fn();
