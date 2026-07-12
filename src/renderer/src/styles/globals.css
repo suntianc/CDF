@@ -1058,7 +1058,10 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
    attachment button, and model selector inside the Composer still
    receive the global focus ring for keyboard users. */
 .chat-composer textarea:focus-visible,
-.dialog-box textarea:focus-visible {
+.dialog-box textarea:focus-visible,
+.workflow-stage-editor textarea:focus-visible,
+.workflow-stage-editor input:focus-visible,
+.workflow-stage-editor select:focus-visible {
   outline: none;
 }
 
@@ -1224,7 +1227,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   grid-template-rows: 1fr;
   opacity: 1;
   margin-top: 2px;
-  overflow: visible;
 }
 
 .folder-sessions-inner {

@@ -12,8 +12,13 @@ import type {
   ExecutionStep,
   JudgePayload,
   SkillAttribution,
+  WorkflowRunStatus,
 } from '../shared/types';
 import { llmChunkChannel } from '../shared/ipc-contract';
+import { getRunBySessionId, isAdvanceStageInterrupt, handleAdvanceStageInterrupt, registerResumeAgentCallback } from './workflow-run';
+import { updateRunStatus } from './workflow-run/db';
+import { conversationRunStreams } from './conversation-run-stream-runtime';
+import type { ActiveConversationRunStream } from './conversation-run-streams';
 
 /**
  * Build task tool input package for subagent delegation.
@@ -436,7 +441,12 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
 
     await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
 
-    let nextInput: any = { messages: runtime.inputMessages };
+    let nextInput: unknown;
+    if (payload.resume) {
+      nextInput = new Command({ resume: payload.resume });
+    } else {
+      nextInput = { messages: runtime.inputMessages };
+    }
 
     // ── Runtime Stream Projection 壳层（ADR-0053）──
     // 4 路并发 iterator 只做「收到即转发」：串行化为 RuntimeStreamEvent 喂纯核心；
@@ -655,7 +665,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
           output = undefined;
         }
       }
-
+      // 备用：output 中可能含中断值（interrupts 已在 streamEvents 外层检查过）
       interruptValue ||= getInterruptValue(output);
       if (!interruptValue) {
         try {
@@ -675,9 +685,30 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
       if (controlEffects.includes('stop-turn-loop')) {
         break;
       }
-
       if (controlEffects.includes('await-approval')) {
-        // —— 审批中断持久化：裸 BEGIN/COMMIT 块原样搬运（ADR-0053 决策 3；升级事务 API 另行立项）——
+        // Phase 15: 检查是否 Workflow Stage Gate 中断（deepagents 标准 actionRequests 格式）
+        const stageInfo = isAdvanceStageInterrupt(interruptValue);
+        if (stageInfo) {
+          // 通过 session 查 run（runId/stageIndex 不在 actionRequests 中）
+          const run = getRunBySessionId(payload.sessionId);
+          if (!run) throw new Error('Workflow run not found for advance_stage interrupt');
+          const result = await handleAdvanceStageInterrupt(
+            run.id,
+            stageInfo.report,
+            sender,
+            channel,
+          );
+          if (result.terminate) {
+            controller.abort();
+            break;
+          }
+          nextInput = new Command({ resume: result.resume });
+          sender.send('conversation:messages-changed', { sessionId: run.session_id });
+          // 继续循环（不入标准审批流程）
+          continue;
+        }
+
+
         const approval = toApprovalRequest(runId, interruptValue);
         db.exec('BEGIN');
         updateRun(runId, 'waiting_approval');
@@ -686,14 +717,20 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         sender.send(channel, { type: 'run_updated', runId, status: 'waiting_approval' });
         sender.send(channel, { type: 'approval_required', approval });
 
-        const resolution = await new Promise<AgentApprovalResolution>((resolve, reject) => {
-          const key = `${requestId}:${approval.id}`;
-          pendingApprovals.set(key, resolve);
-          controller.signal.addEventListener('abort', () => {
-            pendingApprovals.delete(key);
-            reject(new DOMException('Aborted', 'AbortError'));
-          }, { once: true });
+        let approvalResolve!: (resolution: AgentApprovalResolution) => void;
+        let approvalReject!: (reason?: unknown) => void;
+        const approvalPromise = new Promise<AgentApprovalResolution>((resolve, reject) => {
+          approvalResolve = resolve;
+          approvalReject = reject;
         });
+        const key = `${requestId}:${approval.id}`;
+        pendingApprovals.set(key, approvalResolve);
+        controller.signal.addEventListener('abort', () => {
+          pendingApprovals.delete(key);
+          approvalReject(new DOMException('Aborted', 'AbortError'));
+        }, { once: true });
+
+        const resolution = await approvalPromise;
 
         const approvalStatus = resolution.decisions.some((decision) => decision.type === 'edit')
           ? 'edited'
@@ -749,6 +786,17 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         error: error?.message || String(error),
       });
     }
+    // Propagate error to workflow_runs / sessions if this is a workflow session
+    try {
+      const sessionRow = db.prepare('SELECT workflow_run_id FROM sessions WHERE id = ?').get(payload.sessionId) as { workflow_run_id: string | null } | undefined;
+      if (sessionRow?.workflow_run_id) {
+        const wfStatus: WorkflowRunStatus = error?.name === 'AbortError' || controller.signal.aborted ? 'aborted' : 'failed';
+        updateRunStatus(sessionRow.workflow_run_id, wfStatus, error?.message || String(error));
+        sender.send('conversation:messages-changed', { sessionId: payload.sessionId });
+      }
+    } catch (wfErr) {
+      log.warn('[LLM] Failed to propagate error to workflow run:', wfErr);
+    }
     if (runtime) {
       await checkAndSendTodos(runtime, payload.sessionId, sender, channel, lastTodosJsonRef);
     }
@@ -794,3 +842,38 @@ export async function fetchOllamaModels(apiUrl: string): Promise<string[]> {
   const data = await response.json();
   return data.models?.map((model: any) => model.name) || [];
 }
+
+registerResumeAgentCallback((sessionId, projectId, decisions) => {
+  const requestId = crypto.randomUUID();
+  const messageId = crypto.randomUUID();
+
+  let stream: ActiveConversationRunStream | undefined;
+  try {
+    stream = conversationRunStreams.begin({
+      sessionId,
+      requestId,
+      messageId,
+      origin: 'workflow-resume',
+    });
+  } catch {
+    log.warn('[LLM] Cannot start Conversation run stream for resume (already active)');
+  }
+
+  const sender = stream?.sender;
+  if (!sender) {
+    log.warn('[LLM] No sender available to resume agent');
+    stream?.fail();
+    return;
+  }
+
+  void runLLMChat(sender, requestId, {
+    projectId,
+    sessionId,
+    message: { id: messageId, content: 'resume' },
+    resume: { decisions },
+  }).then(() => {
+    stream!.commit();
+  }).catch(() => {
+    stream!.fail();
+  });
+});

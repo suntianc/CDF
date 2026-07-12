@@ -332,3 +332,32 @@
 .settingsMenuItem.active svg {
   color: var(--color-text-secondary);
 }
+
+.scrollContainer {
+  scrollbar-width: none; /* Firefox */
+}
+
+.scrollContainer::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollContainer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollContainer::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background-color 0.25s ease;
+}
+
+.scrollContainer.scrolling {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: color-mix(in srgb, var(--color-text-muted) 28%, transparent) transparent; /* Firefox */
+}
+
+.scrollContainer.scrolling::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+}
+

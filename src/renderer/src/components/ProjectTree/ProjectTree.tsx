@@ -114,22 +114,6 @@ function ProjectFolder({ project }: ProjectFolderProps) {
         onClick={handleProjectClick}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          {/* Chevron expand/collapse toggle */}
-          <button
-            type="button"
-            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded(!expanded);
-            }}
-          >
-            {expanded ? (
-              <ChevronDown className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronRight className="w-3.5 h-3.5" />
-            )}
-          </button>
-          
           <span title={projectSceneTitle} className="shrink-0">
             <ProjectIcon className={projectIconClassName} aria-hidden="true" />
           </span>
@@ -161,7 +145,7 @@ function ProjectFolder({ project }: ProjectFolderProps) {
         </div>
 
         {/* Hover action buttons */}
-        <div className="flex items-center gap-0.5 relative opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0.5 relative opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           <button
             type="button"
             onClick={(e) => {
@@ -227,9 +211,8 @@ function ProjectFolder({ project }: ProjectFolderProps) {
         </div>
       </div>
 
-      {/* Sessions child list with transition */}
       <div className={`folder-sessions-collapse ${expanded ? 'expanded' : ''}`}>
-        <div className="folder-sessions-inner pl-6 flex flex-col gap-0.5 border-l border-[var(--color-border)]/50 ml-5 min-w-0">
+        <div className="folder-sessions-inner space-y-0.5 min-w-0">
           {sessions.map((session) => (
             <div
               key={session.id}
@@ -246,19 +229,14 @@ function ProjectFolder({ project }: ProjectFolderProps) {
                 selectSession(session.id);
               }}
             >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {session.parent_session_id ? (
-                  <GitFork className="w-3.5 h-3.5 text-[var(--color-text-secondary)] shrink-0" />
-                ) : (
-                  <MessageSquare className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
-                )}
+              <div className="flex items-center min-w-0 flex-1 pl-6">
                 <span className="text-xs truncate flex-1 leading-none">{session.name}</span>
               </div>
               
               <button
                 type="button"
                 onClick={(e) => handleDeleteSession(e, session.id)}
-                className="opacity-40 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded-[var(--radius-sm)] hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[opacity,background-color,color] shrink-0 ml-1.5 cursor-pointer"
+                className="opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded-[var(--radius-sm)] hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[opacity,background-color,color] shrink-0 ml-1.5 cursor-pointer"
                 title={t('projectTree.deleteSession')}
               >
                 <Trash2 className="w-3 h-3" />
@@ -357,22 +335,22 @@ export function ProjectTree() {
     <div className="flex flex-col gap-3 min-w-0">
       {/* Category 1: Projects */}
       <div>
-        <div className="flex items-center justify-between px-3 py-1 mb-0 text-[var(--color-text-secondary)] font-medium select-none">
+        <div className="group/project-header flex items-center justify-between px-3 py-1 mb-0 text-[var(--color-text-secondary)] font-medium select-none">
           <div 
             onClick={() => setListExpanded(!listExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"
           >
             <span className="text-xs">{t('projectTree.projectList')}</span>
             {listExpanded ? (
-              <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
+              <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)] opacity-0 group-hover/project-header:opacity-100 transition-opacity" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)]" />
+              <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)] opacity-0 group-hover/project-header:opacity-100 transition-opacity" />
             )}
           </div>
           <div className="flex items-center gap-1">
             <button 
               onClick={() => setCreateProjectOpen(true)}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
+              className="opacity-0 group-hover/project-header:opacity-100 focus-visible:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
               title={t('projectTree.newProjectBtn')}
             >
               <FolderPlus className="w-3.5 h-3.5" />
@@ -408,22 +386,22 @@ export function ProjectTree() {
 
       {/* Category 2: Conversations (Dialogs) */}
       <div>
-        <div className="flex items-center justify-between px-3 py-1 mb-0 text-[var(--color-text-secondary)] font-medium select-none">
+        <div className="group/temp-header flex items-center justify-between px-3 py-1 mb-0 text-[var(--color-text-secondary)] font-medium select-none">
           <div 
             onClick={() => setSessionsExpanded(!sessionsExpanded)}
             className="flex items-center gap-1 cursor-pointer hover:text-[var(--color-text-primary)] flex-1"
           >
             <span className="text-xs">{t('projectTree.tempSessions')}</span>
             {sessionsExpanded ? (
-              <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
+              <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)] opacity-0 group-hover/temp-header:opacity-100 transition-opacity" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)]" />
+              <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)] opacity-0 group-hover/temp-header:opacity-100 transition-opacity" />
             )}
           </div>
           <div className="flex items-center gap-1">
             <button 
               onClick={handleNewChat}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
+              className="opacity-0 group-hover/temp-header:opacity-100 focus-visible:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
               title={t('projectTree.newTempSession')}
             >
               <Plus className="w-3.5 h-3.5" />
@@ -462,7 +440,7 @@ export function ProjectTree() {
                 <button
                   type="button"
                   onClick={(e) => handleDeleteSession(e, session.id)}
-                  className="opacity-60 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[background-color,color,opacity] duration-150 shrink-0 ml-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+                  className="opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[background-color,color,opacity] duration-150 shrink-0 ml-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                   title={t('projectTree.deleteSession')}
                 >
                   <Trash2 className="w-3 h-3" />

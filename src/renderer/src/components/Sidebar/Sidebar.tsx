@@ -27,6 +27,28 @@ export function Sidebar({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
 
+  const scrollTimeoutRef = useRef<any>(null);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    container.classList.add(styles.scrolling);
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      container.classList.remove(styles.scrolling);
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const { currentProjectId } = useProjectStore();
   const { 
     sessions, activeSessionId, fetchSessions, createSession, selectSession 
@@ -139,7 +161,10 @@ export function Sidebar({
       {!isSettings ? (
         <>
           {/* Unified scrollable container for projects and conversations */}
-          <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-4">
+          <div 
+            className={`${styles.scrollContainer} flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-4`}
+            onScroll={handleScroll}
+          >
             {/* Project tree contains nested projects and sessions */}
             <ProjectTree />
           </div>
