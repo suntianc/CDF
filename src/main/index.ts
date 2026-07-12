@@ -1,5 +1,10 @@
-import { app, BrowserWindow, protocol, net } from 'electron';
+import { app, BrowserWindow, protocol } from 'electron';
 import db from './database';
+import {
+  CDF_FILE_SCHEME,
+  cdfFileSchemePrivileges,
+  createCdfFileResponse,
+} from './cdf-file-protocol';
 import { registerIpcHandlers } from './ipc-handlers';
 import {
   backgroundCapabilityContinuations,
@@ -11,17 +16,12 @@ import { runLLMChat, setConversationIdleListener } from './llm';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { createCapabilityJobContinuationRunner } from './capabilities/capability-job-continuation-runner';
 
-// Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media
+// Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media.
+// standard:true additionally enables Chromium's media seeking/range machinery (see cdf-file-protocol.ts).
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'cdf-file',
-    privileges: {
-      bypassCSP: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      stream: true,
-    }
+    scheme: CDF_FILE_SCHEME,
+    privileges: { ...cdfFileSchemePrivileges },
   }
 ]);
 import { disconnectAllMcpServers } from './deepagent/mcp-connector';
@@ -31,8 +31,6 @@ import { configureNetworkProxy } from './network-proxy';
 import store from './store';
 import log from './logger';
 import path from 'path';
-import fs from 'node:fs';
-import { pathToFileURL } from 'node:url';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -115,18 +113,16 @@ setConversationIdleListener((sessionId) => {
 app.whenReady().then(() => {
   log.info('App is ready');
   
-  // Register cdf-file protocol handler to safely resolve absolute local paths to file URLs
-  protocol.handle('cdf-file', (request) => {
+  // Register cdf-file protocol handler. Serves local files with HTTP Range support so that
+  // <audio>/<video> media is seekable (required for replay and for moov-at-end mp4s).
+  protocol.handle(CDF_FILE_SCHEME, async (request) => {
     try {
-      const urlPath = decodeURIComponent(request.url.slice('cdf-file://'.length));
-      let filePath = urlPath;
-      if (process.platform === 'win32' && filePath.startsWith('/')) {
-        filePath = filePath.slice(1);
-      }
-      const fileUrl = pathToFileURL(filePath).toString();
-      return net.fetch(fileUrl);
+      return await createCdfFileResponse({
+        url: request.url,
+        rangeHeader: request.headers.get('Range'),
+      });
     } catch (error) {
-      log.error('[cdf-file] Failed to fetch local file url:', error);
+      log.error('[cdf-file] Failed to serve local file:', error);
       return new Response('File not found', { status: 404 });
     }
   });
