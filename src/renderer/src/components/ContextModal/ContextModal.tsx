@@ -689,10 +689,13 @@ export function ContextModal() {
 
               {data.breakdown.freeSpace < data.contextLimit * 0.1 && (
                 <div
-                  className="text-xs text-[oklch(0.68 0.18 24)] px-4 py-3 rounded-xl bg-[oklch(0.68 0.18 24 / 0.08)] border-l-3 border-[oklch(0.68 0.18 24)] flex items-center gap-3 animate-pulse shadow-sm"
+                  className="relative overflow-hidden text-xs text-[oklch(0.68 0.18 24)] pl-5 pr-4 py-3 rounded-xl bg-[oklch(0.68 0.18 24 / 0.06)] border border-[oklch(0.68 0.18 24 / 0.15)] flex items-center gap-3 animate-pulse shadow-sm"
                   data-testid="context-modal-near-threshold"
                 >
-                  <div className="p-1 rounded bg-[oklch(0.68 0.18 24 / 0.15)] text-[oklch(0.68 0.18 24)] shrink-0">
+                  {/* Ledger Edge */}
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-[oklch(0.68 0.18 24)]" />
+                  
+                  <div className="p-1 rounded bg-[oklch(0.68 0.18 24 / 0.12)] text-[oklch(0.68 0.18 24)] shrink-0">
                     <AlertCircle className="size-4" />
                   </div>
                   <span className="font-semibold">{t('context.compressWarning', { tokens: data.breakdown.freeSpace })}</span>
