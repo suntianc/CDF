@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { DELEGATED_TASK_RESULT_SCHEMA } from '../../shared/types';
+import type { ExecutionStep } from '../../shared/types';
 
 const {
   createDeepAgentMock,
@@ -123,7 +123,7 @@ vi.mock('../workflow-run', async (importOriginal) => {
   return { ...actual, getRunBySessionId: getRunBySessionIdMock };
 });
 
-import { createDeepAgentRuntime } from './runtime';
+import { createDeepAgentRuntime, createSubagentResilienceMiddleware } from './runtime';
 import { createLangChainModel } from './llm-adapter';
 import { createStreamAccumulator, runWithStreamAccumulator } from './stream-accumulator';
 
@@ -139,6 +139,21 @@ function firstCreateDeepAgentParams(): CreateDeepAgentParams {
   const firstCall = createDeepAgentMock.mock.calls[0] as unknown[];
   expect(firstCall).toBeTruthy();
   return firstCall[0] as CreateDeepAgentParams;
+}
+
+interface TestToolCallMiddleware {
+  name?: string;
+  wrapToolCall: (
+    request: unknown,
+    handler: (request?: unknown) => Promise<unknown>,
+  ) => Promise<unknown>;
+}
+
+function getSubagentTestMiddleware(name: string, allowedTools?: string[]): TestToolCallMiddleware {
+  const middlewares = createSubagentResilienceMiddleware(allowedTools) as unknown as TestToolCallMiddleware[];
+  const middleware = middlewares.find((item) => item.name === name);
+  expect(middleware).toBeDefined();
+  return middleware!;
 }
 
 describe('createDeepAgentRuntime', () => {
@@ -549,16 +564,15 @@ describe('createDeepAgentRuntime', () => {
     expect(params.subagents).toBeDefined();
     expect(Array.isArray(params.subagents)).toBe(true);
     expect(params.subagents.length).toBeGreaterThan(0);
-    expect(params.subagents[0].name).toBe('code-agent');  // D-03: slug as stable key
-    expect(params.subagents[0].responseFormat).toBe(DELEGATED_TASK_RESULT_SCHEMA);  // D-10
-    expect(params.subagents[0].model).toEqual({ model: 'llama4', providerType: 'ollama' });
-    expect(params.subagents[0].modelProvider).toBeUndefined();
-    expect(params.subagents[0].middleware.map((item: { name?: string }) => item.name)).toEqual(
-      expect.arrayContaining(['RecoverableToolErrorMiddleware', 'toolRetryMiddleware', 'modelRetryMiddleware'])
-    );
+    expect(params.subagents[0].name).toBe('code-agent');
+    expect(params.subagents[0].runnable.invoke).toEqual(expect.any(Function));
+    expect(params.subagents[0].model).toBeUndefined();
+    expect(params.subagents[0].systemPrompt).toBeUndefined();
+    expect(params.subagents[0].middleware).toBeUndefined();
+    expect(vi.mocked(createLangChainModel)).toHaveBeenCalledTimes(1);
   });
 
-  it('should wire subagent skill selections through the CDF Skills Runtime prompt', async () => {
+  it('defers delegated Agent Skill and model assembly until one run starts', async () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
@@ -587,16 +601,14 @@ describe('createDeepAgentRuntime', () => {
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, 'agent-1', undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    expect(params.subagents[0].systemPrompt).toContain('Agent 2 prompt');
-    expect(params.subagents[0].systemPrompt).toContain('CDF-owned skills prompt');
-    expect(params.subagents[0].skills).toBeUndefined();
-    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
+    expect(params.subagents[0].runnable.invoke).toEqual(expect.any(Function));
+    expect(buildCdfSkillsRuntimeMock).not.toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
       preloadSkillNames: ['sub-skill'],
-      pathContext: ['apps/web/src/App.tsx'],
     }));
+    expect(vi.mocked(createLangChainModel)).toHaveBeenCalledTimes(1);
   });
 
-  it('should pass MiniMax subagent models as model instances instead of provider strings', async () => {
+  it('does not pre-create a MiniMax model for a configured delegated target', async () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
@@ -632,8 +644,10 @@ describe('createDeepAgentRuntime', () => {
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    expect(params.subagents[0].model).toEqual({ model: 'MiniMax-M2.7-highspeed', providerType: 'minimax' });
-    expect(params.subagents[0].modelProvider).toBeUndefined();
+    expect(params.subagents[0].runnable.invoke).toEqual(expect.any(Function));
+    expect(vi.mocked(createLangChainModel)).not.toHaveBeenCalledWith(expect.objectContaining({
+      defaultModel: 'MiniMax-M2.7-highspeed',
+    }));
   });
 
   it('should convert task tool errors into failure ToolMessages for the main agent', async () => {
@@ -711,17 +725,7 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('applies runtime allowedTools overrides to subagent tool calls as well', async () => {
-    await createDeepAgentRuntime(
-      'project-1',
-      'session-1',
-      { id: 'message-1', content: 'test' },
-      'agent-1',
-      { allowedTools: ['read_file'] },
-      ['agent-2']
-    );
-
-    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    const allowlistMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'AllowedToolsMiddleware');
+    const allowlistMiddleware = getSubagentTestMiddleware('AllowedToolsMiddleware', ['read_file']);
     const blocked = await allowlistMiddleware.wrapToolCall(
       {
         toolCall: { id: 'sub-tool-call-1', name: 'grep', args: {} },
@@ -729,17 +733,14 @@ describe('createDeepAgentRuntime', () => {
         state: {},
       },
       async () => 'should not run'
-    );
+    ) as { tool_call_id: string; content: string };
 
     expect(blocked.tool_call_id).toBe('sub-tool-call-1');
     expect(blocked.content).toContain('grep');
   });
 
   it('should let subagents observe tool failures instead of crashing their graph', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
-
-    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    const retryMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'toolRetryMiddleware');
+    const retryMiddleware = getSubagentTestMiddleware('toolRetryMiddleware');
     const result = await retryMiddleware.wrapToolCall(
       {
         toolCall: { id: 'sub-tool-call-1', name: 'read_file', args: {} },
@@ -750,7 +751,7 @@ describe('createDeepAgentRuntime', () => {
       async () => {
         throw new Error('ENOENT: no such file or directory');
       }
-    );
+    ) as { tool_call_id: string; content: string };
 
     expect(result.tool_call_id).toBe('sub-tool-call-1');
     expect(result.content).toContain('Tool error (NOT_FOUND)');
@@ -758,10 +759,7 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should let subagent tool approval interrupts bubble to the approval flow', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
-
-    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    const recoverableMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'RecoverableToolErrorMiddleware');
+    const recoverableMiddleware = getSubagentTestMiddleware('RecoverableToolErrorMiddleware');
     const approvalInterrupt = Object.assign(new Error('Tool execution requires approval'), {
       name: 'GraphInterrupt',
       interrupts: [
@@ -801,10 +799,7 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should let UNKNOWN approval payload errors bubble to the approval flow', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
-
-    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    const recoverableMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'RecoverableToolErrorMiddleware');
+    const recoverableMiddleware = getSubagentTestMiddleware('RecoverableToolErrorMiddleware');
     const approvalPayload = [
       {
         id: 'approval-interrupt-1',
@@ -842,11 +837,8 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should emit paired span ids for subagent tool call and result steps', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
-
-    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    const stepMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'SubagentStepMiddleware');
-    const steps: any[] = [];
+    const stepMiddleware = getSubagentTestMiddleware('SubagentStepMiddleware');
+    const steps: ExecutionStep[] = [];
 
     await stepMiddleware.wrapToolCall(
       {
@@ -857,7 +849,7 @@ describe('createDeepAgentRuntime', () => {
       async () => ({ content: 'file content' })
     );
 
-    const context = { onStep: (step: any) => steps.push(step) };
+    const context = { onStep: (step: ExecutionStep) => steps.push(step) };
     const { subagentStepStorage } = await import('./runtime');
     await subagentStepStorage.run(context, async () => {
       await stepMiddleware.wrapToolCall(
@@ -878,12 +870,9 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should emit subagent tool steps through the stream accumulator fallback', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
-
-    const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    const stepMiddleware = params.subagents[0].middleware.find((item: { name?: string }) => item.name === 'SubagentStepMiddleware');
+    const stepMiddleware = getSubagentTestMiddleware('SubagentStepMiddleware');
     const accumulator = createStreamAccumulator();
-    const steps: any[] = [];
+    const steps: ExecutionStep[] = [];
     accumulator.onSubagentStep = (step) => steps.push(step);
 
     await runWithStreamAccumulator(accumulator, async () => {

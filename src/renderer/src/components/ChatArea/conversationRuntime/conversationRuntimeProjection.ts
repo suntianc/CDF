@@ -3,6 +3,7 @@ import type {
   ConversationRunStreamSnapshot,
   AgentRun,
   AgentToolCall,
+  DelegatedAgentRun,
   ExecutionStep,
   LLMStreamEvent,
   Message,
@@ -10,6 +11,7 @@ import type {
 } from '@shared/types';
 
 export interface DelegatedTaskProjection {
+  delegatedRunId: string;
   taskId: string;
   agentSlug: string;
   agentName: string;
@@ -96,6 +98,7 @@ export interface RestoreConversationRuntimeInput {
   isStreaming: boolean;
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
+  delegatedAgentRuns?: DelegatedAgentRun[];
   latestTodos?: TodoItem[];
 }
 
@@ -500,6 +503,7 @@ export function projectConversationRuntime(
       name: streamEvent.name,
       status: 'running',
       input: streamEvent.input,
+      ...(streamEvent.delegatedRunId ? { delegatedRunId: streamEvent.delegatedRunId } : {}),
     });
     const toolMessage: Message = {
       id: toolMessageId,
@@ -521,6 +525,7 @@ export function projectConversationRuntime(
           {
             id: streamEvent.id,
             run_id: state.activeRunId || '',
+            ...(streamEvent.delegatedRunId ? { delegated_run_id: streamEvent.delegatedRunId } : {}),
             tool_name: streamEvent.name,
             input: JSON.stringify(streamEvent.input ?? null),
             output: null,
@@ -533,7 +538,12 @@ export function projectConversationRuntime(
         ]
       : state.agentToolCalls.map((toolCall) => (
           toolCall.id === toolMessageId
-            ? { ...toolCall, status: 'running' as const, input: JSON.stringify(streamEvent.input ?? null) }
+            ? {
+                ...toolCall,
+                ...(streamEvent.delegatedRunId ? { delegated_run_id: streamEvent.delegatedRunId } : {}),
+                status: 'running' as const,
+                input: JSON.stringify(streamEvent.input ?? null),
+              }
             : toolCall
         ));
 
@@ -572,11 +582,11 @@ export function projectConversationRuntime(
   }
 
   if (streamEvent.type === 'delegated_task_start') {
-    const existingTask = state.delegatedTasks.find((task) => (
-      task.taskId === streamEvent.taskId ||
-      (task.status === 'running' && task.agentSlug === streamEvent.agentSlug)
-    ));
+    const existingTask = state.delegatedTasks.find(
+      (task) => task.delegatedRunId === streamEvent.delegatedRunId,
+    );
     const nextTask: DelegatedTaskProjection = {
+      delegatedRunId: streamEvent.delegatedRunId,
       taskId: streamEvent.taskId,
       agentSlug: streamEvent.agentSlug,
       agentName: streamEvent.agentName,
@@ -591,7 +601,7 @@ export function projectConversationRuntime(
         ...state,
         delegatedTasks: existingTask
           ? state.delegatedTasks.map((task) => (
-              task.taskId === existingTask.taskId
+              task.delegatedRunId === existingTask.delegatedRunId
                 ? { ...task, ...nextTask, chunks: task.chunks, steps: task.steps, startedAt: task.startedAt ?? nextTask.startedAt }
                 : task
             ))
@@ -606,7 +616,7 @@ export function projectConversationRuntime(
       state: {
         ...state,
         delegatedTasks: state.delegatedTasks.map((task) => (
-          task.taskId === streamEvent.taskId
+          task.delegatedRunId === streamEvent.delegatedRunId
             ? { ...task, chunks: [...task.chunks, streamEvent.text] }
             : task
         )),
@@ -620,7 +630,7 @@ export function projectConversationRuntime(
       state: {
         ...state,
         delegatedTasks: state.delegatedTasks.map((task) => (
-          task.taskId === streamEvent.taskId
+          task.delegatedRunId === streamEvent.delegatedRunId
             ? { ...task, steps: [...task.steps, streamEvent.step] }
             : task
         )),
@@ -634,7 +644,7 @@ export function projectConversationRuntime(
       state: {
         ...state,
         delegatedTasks: state.delegatedTasks.map((task) => (
-          task.taskId === streamEvent.taskId
+          task.delegatedRunId === streamEvent.delegatedRunId
             ? {
                 ...task,
                 status: streamEvent.status,
@@ -838,8 +848,35 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
   const delegatedTasks: DelegatedTaskProjection[] = [];
   const parallelBatches: ParallelBatchProjection[] = [];
 
+  for (const run of input.delegatedAgentRuns ?? []) {
+    const isActive = run.status === 'queued' || run.status === 'running';
+    const status: DelegatedTaskProjection['status'] = isActive
+      ? input.isStreaming ? 'running' : 'failure'
+      : run.status === 'completed' ? 'success' : 'failure';
+    const result = run.outcome;
+    delegatedTasks.push({
+      delegatedRunId: run.id,
+      taskId: run.task_tool_call_id ?? run.id,
+      agentSlug: run.target_agent_slug,
+      agentName: run.target_agent_name,
+      goal: run.goal,
+      status,
+      chunks: [],
+      steps: [],
+      result,
+      errorCode: result?.status === 'failure'
+        ? result.error?.code
+        : isActive && !input.isStreaming ? 'DISCONNECTED' : undefined,
+      startedAt: run.started_at ?? run.created_at,
+      completedAt: run.ended_at ?? undefined,
+    });
+  }
+
   for (const call of input.agentToolCalls) {
-    if (call.tool_name === 'task') {
+    const hasDelegatedRecord = delegatedTasks.some((task) => (
+      task.delegatedRunId === call.delegated_run_id || task.taskId === call.id
+    ));
+    if (call.tool_name === 'task' && !hasDelegatedRecord) {
       const { agentSlug, goal } = parseDelegatedTaskInput(call.input);
 
       let { status, errorCode, result } = parseDelegatedTaskOutput(call);
@@ -859,6 +896,7 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
       }
 
       delegatedTasks.push({
+        delegatedRunId: call.delegated_run_id ?? `legacy:${call.id}`,
         taskId: call.id,
         agentSlug,
         agentName: agentSlug,

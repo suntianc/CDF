@@ -883,6 +883,43 @@ describe('sessionStore selectSession activity errors', () => {
     expect(parsed.output).toBe('file contents');
   });
 
+  it('hydrates first-class delegated runs after reopening a Conversation', async () => {
+    window.electronAPI.db.getAgentRuns = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentRuns;
+    window.electronAPI.db.getAgentToolCalls = vi.fn(async () => []) as unknown as typeof window.electronAPI.db.getAgentToolCalls;
+    window.electronAPI.db.getDelegatedAgentRuns = vi.fn(async () => [{
+      id: 'delegated-1',
+      parent_run_id: 'run-1',
+      target_agent_id: 'agent-child',
+      target_agent_slug: 'code',
+      target_agent_name: 'Code Agent',
+      launch_form: 'single',
+      task_tool_call_id: 'task-1',
+      goal: 'Implement feature',
+      status: 'completed',
+      outcome: { status: 'success', artifacts: ['a.ts'], summary: 'Done' },
+      error_code: null,
+      error_message: null,
+      created_at: 100,
+      started_at: 110,
+      ended_at: 200,
+      updated_at: 200,
+    }]) as unknown as typeof window.electronAPI.db.getDelegatedAgentRuns;
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => undefined) as unknown as typeof window.electronAPI.db.getLatestTodos;
+    useSessionStore.setState({ activeSessionId: 'session-1' });
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(window.electronAPI.db.getDelegatedAgentRuns).toHaveBeenCalledWith('session-1');
+    expect(useSessionStore.getState().delegatedTasks).toEqual([
+      expect.objectContaining({
+        delegatedRunId: 'delegated-1',
+        taskId: 'task-1',
+        agentName: 'Code Agent',
+        status: 'success',
+      }),
+    ]);
+  });
+
   it('hydrates stale tool cards from older runs in the same session', async () => {
     window.electronAPI.db.getAgentRuns = vi.fn(async () => [
       {

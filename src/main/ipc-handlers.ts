@@ -75,6 +75,7 @@ import type {
 import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { deleteConversation } from './conversation-deletion';
+import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -828,6 +829,13 @@ export function registerIpcHandlers() {
     channel: 'db:getAgentToolCalls',
     read: (runId) => {
       return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
+    },
+  });
+
+  typedCrud({
+    channel: 'db:getDelegatedAgentRuns',
+    read: (sessionId) => {
+      return new DelegatedAgentRunRepository(db).listForConversation(sessionId);
     },
   });
 

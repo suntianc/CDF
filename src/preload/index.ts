@@ -89,6 +89,7 @@ const api = {
     importSkillDirectory: (sourceDir: string) => typedInvoke('db:importSkillDirectory', sourceDir),
     getAgentRuns: (sessionId: string) => typedInvoke('db:getAgentRuns', sessionId),
     getAgentToolCalls: (runId: string) => typedInvoke('db:getAgentToolCalls', runId),
+    getDelegatedAgentRuns: (sessionId: string) => typedInvoke('db:getDelegatedAgentRuns', sessionId),
     getLatestTodos: (sessionId: string) => typedInvoke('db:getLatestTodos', sessionId),
     // Phase 3: MCP Servers
     getMcpServers: () => typedInvoke('db:getMcpServers'),

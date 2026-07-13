@@ -133,6 +133,7 @@ export interface ParallelBatch {
 }
 
 export interface DelegatedTask {
+  delegatedRunId: string;
   taskId: string;
   agentSlug: string;
   agentName: string;
@@ -751,6 +752,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
           return;
         }
         const runs = await window.electronAPI.db.getAgentRuns(sessionId);
+        const delegatedAgentRuns = typeof window.electronAPI.db.getDelegatedAgentRuns === 'function'
+          ? await window.electronAPI.db.getDelegatedAgentRuns(sessionId)
+          : [];
         const activeRun = runs[0] || null;
         const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
         const historicalToolCalls = runs.length > 1
@@ -796,6 +800,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
           isStreaming: isSessionStreaming,
           agentRuns: runs,
           agentToolCalls: toolCalls,
+          delegatedAgentRuns,
           latestTodos,
         });
         const tasks = restoredRuntime.delegatedTasks;
@@ -816,8 +821,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
           // Prefer streaming cache chunks (most recent), fall back to current
           // store chunks (may survive a brief cache deletion window), then keep
           // the DB-derived empty array as last resort.
-          const streamCached = streamProjection?.delegatedTasks?.find(c => c.taskId === t.taskId);
-          const storeTask = storeTasks.find(s => s.taskId === t.taskId);
+          const streamCached = streamProjection?.delegatedTasks?.find(
+            (candidate) => candidate.delegatedRunId === t.delegatedRunId,
+          );
+          const storeTask = storeTasks.find(
+            (candidate) => candidate.delegatedRunId === t.delegatedRunId,
+          );
 
           if (streamCached && streamCached.chunks.length > 0) {
             t.chunks = streamCached.chunks;

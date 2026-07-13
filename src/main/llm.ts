@@ -115,6 +115,35 @@ function safeStringify(value: unknown): string | null {
   }
 }
 
+function parseDelegatedTaskCallInput(input: unknown): { targetAgentSlug: string; goal: string } | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as {
+    subagent_type?: unknown;
+    name?: unknown;
+    description?: unknown;
+    task?: unknown;
+  };
+  const targetAgentSlug = typeof value.subagent_type === 'string'
+    ? value.subagent_type
+    : typeof value.name === 'string'
+      ? value.name
+      : '';
+  if (!targetAgentSlug) return null;
+
+  if (typeof value.description === 'string') {
+    return { targetAgentSlug, goal: value.description };
+  }
+  if (typeof value.task === 'string') {
+    try {
+      const task = JSON.parse(value.task) as { goal?: unknown };
+      if (typeof task.goal === 'string') return { targetAgentSlug, goal: task.goal };
+    } catch {
+      // Compatibility with the old task(name, task) input shape.
+    }
+  }
+  return { targetAgentSlug, goal: '' };
+}
+
 function createRun(sessionId: string, agentId: string, requestId: string): string {
   const id = crypto.randomUUID();
   db.prepare(`
@@ -135,20 +164,36 @@ function updateRun(runId: string, status: AgentRunStatus, error?: string, aborte
 
 export const lastRunApprovals = new Map<string, string>();
 
-function upsertToolCall(runId: string, toolCallId: string, name: string, input: unknown): void {
+function upsertToolCall(
+  runId: string,
+  toolCallId: string,
+  name: string,
+  input: unknown,
+  delegatedRunId?: string,
+): void {
   const existing = db.prepare('SELECT id FROM agent_tool_calls WHERE id = ?').get(toolCallId);
   const approvalStatus = lastRunApprovals.get(runId) || null;
   if (existing) {
     db.prepare(`
       UPDATE agent_tool_calls
-      SET tool_name = ?, input = ?, status = 'running', approval_status = COALESCE(approval_status, ?)
+      SET tool_name = ?, input = ?, delegated_run_id = COALESCE(?, delegated_run_id),
+          status = 'running', approval_status = COALESCE(approval_status, ?)
       WHERE id = ?
-    `).run(name, safeStringify(input), approvalStatus, toolCallId);
+    `).run(name, safeStringify(input), delegatedRunId ?? null, approvalStatus, toolCallId);
   } else {
     db.prepare(`
-      INSERT INTO agent_tool_calls (id, run_id, tool_name, input, status, approval_status, started_at)
-      VALUES (?, ?, ?, ?, 'running', ?, ?)
-    `).run(toolCallId, runId, name, safeStringify(input), approvalStatus, Date.now());
+      INSERT INTO agent_tool_calls
+        (id, run_id, delegated_run_id, tool_name, input, status, approval_status, started_at)
+      VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
+    `).run(
+      toolCallId,
+      runId,
+      delegatedRunId ?? null,
+      name,
+      safeStringify(input),
+      approvalStatus,
+      Date.now(),
+    );
   }
 }
 
@@ -457,17 +502,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
     const projectionDeps: RuntimeStreamProjectionDeps = {
       takeBufferedReasoning: () => takeReasoningText(accumulator, runtime.model),
       takeFallbackText: () => getFallbackText(accumulator, runtime.model),
-      lookupAgentName: (slug) => {
-        try {
-          const agentRow = db.prepare('SELECT name FROM agents WHERE slug = ? OR name = ?').get(slug, slug) as { name: string } | undefined;
-          return agentRow?.name ?? slug;
-        } catch (dbErr) {
-          log.warn('[LLM] Failed to query agent name for slug:', slug, dbErr);
-          return slug;
-        }
-      },
       generateToolCallId: () => crypto.randomUUID(),
-      generateSubagentTaskId: (slug) => `subagent-${slug}-${crypto.randomUUID()}`,
     };
     type ControlEffect = 'await-approval' | 'stop-turn-loop' | 'continue-turn-loop';
     const dispatch = (streamEvent: RuntimeStreamEvent): ControlEffect[] => {
@@ -480,7 +515,13 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
       for (const effect of result.effects) {
         switch (effect.type) {
           case 'upsert-tool-call':
-            upsertToolCall(runId, effect.toolCallId, effect.toolName, effect.input);
+            upsertToolCall(
+              runId,
+              effect.toolCallId,
+              effect.toolName,
+              effect.input,
+              effect.delegatedRunId,
+            );
             break;
           case 'update-tool-call':
             updateToolCall(effect.toolCallId, effect.status, effect.output, effect.errorMessage);
@@ -518,6 +559,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
           configurable: {
             thread_id: payload.sessionId,
             checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
+            parentAgentRunId: runId,
           },
         }
       );
@@ -562,29 +604,49 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
       const toolStreamPromise = (async () => {
         for await (const call of run.toolCalls) {
           if (controller.signal.aborted) break;
+          const toolCallId = call.callId || crypto.randomUUID();
+          const delegatedInput = call.name === 'task'
+            ? parseDelegatedTaskCallInput(call.input)
+            : null;
+          const delegatedRun = delegatedInput
+            ? runtime.queueDelegatedRun(
+                runId,
+                toolCallId,
+                delegatedInput.targetAgentSlug,
+                delegatedInput.goal,
+              )
+            : null;
           dispatch({
             kind: 'tool-call-started',
-            callId: call.callId,
+            callId: toolCallId,
             toolName: call.name,
             input: call.input,
+            delegatedRun: delegatedRun
+              ? {
+                  id: delegatedRun.id,
+                  targetAgentSlug: delegatedRun.target_agent_slug,
+                  targetAgentName: delegatedRun.target_agent_name,
+                  goal: delegatedRun.goal,
+                }
+              : undefined,
           });
 
-          const isTask = call.name === 'task';
-          if (isTask) {
+          const delegatedRunId = delegatedRun?.id;
+          if (delegatedRunId) {
             accumulator.onText = (text: string) => {
-              dispatch({ kind: 'accumulator-text', text });
+              dispatch({ kind: 'accumulator-text', delegatedRunId, text });
             };
             accumulator.onSubagentStep = (step: ExecutionStep) => {
-              dispatch({ kind: 'accumulator-step', step });
+              dispatch({ kind: 'accumulator-step', delegatedRunId, step });
             };
           }
 
           try {
-            const output = isTask
+            const output = delegatedRunId
               ? await subagentStepStorage.run(
                   {
                     onStep: (step: ExecutionStep) => {
-                      dispatch({ kind: 'accumulator-step', step });
+                      dispatch({ kind: 'accumulator-step', delegatedRunId, step });
                     },
                   },
                   () => call.output,
@@ -598,27 +660,9 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
               isInterrupt: isInterruptError(error),
             });
           } finally {
-            if (isTask) {
+            if (delegatedRunId) {
               accumulator.onText = undefined;
               accumulator.onSubagentStep = undefined;
-            }
-          }
-        }
-      })();
-
-      const subagentsStreamPromise = (async () => {
-        const subagents = (run as any).subagents;
-        if (!subagents || typeof subagents[Symbol.asyncIterator] !== 'function') return;
-        for await (const sub of subagents as AsyncIterable<{ name: string; messages: AsyncIterable<{ text: AsyncIterable<string> }> }>) {
-          if (controller.signal.aborted) break;
-          dispatch({ kind: 'subagent-started', slug: sub.name });
-          for await (const message of sub.messages) {
-            if (controller.signal.aborted) break;
-            for await (const textDelta of message.text) {
-              if (controller.signal.aborted) break;
-              if (textDelta) {
-                dispatch({ kind: 'subagent-text', slug: sub.name, text: textDelta });
-              }
             }
           }
         }
@@ -652,10 +696,6 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         }
       })();
 
-      // subagentsStreamPromise 保持非阻塞：SDK 的 StreamChannel 可能在 run
-      // 结束后不关闭。核心的关联表已消除 waiter 死锁，但让它与主 Promise
-      // 竞速仍能保证 message_done 及时发出。
-      //
       // 多路 iterator 在图失败时会同时 reject。Promise.all 在第一个 reject 后
       // 不再 await 其余 promise，sibling 的后续 reject 会变成 UnhandledPromiseRejection。
       // 用 allSettled 等全部结束后再抛出第一个 error。
@@ -664,7 +704,6 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         toolStreamPromise,
         valuesStreamPromise,
       ]);
-      subagentsStreamPromise.catch(() => {});
       const firstStreamError = streamSettled.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
       );

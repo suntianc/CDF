@@ -619,28 +619,29 @@ describe('Conversation Runtime Projection', () => {
 
     const started = projectConversationRuntime(
       initial,
-      { kind: 'llm', event: { type: 'delegated_task_start', taskId: 'task-1', agentSlug: 'code', agentName: 'Code Agent', goal: 'Inspect files' } },
+      { kind: 'llm', event: { type: 'delegated_task_start', delegatedRunId: 'delegated-1', taskId: 'task-1', agentSlug: 'code', agentName: 'Code Agent', goal: 'Inspect files' } },
       deps,
     );
     const chunked = projectConversationRuntime(
       started.state,
-      { kind: 'llm', event: { type: 'delegated_task_chunk', taskId: 'task-1', text: 'Reading...' } },
+      { kind: 'llm', event: { type: 'delegated_task_chunk', delegatedRunId: 'delegated-1', taskId: 'task-1', text: 'Reading...' } },
       deps,
     );
     const stepped = projectConversationRuntime(
       chunked.state,
-      { kind: 'llm', event: { type: 'delegated_task_step', taskId: 'task-1', step } },
+      { kind: 'llm', event: { type: 'delegated_task_step', delegatedRunId: 'delegated-1', taskId: 'task-1', step } },
       deps,
     );
     const ended = projectConversationRuntime(
       stepped.state,
-      { kind: 'llm', event: { type: 'delegated_task_end', taskId: 'task-1', status: 'success', result: resultPayload } },
+      { kind: 'llm', event: { type: 'delegated_task_end', delegatedRunId: 'delegated-1', taskId: 'task-1', status: 'success', result: resultPayload } },
       deps,
     );
 
     expect(started.effects).toEqual([{ type: 'openActivityPanel' }]);
     expect(ended.state.delegatedTasks).toEqual([
       {
+        delegatedRunId: 'delegated-1',
         taskId: 'task-1',
         agentSlug: 'code',
         agentName: 'Code Agent',
@@ -665,17 +666,18 @@ describe('Conversation Runtime Projection', () => {
 
     const started = projectConversationRuntime(
       initial,
-      { kind: 'llm', event: { type: 'delegated_task_start', taskId: 'task-1', agentSlug: 'code', agentName: 'Code Agent', goal: 'Inspect files' } },
+      { kind: 'llm', event: { type: 'delegated_task_start', delegatedRunId: 'delegated-1', taskId: 'task-1', agentSlug: 'code', agentName: 'Code Agent', goal: 'Inspect files' } },
       deps,
     );
     const replayed = projectConversationRuntime(
       started.state,
-      { kind: 'llm', event: { type: 'delegated_task_start', taskId: 'task-2', agentSlug: 'code', agentName: 'Code Agent', goal: 'Inspect files again' } },
+      { kind: 'llm', event: { type: 'delegated_task_start', delegatedRunId: 'delegated-1', taskId: 'task-2', agentSlug: 'code', agentName: 'Code Agent', goal: 'Inspect files again' } },
       deps,
     );
 
     expect(replayed.state.delegatedTasks).toEqual([
       {
+        delegatedRunId: 'delegated-1',
         taskId: 'task-2',
         agentSlug: 'code',
         agentName: 'Code Agent',
@@ -860,6 +862,7 @@ describe('Conversation Runtime Projection', () => {
     expect(restored.todos).toEqual([{ content: 'Inspect files', status: 'in_progress' }]);
     expect(restored.delegatedTasks).toEqual([
       {
+        delegatedRunId: 'legacy:task-call-1',
         taskId: 'task-call-1',
         agentSlug: 'code',
         agentName: 'code',
@@ -951,6 +954,7 @@ describe('Conversation Runtime Projection', () => {
     });
 
     expect(restored.delegatedTasks[0]).toEqual({
+      delegatedRunId: 'legacy:task-call-1',
       taskId: 'task-call-1',
       agentSlug: 'code',
       agentName: 'code',
@@ -981,5 +985,41 @@ describe('Conversation Runtime Projection', () => {
         ],
       },
     ]);
+  });
+
+  it('restores delegated activity from first-class records without inferring ownership from tool timing', () => {
+    const restored = restoreConversationRuntime({
+      sessionId: 'session-1',
+      isStreaming: false,
+      agentRuns: [],
+      agentToolCalls: [],
+      delegatedAgentRuns: [{
+        id: 'delegated-42',
+        parent_run_id: 'run-1',
+        target_agent_id: null,
+        target_agent_slug: 'code',
+        target_agent_name: 'Code Agent',
+        launch_form: 'single',
+        task_tool_call_id: 'task-42',
+        goal: 'Implement feature',
+        status: 'completed',
+        outcome: { status: 'success', artifacts: ['a.ts'], summary: 'Implemented' },
+        error_code: null,
+        error_message: null,
+        created_at: 100,
+        started_at: 110,
+        ended_at: 200,
+        updated_at: 200,
+      }],
+    });
+
+    expect(restored.delegatedTasks).toEqual([expect.objectContaining({
+      delegatedRunId: 'delegated-42',
+      taskId: 'task-42',
+      agentName: 'Code Agent',
+      status: 'success',
+      startedAt: 110,
+      completedAt: 200,
+    })]);
   });
 });

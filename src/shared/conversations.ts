@@ -51,17 +51,17 @@ export type LLMStreamEvent =
   | { type: 'run_updated'; runId: string; status: AgentRunStatus; error?: string }
   | { type: 'message_chunk'; text: string }
   | { type: 'message_done' }
-  | { type: 'tool_start'; id?: string; name: string; input?: unknown }
-  | { type: 'tool_end'; id?: string; name: string; output?: unknown }
-  | { type: 'tool_error'; id?: string; name: string; error: string }
+  | { type: 'tool_start'; id?: string; delegatedRunId?: string; name: string; input?: unknown }
+  | { type: 'tool_end'; id?: string; delegatedRunId?: string; name: string; output?: unknown }
+  | { type: 'tool_error'; id?: string; delegatedRunId?: string; name: string; error: string }
   | { type: 'skill_attribution'; attributions: SkillAttribution[] }
   | { type: 'approval_required'; approval: AgentApprovalRequest }
   | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
   | { type: 'runtime_error'; error: string; errorCode?: string; errorMessageKey?: string; errorMessageParams?: Record<string, string | number> }
-  | { type: 'delegated_task_start'; taskId: string; agentSlug: string; agentName: string; goal: string }
-  | { type: 'delegated_task_chunk'; taskId: string; text: string }
-  | { type: 'delegated_task_end'; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
-  | { type: 'delegated_task_step'; taskId: string; step: ExecutionStep }
+  | { type: 'delegated_task_start'; delegatedRunId: string; taskId: string; agentSlug: string; agentName: string; goal: string }
+  | { type: 'delegated_task_chunk'; delegatedRunId: string; taskId: string; text: string }
+  | { type: 'delegated_task_end'; delegatedRunId: string; taskId: string; status: 'success' | 'failure'; result?: DelegatedTaskResult; errorCode?: string }
+  | { type: 'delegated_task_step'; delegatedRunId: string; taskId: string; step: ExecutionStep }
   | { type: 'todos_update'; todos: TodoItem[] };
 
 export type ConversationRunOrigin = 'background-capability-continuation' | 'workflow-resume';

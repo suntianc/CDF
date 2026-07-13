@@ -69,6 +69,17 @@ function makeRuntime(streamEvents: ReturnType<typeof vi.fn>) {
     inputMessages: [{ role: 'user', content: 'go' }],
     agentId: 'agent-verify',
     model: {},
+    queueDelegatedRun: (
+      _parentRunId: string,
+      taskToolCallId: string,
+      targetAgentSlug: string,
+      goal: string,
+    ) => ({
+      id: `delegated:${taskToolCallId}`,
+      target_agent_slug: targetAgentSlug,
+      target_agent_name: 'Coder Agent',
+      goal,
+    }),
     cleanup: vi.fn(),
     skillAttributions: [],
   };
@@ -133,13 +144,8 @@ describe('#107 stream flow verification timelines', () => {
     expect(timelines['flow1-normal-chat'].length).toBeGreaterThan(3);
   });
 
-  it('flow 2: delegated task with subagent stream and standard result', async () => {
+  it('flow 2: delegated task with durable identity and standard result', async () => {
     const taskResult = JSON.stringify({ status: 'success', artifacts: [], summary: '任务完成' });
-    // 真实时序：task 执行期间 subagent 流先产出；最后一个 chunk 后 task 才完成。
-    let resolveTaskOutput!: (value: string) => void;
-    const taskOutput = new Promise<string>((resolve) => {
-      resolveTaskOutput = resolve;
-    });
     const streamEvents = vi.fn().mockResolvedValue({
       messages: (async function* () {})(),
       toolCalls: (async function* () {
@@ -147,21 +153,7 @@ describe('#107 stream flow verification timelines', () => {
           callId: 'task-call-1',
           name: 'task',
           input: { subagent_type: 'coder', task: JSON.stringify({ name: 'coder', goal: '写代码' }) },
-          output: taskOutput,
-        };
-      })(),
-      subagents: (async function* () {
-        yield {
-          name: 'coder',
-          messages: (async function* () {
-            yield {
-              text: (async function* () {
-                yield '子代理输出1';
-                yield '子代理输出2';
-                resolveTaskOutput(taskResult);
-              })(),
-            };
-          })(),
+          output: Promise.resolve(taskResult),
         };
       })(),
       output: Promise.resolve({ messages: [{ role: 'assistant', content: '已委派' }] }),

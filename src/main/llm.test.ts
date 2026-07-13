@@ -5,12 +5,14 @@ const {
   resetDeepAgentRuntimeThreadMock,
   dbPrepareMock,
   modelCaptureMock,
+  queueDelegatedRunMock,
   subagentStepContextRef,
 } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
   resetDeepAgentRuntimeThreadMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   modelCaptureMock: new WeakMap<object, { reasoningText: string; normalText: string }>(),
+  queueDelegatedRunMock: vi.fn(),
   subagentStepContextRef: { current: null as { onStep: (step: unknown) => void } | null },
 }));
 
@@ -62,6 +64,17 @@ describe('runLLMChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     subagentStepContextRef.current = null;
+    queueDelegatedRunMock.mockImplementation((
+      _parentRunId: string,
+      taskToolCallId: string,
+      targetAgentSlug: string,
+      goal: string,
+    ) => ({
+      id: `delegated:${taskToolCallId}`,
+      target_agent_slug: targetAgentSlug,
+      target_agent_name: 'Code Agent',
+      goal,
+    }));
     // WeakMap cannot be cleared; tests use fresh model objects where capture matters.
     dbPrepareMock.mockImplementation((sql: string) => ({
       run: vi.fn(),
@@ -123,10 +136,11 @@ describe('runLLMChat', () => {
       { messages: [{ role: 'user', content: 'ping' }] },
       expect.objectContaining({
         version: 'v3',
-        configurable: {
+        configurable: expect.objectContaining({
           thread_id: 'session-1',
           checkpoint_ns: '',
-        },
+          parentAgentRunId: expect.any(String),
+        }),
       })
     );
     expect(send).toHaveBeenCalledWith('llm:chunk-req-1', { type: 'message_chunk', text: '收' });
@@ -218,6 +232,7 @@ describe('runLLMChat', () => {
       },
       inputMessages: [{ role: 'user', content: 'run task' }],
       agentId: 'agent-1',
+      queueDelegatedRun: queueDelegatedRunMock,
       cleanup: vi.fn(),
     });
 
@@ -258,7 +273,7 @@ describe('runLLMChat', () => {
     );
   });
 
-  it('should surface a delegated task card when subagent stream starts before task tool call arrives', async () => {
+  it('waits for the durable task identity instead of inferring a card from subagent timing', async () => {
     let releaseToolCalls!: () => void;
     const toolCallsReady = new Promise<void>((resolve) => {
       releaseToolCalls = resolve;
@@ -294,6 +309,7 @@ describe('runLLMChat', () => {
       },
       inputMessages: [{ role: 'user', content: 'run task' }],
       agentId: 'agent-1',
+      queueDelegatedRun: queueDelegatedRunMock,
       cleanup: vi.fn(),
     });
 
@@ -312,7 +328,15 @@ describe('runLLMChat', () => {
     releaseToolCalls();
     await promise;
 
-    expect(surfacedBeforeToolCall).toBe(true);
+    expect(surfacedBeforeToolCall).toBe(false);
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-subagent-early',
+      expect.objectContaining({
+        type: 'delegated_task_start',
+        delegatedRunId: 'delegated:task-late-1',
+        taskId: 'task-late-1',
+      }),
+    );
   });
 
   it('should forward serial subagent tool steps to the delegated task detail stream', async () => {
@@ -354,6 +378,7 @@ describe('runLLMChat', () => {
       },
       inputMessages: [{ role: 'user', content: 'run task' }],
       agentId: 'agent-1',
+      queueDelegatedRun: queueDelegatedRunMock,
       cleanup: vi.fn(),
     });
 

@@ -14,9 +14,7 @@ function makeDeps(overrides: Partial<RuntimeStreamProjectionDeps> = {}): Runtime
   return {
     takeBufferedReasoning: () => '',
     takeFallbackText: () => '',
-    lookupAgentName: (slug) => slug,
     generateToolCallId: () => 'generated-call-id',
-    generateSubagentTaskId: (slug) => `subagent-${slug}-fixed`,
     ...overrides,
   };
 }
@@ -120,41 +118,35 @@ describe('Runtime Stream Projection — delegated task (task tool)', () => {
       kind: 'tool-call-started',
       callId: 'call-t1',
       toolName: 'task',
-      input: { subagent_type: 'coder', task: JSON.stringify({ name: 'coder', goal }) },
+      input: { subagent_type: 'coder', description: goal },
+      delegatedRun: {
+        id: 'delegated-run-1',
+        targetAgentSlug: 'coder',
+        targetAgentName: 'Code Writer',
+        goal,
+      },
     }) as const;
 
-  it('emits delegated_task_start with parsed goal and looked-up agent name', () => {
-    const deps = makeDeps({ lookupAgentName: (slug) => (slug === 'coder' ? 'Code Writer' : slug) });
-    const { emitted } = drive([startTask('实现登录')], deps);
+  it('projects the durable delegated identity onto task tool and activity events', () => {
+    const { emitted } = drive([startTask('实现登录')]);
 
     expect(emitted).toEqual([
       {
         type: 'tool_start',
         id: 'call-t1',
+        delegatedRunId: 'delegated-run-1',
         name: 'task',
-        input: { subagent_type: 'coder', task: JSON.stringify({ name: 'coder', goal: '实现登录' }) },
+        input: { subagent_type: 'coder', description: '实现登录' },
       },
       {
         type: 'delegated_task_start',
+        delegatedRunId: 'delegated-run-1',
         taskId: 'call-t1',
         agentSlug: 'coder',
         agentName: 'Code Writer',
         goal: '实现登录',
       },
     ]);
-  });
-
-  it('falls back to description for goal when task JSON is absent', () => {
-    const { emitted } = drive([
-      {
-        kind: 'tool-call-started',
-        callId: 'call-t2',
-        toolName: 'task',
-        input: { subagent_type: 'coder', description: '目标描述' },
-      },
-    ]);
-    const started = emitted.find((e) => (e as { type: string }).type === 'delegated_task_start');
-    expect(started).toMatchObject({ goal: '目标描述' });
   });
 
   it('parses a standard delegated result and emits delegated_task_end success', () => {
@@ -166,6 +158,7 @@ describe('Runtime Stream Projection — delegated task (task tool)', () => {
 
     expect(emitted.at(-1)).toEqual({
       type: 'delegated_task_end',
+      delegatedRunId: 'delegated-run-1',
       taskId: 'call-t1',
       status: 'success',
       result,
@@ -245,89 +238,62 @@ describe('Runtime Stream Projection — delegated task (task tool)', () => {
   });
 });
 
-describe('Runtime Stream Projection — subagent stream correlation', () => {
+describe('Runtime Stream Projection — delegated activity ownership', () => {
   const startCoderTask = {
     kind: 'tool-call-started',
     callId: 'task-call-9',
     toolName: 'task',
-    input: { subagent_type: 'coder', task: JSON.stringify({ name: 'coder', goal: 'x' }) },
+    input: { subagent_type: 'coder', description: 'x' },
+    delegatedRun: {
+      id: 'delegated-run-9',
+      targetAgentSlug: 'coder',
+      targetAgentName: 'Code Agent',
+      goal: 'x',
+    },
   } as const;
 
-  it('routes subagent text to the taskId registered by an earlier task call', () => {
+  it('routes runtime text and steps only through the explicit delegatedRunId', () => {
     const { emitted } = drive([
       startCoderTask,
-      { kind: 'subagent-started', slug: 'coder' },
-      { kind: 'subagent-text', slug: 'coder', text: '子代理输出' },
-    ]);
-
-    expect(emitted.at(-1)).toEqual({
-      type: 'delegated_task_chunk',
-      taskId: 'task-call-9',
-      text: '子代理输出',
-    });
-  });
-
-  it('synthesizes a taskId and emits delegated_task_start when the subagent appears before any task call', () => {
-    const { emitted } = drive([
-      { kind: 'subagent-started', slug: 'coder' },
-      { kind: 'subagent-text', slug: 'coder', text: '先到的输出' },
-    ]);
-
-    expect(emitted).toEqual([
+      { kind: 'accumulator-text', delegatedRunId: 'other-run', text: '错误归属' },
+      { kind: 'accumulator-text', delegatedRunId: 'delegated-run-9', text: '任务途中的文本' },
       {
-        type: 'delegated_task_start',
-        taskId: 'subagent-coder-fixed',
-        agentSlug: 'coder',
-        agentName: 'coder',
-        goal: '',
+        kind: 'accumulator-step',
+        delegatedRunId: 'delegated-run-9',
+        step: { type: 'tool_call', ts: 1 } as never,
       },
-      { type: 'delegated_task_chunk', taskId: 'subagent-coder-fixed', text: '先到的输出' },
-    ]);
-  });
-
-  it('reuses the pre-registered subagent taskId for the matching task tool call', () => {
-    // subagent 先出现（合成 id）→ 随后 task 调用同 slug：toolCallId 复用合成 id
-    //（原逻辑 toolCallId = existingSubagentTaskId || call.callId || uuid）。
-    const { emitted } = drive([
-      { kind: 'subagent-started', slug: 'coder' },
-      startCoderTask,
-    ]);
-
-    const toolStart = emitted.find((e) => (e as { type: string }).type === 'tool_start');
-    expect(toolStart).toMatchObject({ id: 'subagent-coder-fixed' });
-  });
-
-  it('routes runtime accumulator text and steps to the in-flight task', () => {
-    const { emitted } = drive([
-      startCoderTask,
-      { kind: 'accumulator-text', text: '任务途中的文本' },
-      { kind: 'accumulator-step', step: { type: 'tool_call', ts: 1 } as never },
     ]);
 
     expect(emitted.slice(-2)).toEqual([
-      { type: 'delegated_task_chunk', taskId: 'task-call-9', text: '任务途中的文本' },
-      { type: 'delegated_task_step', taskId: 'task-call-9', step: { type: 'tool_call', ts: 1 } },
+      {
+        type: 'delegated_task_chunk',
+        delegatedRunId: 'delegated-run-9',
+        taskId: 'task-call-9',
+        text: '任务途中的文本',
+      },
+      {
+        type: 'delegated_task_step',
+        delegatedRunId: 'delegated-run-9',
+        taskId: 'task-call-9',
+        step: { type: 'tool_call', ts: 1, delegatedRunId: 'delegated-run-9' },
+      },
     ]);
   });
 
-  it('drops accumulator text when no task is in flight (non-task periods)', () => {
-    const { emitted } = drive([{ kind: 'accumulator-text', text: '无处安放' }]);
-    expect(emitted).toEqual([]);
-  });
+  it('does not infer ownership from a matching Agent slug', () => {
+    const { emitted } = drive([{
+      kind: 'tool-call-started',
+      callId: 'task-without-record',
+      toolName: 'task',
+      input: { subagent_type: 'coder', description: 'x' },
+    }]);
 
-  it('clears the slug registration after delegated_task_end so a new task gets a fresh id', () => {
-    const { emitted } = drive([
-      startCoderTask,
-      { kind: 'tool-output', output: JSON.stringify({ status: 'success', artifacts: [], summary: 'ok' }) },
-      { kind: 'subagent-started', slug: 'coder' },
-      { kind: 'subagent-text', slug: 'coder', text: '第二轮' },
-    ]);
-
-    expect(emitted.at(-1)).toEqual({
-      type: 'delegated_task_chunk',
-      taskId: 'subagent-coder-fixed',
-      text: '第二轮',
-    });
+    expect(emitted).toEqual([{
+      type: 'tool_start',
+      id: 'task-without-record',
+      name: 'task',
+      input: { subagent_type: 'coder', description: 'x' },
+    }]);
   });
 });
 

@@ -3,6 +3,10 @@ import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { generateSlug } from './deepagent/agent-slug';
+import {
+  DelegatedAgentRunRepository,
+  initializeDelegatedAgentRunSchema,
+} from './deepagent/delegated-agent-run-repository';
 
 const dbPath = path.join(app.getPath('userData'), 'cdf.db');
 const db = new Database(dbPath);
@@ -203,6 +207,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS agent_tool_calls (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
+    delegated_run_id TEXT,
     tool_name TEXT NOT NULL,
     input TEXT,
     output TEXT,
@@ -211,9 +216,18 @@ db.exec(`
     approval_status TEXT,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
-    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (delegated_run_id) REFERENCES delegated_agent_runs(id) ON DELETE SET NULL
   );
 `);
+
+// Existing databases predate first-class Delegated Agent Runs.
+safeMigrate(
+  'agent_tool_calls table (delegated_run_id)',
+  `ALTER TABLE agent_tool_calls ADD COLUMN delegated_run_id TEXT REFERENCES delegated_agent_runs(id) ON DELETE SET NULL;`,
+);
+initializeDelegatedAgentRunSchema(db);
+new DelegatedAgentRunRepository(db).reconcileInterrupted(Date.now());
 
 // A process restart cannot retain a live Agent run. Close stale rows before
 // enforcing the one-active-run-per-Conversation invariant used by background continuations.

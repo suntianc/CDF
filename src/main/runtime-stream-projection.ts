@@ -1,5 +1,6 @@
 import type { DelegatedTaskResult, ExecutionStep, LLMStreamEvent, SkillAttribution } from '../shared/types';
 import { DELEGATED_TASK_RESULT_SCHEMA } from '../shared/types';
+import { classifyDelegatedRunFailure } from './deepagent/delegated-run-failure';
 
 export const THINK_OPEN_TAG = '<think>';
 export const THINK_CLOSE_TAG = '</think>';
@@ -77,7 +78,18 @@ export type RuntimeStreamEvent =
   | { kind: 'reasoning-ended' }
   | { kind: 'text-token'; token: string }
   | { kind: 'message-ended' }
-  | { kind: 'tool-call-started'; callId: string | undefined; toolName: string; input: unknown }
+  | {
+      kind: 'tool-call-started';
+      callId: string | undefined;
+      toolName: string;
+      input: unknown;
+      delegatedRun?: {
+        id: string;
+        targetAgentSlug: string;
+        targetAgentName: string;
+        goal: string;
+      };
+    }
   | { kind: 'tool-output'; output: unknown }
   | { kind: 'tool-failed'; message: string; isInterrupt: boolean }
   | { kind: 'run-started'; runId: string; skillAttributions: readonly SkillAttribution[] }
@@ -89,10 +101,8 @@ export type RuntimeStreamEvent =
       latestAssistantContent: string | null;
     }
   | { kind: 'run-aborted' }
-  | { kind: 'subagent-started'; slug: string }
-  | { kind: 'subagent-text'; slug: string; text: string }
-  | { kind: 'accumulator-text'; text: string }
-  | { kind: 'accumulator-step'; step: ExecutionStep };
+  | { kind: 'accumulator-text'; delegatedRunId: string; text: string }
+  | { kind: 'accumulator-step'; delegatedRunId: string; step: ExecutionStep };
 
 // 与现网字节一致：开标记裸发，闭标记带双换行（renderer 折叠块之后需要空行分隔正文）。
 const THINK_CLOSE_CHUNK = `${THINK_CLOSE_TAG}\n\n`;
@@ -102,16 +112,12 @@ export interface RuntimeStreamProjectionDeps {
   takeBufferedReasoning: () => string;
   // 轮次结束仍无正文时的兜底文本来源。
   takeFallbackText: () => string;
-  // 委派任务显示名（agents 表查询，注入以保持核心纯净）。
-  lookupAgentName: (slug: string) => string;
   // 流未携带 callId 时为工具调用生成 id。
   generateToolCallId: () => string;
-  // subagent 流先于 task 工具调用出现时合成 taskId。
-  generateSubagentTaskId: (slug: string) => string;
 }
 
 export type RuntimeStreamProjectionEffect =
-  | { type: 'upsert-tool-call'; toolCallId: string; toolName: string; input: unknown }
+  | { type: 'upsert-tool-call'; toolCallId: string; delegatedRunId?: string; toolName: string; input: unknown }
   | {
       type: 'update-tool-call';
       toolCallId: string;
@@ -128,8 +134,8 @@ export type RuntimeStreamProjectionEffect =
 interface ActiveToolCall {
   toolCallId: string;
   toolName: string;
-  // task 工具专属：委派任务关联（tool_end 后据此发 delegated_task_end 并解注册）。
-  agentSlug: string | null;
+  // task 工具专属：Delegated Agent Run 是 activity ownership 的权威身份。
+  delegatedRunId: string | null;
 }
 
 interface MessageState {
@@ -154,8 +160,6 @@ export interface RuntimeStreamProjectionState {
   message: MessageState | null;
   // 工具调用在壳层是顺序 await 的，任一时刻至多一个在途。
   activeToolCall: ActiveToolCall | null;
-  // slug → 在途委派任务 id（task 调用注册 / subagent 先到时合成；task_end 解注册）。
-  subagentTaskIds: Map<string, string>;
   // run 级：模型可发现的 Skill 归因 + 已发路径去重。
   skillAttributions: readonly SkillAttribution[];
   emittedSkillPaths: Set<string>;
@@ -173,7 +177,6 @@ export function createRuntimeStreamState(): RuntimeStreamProjectionState {
     turn: { sentText: false, sentReasoningOpen: false, sentReasoningClosed: false },
     message: null,
     activeToolCall: null,
-    subagentTaskIds: new Map(),
     skillAttributions: [],
     emittedSkillPaths: new Set(),
   };
@@ -421,20 +424,12 @@ export function projectRuntimeStream(
       const effects: RuntimeStreamProjectionEffect[] = [];
       // 现网行为：任何工具调用前先冲刷 accumulator 中未呈现的思考。
       drainReasoningAtToolBoundary(state, deps, events);
-      const input = event.input as {
-        name?: string;
-        task?: string;
-        subagent_type?: string;
-        description?: string;
-      } | null;
-      const isTask = event.toolName === 'task';
-      const agentSlug = isTask ? input?.subagent_type || input?.name || 'unknown' : null;
-      // subagent 流先出现时已合成 taskId：task 调用复用它保证两路事件对齐。
-      const existingSubagentTaskId = agentSlug ? state.subagentTaskIds.get(agentSlug) : undefined;
-      const toolCallId = existingSubagentTaskId || event.callId || deps.generateToolCallId();
+      const toolCallId = event.callId || deps.generateToolCallId();
+      const delegatedRunId = event.delegatedRun?.id;
       effects.push({
         type: 'upsert-tool-call',
         toolCallId,
+        ...(delegatedRunId ? { delegatedRunId } : {}),
         toolName: event.toolName,
         input: event.input,
       });
@@ -442,34 +437,34 @@ export function projectRuntimeStream(
       if (triggeredSkill) {
         events.push({ type: 'skill_attribution', attributions: [triggeredSkill] });
       }
-      events.push({ type: 'tool_start', id: toolCallId, name: event.toolName, input: event.input });
+      events.push({
+        type: 'tool_start',
+        id: toolCallId,
+        ...(delegatedRunId ? { delegatedRunId } : {}),
+        name: event.toolName,
+        input: event.input,
+      });
 
-      if (isTask && agentSlug) {
-        // D-03：task 输入的 task 字段是含 goal 的 JSON 串；缺失时回退 description。
-        let goal = '';
-        if (input?.task) {
-          try {
-            goal = (JSON.parse(input.task) as { goal?: string }).goal || '';
-          } catch {
-            goal = input?.name || '任务执行';
-          }
-        } else if (input?.description) {
-          goal = input.description;
-        }
+      if (event.toolName === 'task' && event.delegatedRun) {
         events.push({
           type: 'delegated_task_start',
+          delegatedRunId: event.delegatedRun.id,
           taskId: toolCallId,
-          agentSlug,
-          agentName: deps.lookupAgentName(agentSlug),
-          goal,
+          agentSlug: event.delegatedRun.targetAgentSlug,
+          agentName: event.delegatedRun.targetAgentName,
+          goal: event.delegatedRun.goal,
         });
-        if (!existingSubagentTaskId) {
-          state.subagentTaskIds.set(agentSlug, toolCallId);
-        }
       }
 
       return {
-        state: { ...state, activeToolCall: { toolCallId, toolName: event.toolName, agentSlug } },
+        state: {
+          ...state,
+          activeToolCall: {
+            toolCallId,
+            toolName: event.toolName,
+            delegatedRunId: delegatedRunId ?? null,
+          },
+        },
         events,
         effects,
       };
@@ -480,11 +475,16 @@ export function projectRuntimeStream(
       const effects: RuntimeStreamProjectionEffect[] = [
         { type: 'update-tool-call', toolCallId: active.toolCallId, status: 'success', output: event.output },
       ];
-      events.push({ type: 'tool_end', id: active.toolCallId, name: active.toolName, output: event.output });
+      events.push({
+        type: 'tool_end',
+        id: active.toolCallId,
+        ...(active.delegatedRunId ? { delegatedRunId: active.delegatedRunId } : {}),
+        name: active.toolName,
+        output: event.output,
+      });
 
-      if (active.agentSlug !== null) {
+      if (active.delegatedRunId !== null) {
         const parsed = parseDelegatedTaskOutput(event.output);
-        // D-11：解析后的标准结果覆写 DB，sessionStore 无需再做 Command 回退。
         effects.push({
           type: 'update-tool-call',
           toolCallId: active.toolCallId,
@@ -493,12 +493,12 @@ export function projectRuntimeStream(
         });
         events.push({
           type: 'delegated_task_end',
+          delegatedRunId: active.delegatedRunId,
           taskId: active.toolCallId,
           status: parsed.status,
           result: parsed.result,
           errorCode: parsed.errorCode,
         });
-        if (active.agentSlug) state.subagentTaskIds.delete(active.agentSlug);
       }
       return { state: { ...state, activeToolCall: null }, events, effects };
     }
@@ -506,26 +506,24 @@ export function projectRuntimeStream(
       const active = state.activeToolCall;
       if (!active) return { state, events, effects: [] };
       if (event.isInterrupt) {
-        // 审批中断以 interrupt 形态浮出，错误路径保持静默（现网行为）。
         return { state: { ...state, activeToolCall: null }, events, effects: [] };
       }
       const effects: RuntimeStreamProjectionEffect[] = [
         { type: 'update-tool-call', toolCallId: active.toolCallId, status: 'error', errorMessage: event.message },
       ];
-      events.push({ type: 'tool_error', id: active.toolCallId, name: active.toolName, error: event.message });
+      events.push({
+        type: 'tool_error',
+        id: active.toolCallId,
+        ...(active.delegatedRunId ? { delegatedRunId: active.delegatedRunId } : {}),
+        name: active.toolName,
+        error: event.message,
+      });
 
-      if (active.agentSlug !== null) {
-        const lower = event.message.toLowerCase();
-        let errorCode = 'UNKNOWN';
-        if (lower.includes('timeout') || lower.includes('timed out')) errorCode = 'TIMEOUT';
-        // undici/fetch stream cut (TypeError: terminated) — see isTransientRuntimeError
-        else if (lower === 'terminated' || lower.includes('network') || lower.includes('fetch failed')) {
-          errorCode = 'NETWORK';
-        } else if (lower.includes('interrupt') || lower.includes('cancel') || lower.includes('aborted')) {
-          errorCode = 'INTERRUPTED';
-        }
+      if (active.delegatedRunId !== null) {
+        const { code: errorCode } = classifyDelegatedRunFailure(event.message);
         events.push({
           type: 'delegated_task_end',
+          delegatedRunId: active.delegatedRunId,
           taskId: active.toolCallId,
           status: 'failure',
           result: {
@@ -536,7 +534,6 @@ export function projectRuntimeStream(
           },
           errorCode,
         });
-        if (active.agentSlug) state.subagentTaskIds.delete(active.agentSlug);
       }
       return { state: { ...state, activeToolCall: null }, events, effects };
     }
@@ -626,37 +623,31 @@ export function projectRuntimeStream(
         effects: [{ type: 'update-run', status: 'aborted', aborted: true }],
       };
     }
-    case 'subagent-started': {
-      if (state.subagentTaskIds.has(event.slug)) {
-        return { state, events, effects: [] };
-      }
-      const taskId = deps.generateSubagentTaskId(event.slug);
-      state.subagentTaskIds.set(event.slug, taskId);
-      events.push({
-        type: 'delegated_task_start',
-        taskId,
-        agentSlug: event.slug,
-        agentName: event.slug,
-        goal: '',
-      });
-      return { state, events, effects: [] };
-    }
-    case 'subagent-text': {
-      const taskId = state.subagentTaskIds.get(event.slug);
-      if (!taskId || !event.text) return { state, events, effects: [] };
-      events.push({ type: 'delegated_task_chunk', taskId, text: event.text });
-      return { state, events, effects: [] };
-    }
     case 'accumulator-text': {
       const active = state.activeToolCall;
-      if (!active || active.agentSlug === null) return { state, events, effects: [] };
-      events.push({ type: 'delegated_task_chunk', taskId: active.toolCallId, text: event.text });
+      if (!active || active.delegatedRunId !== event.delegatedRunId || !event.text) {
+        return { state, events, effects: [] };
+      }
+      events.push({
+        type: 'delegated_task_chunk',
+        delegatedRunId: event.delegatedRunId,
+        taskId: active.toolCallId,
+        text: event.text,
+      });
       return { state, events, effects: [] };
     }
     case 'accumulator-step': {
       const active = state.activeToolCall;
-      if (!active || active.agentSlug === null) return { state, events, effects: [] };
-      events.push({ type: 'delegated_task_step', taskId: active.toolCallId, step: event.step });
+      if (!active || active.delegatedRunId !== event.delegatedRunId) {
+        return { state, events, effects: [] };
+      }
+      const step = { ...event.step, delegatedRunId: event.delegatedRunId };
+      events.push({
+        type: 'delegated_task_step',
+        delegatedRunId: event.delegatedRunId,
+        taskId: active.toolCallId,
+        step,
+      });
       return { state, events, effects: [] };
     }
     default:

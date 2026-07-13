@@ -4,9 +4,10 @@ import path from 'path';
 import { AsyncLocalStorage } from 'async_hooks';
 import { app } from 'electron';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
-import { isGraphInterrupt } from '@langchain/langgraph';
+import { isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
+import log from '../logger';
 import store from '../store';
 import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
@@ -34,6 +35,13 @@ import { createAgentTools } from './agent-tools';
 import { createParallelTaskTool } from './parallel-task-tool';
 import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createTaskGraphTools } from '../workflow-run';
 import { isTransientRuntimeError } from './runtime-errors';
+import { DelegatedAgentRunRepository } from './delegated-agent-run-repository';
+import {
+  DelegatedAgentRunCoordinator,
+  type DelegatedRuntimeAdapter,
+} from './delegated-agent-run-coordinator';
+import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types';
+import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -487,7 +495,7 @@ function createSubagentStepMiddleware() {
   });
 }
 
-function createSubagentResilienceMiddleware(allowedTools?: string[]) {
+export function createSubagentResilienceMiddleware(allowedTools?: string[]) {
   return [
     ...getAllowedToolsMiddlewares(allowedTools),
     createSubagentStepMiddleware(),
@@ -589,7 +597,99 @@ export async function createDeepAgentRuntime(
     console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
   }
 
-  const subagents: any[] = [];
+  const subagents: Array<ReturnType<typeof createDelegatedSubagentAdapter>> = [];
+  const delegatedTargets = new Map<string, RuntimeAgentRow>();
+  const delegatedRunRepository = new DelegatedAgentRunRepository(db);
+
+  const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = {
+    run: async (request) => {
+      const target = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?')
+        .get(request.targetAgentId, projectId) as RuntimeAgentRow | undefined;
+      if (!target) {
+        throw new Error(`Delegated target Agent not found: ${request.targetAgentId}`);
+      }
+
+      // Every Delegated Agent Run owns fresh mutable execution state. Agent
+      // configuration is reused, but model/graph/backend/checkpoint/tools are not.
+      const childBackend = new CompositeBackend(new StateBackend(), {
+        "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
+      });
+      const childBuiltInTools = createBuiltInTools(project.path, sessionId);
+      try {
+        childBuiltInTools.push(...loadRegistryTools());
+      } catch (error) {
+        log.warn('[runtime] Failed to load delegated built-in tools from registry:', error);
+      }
+      const childMcpServers = getAgentMcpServers(target.id);
+      const childMcpRuntime = await loadMcpTools(target.id, childMcpServers, allMcpServers);
+      const childSkillNames = getAgentSkillNames(target.id);
+      const childToolNames = getRuntimeToolNames([...childMcpRuntime.tools, ...childBuiltInTools]);
+      const childAssembly = await assembleDeepAgentRuntime(
+        target,
+        provider.id,
+        project,
+        childSkillNames,
+        pathContext,
+        childToolNames,
+        overrides,
+      );
+      for (const warning of childAssembly.assemblyWarnings) {
+        log.warn('[runtime] Ignored invalid delegated Agent Skill runtime input:', warning);
+      }
+
+      const childInterruptOn = resolveInterruptOn(currentApprovalMode, childToolNames);
+      const childAgent = createDeepAgent({
+        model: childAssembly.model,
+        backend: childBackend,
+        systemPrompt: childAssembly.systemPrompt || undefined,
+        permissions: childAssembly.permissions,
+        tools: [...childMcpRuntime.tools, ...childBuiltInTools],
+        middleware: createSubagentResilienceMiddleware(overrides?.allowedTools),
+        responseFormat: DELEGATED_TASK_RESULT_SCHEMA as unknown as NonNullable<
+          NonNullable<Parameters<typeof createDeepAgent>[0]>['responseFormat']
+        >,
+        interruptOn: Object.keys(childInterruptOn).length > 0 ? childInterruptOn : undefined,
+        checkpointer: new MemorySaver(),
+      });
+      const childResult = await childAgent.invoke(
+        request.input as Parameters<typeof childAgent.invoke>[0],
+        {
+          signal: request.signal,
+          configurable: {
+            thread_id: request.delegatedRunId,
+            checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
+            delegatedRunId: request.delegatedRunId,
+          },
+        },
+      ) as unknown as {
+        structuredResponse?: unknown;
+        messages?: Array<{ content?: unknown }>;
+        __interrupt__?: unknown;
+        interrupts?: unknown;
+      };
+      const childInterrupts = childResult.__interrupt__ ?? childResult.interrupts;
+      if (Array.isArray(childInterrupts) && childInterrupts.length > 0) {
+        throw new Error('Delegated tool approval is not available for this run');
+      }
+      const structured = DELEGATED_TASK_RESULT_SCHEMA.safeParse(childResult?.structuredResponse);
+      if (structured.success) return structured.data;
+
+      const messages = Array.isArray(childResult?.messages) ? childResult.messages : [];
+      const lastMessage = messages[messages.length - 1];
+      const content = typeof lastMessage?.content === 'string'
+        ? lastMessage.content
+        : JSON.stringify(lastMessage?.content ?? 'Task completed');
+      return {
+        status: 'success',
+        artifacts: [],
+        summary: content.slice(0, 2_000),
+      } satisfies DelegatedTaskResult;
+    },
+  };
+  const delegatedRunCoordinator = new DelegatedAgentRunCoordinator(
+    delegatedRunRepository,
+    delegatedRuntimeAdapter,
+  );
 
   if (effectiveSubagentIds && effectiveSubagentIds.length > 0) {
     // Basic ID format validation (accept UUIDs and simple test IDs)
@@ -599,39 +699,22 @@ export async function createDeepAgentRuntime(
         console.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
         continue;
       }
-      const agentRow = db.prepare('SELECT * FROM agents WHERE id = ?').get(subId) as RuntimeAgentRow | undefined;
-      if (!agentRow) continue;
+      const targetAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(subId) as RuntimeAgentRow | undefined;
+      if (!targetAgent) continue;
 
-      // D-03: slug is the stable key for task(name)
-      const agentSlug = agentRow.slug || generateSlug(agentRow.name);
-
-      const subMcpServers = getAgentMcpServers(agentRow.id);
-      const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers, allMcpServers);
-      for (const toolName of getRuntimeToolNames(subMcpRuntime.tools)) {
-        mcpApprovalToolNames.add(toolName);
-      }
-      const subSkillNames = getAgentSkillNames(agentRow.id);
-      const subAssembly = await assembleDeepAgentRuntime(
-        agentRow,
-        provider.id,
-        project,
-        subSkillNames,
-        pathContext,
-        builtInToolNames,
-      );
-      for (const warning of subAssembly.assemblyWarnings) {
-        console.warn('[runtime] Ignored invalid subagent Skill runtime input:', warning);
-      }
-
-      subagents.push({
-        name: agentSlug,  // D-03: slug as stable key
-        description: agentRow.description || '',
-        systemPrompt: subAssembly.systemPrompt,
-        tools: [...subMcpRuntime.tools, ...builtInTools],
-        model: subAssembly.model,
-        middleware: createSubagentResilienceMiddleware(overrides?.allowedTools),
-        responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
-      });
+      // CompiledSubAgent is only a routing adapter. It creates no model or graph
+      // until one concrete task invocation has a durable Delegated Agent Run.
+      const agentSlug = targetAgent.slug || generateSlug(targetAgent.name);
+      delegatedTargets.set(agentSlug, targetAgent);
+      subagents.push(createDelegatedSubagentAdapter({
+        coordinator: delegatedRunCoordinator,
+        target: {
+          id: targetAgent.id,
+          slug: agentSlug,
+          name: targetAgent.name,
+          description: targetAgent.description || '',
+        },
+      }));
     }
   }
 
@@ -687,6 +770,23 @@ export async function createDeepAgentRuntime(
     model,
     inputMessages: messages,
     skillAttributions: skillsRuntime.attributions,
+    queueDelegatedRun: (
+      parentAgentRunId: string,
+      taskToolCallId: string,
+      targetAgentSlug: string,
+      goal: string,
+    ): DelegatedAgentRun | null => {
+      const target = delegatedTargets.get(targetAgentSlug);
+      if (!target) return null;
+      return delegatedRunCoordinator.queueSingle({
+        parentAgentRunId,
+        targetAgentId: target.id,
+        targetAgentSlug,
+        targetAgentName: target.name,
+        taskToolCallId,
+        goal,
+      });
+    },
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
     },

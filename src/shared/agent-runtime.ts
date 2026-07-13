@@ -13,6 +13,13 @@ export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
 export type DelegatedTaskResult = z.infer<typeof DELEGATED_TASK_RESULT_SCHEMA>;
 
 export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted';
+export type DelegatedAgentRunStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'interrupted';
+export type DelegatedAgentRunLaunchForm = 'single';
 export type AgentToolCallStatus = 'running' | 'success' | 'error' | 'skipped';
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited';
 export type AgentApprovalDecisionType = 'approve' | 'reject' | 'edit';
@@ -29,9 +36,29 @@ export interface AgentRun {
   aborted: number;
 }
 
+export interface DelegatedAgentRun {
+  id: string;
+  parent_run_id: string;
+  target_agent_id: string | null;
+  target_agent_slug: string;
+  target_agent_name: string;
+  launch_form: DelegatedAgentRunLaunchForm;
+  task_tool_call_id: string | null;
+  goal: string;
+  status: DelegatedAgentRunStatus;
+  outcome: DelegatedTaskResult | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: number;
+  started_at: number | null;
+  ended_at: number | null;
+  updated_at: number;
+}
+
 export interface AgentToolCall {
   id: string;
   run_id: string;
+  delegated_run_id?: string | null;
   tool_name: string;
   input?: string | null;
   output?: string | null;
@@ -78,6 +105,7 @@ export type ExecutionStepType =
 export interface ExecutionStep {
   type: ExecutionStepType;
   ts: number;
+  delegatedRunId?: string;
   label?: string;       // task_start: agent 显示名
   goal?: string;        // task_start: 任务描述（原始 description，不含附加上下文）
   summary?: string;     // task_end: worker 最终输出的简短摘要
