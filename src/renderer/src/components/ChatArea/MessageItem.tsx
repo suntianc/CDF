@@ -118,18 +118,6 @@ interface SkillAttributionInfo {
   attributions: SkillAttribution[];
 }
 
-function getSkillAttributionPhaseLabelKey(phase: SkillAttribution['phase']): string {
-  switch (phase) {
-    case 'preload':
-      return 'chat.skillAttribution.phasePreload';
-    case 'model-triggered':
-      return 'chat.skillAttribution.phaseModelTriggered';
-    case 'explicit-invocation':
-      return 'chat.skillAttribution.phaseExplicitInvocation';
-    case 'model-discovery':
-      return 'chat.skillAttribution.phaseModelDiscovery';
-  }
-}
 
 function SkillAttributionCard({ info }: { info: SkillAttributionInfo }) {
   const { t } = useTranslation();
@@ -137,19 +125,18 @@ function SkillAttributionCard({ info }: { info: SkillAttributionInfo }) {
   if (attributions.length === 0) return null;
 
   return (
-    <div className="my-2 max-w-[82%] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/35 px-3 py-2 text-xs text-[var(--color-text-secondary)]">
-      <div className="mb-1 font-semibold text-[var(--color-text-primary)]">{t('chat.skillAttribution.title')}</div>
-      <div className="space-y-1">
-        {attributions.map((item) => (
-          <div key={`${item.phase}:${item.qualifiedName}:${item.skillPath}`} className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 rounded bg-[var(--color-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
-              {t(getSkillAttributionPhaseLabelKey(item.phase))}
-            </span>
-            <span className="truncate font-medium text-[var(--color-text-primary)]">{item.qualifiedName}</span>
-            <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">{item.sourceLabel}</span>
-          </div>
-        ))}
-      </div>
+    <div className="my-1 w-fit rounded-[var(--radius-sm)] border border-[var(--color-border)]/40 bg-[var(--color-bg-sunken)]/20 px-2 py-0.5 text-xs text-[var(--color-text-muted)]">
+      <span className="font-medium">{t('chat.skillAttribution.title')}</span>
+      {attributions.map((item, idx) => (
+        <span
+          key={`${item.phase}:${item.qualifiedName}:${item.skillPath}`}
+          className="font-mono font-semibold text-[var(--color-text-primary)]"
+          title={item.skillPath}
+        >
+          {idx > 0 && ', '}
+          {item.qualifiedName}
+        </span>
+      ))}
     </div>
   );
 }

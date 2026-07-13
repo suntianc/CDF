@@ -639,7 +639,7 @@
     "showTaskPanel": "显示任务展板",
     "composerPlaceholder": "给 Master Agent 发送消息...",
     "skillAttribution": {
-      "title": "Skill 归属",
+      "title": "Skill 触发：",
       "phasePreload": "预加载",
       "phaseModelTriggered": "模型触发",
       "phaseExplicitInvocation": "显式调用",
