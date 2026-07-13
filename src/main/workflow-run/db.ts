@@ -232,6 +232,7 @@ interface TaskRow {
   dependencies: string;
   delegation_batch_id: string | null;
   delegation_worker_id: string | null;
+  delegated_run_id: string | null;
   delegation_agent_slug: string | null;
   created_at: number;
   updated_at: number;
@@ -264,7 +265,7 @@ export function createTask(
   return {
     id, run_id: runId, stage_id: stageId, title, description,
     status: 'planned', dependencies: dependencies ?? [],
-    delegation_batch_id: null, delegation_worker_id: null, delegation_agent_slug: null,
+    delegation_batch_id: null, delegation_worker_id: null, delegated_run_id: null, delegation_agent_slug: null,
     created_at: now, updated_at: now, completed_at: null,
   };
 }
@@ -407,11 +408,14 @@ export function findCyclicDependency(
 export function setTaskDelegation(
   taskId: string,
   batchId: string,
-  workerId: string,
+  delegatedRunId: string,
   agentSlug: string,
 ): void {
   const now = Date.now();
   db.prepare(`
-    UPDATE workflow_run_tasks SET delegation_batch_id = ?, delegation_worker_id = ?, delegation_agent_slug = ?, status = 'in_progress', updated_at = ? WHERE id = ?
-  `).run(batchId, workerId, agentSlug, now, taskId);
+    UPDATE workflow_run_tasks
+    SET delegation_batch_id = ?, delegation_worker_id = ?, delegated_run_id = ?,
+        delegation_agent_slug = ?, updated_at = ?
+    WHERE id = ?
+  `).run(batchId, delegatedRunId, delegatedRunId, agentSlug, now, taskId);
 }

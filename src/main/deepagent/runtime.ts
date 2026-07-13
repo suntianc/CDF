@@ -39,6 +39,7 @@ import { DelegatedAgentRunRepository } from './delegated-agent-run-repository';
 import {
   DelegatedAgentRunCoordinator,
   type DelegatedRuntimeAdapter,
+  type DelegatedRuntimeRequest,
 } from './delegated-agent-run-coordinator';
 import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types';
 import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
@@ -514,6 +515,72 @@ export function createSubagentResilienceMiddleware(allowedTools?: string[]) {
 }
 
 
+function createDelegatedProgressCallbacks(request: DelegatedRuntimeRequest) {
+  const onStep = request.onStep;
+  if (!onStep) return undefined;
+
+  let tokenBuffer: string[] = [];
+  const emitText = (text: string) => {
+    if (!text) return;
+    onStep({
+      type: 'text_chunk',
+      ts: Date.now(),
+      content: text,
+      delegatedRunId: request.delegatedRunId,
+    });
+  };
+
+  return [{
+    handleLLMStart() {
+      tokenBuffer = [];
+    },
+    handleLLMNewToken(token: string) {
+      if (token) tokenBuffer.push(token);
+    },
+    handleLLMEnd(output: unknown) {
+      const value = output as {
+        generations?: Array<Array<{
+          text?: unknown;
+          message?: {
+            content?: unknown;
+            tool_calls?: unknown;
+            additional_kwargs?: { tool_calls?: unknown };
+          };
+        }>>;
+      };
+      const generation = value.generations?.[0]?.[0];
+      const toolCalls = generation?.message?.additional_kwargs?.tool_calls
+        ?? generation?.message?.tool_calls;
+      const content = generation?.message?.content;
+      const hasToolCalls = (Array.isArray(toolCalls) && toolCalls.length > 0)
+        || (Array.isArray(content) && content.some((part) => (
+          !!part && typeof part === 'object' && (part as { type?: unknown }).type === 'tool_use'
+        )));
+      if (hasToolCalls) {
+        tokenBuffer = [];
+        return;
+      }
+      if (tokenBuffer.length > 0) {
+        for (const token of tokenBuffer) emitText(token);
+        tokenBuffer = [];
+        return;
+      }
+      if (typeof content === 'string') {
+        emitText(content);
+      } else if (Array.isArray(content)) {
+        for (const part of content) {
+          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+            const text = (part as { text?: unknown }).text;
+            if (typeof text === 'string') emitText(text);
+          }
+        }
+      } else if (typeof generation?.text === 'string') {
+        emitText(generation.text);
+      }
+    },
+  }];
+}
+
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
@@ -549,15 +616,10 @@ export async function createDeepAgentRuntime(
   }
 
 
-  // 注册并行任务工具 — MasterAgent 可并发调用多个子 Agent
   const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
-  try {
-    builtInTools.push(createParallelTaskTool(projectId, sessionId));
-  } catch (err) {
-    console.warn('[RUNTIME] Failed to load parallel task tool:', err);
-  }
-
-  const builtInToolNames = getRuntimeToolNames(builtInTools);
+  // parallel_tasks is added after the shared coordinator is constructed below,
+  // but runtime assembly must know the public capability name up front.
+  const builtInToolNames = [...getRuntimeToolNames(builtInTools), 'parallel_tasks'];
   console.log('[runtime] built-in tool names:', builtInToolNames.join(', '));
   const runtimeAssembly = await assembleDeepAgentRuntime(
     agentRow,
@@ -606,7 +668,7 @@ export async function createDeepAgentRuntime(
       const target = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?')
         .get(request.targetAgentId, projectId) as RuntimeAgentRow | undefined;
       if (!target) {
-        throw new Error(`Delegated target Agent not found: ${request.targetAgentId}`);
+        throw new Error(`Delegated target Agent not found: ${request.targetAgentSlug}`);
       }
 
       // Every Delegated Agent Run owns fresh mutable execution state. Agent
@@ -629,7 +691,7 @@ export async function createDeepAgentRuntime(
         provider.id,
         project,
         childSkillNames,
-        pathContext,
+        extractPathMentionContext(request.goal),
         childToolNames,
         overrides,
       );
@@ -651,17 +713,22 @@ export async function createDeepAgentRuntime(
         interruptOn: Object.keys(childInterruptOn).length > 0 ? childInterruptOn : undefined,
         checkpointer: new MemorySaver(),
       });
-      const childResult = await childAgent.invoke(
+      const progressCallbacks = createDelegatedProgressCallbacks(request);
+      const invokeChild = () => childAgent.invoke(
         request.input as Parameters<typeof childAgent.invoke>[0],
         {
           signal: request.signal,
+          callbacks: progressCallbacks,
           configurable: {
             thread_id: request.delegatedRunId,
             checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
             delegatedRunId: request.delegatedRunId,
           },
         },
-      ) as unknown as {
+      );
+      const childResult = await (request.onStep
+        ? subagentStepStorage.run({ onStep: request.onStep }, invokeChild)
+        : invokeChild()) as unknown as {
         structuredResponse?: unknown;
         messages?: Array<{ content?: unknown }>;
         __interrupt__?: unknown;
@@ -690,6 +757,16 @@ export async function createDeepAgentRuntime(
     delegatedRunRepository,
     delegatedRuntimeAdapter,
   );
+
+  // Single and parallel delegation share this coordinator and therefore the
+  // same isolated runtime factory, durable identity, and concurrency window.
+  try {
+    builtInTools.push(createParallelTaskTool(projectId, sessionId, {
+      coordinator: delegatedRunCoordinator,
+    }));
+  } catch (error) {
+    log.warn('[runtime] Failed to load parallel task tool:', error);
+  }
 
   if (effectiveSubagentIds && effectiveSubagentIds.length > 0) {
     // Basic ID format validation (accept UUIDs and simple test IDs)

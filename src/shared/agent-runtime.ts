@@ -19,7 +19,7 @@ export type DelegatedAgentRunStatus =
   | 'completed'
   | 'failed'
   | 'interrupted';
-export type DelegatedAgentRunLaunchForm = 'single';
+export type DelegatedAgentRunLaunchForm = 'single' | 'parallel';
 export type AgentToolCallStatus = 'running' | 'success' | 'error' | 'skipped';
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited';
 export type AgentApprovalDecisionType = 'approve' | 'reject' | 'edit';
@@ -44,6 +44,8 @@ export interface DelegatedAgentRun {
   target_agent_name: string;
   launch_form: DelegatedAgentRunLaunchForm;
   task_tool_call_id: string | null;
+  batch_id: string | null;
+  workflow_run_task_id: string | null;
   goal: string;
   status: DelegatedAgentRunStatus;
   outcome: DelegatedTaskResult | null;
@@ -123,7 +125,9 @@ export interface ExecutionStep {
 // agent:parallel-task-step-* 动态通道的 payload（原 parallel-task-tool.ts 定义迁移至此）。
 export interface ParallelTaskStepEvent {
   batchId: string;
+  delegatedRunId: string;
   agentSlug: string;
+  /** @deprecated Use delegatedRunId. Kept for persisted/UI compatibility. */
   workerId: string;
   runTaskId?: string;
   step: ExecutionStep;

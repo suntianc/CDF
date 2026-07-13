@@ -31,6 +31,8 @@ export interface DelegatedTaskProjection {
 }
 
 export interface ParallelWorkerProjection {
+  delegatedRunId?: string;
+  /** @deprecated Use delegatedRunId. */
   workerId?: string;
   agentSlug: string;
   agentName?: string;
@@ -76,7 +78,7 @@ export interface ConversationRuntimeProjectionDeps {
 
 export type ConversationRuntimeEvent =
   | { kind: 'llm'; event: LLMStreamEvent }
-  | { kind: 'parallelTaskStep'; event: { batchId: string; agentSlug: string; workerId?: string; step: ExecutionStep } };
+  | { kind: 'parallelTaskStep'; event: { batchId: string; delegatedRunId?: string; agentSlug: string; workerId?: string; step: ExecutionStep } };
 
 export type RuntimeMessageDraft = Omit<Message, 'created_at'> & { created_at?: number };
 
@@ -679,7 +681,7 @@ export function projectConversationRuntime(
         const raw = typeof streamEvent.output === 'string'
           ? streamEvent.output
           : JSON.stringify(streamEvent.output ?? '{}');
-        const parsed = JSON.parse(raw) as { batchId?: string; results?: Array<{ name: string; status: 'success' | 'failure' }> };
+        const parsed = JSON.parse(raw) as { batchId?: string; results?: Array<{ delegatedRunId?: string; name: string; status: 'success' | 'failure' }> };
         if (parsed.batchId && Array.isArray(parsed.results)) {
           parallelBatches = state.parallelBatches.map((batch) => (
             batch.batchId !== parsed.batchId
@@ -687,7 +689,11 @@ export function projectConversationRuntime(
               : {
                   ...batch,
                   workers: batch.workers.map((worker) => {
-                    const result = parsed.results?.find((item) => item.name === worker.agentSlug);
+                    const result = parsed.results?.find((item) => (
+                      worker.delegatedRunId
+                        ? item.delegatedRunId === worker.delegatedRunId
+                        : item.name === worker.agentSlug
+                    ));
                     return result ? { ...worker, status: result.status, completedAt: deps.now() } : worker;
                   }),
                 }
@@ -850,10 +856,32 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
 
   for (const run of input.delegatedAgentRuns ?? []) {
     const isActive = run.status === 'queued' || run.status === 'running';
-    const status: DelegatedTaskProjection['status'] = isActive
+    const status: 'running' | 'success' | 'failure' = isActive
       ? input.isStreaming ? 'running' : 'failure'
       : run.status === 'completed' ? 'success' : 'failure';
     const result = run.outcome;
+    if (run.launch_form === 'parallel' && run.batch_id) {
+      let batch = parallelBatches.find((candidate) => candidate.batchId === run.batch_id);
+      if (!batch) {
+        batch = { batchId: run.batch_id, workers: [], startedAt: run.created_at };
+        parallelBatches.push(batch);
+      }
+      batch.startedAt = Math.min(batch.startedAt, run.created_at);
+      batch.workers.push({
+        delegatedRunId: run.id,
+        workerId: run.id,
+        agentSlug: run.target_agent_slug,
+        agentName: run.target_agent_name,
+        goal: run.goal,
+        summary: result?.summary,
+        status,
+        steps: [],
+        textBuffer: result?.status === 'success' ? result.summary : '',
+        startedAt: run.started_at ?? run.created_at,
+        completedAt: run.ended_at ?? undefined,
+      });
+      continue;
+    }
     delegatedTasks.push({
       delegatedRunId: run.id,
       taskId: run.task_tool_call_id ?? run.id,
@@ -863,7 +891,7 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
       status,
       chunks: [],
       steps: [],
-      result,
+      result: result ?? undefined,
       errorCode: result?.status === 'failure'
         ? result.error?.code
         : isActive && !input.isStreaming ? 'DISCONNECTED' : undefined,
@@ -923,6 +951,7 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
       const parsedOutput = call.output ? parseJsonValue(call.output) : {};
       const outputRecord = isRecord(parsedOutput) ? parsedOutput : {};
       const batchId = typeof outputRecord.batchId === 'string' ? outputRecord.batchId : call.id;
+      if (parallelBatches.some((batch) => batch.batchId === batchId)) continue;
       const results = Array.isArray(outputRecord.results)
         ? outputRecord.results.filter(isRecord)
         : [];
@@ -968,17 +997,22 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
 
 function projectParallelTaskStep(
   state: ConversationRuntimeProjectionState,
-  event: { batchId: string; agentSlug: string; workerId?: string; step: ExecutionStep },
+  event: { batchId: string; delegatedRunId?: string; agentSlug: string; workerId?: string; step: ExecutionStep },
   deps: ConversationRuntimeProjectionDeps,
 ): ConversationRuntimeProjectionResult {
   const findWorker = (workers: ParallelWorkerProjection[]) =>
     workers.findIndex((worker) => (
-      event.workerId ? worker.workerId === event.workerId : worker.agentSlug === event.agentSlug
+      event.delegatedRunId
+        ? worker.delegatedRunId === event.delegatedRunId
+        : event.workerId
+          ? worker.workerId === event.workerId
+          : worker.agentSlug === event.agentSlug
     ));
   const batchIndex = state.parallelBatches.findIndex((batch) => batch.batchId === event.batchId);
 
   if (event.step.type === 'task_start') {
     const newWorker: ParallelWorkerProjection = {
+      delegatedRunId: event.delegatedRunId,
       workerId: event.workerId,
       agentSlug: event.agentSlug,
       agentName: event.step.label,
@@ -1031,6 +1065,7 @@ function projectParallelTaskStep(
   const isTextChunk = event.step.type === 'text_chunk';
   const chunk = isTextChunk ? (event.step.content ?? '') : '';
   const newWorker: ParallelWorkerProjection = {
+    delegatedRunId: event.delegatedRunId,
     workerId: event.workerId,
     agentSlug: event.agentSlug,
     status: 'running',

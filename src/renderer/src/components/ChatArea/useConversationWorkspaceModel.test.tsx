@@ -151,6 +151,7 @@ describe('useConversationWorkspaceModel', () => {
 
   it('resolves delegated and parallel detail targets for the Conversation viewport', () => {
     const delegatedTask = {
+      delegatedRunId: 'delegated-1',
       taskId: 'task-1',
       agentSlug: 'reviewer',
       agentName: 'Reviewer',

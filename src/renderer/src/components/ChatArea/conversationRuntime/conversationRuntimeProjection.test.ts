@@ -690,7 +690,7 @@ describe('Conversation Runtime Projection', () => {
     ]);
   });
 
-  it('projects parallel task step events by worker id', () => {
+  it('projects parallel task step events by delegated-run identity', () => {
     const initial = createConversationRuntimeState({
       sessionId: 'session-1',
       streamingMessageId: 'assistant-current',
@@ -703,8 +703,9 @@ describe('Conversation Runtime Projection', () => {
         kind: 'parallelTaskStep',
         event: {
           batchId: 'batch-1',
+          delegatedRunId: 'delegated-1',
           agentSlug: 'code',
-          workerId: 'worker-1',
+          workerId: 'delegated-1',
           step: { type: 'task_start', label: 'Code Agent', goal: 'Inspect files', ts: 1000 },
         },
       },
@@ -716,8 +717,9 @@ describe('Conversation Runtime Projection', () => {
         kind: 'parallelTaskStep',
         event: {
           batchId: 'batch-1',
+          delegatedRunId: 'delegated-1',
           agentSlug: 'code',
-          workerId: 'worker-1',
+          workerId: 'delegated-1',
           step: { type: 'text_chunk', content: 'Reading...', ts: 1000 },
         },
       },
@@ -729,8 +731,9 @@ describe('Conversation Runtime Projection', () => {
         kind: 'parallelTaskStep',
         event: {
           batchId: 'batch-1',
+          delegatedRunId: 'delegated-1',
           agentSlug: 'code',
-          workerId: 'worker-1',
+          workerId: 'delegated-1',
           step: { type: 'task_end', success: true, summary: 'Done', ts: 1000 },
         },
       },
@@ -743,7 +746,8 @@ describe('Conversation Runtime Projection', () => {
         startedAt: 1000,
         workers: [
           {
-            workerId: 'worker-1',
+            delegatedRunId: 'delegated-1',
+            workerId: 'delegated-1',
             agentSlug: 'code',
             agentName: 'Code Agent',
             goal: 'Inspect files',
@@ -757,6 +761,34 @@ describe('Conversation Runtime Projection', () => {
         ],
       },
     ]);
+  });
+
+  it('keeps same-Agent parallel workers separate by delegated-run identity', () => {
+    let state = createConversationRuntimeState({
+      sessionId: 'session-1',
+      streamingMessageId: 'assistant-current',
+      currentAssistantMsgId: 'assistant-current',
+    });
+
+    for (const delegatedRunId of ['delegated-1', 'delegated-2']) {
+      state = projectConversationRuntime(
+        state,
+        {
+          kind: 'parallelTaskStep',
+          event: {
+            batchId: 'batch-1',
+            delegatedRunId,
+            agentSlug: 'code',
+            workerId: delegatedRunId,
+            step: { type: 'task_start', label: 'Code Agent', goal: delegatedRunId, ts: 1000 },
+          },
+        },
+        deps,
+      ).state;
+    }
+
+    expect(state.parallelBatches[0].workers.map((worker) => worker.delegatedRunId))
+      .toEqual(['delegated-1', 'delegated-2']);
   });
 
   it('updates parallel worker statuses from parallel_tasks tool output without losing live text', () => {
@@ -987,6 +1019,48 @@ describe('Conversation Runtime Projection', () => {
     ]);
   });
 
+  it('restores parallel workers from first-class delegated-run records', () => {
+    const makeRun = (id: string, status: 'completed' | 'failed') => ({
+      id,
+      parent_run_id: 'run-1',
+      target_agent_id: 'agent-code',
+      target_agent_slug: 'code',
+      target_agent_name: 'Code Agent',
+      launch_form: 'parallel' as const,
+      task_tool_call_id: null,
+      batch_id: 'batch-durable',
+      workflow_run_task_id: null,
+      goal: id,
+      status,
+      outcome: status === 'completed'
+        ? { status: 'success' as const, artifacts: [], summary: 'done' }
+        : { status: 'failure' as const, artifacts: [], summary: '', error: { code: 'TOOL_FAILED', message: 'failed' } },
+      error_code: status === 'failed' ? 'TOOL_FAILED' : null,
+      error_message: status === 'failed' ? 'failed' : null,
+      created_at: 100,
+      started_at: 110,
+      ended_at: 200,
+      updated_at: 200,
+    });
+
+    const restored = restoreConversationRuntime({
+      sessionId: 'session-1',
+      isStreaming: false,
+      agentRuns: [],
+      agentToolCalls: [],
+      delegatedAgentRuns: [makeRun('delegated-1', 'completed'), makeRun('delegated-2', 'failed')],
+    });
+
+    expect(restored.delegatedTasks).toEqual([]);
+    expect(restored.parallelBatches[0].workers.map((worker) => ({
+      delegatedRunId: worker.delegatedRunId,
+      status: worker.status,
+    }))).toEqual([
+      { delegatedRunId: 'delegated-1', status: 'success' },
+      { delegatedRunId: 'delegated-2', status: 'failure' },
+    ]);
+  });
+
   it('restores delegated activity from first-class records without inferring ownership from tool timing', () => {
     const restored = restoreConversationRuntime({
       sessionId: 'session-1',
@@ -1001,6 +1075,8 @@ describe('Conversation Runtime Projection', () => {
         target_agent_name: 'Code Agent',
         launch_form: 'single',
         task_tool_call_id: 'task-42',
+        batch_id: null,
+        workflow_run_task_id: null,
         goal: 'Implement feature',
         status: 'completed',
         outcome: { status: 'success', artifacts: ['a.ts'], summary: 'Implemented' },

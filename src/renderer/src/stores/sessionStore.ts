@@ -114,7 +114,8 @@ export type SendMessageResult =
   | { ok: false; code: 'CONVERSATION_BUSY' };
 
 export interface ParallelWorker {
-  workerId?: string;    // 运行时唯一 ID，解决同 batch 同 agentSlug 碰撞
+  delegatedRunId?: string;
+  workerId?: string;    // 兼容旧投影；新运行与 delegatedRunId 相同
   agentSlug: string;
   agentName?: string;   // 来自 task_start.label
   goal?: string;        // 来自 task_start.goal（原始任务描述）
@@ -1240,7 +1241,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         return false;
       };
 
-      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; agentSlug: string; workerId: string; step: ExecutionStep }) => {
+      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; delegatedRunId: string; agentSlug: string; workerId: string; step: ExecutionStep }) => {
         const runtime = get().conversationRuntimeRegistry.entries[sessionId];
         if (!runtime || runtime.requestId !== assistantMsgId) return;
         const result = projectConversationRuntime(runtime.projection, { kind: 'parallelTaskStep', event: data }, projectionDeps);

@@ -1,178 +1,139 @@
-// Real-deepagents integration test for the parallel worker approval boundary.
-//
-// parallel-task-tool.test.ts mocks the entire `deepagents` package, so it
-// cannot see SDK-boundary failures. This file keeps `deepagents` REAL and
-// only stubs CDF-side infra (db/store/providers/skills), reproducing the
-// 2026-07-11 acceptance failure: workers compiled with `interruptOn` but no
-// checkpointer die with LangGraph "No checkpointer set" the moment any
-// gated tool (write_file, MCP tools, ...) is called.
-
-import path from 'path';
-import fs from 'fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AIMessage } from '@langchain/core/messages';
-import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import type { BaseMessage } from '@langchain/core/messages';
-import type { ChatResult } from '@langchain/core/outputs';
+import type { DelegatedTaskResult } from '../../shared/types';
 
-const TMP_DIR = vi.hoisted(() => {
+const { testDb, sendMock } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const osSync = require('os') as typeof import('os');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fsSync = require('node:fs') as typeof import('node:fs');
-  const dir = `${osSync.tmpdir()}/cdf-parallel-int-${process.pid}-${Date.now()}`;
-  fsSync.mkdirSync(dir, { recursive: true });
-  return dir;
+  const Database = require('better-sqlite3') as typeof import('better-sqlite3');
+  return {
+    testDb: new Database(':memory:'),
+    sendMock: vi.fn(),
+  };
 });
 
-const {
-  dbPrepareMock,
-  storeGetMock,
-  createLangChainModelMock,
-} = vi.hoisted(() => ({
-  dbPrepareMock: vi.fn(),
-  storeGetMock: vi.fn((key?: string) => (key === 'skillOverrides' ? {} : undefined)),
-  createLangChainModelMock: vi.fn(),
-}));
-
 vi.mock('electron', () => ({
-  BrowserWindow: { getAllWindows: vi.fn(() => []) },
-  app: { getPath: () => TMP_DIR },
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [{
+      isDestroyed: () => false,
+      webContents: { send: sendMock },
+    }]),
+  },
 }));
 
-vi.mock('../database', () => ({
-  default: { prepare: dbPrepareMock },
+vi.mock('../database', () => ({ default: testDb }));
+vi.mock('../workflow-run/db', () => ({
+  getRunBySessionId: vi.fn(() => undefined),
+  getCurrentStage: vi.fn(() => null),
+  createTask: vi.fn(),
+  setTaskDelegation: vi.fn(),
+  updateTaskStatus: vi.fn(),
+  getTask: vi.fn(),
 }));
+vi.mock('../workflow-run/notify', () => ({ pushProjectionEvent: vi.fn() }));
 
-vi.mock('../store', () => ({
-  default: { get: storeGetMock },
-}));
-
-vi.mock('./llm-adapter', () => ({
-  createLangChainModel: createLangChainModelMock,
-}));
-
-// Keep resolveInterruptOn faithful to production strict mode (write_file is
-// gated — see DEFAULT_INTERRUPT_ON in shared-infra.ts) while stubbing the
-// heavy infra lookups around it.
-vi.mock('./shared-infra', () => ({
-  getProvider: vi.fn(() => ({
-    id: 'provider-1',
-    provider_type: 'minimax',
-    api_key: 'key',
-    api_url: 'https://example.invalid',
-    default_model: 'fake-model',
-  })),
-  normalizeProviderId: vi.fn((value?: string | null) => value || undefined),
-  getAgentMcpServers: vi.fn(() => []),
-  getConnectedMcpServers: vi.fn(() => []),
-  getAgentSkillNames: vi.fn(() => []),
-  createBuiltInTools: vi.fn(() => []),
-  loadRegistryTools: vi.fn(() => []),
-  loadMcpTools: vi.fn(async () => ({ client: null, tools: [] })),
-  createSpanId: vi.fn(() => 'span-root'),
-  createChildSpan: vi.fn((parentSpanId: string) => ({ spanId: `${parentSpanId}-child`, parentSpanId })),
-  resolveInterruptOn: vi.fn((mode: string) => (mode === 'bypass'
-    ? {}
-    : { write_file: { allowedDecisions: ['approve', 'edit', 'reject'] } })),
-  getRuntimeToolNames: vi.fn(() => []),
-}));
-
-vi.mock('./skill-manager', () => ({
-  getBuiltInSkillDirs: vi.fn(() => []),
-  getScopePath: vi.fn((_p: string, scope: string) => path.join(TMP_DIR, scope)),
-  resolveAgentSkillsConfig: vi.fn(() => ({
-    skillsSources: [],
-    permissions: [{ operations: ['read', 'write'], paths: [TMP_DIR] }],
-  })),
-  resolveAgentSkillConfigOptions: vi.fn(() => ({ options: undefined, warnings: [] })),
-}));
-
-vi.mock('./skills-runtime/cdf-skills-runtime', () => ({
-  buildCdfSkillsRuntime: vi.fn(() => ({ skills: [], prompt: '', warnings: [] })),
-}));
-
+import {
+  DelegatedAgentRunRepository,
+  initializeDelegatedAgentRunSchema,
+} from './delegated-agent-run-repository';
+import {
+  DelegatedAgentRunCoordinator,
+  type DelegatedRuntimeAdapter,
+} from './delegated-agent-run-coordinator';
 import { createParallelTaskTool } from './parallel-task-tool';
 
-const OUT_FILE = path.join(TMP_DIR, 'worker-output.md');
+const success: DelegatedTaskResult = {
+  status: 'success',
+  artifacts: [],
+  summary: 'done',
+};
 
-// Scripted chat model: first call emits a gated write_file tool call, second
-// call returns plain text so the agent loop terminates.
-class FakeToolCallingChatModel extends BaseChatModel {
-  private calls = 0;
-
-  _llmType(): string {
-    return 'fake-tool-calling';
-  }
-
-  override bindTools(): this {
-    return this;
-  }
-
-  async _generate(_messages: BaseMessage[]): Promise<ChatResult> {
-    this.calls += 1;
-    if (this.calls === 1) {
-      return {
-        generations: [{
-          text: '',
-          message: new AIMessage({
-            content: '',
-            tool_calls: [{
-              id: 'call-write-1',
-              name: 'write_file',
-              args: { file_path: OUT_FILE, content: 'worker artifact' },
-              type: 'tool_call',
-            }],
-          }),
-        }],
-      };
-    }
-    return {
-      generations: [{
-        text: 'task finished',
-        message: new AIMessage('task finished'),
-      }],
-    };
-  }
-}
-
-describe('parallel worker + real deepagents approval boundary', () => {
+describe('parallel_tasks + Delegated Run Coordinator integration', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    storeGetMock.mockImplementation((key?: string) => (key === 'skillOverrides' ? {} : undefined));
-    createLangChainModelMock.mockImplementation(() => new FakeToolCallingChatModel({}));
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      get: () => {
-        if (sql.includes('FROM projects')) return { name: 'Test Project', path: TMP_DIR };
-        return undefined;
-      },
-      all: () => {
-        if (sql.includes('FROM agents WHERE project_id')) {
-          return [{
-            id: 'agent-1',
-            project_id: 'project-1',
-            name: 'worker-agent',
-            slug: 'worker-agent',
-            provider_id: 'provider-1',
-            system_prompt: 'you are a worker',
-            config: null,
-          }];
-        }
-        return [];
-      },
-    }));
-    fs.rmSync(OUT_FILE, { force: true });
+    sendMock.mockClear();
+    testDb.exec(`
+      DROP TABLE IF EXISTS delegated_agent_runs;
+      DROP TABLE IF EXISTS agent_runs;
+      DROP TABLE IF EXISTS agents;
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT,
+        description TEXT
+      );
+      CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
+    `);
+    testDb.prepare(`INSERT INTO agents (id, project_id, name, slug, description)
+      VALUES ('agent-1', 'project-1', 'Worker Agent', 'worker', 'Does work')`).run();
+    testDb.prepare("INSERT INTO agent_runs (id) VALUES ('run-parent')").run();
+    initializeDelegatedAgentRunSchema(testDb);
   });
 
-  it('completes a worker task whose tool is approval-gated instead of dying with "No checkpointer set"', async () => {
-    const parallelTool = createParallelTaskTool('project-1', 'session-1');
-    const raw = await (parallelTool as any).invoke({
-      tasks: [{ name: 'worker-agent', description: 'write the artifact file' }],
+  it('queues, promotes, isolates failure, and aggregates through the coordinator seam', async () => {
+    const resolvers = new Map<string, (outcome: DelegatedTaskResult) => void>();
+    const starts: string[] = [];
+    const adapter: DelegatedRuntimeAdapter = {
+      run: vi.fn((request) => new Promise<DelegatedTaskResult>((resolve) => {
+        starts.push(request.delegatedRunId);
+        request.onStep?.({ type: 'thinking', ts: 1, content: request.goal });
+        resolvers.set(request.delegatedRunId, resolve);
+      })),
+    };
+    const repository = new DelegatedAgentRunRepository(testDb);
+    let nextId = 0;
+    const coordinator = new DelegatedAgentRunCoordinator(repository, adapter, {
+      createId: () => `delegated-${++nextId}`,
+      now: () => 100 + nextId,
     });
-    const result = JSON.parse(raw);
+    const parallelTool = createParallelTaskTool('project-1', 'session-1', {
+      coordinator,
+      createBatchId: () => 'batch-integration',
+    });
 
-    expect(result.results).toHaveLength(1);
-    expect(result.results[0].error ?? '').not.toContain('No checkpointer set');
-    expect(result.results[0].status).toBe('success');
-  }, 30_000);
+    const invocation = parallelTool.invoke({
+      tasks: Array.from({ length: 6 }, (_, index) => ({
+        name: 'worker',
+        description: `task ${index + 1}`,
+      })),
+    }, { configurable: { parentAgentRunId: 'run-parent' } });
+
+    await vi.waitFor(() => expect(starts).toHaveLength(4));
+    expect(starts).toEqual(['delegated-1', 'delegated-2', 'delegated-3', 'delegated-4']);
+    expect(repository.listByBatch('run-parent', 'batch-integration').map((run) => run.status))
+      .toEqual(['running', 'running', 'running', 'running', 'queued', 'queued']);
+
+    resolvers.get('delegated-1')?.({
+      status: 'failure',
+      artifacts: [],
+      summary: '',
+      error: { code: 'TOOL_FAILED', message: 'isolated failure' },
+    });
+    await vi.waitFor(() => expect(starts).toContain('delegated-5'));
+    resolvers.get('delegated-2')?.(success);
+    await vi.waitFor(() => expect(starts).toContain('delegated-6'));
+    for (const id of ['delegated-3', 'delegated-4', 'delegated-5', 'delegated-6']) {
+      resolvers.get(id)?.(success);
+    }
+
+    const aggregate = JSON.parse(String(await invocation));
+    expect(aggregate.results).toHaveLength(6);
+    expect(aggregate.results[0]).toMatchObject({
+      delegatedRunId: 'delegated-1',
+      status: 'failure',
+      error: 'isolated failure',
+      outcome: {
+        status: 'failure',
+        artifacts: [],
+        summary: '',
+        error: { code: 'TOOL_FAILED', message: 'isolated failure' },
+      },
+    });
+    expect(aggregate.results.slice(1).every((result: { status: string }) => result.status === 'success'))
+      .toBe(true);
+    expect(new Set(aggregate.results.map((result: { delegatedRunId: string }) => result.delegatedRunId)).size)
+      .toBe(6);
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.stringContaining('agent:parallel-task-step-'),
+      expect.objectContaining({ delegatedRunId: 'delegated-1', workerId: 'delegated-1' }),
+    );
+  });
 });

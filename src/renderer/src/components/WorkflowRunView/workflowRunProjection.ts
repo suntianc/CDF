@@ -210,7 +210,7 @@ export function projectWorkflowRun(
     }
 
     case 'delegation': {
-      const { taskId, batchId, workerId, agentSlug } = event;
+      const { taskId, batchId, workerId, delegatedRunId, agentSlug } = event;
       const existing = state.tasks[taskId];
       if (!existing) {
         // If task doesn't exist yet, create placeholder fallback task
@@ -228,6 +228,7 @@ export function projectWorkflowRun(
           dependencies: [],
           delegation_batch_id: batchId,
           delegation_worker_id: workerId,
+          delegated_run_id: delegatedRunId ?? workerId,
           delegation_agent_slug: agentSlug,
           created_at: Date.now(),
           updated_at: Date.now(),
@@ -246,6 +247,7 @@ export function projectWorkflowRun(
         ...existing,
         delegation_batch_id: batchId,
         delegation_worker_id: workerId,
+        delegated_run_id: delegatedRunId ?? workerId,
         delegation_agent_slug: agentSlug,
         updated_at: Date.now(),
       };

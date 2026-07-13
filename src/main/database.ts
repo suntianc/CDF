@@ -518,6 +518,7 @@ db.exec(`
     dependencies TEXT NOT NULL DEFAULT '[]',
     delegation_batch_id TEXT,
     delegation_worker_id TEXT,
+    delegated_run_id TEXT,
     delegation_agent_slug TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -532,5 +533,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run ON workflow_run_tasks(run_id);
   CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run_stage ON workflow_run_tasks(run_id, stage_id);
 `);
+
+safeMigrate(
+  'workflow_run_tasks table (delegated_run_id)',
+  `ALTER TABLE workflow_run_tasks ADD COLUMN delegated_run_id TEXT;`,
+);
 
 export default db;

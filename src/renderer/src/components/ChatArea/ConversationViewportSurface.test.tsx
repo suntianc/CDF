@@ -156,6 +156,7 @@ describe('ConversationViewportSurface', () => {
   it('renders delegated task detail instead of master timeline and wires back navigation', () => {
     const onBackFromSubagent = vi.fn();
     const viewingTask: DelegatedTask = {
+      delegatedRunId: 'delegated-1',
       taskId: 'task-1',
       agentSlug: 'writer',
       agentName: 'Writer Agent',

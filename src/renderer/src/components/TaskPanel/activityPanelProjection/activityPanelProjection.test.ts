@@ -47,6 +47,7 @@ function agent(overrides: Partial<Agent> & Pick<Agent, 'name'>): Agent {
 
 function delegatedTask(overrides: Partial<DelegatedTask> & Pick<DelegatedTask, 'taskId' | 'agentSlug' | 'status'>): DelegatedTask {
   return {
+    delegatedRunId: overrides.delegatedRunId ?? `delegated:${overrides.taskId}`,
     agentName: overrides.agentSlug,
     goal: 'Review the file',
     chunks: [],

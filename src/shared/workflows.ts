@@ -67,7 +67,9 @@ export interface WorkflowRunTask {
   status: WorkflowTaskStatus;
   dependencies: string[];
   delegation_batch_id: string | null;
+  /** @deprecated Delegated Agent Run identity supersedes worker identity. */
   delegation_worker_id: string | null;
+  delegated_run_id?: string | null;
   delegation_agent_slug: string | null;
   created_at: number;
   updated_at: number;
@@ -96,5 +98,5 @@ export type WorkflowRunProjectionEvent =
   | { type: 'run'; runId?: string; status: WorkflowRunStatus; currentStageIndex: number; error: string | null }
   | { type: 'stage_gate'; gate: WorkflowStageGate }
   | { type: 'task'; task: WorkflowRunTask }
-  | { type: 'delegation'; taskId: string; batchId: string; workerId: string; agentSlug: string }
+  | { type: 'delegation'; taskId: string; batchId: string; workerId: string; delegatedRunId?: string; agentSlug: string }
   | { type: 'replay'; events: WorkflowRunProjectionEvent[] };

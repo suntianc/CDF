@@ -32,6 +32,7 @@ vi.mock('./StreamdownRenderer', () => ({
 describe('SubagentView', () => {
   it('renders subagent tool call result details from paired execution steps', () => {
     const task: DelegatedTask = {
+      delegatedRunId: 'delegated-1',
       taskId: 'task-1',
       agentSlug: 'code',
       agentName: 'Code Agent',
@@ -67,6 +68,7 @@ describe('SubagentView', () => {
 
   it('does not show a completed subagent tool call without output as loading', () => {
     const task: DelegatedTask = {
+      delegatedRunId: 'delegated-1',
       taskId: 'task-1',
       agentSlug: 'code',
       agentName: 'Code Agent',
