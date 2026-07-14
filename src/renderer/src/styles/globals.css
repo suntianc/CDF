@@ -1406,3 +1406,92 @@ html[data-theme="light"] .toast {
   background: oklch(1 0 0 / 0.05);
 }
 
+/* ═══ Prism.js Code Block Syntax Highlighting (Self-adaptive to CDF Light/Dark themes) ═══ */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--color-text-muted);
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: var(--color-text-secondary);
+}
+
+.token.namespace {
+  opacity: 0.7;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: var(--color-accent);
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: var(--color-success);
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: var(--color-text-secondary);
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.token.function,
+.token.class-name {
+  color: var(--color-info);
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: var(--color-warning);
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+.token.italic {
+  font-style: italic;
+}
+
+.token.entity {
+  cursor: help;
+}
+
+/* Custom styles for line numbers and code wrap alignment */
+.code-line-number {
+  display: inline-block;
+  width: 2.25rem;
+  padding-right: 0.75rem;
+  margin-right: 0.75rem;
+  text-align: right;
+  color: var(--color-text-muted);
+  opacity: 0.55;
+  user-select: none;
+  border-right: 1px solid var(--color-border);
+}
+
+

@@ -1011,5 +1011,13 @@
     "retry": "Retry",
     "emptyDirectory": "This folder is empty",
     "hideTree": "Hide file tree"
+  },
+  "codeBlock": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "wrapLines": "Toggle Word Wrap",
+    "lineNumbers": "Toggle Line Numbers",
+    "expand": "Expand Code",
+    "collapse": "Collapse"
   }
 }
