@@ -123,6 +123,16 @@ async function deleteWorkingStateThreads(
   }
 }
 
+function scheduleWorkingStateThreadDeletion(
+  threadIds: readonly string[],
+  workingState: WorkingStateDeletion
+): void {
+  // SqliteSaver.deleteThread performs synchronous SQLite work before returning its Promise.
+  setImmediate(() => {
+    void deleteWorkingStateThreads(threadIds, workingState);
+  });
+}
+
 export async function deleteConversation(
   db: Database.Database,
   sessionId: string,
@@ -134,7 +144,7 @@ export async function deleteConversation(
     db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
   })();
 
-  await deleteWorkingStateThreads([sessionId], workingState);
+  scheduleWorkingStateThreadDeletion([sessionId], workingState);
 }
 
 export async function deleteProject(

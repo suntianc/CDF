@@ -33,6 +33,12 @@ const checkpointMetadata: CheckpointMetadata = {
 };
 
 const noWorkingStateCleanup = { deleteThread: async (_threadId: string) => undefined };
+
+async function waitForScheduledCleanup(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 const testDatabases: Array<{ db: Database.Database; tempDir: string }> = [];
 
 afterEach(() => {
@@ -137,6 +143,7 @@ describe('deleteConversation', () => {
       await saver.putWrites(savedConfig, [['tool-result', 'payload']], 'task-1');
 
       await deleteConversation(db, 'conversation-1', workingState);
+      await waitForScheduledCleanup();
 
       expect(db.prepare("SELECT 1 FROM sessions WHERE id = 'conversation-1'").get()).toBeUndefined();
       await expect(saver.getTuple({
@@ -281,6 +288,7 @@ describe('deleteConversation', () => {
       };
 
       await expect(deleteConversation(db, 'conversation-1', failingCleanup)).resolves.toBeUndefined();
+      await waitForScheduledCleanup();
 
       expect(db.prepare("SELECT 1 FROM sessions WHERE id = 'conversation-1'").get()).toBeUndefined();
       await expect(saver.getTuple({
