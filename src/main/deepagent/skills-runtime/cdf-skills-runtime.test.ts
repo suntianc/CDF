@@ -57,6 +57,33 @@ describe('buildCdfSkillsRuntime', () => {
     expect(runtime.warnings).toEqual([]);
   });
 
+  it('uses a frozen catalog without discovering later Skills and fails explicitly when a preloaded source disappears', () => {
+    const skillPath = path.join(tempProjectPath, '.cdf', 'skills', 'secret-review', 'SKILL.md');
+    const catalog = [{
+      name: 'secret-review',
+      qualifiedName: 'secret-review',
+      description: 'Captured discovery metadata',
+      sourceKind: 'project' as const,
+      sourcePath: path.dirname(skillPath),
+      skillPath,
+      visibility: 'on' as const,
+      visibilitySource: 'default' as const,
+      modelDiscovery: 'full' as const,
+      userInvocable: true,
+    }];
+    fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills', 'later-skill'), { recursive: true });
+    fs.writeFileSync(path.join(tempProjectPath, '.cdf', 'skills', 'later-skill', 'SKILL.md'), '---\nname: later-skill\ndescription: Later\n---\n', 'utf-8');
+
+    expect(buildCdfSkillsRuntime(tempProjectPath, { catalog }).skills.map((skill) => skill.name))
+      .toEqual(['secret-review']);
+
+    fs.rmSync(skillPath);
+    expect(() => buildCdfSkillsRuntime(tempProjectPath, {
+      catalog,
+      preloadSkillNames: ['secret-review'],
+    })).toThrow('Snapshotted Skill source is unavailable (secret-review)');
+  });
+
   it('filters Global Skills by the current Scene without suppressing same-named Project Skills', () => {
     const builtInSkillDir = path.join(tempProjectPath, 'built-in', 'paper-search');
     const userSkillsDir = path.join(tempProjectPath, 'user-skills');

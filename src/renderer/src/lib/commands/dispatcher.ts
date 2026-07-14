@@ -294,7 +294,8 @@ export async function dispatch(plan: CommandDispatchAction): Promise<void> {
           const { body } = await window.electronAPI.commands.readSkillBody(
             projectId,
             activeSession?.agent_id,
-            plan.command.skillPath
+            plan.command.skillPath,
+            sessionState.activeSessionId,
           );
           if (body) {
             const substitutedBody = substituteArgs(body, {

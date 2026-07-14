@@ -1,9 +1,10 @@
 import type { CommandConflictError, SlashCommand } from '../../shared/types';
 import { collectMcpCommands } from './collectors/mcp';
 import { collectProjectCommands } from './collectors/project';
-import { collectSkillCommands } from './collectors/skill';
+import { collectSkillCommands, type SkillCommandCollectorOptions } from './collectors/skill';
 import { collectSystemCommands } from './collectors/system';
 import type { SkillCatalogOptions } from '../deepagent/skills-runtime/skill-sources';
+import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import { detectConflicts } from './conflict-detector';
 
 export interface HealthWarning {
@@ -31,7 +32,8 @@ export interface RegistryResult {
 export async function collectAllCommands(
   projectPath: string,
   agentId: string,
-  skillOptions: SkillCatalogOptions = {}
+  skillOptions: SkillCatalogOptions = {},
+  skillSnapshot?: readonly ConversationSkillSnapshotEntry[] | null,
 ): Promise<RegistryResult> {
   // Run all 4 collectors through Promise.allSettled. The system collector is
   // sync but we still wrap it in a settled promise to ensure uniform error
@@ -39,7 +41,10 @@ export async function collectAllCommands(
   const [system, mcp, skills, projects] = await Promise.allSettled([
     Promise.resolve().then(() => collectSystemCommands()),
     collectMcpCommands(agentId),
-    collectSkillCommands(projectPath, skillOptions),
+    collectSkillCommands(projectPath, {
+      ...skillOptions,
+      catalog: skillSnapshot ?? undefined,
+    } satisfies SkillCommandCollectorOptions),
     collectProjectCommands(projectPath),
   ]);
 

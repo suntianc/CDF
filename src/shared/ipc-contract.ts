@@ -264,7 +264,7 @@ export interface IpcInvokeContract {
   'fs:unwatchDirectory': { args: [dirPath: string]; result: { ok: true } };
   // ===== Slash Command Registry 桥 =====
   'commands:list': {
-    args: [projectId: string, agentId: string];
+    args: [projectId: string, agentId: string, sessionId?: string | null];
     result: {
       commands: SlashCommand[];
       conflicts: CommandConflictError[];
@@ -277,8 +277,8 @@ export interface IpcInvokeContract {
   };
   'commands:readBody': { args: [bodyPath: string]; result: { body: string; mtimeMs: number } };
   'commands:readSkillBody': {
-    args: [projectId: string, agentId: string | null | undefined, skillPath: string];
-    result: { body: string; mtimeMs: number };
+    args: [projectId: string, agentId: string | null | undefined, skillPath: string, sessionId?: string | null];
+    result: { body: string; mtimeMs: number; error?: string };
   };
   // ===== shell / electron-store =====
   'shell:openExternalUrl': { args: [url: string]; result: { ok: true } };

@@ -447,7 +447,7 @@ describe('dispatcher.dispatch', () => {
       prompt: 'fallback prompt',
     });
 
-    expect(mockReadSkillBody).toHaveBeenCalledWith('project-1', 'agent-1', '/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+    expect(mockReadSkillBody).toHaveBeenCalledWith('project-1', 'agent-1', '/repo/apps/web/.cdf/skills/deploy/SKILL.md', 'session-1');
     expect(mockSendMessage).toHaveBeenCalledWith(
       'project-1',
       [
@@ -530,7 +530,7 @@ describe('dispatcher.dispatch', () => {
       ].join('\n'),
     });
 
-    expect(mockReadSkillBody).toHaveBeenCalledWith('project-1', 'agent-1', '/repo/apps/web/.cdf/skills/deploy/SKILL.md');
+    expect(mockReadSkillBody).toHaveBeenCalledWith('project-1', 'agent-1', '/repo/apps/web/.cdf/skills/deploy/SKILL.md', 'session-1');
     const sentContent = mockSendMessage.mock.calls[0][1] as string;
     expect(sentContent).toContain('Skill `apps/web:deploy` 当前不可用或无法读取');
     expect(sentContent).toContain('用户参数：prod');

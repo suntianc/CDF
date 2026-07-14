@@ -11,6 +11,8 @@ import type { SkillAttribution } from '../../../shared/types';
 import type { GlobalSkillSourceKind, SkillSourceKind } from '../../../shared/skills';
 
 export interface CdfSkillsRuntimeOptions extends SkillSourcePlanOptions, SkillCatalogOptions {
+  /** Frozen Conversation catalog. When present, source discovery is forbidden. */
+  catalog?: ResolvedSkillCatalogEntry[];
   preloadSkillNames?: string[];
   /** Current Project Scene, carried by the runtime assembly for catalog policy. */
   sceneId?: string;
@@ -102,24 +104,35 @@ export function buildCdfSkillsRuntime(
   projectPath: string,
   options: CdfSkillsRuntimeOptions = {}
 ): CdfSkillsRuntime {
-  const plan = resolveSkillSourcePlan(projectPath, options);
-  const catalog = resolveSkillCatalog(plan, {
-    userOverrides: options.userOverrides,
-    agentOverrides: options.agentOverrides,
-    includeSkill: (source, name) => !isGlobalSkillSourceKind(source.kind)
-      || options.isGlobalSkillExposed?.({ sourceKind: source.kind, name }) !== false,
-    pathContext: options.pathContext,
-    includeNestedProjectSkills: options.includeNestedProjectSkills,
-  });
-  const prompt = renderCdfSkillsPrompt(catalog.skills, {
+  const resolvedCatalog = options.catalog
+    ? { skills: options.catalog, warnings: [] }
+    : (() => {
+      const plan = resolveSkillSourcePlan(projectPath, options);
+      return resolveSkillCatalog(plan, {
+        userOverrides: options.userOverrides,
+        agentOverrides: options.agentOverrides,
+        includeSkill: (source, name) => !isGlobalSkillSourceKind(source.kind)
+          || options.isGlobalSkillExposed?.({ sourceKind: source.kind, name }) !== false,
+        pathContext: options.pathContext,
+        includeNestedProjectSkills: options.includeNestedProjectSkills,
+      });
+    })();
+  const prompt = renderCdfSkillsPrompt(resolvedCatalog.skills, {
     preloadSkillNames: options.preloadSkillNames,
-    readSkill: (skill) => stripSkillFrontmatter(fs.readFileSync(skill.skillPath, 'utf-8')),
+    readSkill: (skill) => {
+      try {
+        return stripSkillFrontmatter(fs.readFileSync(skill.skillPath, 'utf-8'));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Snapshotted Skill source is unavailable (${skill.qualifiedName ?? skill.name}): ${skill.skillPath}; ${message}`);
+      }
+    },
   });
 
   return {
-    skills: catalog.skills,
+    skills: resolvedCatalog.skills,
     prompt,
-    warnings: catalog.warnings,
-    attributions: buildSkillAttributions(catalog.skills, options.preloadSkillNames),
+    warnings: resolvedCatalog.warnings,
+    attributions: buildSkillAttributions(resolvedCatalog.skills, options.preloadSkillNames),
   };
 }

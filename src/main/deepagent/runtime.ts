@@ -46,6 +46,7 @@ import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle } from './conversation-working-state';
 import { getConversationPromptSnapshot } from '../conversation-prompt-snapshot';
+import { getConversationSkillSnapshot } from '../conversation-system-context-snapshot';
 import { isMasterAgent } from '../project-agent-service';
 export { isTransientRuntimeError } from './runtime-errors';
 
@@ -88,6 +89,7 @@ interface RuntimeProjectRow {
   id: string;
   name: string;
   path: string;
+  scene?: import('../../shared/types').ProjectScene;
 }
 
 // Phase 7 Plan 01: alias to shared ChatRuntimeOverrides (Gap 2 fix).
@@ -116,7 +118,7 @@ function getFallbackProviderId(): string {
 }
 
 function getProject(projectId: string): RuntimeProjectRow {
-  const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?').get(projectId) as RuntimeProjectRow | undefined;
+  const project = db.prepare('SELECT id, name, path, scene FROM projects WHERE id = ?').get(projectId) as RuntimeProjectRow | undefined;
   if (!project) {
     throw new Error(`Project with ID ${projectId} not found.`);
   }
@@ -635,6 +637,7 @@ async function buildDeepAgentRuntime(
   const project = getProject(projectId);
   const resolvedAgentRow = getRuntimeAgent(projectId, agentId);
   const promptSnapshot = getConversationPromptSnapshot(db, sessionId);
+  const skillSnapshot = getConversationSkillSnapshot(db, sessionId);
   // Root Conversations are bound to Master. Their durable snapshot, rather
   // than the current Master record, preserves the exact prompt across turns
   // and process restarts. Delegated Agents retain their own live prompts.
@@ -679,6 +682,7 @@ async function buildDeepAgentRuntime(
     pathContext,
     builtInToolNames,
     overrides,
+    skillSnapshot,
   );
   const {
     model,
@@ -760,6 +764,7 @@ async function buildDeepAgentRuntime(
         extractPathMentionContext(request.goal),
         childToolNames,
         childOverrides,
+        skillSnapshot,
       );
       for (const warning of childAssembly.assemblyWarnings) {
         log.warn('[runtime] Ignored invalid delegated Agent Skill runtime input:', warning);

@@ -14,7 +14,9 @@ const {
   storeGetMock,
   getScopePathMock,
   getBuiltInSkillDirsMock,
+  getBuiltInSkillRegistrationsMock,
   resolveAgentSkillsConfigMock,
+  resolveConversationSkillSnapshotConfigMock,
   resolveAgentSkillConfigOptionsMock,
   buildCdfSkillsRuntimeMock,
   loadMcpToolsMock,
@@ -33,6 +35,8 @@ const {
     scope === 'global' ? path.join(os.tmpdir(), 'cdf-runtime-test-global-skills') : path.join(_projectPath, '.cdf', 'skills')
   ),
   getBuiltInSkillDirsMock: vi.fn(() => [path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base')]),
+  getBuiltInSkillRegistrationsMock: vi.fn(() => []),
+  resolveConversationSkillSnapshotConfigMock: vi.fn(() => ({ skillsSources: [], permissions: [] })),
   loadMcpToolsMock: vi.fn(async () => ({ client: null, tools: [] as Array<{ name: string }> })),
   registerHarnessProfileMock: vi.fn(),
   resolveAgentSkillsConfigMock: vi.fn(() => ({
@@ -112,8 +116,10 @@ vi.mock('./mcp-connector', () => ({
 
 vi.mock('./skill-manager', () => ({
   getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  getBuiltInSkillRegistrations: getBuiltInSkillRegistrationsMock,
   getScopePath: getScopePathMock,
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
+  resolveConversationSkillSnapshotConfig: resolveConversationSkillSnapshotConfigMock,
   resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
 }));
 
@@ -328,6 +334,44 @@ describe('createDeepAgentRuntime', () => {
     )).rejects.toBe(maintenanceError);
     expect(acquireWorkingStateSaverMock).not.toHaveBeenCalled();
     expect(createDeepAgentMock).not.toHaveBeenCalled();
+  });
+
+  it('assembles the Master runtime from the persisted Conversation Skill Snapshot', async () => {
+    const snapshot = [{
+      name: 'captured-review',
+      qualifiedName: 'captured-review',
+      description: 'Frozen discovery metadata',
+      sourceKind: 'project',
+      sourcePath: path.join(tempProjectPath, '.cdf', 'skills'),
+      skillPath: path.join(tempProjectPath, '.cdf', 'skills', 'captured-review', 'SKILL.md'),
+      visibility: 'on',
+      visibilitySource: 'default',
+      modelDiscovery: 'full',
+      userInvocable: true,
+    }];
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: (arg?: string) => {
+        if (sql.includes('SELECT skill_snapshot FROM sessions')) return { skill_snapshot: JSON.stringify(snapshot) };
+        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath, scene: 'general' };
+        if (sql.includes('FROM agents WHERE id')) return undefined;
+        if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-1' ? provider : undefined;
+        return undefined;
+      },
+      all: (arg?: string) => {
+        if (sql.includes('is_default = 1')) return [agent];
+        if (sql.includes('FROM agent_skills')) return [{ skill_name: 'project:test-skill' }];
+        if (sql.includes('FROM mcp_servers')) return [];
+        return [];
+      },
+      run: vi.fn(),
+    }));
+
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'new request' });
+
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenLastCalledWith(
+      tempProjectPath,
+      expect.objectContaining({ catalog: snapshot }),
+    );
   });
 
   it('should omit interruptOn when global approval mode is bypass', async () => {

@@ -155,7 +155,8 @@ export function ChatArea({
   // with EMPTY_COMMANDS and the popup fell back to the system-only stub.
   const registry = useCommandRegistry(
     currentProjectId,
-    (activeSession as any)?.agent_id ?? activeSessionAgent?.id ?? null
+    (activeSession as any)?.agent_id ?? activeSessionAgent?.id ?? null,
+    activeSessionId,
   );
 
   const composerInput = useComposerInputController({

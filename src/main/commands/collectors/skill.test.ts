@@ -55,6 +55,27 @@ describe('collectors/skill', () => {
     });
   });
 
+  it('lists only the supplied Conversation Skill Snapshot without resolving the live catalog', async () => {
+    const result = await collectSkillCommands('/tmp/proj', {
+      catalog: [{
+        name: 'captured-skill',
+        qualifiedName: 'captured-skill',
+        description: 'Captured',
+        sourceKind: 'project',
+        sourcePath: '/tmp/proj/.cdf/skills',
+        skillPath: '/tmp/proj/.cdf/skills/captured-skill/SKILL.md',
+        visibility: 'on',
+        visibilitySource: 'default',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      }],
+    });
+
+    expect(result).toEqual([expect.objectContaining({ name: 'captured-skill' })]);
+    expect(resolveSkillSourcePlanMock).not.toHaveBeenCalled();
+    expect(resolveSkillCatalogMock).not.toHaveBeenCalled();
+  });
+
   it('passes User and Agent Skill Overrides into catalog resolution', async () => {
     await collectSkillCommands('/tmp/proj', {
       userOverrides: {

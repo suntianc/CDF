@@ -16,6 +16,7 @@ export interface Session {
   parent_session_id?: string | null;
   summary?: string | null;
   prompt_snapshot?: string | null;
+  skill_snapshot?: string | null;
   created_at: number;
   updated_at: number;
 }

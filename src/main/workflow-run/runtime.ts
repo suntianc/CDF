@@ -40,6 +40,7 @@ import {
 import { pushProjectionEvent } from './notify';
 import { normalizeWorkflowStages, selectWorkflowStageRoute, validateWorkflowStages } from '../../shared/workflow-routing';
 import { ensureMasterAgent } from '../project-agent-service';
+import { captureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 
 let resumeAgentCallback: ((sessionId: string, projectId: string, decisions: Array<{ type: 'approve' | 'reject'; message?: string }>) => void) | null = null;
 
@@ -86,12 +87,21 @@ export function startRun(workflowId: string, projectId: string): StartRunResult 
   if (routeErrors.length > 0) throw new Error(`Invalid Workflow Stage routes: ${routeErrors.join('; ')}`);
 
   const master = ensureMasterAgent(db, projectId);
+  const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as
+    | { path: string; scene: import('../../shared/types').ProjectScene }
+    | undefined;
+  if (!project) throw new Error(`Project not found: ${projectId}`);
+  const systemContext = captureConversationSystemContextSnapshot({
+    projectPath: project.path,
+    sceneId: project.scene,
+    promptSnapshot: master.system_prompt ?? '',
+  });
   const sessionId = crypto.randomUUID();
   const now = Date.now();
   db.prepare(`
-    INSERT INTO sessions (id, project_id, name, agent_id, prompt_snapshot, workflow_run_id, workflow_run_status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(sessionId, projectId, `工作流: ${wfRow.name}`, master.id, master.system_prompt ?? '', null, 'running', now, now);
+    INSERT INTO sessions (id, project_id, name, agent_id, prompt_snapshot, skill_snapshot, workflow_run_id, workflow_run_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(sessionId, projectId, `工作流: ${wfRow.name}`, master.id, systemContext.promptSnapshot, JSON.stringify(systemContext.skillSnapshot), null, 'running', now, now);
 
   // 骨架快照包含完整 stages（后续编辑 workflow 不影响已冻结的 run）
   const skeletonSnapshot = JSON.stringify({

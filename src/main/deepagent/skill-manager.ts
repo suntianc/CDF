@@ -27,6 +27,7 @@ import {
 } from './skills-runtime/skill-visibility';
 import type { SkillEffectiveVisibility, SkillOverrideState } from '../../shared/skill-overrides';
 import type { SceneId } from '../../shared/scenes';
+import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import { classifySkillSourceKind } from '../../shared/skills';
 
 type SkillScope = 'global' | 'project';
@@ -594,6 +595,22 @@ export function deletePhysicalSkill(projectPath: string, scope: SkillScope, name
   if (fs.existsSync(skillDir)) {
     fs.rmSync(skillDir, { recursive: true, force: true });
   }
+}
+
+export function resolveConversationSkillSnapshotConfig(
+  projectPath: string,
+  skillSnapshot: readonly ConversationSkillSnapshotEntry[],
+): { skillsSources: string[]; permissions: FilesystemPermission[] } {
+  // Pass individual Skill roots, never their mutable parent directory: a later
+  // addition cannot become discoverable inside an existing Conversation.
+  const sourcePaths = Array.from(new Set(skillSnapshot.map((skill) => path.dirname(skill.skillPath))));
+  return {
+    skillsSources: sourcePaths,
+    permissions: [
+      { operations: ['read', 'write'] as const, paths: [path.join(projectPath, '*'), path.join(projectPath, '**', '*')] },
+      ...buildSkillSourceReadPermissions(projectPath, sourcePaths),
+    ],
+  };
 }
 
 export function resolveAgentSkillsConfig(

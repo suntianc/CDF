@@ -6,6 +6,11 @@ import {
   type ResolvedSkillCatalogEntry,
 } from '../../deepagent/skills-runtime/skill-sources';
 import type { CommandSource, SkillCommandSourceKind, SlashCommand } from '../../../shared/types';
+import type { ConversationSkillSnapshotEntry } from '../../../shared/skills';
+
+export interface SkillCommandCollectorOptions extends SkillCatalogOptions {
+  catalog?: readonly ConversationSkillSnapshotEntry[];
+}
 
 /**
  * Skills collector for Claude Code-style explicit Skill invocation.
@@ -16,21 +21,22 @@ import type { CommandSource, SkillCommandSourceKind, SlashCommand } from '../../
  */
 export async function collectSkillCommands(
   projectPath: string,
-  options: SkillCatalogOptions = {}
+  options: SkillCommandCollectorOptions = {}
 ): Promise<SlashCommand[]> {
-  const plan = resolveSkillSourcePlan(projectPath, {
-    builtInSkillDirs: getBuiltInSkillDirs(),
-    userSkillsDir: getScopePath(projectPath, 'global'),
-    includeNestedProjectSkills: options.includeNestedProjectSkills,
-  });
-  const catalog = resolveSkillCatalog(plan, options);
+  const skills = options.catalog
+    ? options.catalog
+    : resolveSkillCatalog(resolveSkillSourcePlan(projectPath, {
+      builtInSkillDirs: getBuiltInSkillDirs(),
+      userSkillsDir: getScopePath(projectPath, 'global'),
+      includeNestedProjectSkills: options.includeNestedProjectSkills,
+    }), options).skills;
 
-  return catalog.skills
+  return skills
     .filter((skill) => skill.userInvocable)
     .map(skillToCommand);
 }
 
-function skillToCommand(skill: ResolvedSkillCatalogEntry): SlashCommand {
+function skillToCommand(skill: ResolvedSkillCatalogEntry | ConversationSkillSnapshotEntry): SlashCommand {
   const source = getCommandSource(skill.sourceKind);
   const qualifiedName = skill.qualifiedName ?? skill.name;
   return {
@@ -87,7 +93,7 @@ function getTargetScope(sourceKind: ResolvedSkillCatalogEntry['sourceKind']): st
   }
 }
 
-function getSourceLabel(skill: ResolvedSkillCatalogEntry): string {
+function getSourceLabel(skill: Pick<ResolvedSkillCatalogEntry, 'sourceKind' | 'qualifier'>): string {
   switch (skill.sourceKind) {
     case 'built-in':
       return 'Built-in Skill';

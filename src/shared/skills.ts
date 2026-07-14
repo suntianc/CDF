@@ -22,6 +22,28 @@ export interface GlobalSkillReference {
   name: string;
 }
 
+/**
+ * The durable, body-free catalog captured with a Conversation. Source identity
+ * stays fixed, while the package is read from `skillPath` only when needed.
+ */
+export interface ConversationSkillSnapshotEntry {
+  name: string;
+  qualifiedName?: string;
+  qualifier?: string;
+  description: string;
+  argumentHint?: string;
+  allowedTools?: string[];
+  whenToUse?: string;
+  arguments?: string[];
+  sourceKind: SkillSourceKind;
+  sourcePath: string;
+  skillPath: string;
+  visibility: SkillEffectiveVisibility;
+  visibilitySource: SkillVisibilitySource;
+  modelDiscovery: SkillModelDiscovery;
+  userInvocable: boolean;
+}
+
 export interface SceneSkillExposureInput extends GlobalSkillReference {
   /** Product-owned defaults; user-global Skills always default to every Scene. */
   defaultSceneIds?: readonly string[];

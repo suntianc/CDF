@@ -138,6 +138,8 @@ vi.mock('./deepagent/skill-manager', () => ({
   importPhysicalSkillDirectory: importPhysicalSkillDirectoryMock,
   deletePhysicalSkill: vi.fn(),
   getBuiltInSkillRegistrations: vi.fn(() => []),
+  getBuiltInSkillDirs: vi.fn(() => []),
+  getScopePath: vi.fn(() => '/tmp/cdf-global-skills'),
 }));
 
 vi.mock('./deepagent/mcp-connector', () => ({
@@ -555,6 +557,7 @@ describe('IPC handlers', () => {
     const sessionInsert = vi.fn();
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: vi.fn(() => {
+        if (sql.includes('SELECT path, scene FROM projects')) return { path: '/tmp/project', scene: 'general' };
         if (sql.includes('SELECT id FROM projects')) return { id: 'project-1' };
         if (sql.includes("slug = ?")) return { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent', system_prompt: 'Captured Master prompt' };
         return undefined;
@@ -571,7 +574,7 @@ describe('IPC handlers', () => {
 
     expect(session.agent_id).toBe('master-1');
     expect(sessionInsert).toHaveBeenCalledWith(
-      expect.any(String), 'project-1', 'Conversation', 'master-1', null, null, 'Captured Master prompt', expect.any(Number), expect.any(Number),
+      expect.any(String), 'project-1', 'Conversation', 'master-1', null, null, 'Captured Master prompt', '[]', expect.any(Number), expect.any(Number),
     );
     expect(session).toEqual(expect.objectContaining({ prompt_snapshot: 'Captured Master prompt' }));
   });

@@ -73,6 +73,7 @@ import {
   unsetPaperSearchConfigValue,
 } from './paper-search-config';
 import { initializeScenePreset } from './scene-presets';
+import { captureConversationSystemContextSnapshot, getConversationSkillSnapshot } from './conversation-system-context-snapshot';
 import type {
   AISubscriptionEntryId,
   CapabilityId,
@@ -426,12 +427,23 @@ export function registerIpcHandlers() {
     // 普通 Conversation 的根始终是受保护的 Master；caller 提供的 Agent 只可作为委派目标。
     const master = ensureMasterAgent(db, projectId);
     const finalAgentId = master.id;
-    const promptSnapshot = master.system_prompt ?? '';
-    db.prepare(`
-      INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, prompt_snapshot, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, promptSnapshot, now, now);
-    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, prompt_snapshot: promptSnapshot, created_at: now, updated_at: now };
+    const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as
+      | { path: string; scene: ProjectScene }
+      | undefined;
+    if (!project) throw new Error(`Project with ID ${projectId} not found.`);
+    const systemContext = captureConversationSystemContextSnapshot({
+      projectPath: project.path,
+      sceneId: project.scene,
+      promptSnapshot: master.system_prompt ?? '',
+    });
+    const skillSnapshot = JSON.stringify(systemContext.skillSnapshot);
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, prompt_snapshot, skill_snapshot, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, systemContext.promptSnapshot, skillSnapshot, now, now);
+    })();
+    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, prompt_snapshot: systemContext.promptSnapshot, skill_snapshot: skillSnapshot, created_at: now, updated_at: now };
   });
 
   typedHandle('db:deleteSession', (_, sessionId) =>
@@ -1294,7 +1306,7 @@ export function registerIpcHandlers() {
   registerKnowledgeBaseHandlers();
 
   // ===== Phase 6 Plan 02: Slash Command Registry IPC (D-15 O(1) memory read) =====
-  typedHandle('commands:list', async (_evt, projectId, agentId) => {
+  typedHandle('commands:list', async (_evt, projectId, agentId, sessionId) => {
     try {
       const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
       if (!project) {
@@ -1309,7 +1321,16 @@ export function registerIpcHandlers() {
       for (const warning of skillOverrideOptions.warnings) {
         console.warn('[commands:list] Ignored invalid Skill override:', warning);
       }
-      return await collectAllCommands(project.path, agentId, skillOverrideOptions.options ?? {});
+      const skillSnapshot = sessionId
+        ? getConversationSkillSnapshot(db, sessionId)
+        : null;
+      if (sessionId) {
+        const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
+        if (session?.project_id !== projectId) return { commands: [], conflicts: [], warnings: [] };
+      }
+      return skillSnapshot
+        ? await collectAllCommands(project.path, agentId, skillOverrideOptions.options ?? {}, skillSnapshot)
+        : await collectAllCommands(project.path, agentId, skillOverrideOptions.options ?? {});
     } catch (err) {
       console.error('[commands:list] failed:', err);
       return { commands: [], conflicts: [], warnings: [] };
@@ -1381,7 +1402,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  typedHandle('commands:readSkillBody', async (_evt, projectId, agentId, skillPath) => {
+  typedHandle('commands:readSkillBody', async (_evt, projectId, agentId, skillPath, sessionId) => {
     try {
       if (
         typeof projectId !== 'string' ||
@@ -1399,8 +1420,13 @@ export function registerIpcHandlers() {
       }
 
       const resolved = path.resolve(skillPath);
+      const skillSnapshot = sessionId ? getConversationSkillSnapshot(db, sessionId) : null;
+      if (sessionId) {
+        const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
+        if (session?.project_id !== projectId) return { body: '', mtimeMs: 0, error: 'Conversation does not belong to this Project' };
+      }
       if (!fs.existsSync(resolved)) {
-        return { body: '', mtimeMs: 0 };
+        return { body: '', mtimeMs: 0, error: 'Snapshotted Skill source is unavailable' };
       }
 
       const realResolved = fs.realpathSync(resolved);
@@ -1411,9 +1437,9 @@ export function registerIpcHandlers() {
       for (const warning of skillOverrideOptions.warnings) {
         console.warn('[commands:readSkillBody] Ignored invalid Skill override:', warning);
       }
-      const isResolvedSkillPath = listResolvedSkillViews(project.path, skillOverrideOptions.options ?? {}).some((skill) => {
-        if (skill.userInvocable !== true) return false;
-        if (!skill.skillPath) return false;
+      const authorizedSkills = skillSnapshot ?? listResolvedSkillViews(project.path, skillOverrideOptions.options ?? {});
+      const isResolvedSkillPath = authorizedSkills.some((skill) => {
+        if (skill.userInvocable !== true || !skill.skillPath) return false;
         try {
           return fs.realpathSync(skill.skillPath) === realResolved;
         } catch {
@@ -1422,7 +1448,9 @@ export function registerIpcHandlers() {
       });
       if (!isResolvedSkillPath) {
         console.warn('[commands:readSkillBody] path is not a resolved Skill:', skillPath);
-        return { body: '', mtimeMs: 0 };
+        return sessionId
+          ? { body: '', mtimeMs: 0, error: 'Skill is not available in this Conversation Snapshot' }
+          : { body: '', mtimeMs: 0 };
       }
 
       const stat = fs.statSync(realResolved);

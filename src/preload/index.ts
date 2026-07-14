@@ -182,16 +182,16 @@ const api = {
   },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {
-    list: (projectId: string, agentId: string) =>
-      typedInvoke('commands:list', projectId, agentId),
+    list: (projectId: string, agentId: string, sessionId?: string | null) =>
+      typedInvoke('commands:list', projectId, agentId, sessionId),
     readProjectCommands: (projectId: string) =>
       typedInvoke('commands:readProjectCommands', projectId),
     // 08.2 D-06: lazy body load on dispatch. Returns body + mtime; defensive
     // empty values on path-traversal/missing-file/IO failure.
     readBody: (bodyPath: string) =>
       typedInvoke('commands:readBody', bodyPath),
-    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string) =>
-      typedInvoke('commands:readSkillBody', projectId, agentId, skillPath),
+    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string, sessionId?: string | null) =>
+      typedInvoke('commands:readSkillBody', projectId, agentId, skillPath, sessionId),
     onChanged: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => void) => {
       const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => callback(event, data);
       ipcRenderer.on('commands:changed', listener);

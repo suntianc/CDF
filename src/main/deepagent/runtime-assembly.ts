@@ -20,12 +20,15 @@ import {
   getScopePath,
   resolveAgentSkillConfigOptions,
   resolveAgentSkillsConfig,
+  resolveConversationSkillSnapshotConfig,
   type ResolveAgentSkillsConfigOptions,
 } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import type { ChatRuntimeOverrides, ProjectScene } from '../../shared/types';
 import { createSceneSkillExposureService } from '../scene-skill-exposure';
+import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
+import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
 
 function createGlobalSkillSceneExposureFilter(sceneId: ProjectScene) {
   const sceneSkillExposureService = createSceneSkillExposureService({
@@ -296,14 +299,17 @@ export function buildCdfSkillsRuntimeAssembly(
   config: string | null | undefined,
   pathContext: string[],
   sceneId: ProjectScene = 'general',
+  skillSnapshot?: readonly ConversationSkillSnapshotEntry[] | null,
 ): CdfSkillsAssemblyResult {
   const resolved = resolveAgentSkillConfigOptions(config, (key) => store.get(key));
   const overrideOptions = resolved.options;
   const warnings: string[] = [...resolved.warnings];
 
-  const { permissions } = overrideOptions
-    ? resolveAgentSkillsConfig(projectPath, skillNames, overrideOptions)
-    : resolveAgentSkillsConfig(projectPath, skillNames);
+  const { permissions } = skillSnapshot
+    ? resolveConversationSkillSnapshotConfig(projectPath, skillSnapshot)
+    : overrideOptions
+      ? resolveAgentSkillsConfig(projectPath, skillNames, overrideOptions)
+      : resolveAgentSkillsConfig(projectPath, skillNames);
 
   const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
     ...overrideOptions,
@@ -313,6 +319,7 @@ export function buildCdfSkillsRuntimeAssembly(
     pathContext,
     sceneId,
     isGlobalSkillExposed: createGlobalSkillSceneExposureFilter(sceneId),
+    catalog: skillSnapshot ? skillSnapshot.map((skill) => ({ ...skill })) as ResolvedSkillCatalogEntry[] : undefined,
   });
   warnings.push(...skillsRuntime.warnings);
 
@@ -360,6 +367,7 @@ export async function assembleDeepAgentRuntime(
   pathContext: string[],
   capabilityToolNames: string[],
   overrides?: ChatRuntimeOverrides,
+  skillSnapshot?: readonly ConversationSkillSnapshotEntry[] | null,
 ): Promise<DeepAgentAssemblyResult> {
   const { config: modelConfig, fallbackProvider: provider } =
     await resolveRuntimeProviderModelConfig(agentRow, overrides, fallbackProviderId);
@@ -376,6 +384,7 @@ export async function assembleDeepAgentRuntime(
     agentRow.config,
     pathContext,
     project.scene ?? 'general',
+    skillSnapshot,
   );
 
   const systemPrompt = appendRuntimePrompt(

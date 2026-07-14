@@ -75,6 +75,7 @@ interface SessionRow {
   workflow_run_id: string | null;
   workflow_run_status: string | null;
   prompt_snapshot: string | null;
+  skill_snapshot: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -160,6 +161,17 @@ describe('startRun', () => {
     expect(db.prepare('SELECT master_agent_id FROM workflow_runs WHERE id = ?').get(run.id)).toEqual({
       master_agent_id: '',
     });
+  });
+
+  it('creates the same durable Skill Snapshot as an ordinary Conversation', () => {
+    const skillDir = path.join(TMP_DIR, '.cdf', 'skills', 'workflow-snapshot');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: workflow-snapshot\ndescription: Frozen workflow Skill\n---\n\nCurrent source instructions', 'utf-8');
+
+    const { sessionId } = startRun(lastWorkflowId, PROJECT_ID);
+    const session = db.prepare('SELECT skill_snapshot FROM sessions WHERE id = ?').get(sessionId) as SessionRow;
+    expect(session.skill_snapshot).toContain('workflow-snapshot');
+    expect(session.skill_snapshot).not.toContain('Current source instructions');
   });
 
   it('freezes full stages skeleton snapshot', () => {

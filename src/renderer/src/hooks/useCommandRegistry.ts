@@ -51,7 +51,8 @@ const EMPTY_WARNINGS: RegistryWarning[] = [];
  */
 export function useCommandRegistry(
   projectId: string | null,
-  agentId: string | null
+  agentId: string | null,
+  sessionId?: string | null,
 ): RegistryState {
   const [commands, setCommands] = useState<SlashCommand[]>(EMPTY_COMMANDS);
   const [conflicts, setConflicts] = useState<CommandConflictError[]>(EMPTY_CONFLICTS);
@@ -80,9 +81,10 @@ export function useCommandRegistry(
     const slowTimer = setTimeout(() => {
       setLoading((prev: RegistryLoadingState) => (prev === 'pending' ? 'slow' : prev));
     }, 500);
-    api
-      .list(projectId, agentId)
-      .then((result: { commands: SlashCommand[]; conflicts: CommandConflictError[]; warnings: RegistryWarning[] }) => {
+    const listing = sessionId === undefined
+      ? api.list(projectId, agentId)
+      : api.list(projectId, agentId, sessionId);
+    listing.then((result: { commands: SlashCommand[]; conflicts: CommandConflictError[]; warnings: RegistryWarning[] }) => {
         setCommands(result.commands ?? EMPTY_COMMANDS);
         setConflicts(result.conflicts ?? EMPTY_CONFLICTS);
         setWarnings(result.warnings ?? EMPTY_WARNINGS);
@@ -118,7 +120,7 @@ export function useCommandRegistry(
         clearTimeout(slowTimer);
         setLoading('error');
       });
-  }, [projectId, agentId]);
+  }, [projectId, agentId, sessionId]);
 
   useEffect(() => {
     reload();
