@@ -526,7 +526,7 @@ describe('IPC handlers', () => {
     });
   });
 
-  it('creates the protected General-purpose Agent together with a Project', () => {
+  it('creates protected Master and General-purpose Agents together with a Project', () => {
     const insertedAgents: unknown[][] = [];
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: vi.fn(),
@@ -540,11 +540,93 @@ describe('IPC handlers', () => {
     const createProjectHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createProject')?.[1];
     const project = createProjectHandler({}, 'CDF', '/tmp/cdf', 'general');
 
-    expect(insertedAgents).toHaveLength(1);
-    expect(insertedAgents[0]).toEqual(expect.arrayContaining([
-      project.id,
-      'General-purpose',
-      'general-purpose',
+    expect(insertedAgents).toHaveLength(2);
+    expect(insertedAgents).toEqual(expect.arrayContaining([
+      expect.arrayContaining([project.id, 'Master Agent', 'master-agent']),
+      expect.arrayContaining([project.id, 'General-purpose', 'general-purpose']),
+    ]));
+  });
+
+  it('binds an ordinary Conversation to Master even when a Custom Agent ID is supplied', () => {
+    const sessionInsert = vi.fn();
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => {
+        if (sql.includes('SELECT id FROM projects')) return { id: 'project-1' };
+        if (sql.includes("slug = ?")) return { id: 'master-1' };
+        return undefined;
+      }),
+      all: vi.fn(() => []),
+      run: vi.fn((...args: unknown[]) => {
+        if (sql.includes('INSERT INTO sessions')) sessionInsert(...args);
+      }),
+    }));
+
+    registerIpcHandlers();
+    const createSessionHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createSession')?.[1];
+    const session = createSessionHandler({}, 'project-1', 'Conversation', undefined, undefined, 'custom-1');
+
+    expect(session.agent_id).toBe('master-1');
+    expect(sessionInsert).toHaveBeenCalledWith(
+      expect.any(String), 'project-1', 'Conversation', 'master-1', null, null, expect.any(Number), expect.any(Number),
+    );
+  });
+
+  it('rejects deleting the protected Master Agent through IPC', () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => sql.includes('SELECT slug FROM agents')
+        ? { slug: 'master-agent' }
+        : undefined),
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    }));
+
+    registerIpcHandlers();
+    const deleteAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:deleteAgent')?.[1];
+
+    expect(() => deleteAgentHandler({}, 'master-1')).toThrow(
+      'Master Agent is protected and cannot be deleted',
+    );
+  });
+
+  it('rejects renaming the protected Master Agent through IPC', () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => sql.includes('SELECT id, project_id, name, slug FROM agents WHERE id = ?')
+        ? { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent' }
+        : undefined),
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    }));
+
+    registerIpcHandlers();
+    const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
+
+    expect(() => saveAgentHandler({}, {
+      id: 'master-1', project_id: 'project-1', name: 'Renamed Master', is_default: true,
+    })).toThrow('Master Agent is protected and cannot be renamed or moved');
+  });
+
+  it('returns Master, General-purpose, and Custom roles from db:getAgents', () => {
+    const agents = [
+      { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent', is_default: 1 },
+      { id: 'general-1', project_id: 'project-1', name: 'General-purpose', slug: 'general-purpose', is_default: 0 },
+      { id: 'custom-1', project_id: 'project-1', name: 'Reviewer', slug: 'reviewer', is_default: 0 },
+    ];
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn((...args: unknown[]) => {
+        if (!sql.includes('slug = ?')) return undefined;
+        return agents.find((agent) => agent.slug === args[1]);
+      }),
+      all: vi.fn(() => sql.includes('SELECT * FROM agents') ? agents : []),
+      run: vi.fn(),
+    }));
+
+    registerIpcHandlers();
+    const getAgentsHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:getAgents')?.[1];
+
+    expect(getAgentsHandler({}, 'project-1')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'master-1', role: 'master', is_protected: true }),
+      expect.objectContaining({ id: 'general-1', role: 'general-purpose', is_protected: true }),
+      expect.objectContaining({ id: 'custom-1', role: 'custom', is_protected: false }),
     ]));
   });
 

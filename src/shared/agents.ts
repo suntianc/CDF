@@ -37,11 +37,14 @@ export interface AgentToolScopeConfig {
   mcpServerIds?: string[];
 }
 
+export type AgentRole = 'master' | 'general-purpose' | 'custom';
+
 export interface Agent {
   id: string;
   project_id: string;
   name: string;
   slug?: string;
+  role?: AgentRole;
   is_protected?: boolean;
   description?: string;
   provider_id?: string;
@@ -74,6 +77,7 @@ export interface AgentSaveResult {
   project_id: string;
   name: string;
   slug?: string;
+  role?: AgentRole;
   is_protected?: boolean;
   description?: string | null;
   provider_id?: string | null;

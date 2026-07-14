@@ -92,7 +92,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   const skillContainerRef = useRef<HTMLDivElement>(null);
   const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
-  const isProtectedAgent = editingAgent?.is_protected === true || editingAgent?.slug === 'general-purpose';
+  const isProtectedAgent = editingAgent?.is_protected === true || editingAgent?.role === 'master' || editingAgent?.slug === 'general-purpose';
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -114,7 +114,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         setFormName(agent.name);
         setFormDesc(agent.description || '');
         const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
-        setFormProviderId(agent.provider_id || (agent.is_protected || agent.slug === 'general-purpose' ? '' : activeProvider?.id || ''));
+        setFormProviderId(agent.provider_id || (agent.is_protected || agent.role === 'master' || agent.slug === 'general-purpose' ? '' : activeProvider?.id || ''));
         setFormModel(typeof agent.config?.model === 'string' ? agent.config.model : '');
         setFormSystemPrompt(agent.system_prompt || '');
         setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);

@@ -132,7 +132,7 @@ export function AgentLibrary() {
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
-            const isProtected = agent.is_protected === true || agent.slug === 'general-purpose';
+            const isProtected = agent.is_protected === true || agent.role === 'master' || agent.slug === 'general-purpose';
             return (
               <div key={agent.id} className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
                 <div className="min-w-0 flex-1">

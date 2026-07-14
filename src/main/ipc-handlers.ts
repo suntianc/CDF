@@ -83,11 +83,12 @@ import {
 } from './deepagent/conversation-working-state-maintenance';
 import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
 import {
-  GENERAL_PURPOSE_AGENT_SLUG,
   assertProjectAgentCanBeDeleted,
   assertProjectAgentCanBeSaved,
   ensureGeneralPurposeAgent,
-  isGeneralPurposeAgent,
+  ensureMasterAgent,
+  getProjectAgentRole,
+  isMasterAgent,
 } from './project-agent-service';
 
 function stripMarkdownFrontmatter(content: string): string {
@@ -227,38 +228,8 @@ export function registerIpcHandlers() {
     `).run('default-project', '默认项目', defaultProjectPath, 'general', now, now);
   };
 
-  const ensureDefaultAgentForSession = (projectId: string): string | null => {
-    const existing = db
-      .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 ORDER BY updated_at DESC LIMIT 1')
-      .get(projectId) as { id: string } | undefined;
-    if (existing) return existing.id;
-
-    const provider = db
-      .prepare('SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1')
-      .get() as { id: string } | undefined;
-    const fallbackProvider = provider || (db.prepare('SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1').get() as { id: string } | undefined);
-    const now = Date.now();
-    const id = crypto.randomUUID();
-
-    db.prepare(`
-      INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      projectId,
-      'Master Agent',
-      generateSlug('Master Agent'),
-      '项目默认 Agent',
-      fallbackProvider?.id || null,
-      '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
-      null,
-      1,
-      now,
-      now
-    );
-
-    return id;
-  };
+  const ensureMasterAgentForSession = (projectId: string): string =>
+    ensureMasterAgent(db, projectId).id;
 
   const buildProviderHeaders = (providerType: string, apiUrl: string | undefined, decryptedKey?: string) => {
     const headers: Record<string, string> = {};
@@ -387,10 +358,13 @@ export function registerIpcHandlers() {
     const projectScene = normalizeProjectScene(scene);
     const id = crypto.randomUUID();
     const now = Date.now();
-    db.prepare(
-      'INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, name, projectPath, projectScene, now, now);
-    ensureGeneralPurposeAgent(db, id);
+    db.transaction(() => {
+      db.prepare(
+        'INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(id, name, projectPath, projectScene, now, now);
+      ensureMasterAgent(db, id);
+      ensureGeneralPurposeAgent(db, id);
+    })();
     initializeScenePreset({ projectId: id, projectPath, scene: projectScene });
     const isGit = projectPath ? fs.existsSync(path.join(projectPath, '.git')) : false;
     return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
@@ -421,8 +395,8 @@ export function registerIpcHandlers() {
     const id = crypto.randomUUID();
     const now = Date.now();
     ensureProjectForSession(projectId);
-    // 主聊天入口始终绑定项目默认 Master Agent；其它 Agent 作为 Master Agent 可调用资产。
-    const finalAgentId = ensureDefaultAgentForSession(projectId) || agentId || null;
+    // 普通 Conversation 的根始终是受保护的 Master；caller 提供的 Agent 只可作为委派目标。
+    const finalAgentId = ensureMasterAgentForSession(projectId);
     db.prepare(`
       INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -679,6 +653,7 @@ export function registerIpcHandlers() {
   // ===== Phase 3: Agent Library IPC Handlers =====
 
   typedHandle('db:getAgents', (_, projectId) => {
+    ensureMasterAgent(db, projectId);
     ensureGeneralPurposeAgent(db, projectId);
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
     return agents.map(a => {
@@ -686,7 +661,8 @@ export function registerIpcHandlers() {
       const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
       return {
         ...a,
-        is_protected: isGeneralPurposeAgent(a),
+        role: getProjectAgentRole(a),
+        is_protected: isMasterAgent(a) || getProjectAgentRole(a) === 'general-purpose',
         config: a.config ? JSON.parse(a.config) : null,
         mcpServerExclusionIds: mcpExclusions.map(s => s.mcp_server_id),
         skillNames: skills.map(s => s.skill_name),
@@ -767,7 +743,8 @@ export function registerIpcHandlers() {
       project_id,
       name,
       slug: saved?.slug ?? undefined,
-      is_protected: saved?.slug === GENERAL_PURPOSE_AGENT_SLUG,
+      role: getProjectAgentRole(saved ?? {}),
+      is_protected: isMasterAgent(saved ?? {}) || getProjectAgentRole(saved ?? {}) === 'general-purpose',
       description, 
       provider_id, 
       system_prompt, 

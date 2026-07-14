@@ -22,6 +22,8 @@ import { ensureUniqueSlug, generateSlug, resolveAgentSlug } from './agent-slug';
 import {
   assertProjectAgentCanBeDeleted,
   assertProjectAgentCanBeSaved,
+  getProjectAgentRole,
+  isMasterAgent,
 } from '../project-agent-service';
 
 const AGENT_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
@@ -68,6 +70,7 @@ function serializeAgent(row: AgentRow) {
     provider_id: row.provider_id,
     system_prompt: row.system_prompt,
     config: parseConfig(row.config),
+    role: getProjectAgentRole(row),
     is_default: row.is_default === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -75,15 +78,7 @@ function serializeAgent(row: AgentRow) {
 }
 
 function isInternalMasterAgent(row: AgentRow): boolean {
-  const normalizedName = row.name.trim().toLowerCase().replace(/\s+/g, ' ');
-  const effectiveSlug = resolveAgentSlug(row).toLowerCase();
-  return (
-    normalizedName === 'master agent' ||
-    normalizedName === 'masteragent' ||
-    effectiveSlug === 'master-agent' ||
-    effectiveSlug === 'masteragent' ||
-    effectiveSlug === 'master_agent'
-  );
+  return isMasterAgent(row);
 }
 
 function getMcpExclusionIdsForAgent(agentId: string): string[] {
