@@ -15,6 +15,8 @@ import {
 import { runLLMChat, setConversationIdleListener } from './llm';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { createCapabilityJobContinuationRunner } from './capabilities/capability-job-continuation-runner';
+import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
+import { ConversationWorkingStateWorkerRunner } from './deepagent/conversation-working-state-worker-runner';
 
 // Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media.
 // standard:true additionally enables Chromium's media seeking/range machinery (see cdf-file-protocol.ts).
@@ -33,6 +35,18 @@ import log from './logger';
 import path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
+
+const workingStateReconciliationRunner = new ConversationWorkingStateWorkerRunner(
+  () => path.join(__dirname, 'conversation-working-state-reconciliation-worker.js')
+);
+
+function reconcileConversationWorkingStateAtStartup() {
+  return conversationWorkingStateLifecycle.reconcileOrphansAtStartup(
+    () => (db.prepare('SELECT id FROM sessions').all() as Array<{ id: string }>)
+      .map((session) => session.id),
+    workingStateReconciliationRunner
+  );
+}
 
 // ===== Phase 6 Plan 02: chokidar double-watch (D-23) =====
 // P6.6: os.homedir() must be ready at call time. The system watcher is started
@@ -129,9 +143,7 @@ app.whenReady().then(() => {
 
   configureNetworkProxy();
   registerIpcHandlers();
-  backgroundCapabilityJobs.resumePending();
-  backgroundCapabilityContinuations.resumePending();
-  startBackgroundCapabilityJobMaintenance();
+  const workingStateReconciliation = reconcileConversationWorkingStateAtStartup();
 
   // Phase 6 Plan 02: start system-scoped chokidar watcher for `~/.cdf/commands/*.md`.
   // P6.6: os.homedir() is now ready since we are inside app.whenReady.
@@ -141,6 +153,17 @@ app.whenReady().then(() => {
   log.info('[commands-watcher] system watcher started: ~/.cdf/commands');
 
   createWindow();
+
+  void workingStateReconciliation.then((outcome) => {
+    if (outcome.ok) {
+      log.info(`[working-state] Startup reconciliation removed ${outcome.deletedThreadCount} orphan thread(s).`);
+    } else {
+      log.error('[working-state] Startup reconciliation failed:', outcome.error);
+    }
+    backgroundCapabilityJobs.resumePending();
+    backgroundCapabilityContinuations.resumePending();
+    startBackgroundCapabilityJobMaintenance();
+  });
 });
 
 app.on('window-all-closed', () => {

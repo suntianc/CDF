@@ -1,10 +1,11 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
 import {
   CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED,
+  STARTUP_RECONCILIATION_FAILED,
   ConversationWorkingStateMaintenanceError,
   createConversationWorkingStateLifecycle,
   type ConversationWorkingStateLifecycle,
@@ -112,6 +113,58 @@ describe('ConversationWorkingStateLifecycle', () => {
     await expect(saver.getTuple({
       configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
     })).resolves.toBeUndefined();
+  });
+
+  it('gates runtime acquisition until startup reconciliation succeeds', async () => {
+    let resolveReconciliation!: (value: { deletedThreadCount: number }) => void;
+    const runner = {
+      run: vi.fn(() => new Promise<{ deletedThreadCount: number }>((resolve) => {
+        resolveReconciliation = resolve;
+      })),
+    };
+    const reconciliation = lifecycle.reconcileOrphansAtStartup(
+      () => ['conversation-1'],
+      runner
+    );
+
+    expect(lifecycle.getStorageStatus()).toEqual({
+      phase: 'analyzing',
+      failureReason: null,
+    });
+    expect(() => lifecycle.acquireSaver()).toThrowError(
+      expect.objectContaining({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED })
+    );
+    expect(runner.run).toHaveBeenCalledWith({
+      checkpointDatabasePath: path.join(tempDir, 'deepagents-checkpoints.db'),
+      liveThreadIds: ['conversation-1'],
+    });
+
+    resolveReconciliation({ deletedThreadCount: 2 });
+    await expect(reconciliation).resolves.toEqual({ ok: true, deletedThreadCount: 2 });
+    expect(lifecycle.getStorageStatus()).toEqual({
+      phase: 'normal',
+      failureReason: null,
+    });
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('records startup reconciliation failure and always releases the runtime gate', async () => {
+    const failure = new Error('database busy');
+    const reconciliation = lifecycle.reconcileOrphansAtStartup(
+      () => ['conversation-1'],
+      { run: vi.fn(async () => { throw failure; }) }
+    );
+
+    await expect(reconciliation).resolves.toEqual({
+      ok: false,
+      failureReason: STARTUP_RECONCILIATION_FAILED,
+      error: failure,
+    });
+    expect(lifecycle.getStorageStatus()).toEqual({
+      phase: 'failed',
+      failureReason: STARTUP_RECONCILIATION_FAILED,
+    });
+    expect(lifecycle.acquireSaver()).toBeDefined();
   });
 
   it('lazily reopens the saver without losing the checkpoint chain', async () => {

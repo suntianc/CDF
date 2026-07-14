@@ -536,6 +536,48 @@ describe('runLLMChat', () => {
     );
   });
 
+  it('does not fail a Workflow Run when startup maintenance blocks runtime acquisition', async () => {
+    const maintenanceError = Object.assign(
+      new Error('Conversation Working State is temporarily unavailable during maintenance.'),
+      {
+        code: 'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED',
+        recoverable: true,
+      }
+    );
+    createDeepAgentRuntimeMock.mockRejectedValue(maintenanceError);
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      run: vi.fn(),
+      all: vi.fn(() => []),
+      get: vi.fn(() => {
+        if (sql.includes('SELECT workflow_run_id FROM sessions')) {
+          return { workflow_run_id: 'workflow-run-1' };
+        }
+        return undefined;
+      }),
+    }));
+
+    const send = vi.fn();
+    await expect(runLLMChat({ send } as any, 'req-maintenance', {
+      projectId: 'project-1',
+      sessionId: 'workflow-conversation-1',
+      message: { id: 'message-1', content: 'continue' },
+    })).rejects.toBe(maintenanceError);
+
+    expect(dbPrepareMock.mock.calls.some(([sql]) =>
+      typeof sql === 'string' && sql.includes('UPDATE workflow_runs')
+    )).toBe(false);
+    expect(dbPrepareMock.mock.calls.some(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO agent_runs')
+    )).toBe(false);
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-maintenance',
+      expect.objectContaining({
+        type: 'runtime_error',
+        errorCode: 'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED',
+      })
+    );
+  });
+
   it('preserves localizable subscription errors wrapped by the provider SDK', async () => {
     const subscriptionError = Object.assign(new Error(
       'settings.aiSubscriptions.runtimeError.xaiEntitlementDenied'

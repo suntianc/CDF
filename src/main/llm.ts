@@ -4,6 +4,7 @@ import log from './logger';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
 import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, subagentStepStorage } from './deepagent/runtime';
 import { isTransientRuntimeError } from './deepagent/runtime-errors';
+import { CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED } from './deepagent/conversation-working-state';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,
@@ -485,7 +486,6 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
     let runtime: any = null;
     const lastTodosJsonRef = { current: '' };
     try {
-      if (!payload.resume) resumeWorkflowRunFromInput(payload.sessionId);
       runtime = await createDeepAgentRuntime(
         payload.projectId,
         payload.sessionId,
@@ -493,6 +493,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         payload.agentId,
         payload.overrides
       );
+      if (!payload.resume) resumeWorkflowRunFromInput(payload.sessionId);
       cleanup = runtime.cleanup;
       activeRuntimes.set(requestId, runtime);
 
@@ -942,6 +943,8 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
     sender.send(channel, { type: 'message_done' });
   } catch (error: any) {
     const structuredError = findStructuredRuntimeError(error);
+    const isWorkingStateMaintenance = structuredError?.code
+      === CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED;
     const runId = getLatestRunId(requestId);
     if (runId) {
       const status = error?.name === 'AbortError' || controller.signal.aborted ? 'aborted' : 'failed';
@@ -958,7 +961,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
     // the Workflow Run stays open so the user can continue.
     try {
       const sessionRow = db.prepare('SELECT workflow_run_id FROM sessions WHERE id = ?').get(payload.sessionId) as { workflow_run_id: string | null } | undefined;
-      if (sessionRow?.workflow_run_id) {
+      if (sessionRow?.workflow_run_id && !isWorkingStateMaintenance) {
         const isAbort = error?.name === 'AbortError' || controller.signal.aborted;
         const errorForClassify = error instanceof Error ? error : new Error(String(error));
         const isTransient = !isAbort && isTransientRuntimeError(errorForClassify);

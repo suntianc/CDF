@@ -18,7 +18,11 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          'pdf-parsing-skill-cli': resolve(__dirname, 'src/main/pdf-parsing-skill-cli.ts')
+          'pdf-parsing-skill-cli': resolve(__dirname, 'src/main/pdf-parsing-skill-cli.ts'),
+          'conversation-working-state-reconciliation-worker': resolve(
+            __dirname,
+            'src/main/deepagent/conversation-working-state-reconciliation-worker.ts'
+          )
         },
         external: ['canvas', '@napi-rs/canvas']
       }
