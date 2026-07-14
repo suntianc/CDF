@@ -390,10 +390,29 @@
       "refresh": "Refresh storage status",
       "loading": "Loading storage status",
       "unavailable": "Storage status unavailable",
+      "optimize": "Optimize storage",
+      "optimizingAction": "Optimizing storage",
+      "retry": "Retry optimization",
+      "completed": "Optimization complete",
+      "confirm": {
+        "title": "Optimize conversation storage?",
+        "duration": "This operation may take some time.",
+        "doNotClose": "Do not close CDF until optimization is complete.",
+        "action": "Optimize now"
+      },
       "phase": {
         "normal": "Ready",
         "analyzing": "Analyzing",
         "optimizing": "Optimizing"
+      },
+      "maintenancePhase": {
+        "preparing": "Preparing storage",
+        "reconciling": "Cleaning storage",
+        "checkingSpace": "Checking available space",
+        "rebuilding": "Rebuilding storage",
+        "validating": "Validating storage",
+        "replacing": "Replacing storage",
+        "reopening": "Reopening storage"
       },
       "blocked": {
         "ACTIVE_AGENT_RUN": "Waiting for active work",

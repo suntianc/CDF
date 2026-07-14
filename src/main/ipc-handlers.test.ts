@@ -23,6 +23,8 @@ const {
   pollAISubscriptionLoginMock,
   deleteConversationMock,
   deleteProjectMock,
+  compactWorkingStateMock,
+  getWorkingStateStorageStatusMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -47,6 +49,8 @@ const {
   pollAISubscriptionLoginMock: vi.fn(),
   deleteConversationMock: vi.fn(),
   deleteProjectMock: vi.fn(),
+  compactWorkingStateMock: vi.fn(),
+  getWorkingStateStorageStatusMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -90,6 +94,11 @@ vi.mock('./database', () => ({
 vi.mock('./conversation-deletion', () => ({
   deleteConversation: deleteConversationMock,
   deleteProject: deleteProjectMock,
+}));
+
+vi.mock('./deepagent/conversation-working-state-maintenance', () => ({
+  compactConversationWorkingState: compactWorkingStateMock,
+  getConversationWorkingStateStorageStatus: getWorkingStateStorageStatusMock,
 }));
 
 vi.mock('./security', () => ({
@@ -156,6 +165,16 @@ describe('IPC handlers', () => {
     pollAISubscriptionLoginMock.mockReset();
     deleteConversationMock.mockReset();
     deleteProjectMock.mockReset();
+    compactWorkingStateMock.mockReset();
+    getWorkingStateStorageStatusMock.mockReset();
+    getWorkingStateStorageStatusMock.mockReturnValue({
+      phase: 'normal',
+      maintenancePhase: null,
+      physicalBytes: 0,
+      estimatedReclaimableBytes: 0,
+      blockedReason: null,
+      failureReason: null,
+    });
   });
 
   it('registers exactly the channels declared in the IPC contract — no missing, no ghosts', () => {
@@ -173,6 +192,14 @@ describe('IPC handlers', () => {
   });
 
   it('exposes only safe Conversation storage status through IPC', () => {
+    getWorkingStateStorageStatusMock.mockReturnValue({
+      phase: 'normal',
+      maintenancePhase: null,
+      physicalBytes: 4096,
+      estimatedReclaimableBytes: 1024,
+      blockedReason: null,
+      failureReason: null,
+    });
     registerIpcHandlers();
     const handler = ipcHandleMock.mock.calls.find(
       ([channel]) => channel === 'working-state:get-storage-status'
@@ -191,6 +218,49 @@ describe('IPC handlers', () => {
     ]);
     expect(result.physicalBytes).toBeTypeOf('number');
     expect(result.estimatedReclaimableBytes).toBeLessThanOrEqual(result.physicalBytes);
+    expect(JSON.stringify(result)).not.toMatch(/path|sql|table|checkpoint|thread|database/i);
+    expect(getWorkingStateStorageStatusMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      name: 'success',
+      outcome: { ok: true, physicalBytesBefore: 4096, physicalBytesAfter: 2048 },
+      status: {
+        phase: 'normal',
+        maintenancePhase: null,
+        physicalBytes: 2048,
+        estimatedReclaimableBytes: 0,
+        blockedReason: null,
+        failureReason: null,
+      },
+    },
+    {
+      name: 'failure',
+      outcome: { ok: false, failureReason: 'COMPACTION_FAILED', error: new Error('/private/cdf.db') },
+      status: {
+        phase: 'failed',
+        maintenancePhase: null,
+        physicalBytes: 4096,
+        estimatedReclaimableBytes: 1024,
+        blockedReason: null,
+        failureReason: 'COMPACTION_FAILED',
+      },
+    },
+  ])('starts guarded storage optimization and returns safe $name status', async ({ outcome, status }) => {
+    compactWorkingStateMock.mockResolvedValue(outcome);
+    getWorkingStateStorageStatusMock.mockReturnValue(status);
+    registerIpcHandlers();
+    const handler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'working-state:optimize-storage'
+    )?.[1];
+    expect(handler).toBeTypeOf('function');
+
+    const result = await handler({}, { skipIdleChecks: true, databasePath: '/private/cdf.db' });
+
+    expect(compactWorkingStateMock).toHaveBeenCalledWith();
+    expect(getWorkingStateStorageStatusMock).toHaveBeenCalledOnce();
+    expect(result).toEqual(status);
     expect(JSON.stringify(result)).not.toMatch(/path|sql|table|checkpoint|thread|database/i);
   });
 

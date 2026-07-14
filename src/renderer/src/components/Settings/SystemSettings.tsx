@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useI18nStore } from '@/stores/i18nStore';
 import { useTranslation } from 'react-i18next';
 import { Globe, HardDrive, Palette, RefreshCw, Save } from 'lucide-react';
 import type { ConversationWorkingStateStorageStatus } from '@shared/conversation-working-state';
 import { CustomSelect } from '../ui/CustomSelect';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 function formatBytes(bytes: number): string {
@@ -29,6 +39,19 @@ export function SystemSettings() {
   const [storageLoading, setStorageLoading] = useState(true);
   const [showStorageSkeleton, setShowStorageSkeleton] = useState(false);
   const [storageLoadFailed, setStorageLoadFailed] = useState(false);
+  const [showOptimizeConfirmation, setShowOptimizeConfirmation] = useState(false);
+  const [optimizationRunning, setOptimizationRunning] = useState(false);
+  const [optimizationCompleted, setOptimizationCompleted] = useState(false);
+  const [optimizationRequestFailed, setOptimizationRequestFailed] = useState(false);
+  const storagePollTimer = useRef<number | null>(null);
+  const mounted = useRef(true);
+
+  const applyStorageStatus = useCallback((status: ConversationWorkingStateStorageStatus) => {
+    if (!mounted.current) return false;
+    setStorageStatus(status);
+    setStorageLoadFailed(false);
+    return true;
+  }, []);
 
   useEffect(() => {
     window.electronAPI.store.get('autoSave').then((v: unknown) => {
@@ -39,18 +62,27 @@ export function SystemSettings() {
   const refreshStorageStatus = useCallback(async () => {
     setStorageLoading(true);
     setStorageLoadFailed(false);
+    setOptimizationCompleted(false);
+    setOptimizationRequestFailed(false);
     try {
-      setStorageStatus(await window.electronAPI.workingState.getStorageStatus());
+      applyStorageStatus(await window.electronAPI.workingState.getStorageStatus());
     } catch {
-      setStorageLoadFailed(true);
+      if (mounted.current) setStorageLoadFailed(true);
     } finally {
-      setStorageLoading(false);
+      if (mounted.current) setStorageLoading(false);
     }
-  }, []);
+  }, [applyStorageStatus]);
 
   useEffect(() => {
     void refreshStorageStatus();
   }, [refreshStorageStatus]);
+
+  useEffect(() => () => {
+    mounted.current = false;
+    if (storagePollTimer.current !== null) {
+      window.clearInterval(storagePollTimer.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!storageLoading || storageStatus) {
@@ -66,6 +98,60 @@ export function SystemSettings() {
     window.electronAPI.store.set('autoSave', checked);
   };
 
+  const handleOptimizeStorage = async () => {
+    setShowOptimizeConfirmation(false);
+    setOptimizationRunning(true);
+    setOptimizationCompleted(false);
+    setOptimizationRequestFailed(false);
+
+    let operationFinished = false;
+    let pollInFlight = false;
+    const pollStatus = async () => {
+      if (operationFinished || pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const status = await window.electronAPI.workingState.getStorageStatus();
+        if (!operationFinished) applyStorageStatus(status);
+      } catch {
+        // A transient polling failure must not replace the last usable status.
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
+    const optimization = window.electronAPI.workingState.optimizeStorage();
+    void pollStatus();
+    storagePollTimer.current = window.setInterval(() => void pollStatus(), 250);
+
+    try {
+      const result = await optimization;
+      operationFinished = true;
+      if (!applyStorageStatus(result)) return;
+      if (result.phase === 'failed' || result.blockedReason) return;
+      setOptimizationCompleted(result.phase === 'normal');
+
+      try {
+        const refreshedStatus = await window.electronAPI.workingState.getStorageStatus();
+        if (!applyStorageStatus(refreshedStatus)) return;
+        setOptimizationCompleted(
+          refreshedStatus.phase === 'normal' && !refreshedStatus.blockedReason
+        );
+      } catch {
+        // The optimization result remains authoritative if the follow-up refresh is unavailable.
+      }
+    } catch {
+      operationFinished = true;
+      if (mounted.current) setOptimizationRequestFailed(true);
+    } finally {
+      operationFinished = true;
+      if (storagePollTimer.current !== null) {
+        window.clearInterval(storagePollTimer.current);
+        storagePollTimer.current = null;
+      }
+      if (mounted.current) setOptimizationRunning(false);
+    }
+  };
+
   const languageOptions = [
     { value: 'zh-CN', label: t('sidebar.language.zh-CN', '简体中文') },
     { value: 'en-US', label: t('sidebar.language.en-US', 'English') }
@@ -78,6 +164,9 @@ export function SystemSettings() {
   ];
 
   const storageStatusText = (() => {
+    if (optimizationRequestFailed) {
+      return t('settings.workingState.failure.COMPACTION_FAILED', '存储优化失败');
+    }
     if (storageLoadFailed) {
       return t('settings.workingState.unavailable', '无法获取存储状态');
     }
@@ -85,14 +174,37 @@ export function SystemSettings() {
     if (storageStatus.blockedReason) {
       return t(`settings.workingState.blocked.${storageStatus.blockedReason}`, '正在使用中');
     }
+    if (optimizationCompleted) {
+      return t('settings.workingState.completed', '优化完成');
+    }
     if (storageStatus.phase === 'failed') {
       return t(
         `settings.workingState.failure.${storageStatus.failureReason ?? 'COMPACTION_FAILED'}`,
         '存储状态异常'
       );
     }
+    if (storageStatus.phase === 'optimizing' && storageStatus.maintenancePhase) {
+      return t(
+        `settings.workingState.maintenancePhase.${storageStatus.maintenancePhase}`,
+        '正在优化'
+      );
+    }
     return t(`settings.workingState.phase.${storageStatus.phase}`, '正常');
   })();
+
+  const optimizationFailed = optimizationRequestFailed || storageStatus?.phase === 'failed';
+  const optimizeLabel = optimizationRunning
+    ? t('settings.workingState.optimizingAction', '正在优化存储')
+    : optimizationFailed
+      ? t('settings.workingState.retry', '重试优化')
+      : t('settings.workingState.optimize', '优化存储');
+  const optimizeDisabled = storageLoading
+    || storageLoadFailed
+    || !storageStatus
+    || optimizationRunning
+    || storageStatus.phase === 'analyzing'
+    || storageStatus.phase === 'optimizing'
+    || Boolean(storageStatus.blockedReason);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden animate-fade-up">
@@ -218,7 +330,7 @@ export function SystemSettings() {
                 </TooltipProvider>
               </div>
               {(!storageLoading || storageStatus) && (
-                <p className={`mt-0.5 text-xs ${
+                <p role="status" aria-live="polite" className={`mt-0.5 text-xs ${
                   storageLoadFailed || storageStatus?.phase === 'failed'
                     ? 'text-[var(--color-danger)]'
                     : 'text-[var(--color-text-muted)]'
@@ -243,27 +355,72 @@ export function SystemSettings() {
               )}
 
               {(!storageLoading || storageStatus) && (
-                <dl className="grid grid-cols-2 gap-4 mt-3">
-                  <div className="min-w-0">
-                    <dt className="text-[11px] text-[var(--color-text-muted)]">
-                      {t('settings.workingState.currentUsage', '当前占用')}
-                    </dt>
-                    <dd className="mt-1 text-xs font-medium text-[var(--color-text-primary)] tabular-nums">
-                      {storageStatus ? formatBytes(storageStatus.physicalBytes) : '—'}
-                    </dd>
+                <>
+                  <dl className="grid grid-cols-2 gap-4 mt-3">
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-[var(--color-text-muted)]">
+                        {t('settings.workingState.currentUsage', '当前占用')}
+                      </dt>
+                      <dd className="mt-1 text-xs font-medium text-[var(--color-text-primary)] tabular-nums">
+                        {storageStatus ? formatBytes(storageStatus.physicalBytes) : '—'}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-[var(--color-text-muted)]">
+                        {t('settings.workingState.estimatedReclaimable', '预计可释放')}
+                      </dt>
+                      <dd className="mt-1 text-xs font-medium text-[var(--color-text-primary)] tabular-nums">
+                        {storageStatus ? formatBytes(storageStatus.estimatedReclaimableBytes) : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      type="button"
+                      disabled={optimizeDisabled}
+                      onClick={() => setShowOptimizeConfirmation(true)}
+                    >
+                      {optimizeLabel}
+                    </Button>
                   </div>
-                  <div className="min-w-0">
-                    <dt className="text-[11px] text-[var(--color-text-muted)]">
-                      {t('settings.workingState.estimatedReclaimable', '预计可释放')}
-                    </dt>
-                    <dd className="mt-1 text-xs font-medium text-[var(--color-text-primary)] tabular-nums">
-                      {storageStatus ? formatBytes(storageStatus.estimatedReclaimableBytes) : '—'}
-                    </dd>
-                  </div>
-                </dl>
+                </>
               )}
             </div>
           </section>
+
+          <Dialog open={showOptimizeConfirmation} onOpenChange={setShowOptimizeConfirmation}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {t('settings.workingState.confirm.title', '优化会话存储？')}
+                </DialogTitle>
+                <DialogDescription className="space-y-2">
+                  <span className="block">
+                    {t(
+                      'settings.workingState.confirm.duration',
+                      '此操作可能需要一些时间。'
+                    )}
+                  </span>
+                  <span className="block font-medium text-[var(--color-text-primary)]">
+                    {t(
+                      'settings.workingState.confirm.doNotClose',
+                      '优化完成前请勿关闭 CDF。'
+                    )}
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">
+                    {t('common.cancel', '取消')}
+                  </Button>
+                </DialogClose>
+                <Button type="button" onClick={() => void handleOptimizeStorage()}>
+                  {t('settings.workingState.confirm.action', '立即优化')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>

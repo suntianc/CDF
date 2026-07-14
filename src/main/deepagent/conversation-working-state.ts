@@ -69,6 +69,9 @@ export interface ConversationWorkingStateLifecycle {
     readLiveThreadIds: () => readonly string[],
     runner: ConversationWorkingStateCompactionRunnerContract
   ): Promise<ConversationWorkingStateCompactionOutcome>;
+  getMaintenanceBlocker(
+    readPersistentBlocker: () => ConversationWorkingStateBlockReason | null
+  ): ConversationWorkingStateBlockReason | null;
   getStorageStatus(): ConversationWorkingStateStorageStatus;
   /** Closes the shared saver after callers have established that no run is using it. */
   close(): void;
@@ -221,11 +224,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
       failureReason: null,
     };
     try {
-      const blockedReason = this.activeRuntimeUsers > 0
-        ? CONVERSATION_WORKING_STATE_BLOCK_REASONS.ACTIVE_AGENT_RUN
-        : this.activeCapabilityJobUsers > 0
-          ? CONVERSATION_WORKING_STATE_BLOCK_REASONS.ACTIVE_CAPABILITY_JOB
-          : readBlocker();
+      const blockedReason = this.getMaintenanceBlocker(readBlocker);
       if (blockedReason) {
         this.storageStatus = {
           ...NORMAL_STORAGE_STATUS,
@@ -284,6 +283,18 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
       this.compactionLocked = false;
       this.leaveMaintenance();
     }
+  }
+
+  getMaintenanceBlocker(
+    readPersistentBlocker: () => ConversationWorkingStateBlockReason | null
+  ): ConversationWorkingStateBlockReason | null {
+    if (this.activeRuntimeUsers > 0) {
+      return CONVERSATION_WORKING_STATE_BLOCK_REASONS.ACTIVE_AGENT_RUN;
+    }
+    if (this.activeCapabilityJobUsers > 0) {
+      return CONVERSATION_WORKING_STATE_BLOCK_REASONS.ACTIVE_CAPABILITY_JOB;
+    }
+    return readPersistentBlocker();
   }
 
   getStorageStatus(): ConversationWorkingStateStorageStatus {

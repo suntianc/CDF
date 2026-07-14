@@ -35,6 +35,7 @@ const api = {
   },
   workingState: {
     getStorageStatus: () => typedInvoke('working-state:get-storage-status'),
+    optimizeStorage: () => typedInvoke('working-state:optimize-storage'),
   },
   aiSubscriptions: {
     getEntries: () => typedInvoke('aiSubscriptions:getEntries'),

@@ -132,6 +132,10 @@ export interface IpcInvokeContract {
     args: [];
     result: ConversationWorkingStateStorageStatus;
   };
+  'working-state:optimize-storage': {
+    args: [];
+    result: ConversationWorkingStateStorageStatus;
+  };
   // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
   'db:getAgents': { args: [projectId: string]; result: Agent[] };
   'db:saveAgent': { args: [agent: AgentSaveInput]; result: AgentSaveResult };
@@ -357,6 +361,7 @@ export const IPC_INVOKE_CHANNELS = [
   'capability-jobs:command',
   'conversation:get-active-run',
   'working-state:get-storage-status',
+  'working-state:optimize-storage',
   'db:getAgents',
   'db:saveAgent',
   'db:deleteAgent',

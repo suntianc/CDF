@@ -77,6 +77,10 @@ import { backgroundCapabilityJobs } from './capabilities/background-capability-r
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { deleteConversation, deleteProject } from './conversation-deletion';
 import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
+import {
+  compactConversationWorkingState,
+  getConversationWorkingStateStorageStatus,
+} from './deepagent/conversation-working-state-maintenance';
 import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
 import {
   GENERAL_PURPOSE_AGENT_SLUG,
@@ -199,8 +203,12 @@ export function registerIpcHandlers() {
     conversationRunStreams.getActive(sessionId)
   );
   typedHandle('working-state:get-storage-status', () =>
-    conversationWorkingStateLifecycle.getStorageStatus()
+    getConversationWorkingStateStorageStatus()
   );
+  typedHandle('working-state:optimize-storage', async () => {
+    await compactConversationWorkingState();
+    return getConversationWorkingStateStorageStatus();
+  });
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (existing) return;

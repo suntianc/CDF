@@ -390,10 +390,29 @@
       "refresh": "刷新存储状态",
       "loading": "正在加载存储状态",
       "unavailable": "无法获取存储状态",
+      "optimize": "优化存储",
+      "optimizingAction": "正在优化存储",
+      "retry": "重试优化",
+      "completed": "优化完成",
+      "confirm": {
+        "title": "优化会话存储？",
+        "duration": "此操作可能需要一些时间。",
+        "doNotClose": "优化完成前请勿关闭 CDF。",
+        "action": "立即优化"
+      },
       "phase": {
         "normal": "正常",
         "analyzing": "正在分析",
         "optimizing": "正在优化"
+      },
+      "maintenancePhase": {
+        "preparing": "正在准备存储",
+        "reconciling": "正在清理存储",
+        "checkingSpace": "正在检查可用空间",
+        "rebuilding": "正在重建存储",
+        "validating": "正在验证存储",
+        "replacing": "正在替换存储",
+        "reopening": "正在重新打开存储"
       },
       "blocked": {
         "ACTIVE_AGENT_RUN": "等待当前任务结束",

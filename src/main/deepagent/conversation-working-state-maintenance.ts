@@ -8,11 +8,30 @@ const compactionRunner = new ConversationWorkingStateCompactionRunner(
   () => path.join(__dirname, 'conversation-working-state-compaction-worker.js')
 );
 
+function readMaintenanceBlocker() {
+  return findConversationWorkingStateMaintenanceBlocker(db);
+}
+
+function readLiveConversationIds() {
+  return (db.prepare('SELECT id FROM sessions').all() as Array<{ id: string }>)
+    .map((session) => session.id);
+}
+
+export function getConversationWorkingStateStorageStatus() {
+  const status = conversationWorkingStateLifecycle.getStorageStatus();
+  if (status.phase === 'analyzing' || status.phase === 'optimizing') {
+    return status;
+  }
+  return {
+    ...status,
+    blockedReason: conversationWorkingStateLifecycle.getMaintenanceBlocker(readMaintenanceBlocker),
+  };
+}
+
 export function compactConversationWorkingState() {
   return conversationWorkingStateLifecycle.compact(
-    () => findConversationWorkingStateMaintenanceBlocker(db),
-    () => (db.prepare('SELECT id FROM sessions').all() as Array<{ id: string }>)
-      .map((session) => session.id),
+    readMaintenanceBlocker,
+    readLiveConversationIds,
     compactionRunner
   );
 }

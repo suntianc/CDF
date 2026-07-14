@@ -236,6 +236,26 @@ describe('ConversationWorkingStateLifecycle', () => {
     expect(lifecycle.acquireSaver()).toBeDefined();
   });
 
+  it('reports live and persisted maintenance blockers without retaining stale activity', () => {
+    let persistedBlocker: 'ACTIVE_DELEGATED_AGENT_RUN' | null = 'ACTIVE_DELEGATED_AGENT_RUN';
+    const readPersistedBlocker = () => persistedBlocker;
+
+    expect(lifecycle.getMaintenanceBlocker(readPersistedBlocker))
+      .toBe('ACTIVE_DELEGATED_AGENT_RUN');
+
+    const releaseRuntime = lifecycle.beginRuntimeUse();
+    expect(lifecycle.getMaintenanceBlocker(readPersistedBlocker)).toBe('ACTIVE_AGENT_RUN');
+    releaseRuntime();
+
+    persistedBlocker = null;
+    expect(lifecycle.getMaintenanceBlocker(readPersistedBlocker)).toBeNull();
+
+    const releaseCapabilityJob = lifecycle.beginCapabilityJobUse();
+    expect(lifecycle.getMaintenanceBlocker(readPersistedBlocker)).toBe('ACTIVE_CAPABILITY_JOB');
+    releaseCapabilityJob();
+    expect(lifecycle.getMaintenanceBlocker(readPersistedBlocker)).toBeNull();
+  });
+
   it('rejects compaction while a runtime is initializing before its run record exists', async () => {
     const releaseRuntime = lifecycle.beginRuntimeUse();
     const runner: ConversationWorkingStateCompactionRunnerContract = { run: vi.fn() };
