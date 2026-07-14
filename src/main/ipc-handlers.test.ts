@@ -22,6 +22,7 @@ const {
   startAISubscriptionLoginMock,
   pollAISubscriptionLoginMock,
   deleteConversationMock,
+  deleteProjectMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -45,6 +46,7 @@ const {
   startAISubscriptionLoginMock: vi.fn(),
   pollAISubscriptionLoginMock: vi.fn(),
   deleteConversationMock: vi.fn(),
+  deleteProjectMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -87,6 +89,7 @@ vi.mock('./database', () => ({
 
 vi.mock('./conversation-deletion', () => ({
   deleteConversation: deleteConversationMock,
+  deleteProject: deleteProjectMock,
 }));
 
 vi.mock('./security', () => ({
@@ -152,6 +155,7 @@ describe('IPC handlers', () => {
     startAISubscriptionLoginMock.mockReset();
     pollAISubscriptionLoginMock.mockReset();
     deleteConversationMock.mockReset();
+    deleteProjectMock.mockReset();
   });
 
   it('registers exactly the channels declared in the IPC contract — no missing, no ghosts', () => {
@@ -257,6 +261,20 @@ describe('IPC handlers', () => {
     expect(pollAISubscriptionLoginMock).toHaveBeenCalledWith('codex-oauth', 'attempt-1');
   });
 
+  it('routes db:deleteProject through the authoritative Project deletion seam', async () => {
+    registerIpcHandlers();
+    const deleteProjectHandler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'db:deleteProject'
+    )?.[1];
+    expect(deleteProjectHandler).toBeTypeOf('function');
+    dbPrepareMock.mockClear();
+
+    await expect(Promise.resolve(deleteProjectHandler({}, 'project-1'))).resolves.toBeUndefined();
+
+    expect(deleteProjectMock).toHaveBeenCalledWith(expect.any(Object), 'project-1', expect.any(Object));
+    expect(dbPrepareMock).not.toHaveBeenCalled();
+  });
+
   it('routes db:deleteSession through the authoritative Conversation deletion seam', async () => {
     registerIpcHandlers();
     const deleteSessionHandler = ipcHandleMock.mock.calls.find(
@@ -267,21 +285,19 @@ describe('IPC handlers', () => {
 
     await expect(Promise.resolve(deleteSessionHandler({}, 'conversation-1'))).resolves.toBeUndefined();
 
-    expect(deleteConversationMock).toHaveBeenCalledWith(expect.any(Object), 'conversation-1');
+    expect(deleteConversationMock).toHaveBeenCalledWith(expect.any(Object), 'conversation-1', expect.any(Object));
     expect(dbPrepareMock).not.toHaveBeenCalled();
   });
 
-  it('passes Conversation deletion rejection errors through db:deleteSession', () => {
+  it('passes Conversation deletion rejection errors through db:deleteSession', async () => {
     const rejection = new Error('[CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN] Conversation is busy');
-    deleteConversationMock.mockImplementationOnce(() => {
-      throw rejection;
-    });
+    deleteConversationMock.mockRejectedValueOnce(rejection);
     registerIpcHandlers();
     const deleteSessionHandler = ipcHandleMock.mock.calls.find(
       ([channel]) => channel === 'db:deleteSession'
     )?.[1];
 
-    expect(() => deleteSessionHandler({}, 'conversation-1')).toThrow(rejection);
+    await expect(deleteSessionHandler({}, 'conversation-1')).rejects.toBe(rejection);
   });
 
   it('should acknowledge llm:chat immediately and stream asynchronously', () => {

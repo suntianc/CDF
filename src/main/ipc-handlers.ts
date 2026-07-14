@@ -75,7 +75,8 @@ import type {
 } from '../shared/ai-subscriptions';
 import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
-import { deleteConversation } from './conversation-deletion';
+import { deleteConversation, deleteProject } from './conversation-deletion';
+import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
 import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
 import {
   GENERAL_PURPOSE_AGENT_SLUG,
@@ -384,12 +385,9 @@ export function registerIpcHandlers() {
     return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
   });
 
-  typedCrud({
-    channel: 'db:deleteProject',
-    remove: (id) => {
-      db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-    },
-  });
+  typedHandle('db:deleteProject', (_, projectId) =>
+    deleteProject(db, projectId, conversationWorkingStateLifecycle)
+  );
 
   // 写后合成返回行（write-then-return），按 ADR-0052 排除清单保留手写。
   typedHandle('db:renameProject', (_, id, name) => {
@@ -421,9 +419,9 @@ export function registerIpcHandlers() {
     return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
   });
 
-  typedHandle('db:deleteSession', (_, sessionId) => {
-    deleteConversation(db, sessionId);
-  });
+  typedHandle('db:deleteSession', (_, sessionId) =>
+    deleteConversation(db, sessionId, conversationWorkingStateLifecycle)
+  );
 
   // Database handlers: Messages
   typedHandle('db:getMessages', (_, sessionId) => {
