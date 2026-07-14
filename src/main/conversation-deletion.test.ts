@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import type { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CONVERSATION_DELETE_ERROR_CODES,
   PROJECT_DELETE_ERROR_CODES,
@@ -13,6 +13,7 @@ import {
   deleteProject,
 } from './conversation-deletion';
 import { createConversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
+import { reconcileOrphanConversationWorkingState } from './deepagent/conversation-working-state-reconciliation';
 
 function checkpoint(id: string): Checkpoint {
   return {
@@ -32,6 +33,14 @@ const checkpointMetadata: CheckpointMetadata = {
 };
 
 const noWorkingStateCleanup = { deleteThread: async (_threadId: string) => undefined };
+const testDatabases: Array<{ db: Database.Database; tempDir: string }> = [];
+
+afterEach(() => {
+  for (const { db, tempDir } of testDatabases.splice(0)) {
+    if (db.open) db.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 interface TestDatabase {
   db: Database.Database;
@@ -40,7 +49,9 @@ interface TestDatabase {
 }
 
 function createDatabase(options: { withCapabilityJobs?: boolean; withDelegatedRuns?: boolean } = {}): TestDatabase {
-  const db = new Database(':memory:');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-business-delete-'));
+  const db = new Database(path.join(tempDir, 'cdf.db'));
+  testDatabases.push({ db, tempDir });
   let deleteAttempts = 0;
   let deleteWasInsideTransaction: boolean | null = null;
   db.function('record_session_delete', () => {
@@ -258,7 +269,10 @@ describe('deleteConversation', () => {
         configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
       })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-orphan' } });
 
-      await workingState.deleteThread('conversation-1');
+      expect(reconcileOrphanConversationWorkingState({
+        checkpointDatabasePath: path.join(tempDir, 'deepagents-checkpoints.db'),
+        liveThreadIds: [],
+      })).toEqual({ deletedThreadCount: 1 });
       await expect(saver.getTuple({
         configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
       })).resolves.toBeUndefined();

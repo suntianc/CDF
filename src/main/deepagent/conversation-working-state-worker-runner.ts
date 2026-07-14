@@ -9,6 +9,7 @@ export type ConversationWorkingStateWorkerResponse =
   | { ok: false; error: string };
 
 export interface ConversationWorkingStateWorker {
+  unref(): void;
   once(event: 'message', listener: (message: ConversationWorkingStateWorkerResponse) => void): this;
   once(event: 'error', listener: (error: Error) => void): this;
   once(event: 'exit', listener: (code: number) => void): this;
@@ -40,6 +41,7 @@ implements ConversationWorkingStateReconciliationRunner {
   ): Promise<ConversationWorkingStateReconciliationResult> {
     return new Promise((resolve, reject) => {
       const worker = this.createWorker(this.resolveWorkerPath(), request);
+      worker.unref();
       let settled = false;
       const settle = (callback: () => void) => {
         if (settled) return;

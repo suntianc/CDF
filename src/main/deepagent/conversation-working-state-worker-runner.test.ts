@@ -5,7 +5,13 @@ import {
   type ConversationWorkingStateWorker,
 } from './conversation-working-state-worker-runner';
 
-class FakeWorker extends EventEmitter implements ConversationWorkingStateWorker {}
+class FakeWorker extends EventEmitter implements ConversationWorkingStateWorker {
+  unrefCalled = false;
+
+  unref(): void {
+    this.unrefCalled = true;
+  }
+}
 
 const request = {
   checkpointDatabasePath: '/tmp/deepagents-checkpoints.db',
@@ -33,6 +39,7 @@ describe('ConversationWorkingStateWorkerRunner', () => {
     await expect(runner.run(request)).resolves.toEqual({ deletedThreadCount: 2 });
     expect(receivedPath).toBe('/app/reconciliation-worker.js');
     expect(receivedRequest).toEqual(request);
+    expect(worker.unrefCalled).toBe(true);
   });
 
   it('rejects a structured Worker failure', async () => {

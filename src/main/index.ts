@@ -35,6 +35,7 @@ import log from './logger';
 import path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 
 const workingStateReconciliationRunner = new ConversationWorkingStateWorkerRunner(
   () => path.join(__dirname, 'conversation-working-state-reconciliation-worker.js')
@@ -155,6 +156,7 @@ app.whenReady().then(() => {
   createWindow();
 
   void workingStateReconciliation.then((outcome) => {
+    if (isQuitting) return;
     if (outcome.ok) {
       log.info(`[working-state] Startup reconciliation removed ${outcome.deletedThreadCount} orphan thread(s).`);
     } else {
@@ -179,7 +181,6 @@ app.on('activate', () => {
 });
 
 // ===== Shutdown: clean exit so macOS dock icon disappears =====
-let isQuitting = false;
 app.on('before-quit', (event) => {
   if (isQuitting) return;
   event.preventDefault();
