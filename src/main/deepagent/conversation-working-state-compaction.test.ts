@@ -270,34 +270,95 @@ describe('Conversation Working State compaction engine', () => {
     expect(maintenanceArtifacts()).toEqual([]);
   });
 
-  it('recovers after a process is forcibly terminated during a long rebuild', async () => {
+  it('restores the rollback when installation renames the database before reporting failure', () => {
     createFreelistHeavyFixture();
+    let originalSizeBeforeInstall = 0;
+
+    expect(() => compactConversationWorkingStateStorage({
+      checkpointDatabasePath: databasePath,
+      liveThreadIds: ['conversation-live'],
+    }, {
+      beforeValidation: () => {
+        originalSizeBeforeInstall = fs.statSync(databasePath).size;
+      },
+      installTemporaryDatabase: (temporaryPath, installedPath) => {
+        fs.renameSync(temporaryPath, installedPath);
+        throw new Error('install failed after rename');
+      },
+    })).toThrow(expect.objectContaining({ code: 'COMPACTION_FAILED' }));
+
+    expect(fs.statSync(databasePath).size).toBe(originalSizeBeforeInstall);
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.prepare('SELECT checkpoint_id FROM checkpoints').all())
+      .toEqual([{ checkpoint_id: 'live-1' }]);
+    reopened.close();
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it('recovers after a process is forcibly terminated during a real SQLite rebuild', async () => {
+    createFreelistHeavyFixture();
+    const padding = new Database(databasePath);
+    padding.exec('CREATE TABLE rebuild_padding (value BLOB)');
+    const insertPadding = padding.prepare('INSERT INTO rebuild_padding VALUES (?)');
+    padding.transaction(() => {
+      for (let index = 0; index < 96; index += 1) {
+        insertPadding.run(Buffer.alloc(1024 * 1024, index));
+      }
+    })();
+    padding.close();
     const temporaryPath = `${databasePath}.compact-forced-exit`;
+    let childOutput = '';
     const child = spawn(process.execPath, ['-e', `
       const Database = require('better-sqlite3');
-      const db = new Database(process.env.CDF_REBUILD_PATH);
-      db.pragma('journal_mode = WAL');
-      db.exec('CREATE TABLE rebuilt_pages (value BLOB)');
-      const insert = db.prepare('INSERT INTO rebuilt_pages VALUES (?)');
-      for (let index = 0; index < 16; index += 1) insert.run(Buffer.alloc(1024 * 1024, index));
-      process.stdout.write('rebuilding\\n');
+      const source = new Database(process.env.CDF_SOURCE_PATH, { readonly: true });
+      process.stdout.write('started\\n');
+      setImmediate(() => {
+        source.prepare('VACUUM INTO ?').run(process.env.CDF_REBUILD_PATH);
+        process.stdout.write('completed\\n');
+      });
       setInterval(() => undefined, 1000);
     `], {
       cwd: process.cwd(),
-      env: { ...process.env, CDF_REBUILD_PATH: temporaryPath },
+      env: {
+        ...process.env,
+        CDF_SOURCE_PATH: databasePath,
+        CDF_REBUILD_PATH: temporaryPath,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout.on('data', (chunk) => {
+      childOutput += chunk.toString();
     });
     const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
     await new Promise<void>((resolve, reject) => {
+      const poll = setInterval(() => {
+        if (childOutput.includes('completed')) {
+          clearInterval(poll);
+          clearTimeout(timeout);
+          child.kill('SIGKILL');
+          reject(new Error('SQLite rebuild completed before forced termination.'));
+          return;
+        }
+        if (
+          childOutput.includes('started')
+          && fs.existsSync(temporaryPath)
+          && fs.statSync(temporaryPath).size > 0
+        ) {
+          clearInterval(poll);
+          clearTimeout(timeout);
+          child.kill('SIGKILL');
+          resolve();
+        }
+      }, 1);
       const timeout = setTimeout(() => {
+        clearInterval(poll);
         child.kill('SIGKILL');
-        reject(new Error('Timed out waiting for rebuild process.'));
+        reject(new Error('Timed out waiting for SQLite rebuild.'));
       }, 10_000);
-      child.once('error', reject);
-      child.stdout.once('data', () => {
+      child.once('error', (error) => {
+        clearInterval(poll);
         clearTimeout(timeout);
-        child.kill('SIGKILL');
-        resolve();
+        reject(error);
       });
     });
     await closed;

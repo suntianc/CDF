@@ -474,7 +474,10 @@ describe('ConversationWorkingStateLifecycle', () => {
       createRollback: () => { throw new Error('rollback failed'); },
     }, 'COMPACTION_FAILED'],
     ['temporary-to-live replacement', {
-      installTemporaryDatabase: () => { throw new Error('install failed'); },
+      installTemporaryDatabase: (temporaryPath: string, installedPath: string) => {
+        fs.renameSync(temporaryPath, installedPath);
+        throw new Error('install failed after rename');
+      },
     }, 'COMPACTION_FAILED'],
     ['reopened-database validation', {
       reopenDatabase: () => { throw new Error('reopen failed'); },

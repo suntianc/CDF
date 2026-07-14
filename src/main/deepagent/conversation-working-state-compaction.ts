@@ -180,6 +180,20 @@ function fsyncDirectoryBestEffort(directoryPath: string): void {
   }
 }
 
+function databaseWasReplaced(
+  checkpointDatabasePath: string,
+  rollbackPath: string
+): boolean {
+  try {
+    const installed = fs.statSync(checkpointDatabasePath);
+    const rollback = fs.statSync(rollbackPath);
+    return installed.dev !== rollback.dev || installed.ino !== rollback.ino;
+  } catch {
+    // Preserve and restore the rollback whenever file identity cannot prove the original is live.
+    return true;
+  }
+}
+
 function hasValidIntegrity(databasePath: string): boolean {
   try {
     assertIntegrity(databasePath);
@@ -366,7 +380,9 @@ export function compactConversationWorkingStateStorage(
       physicalBytesAfter: getConversationWorkingStatePhysicalBytes(checkpointDatabasePath),
     };
   } catch (error) {
-    if (compactInstalled && rollbackCreated) {
+    if (rollbackCreated && (
+      compactInstalled || databaseWasReplaced(checkpointDatabasePath, rollbackPath)
+    )) {
       try {
         installValidatedRollbackDatabase(checkpointDatabasePath, sqliteFileFamily(rollbackPath));
         removeFileFamilyBestEffort(sqliteFileFamily(rollbackPath));
