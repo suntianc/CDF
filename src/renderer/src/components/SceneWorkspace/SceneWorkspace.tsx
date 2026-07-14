@@ -187,7 +187,7 @@ function PaperLibraryPanel() {
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder={t('sceneWorkspace.paperSearchPlaceholder')}
-                className="h-8 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-sunken)] pl-8 pr-2 text-xs text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus-visible:outline-none"
+                className="scene-paper-search h-8 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-sunken)] pl-8 pr-2 text-xs text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus-visible:outline-none"
               />
             </label>
             <button

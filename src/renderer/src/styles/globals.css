@@ -1061,8 +1061,14 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 .dialog-box textarea:focus-visible,
 .workflow-stage-editor textarea:focus-visible,
 .workflow-stage-editor input:focus-visible,
-.workflow-stage-editor select:focus-visible {
-  outline: none;
+.workflow-stage-editor select:focus-visible,
+.scene-paper-search:focus-visible {
+  outline: none !important;
+}
+
+.scene-paper-search:focus {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .file-filter-input:focus-visible {
