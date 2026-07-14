@@ -96,6 +96,7 @@ function isFailureReason(value: unknown): value is ConversationWorkingStateFailu
 class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStateLifecycle {
   private saver: SqliteSaver | null = null;
   private maintenanceLocked = false;
+  private recoveryBlocked = false;
   private compactionLocked = false;
   private activeRuntimeUsers = 0;
   private activeCapabilityJobUsers = 0;
@@ -106,9 +107,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
   constructor(private readonly resolveDatabasePath: () => string) {}
 
   beginRuntimeUse(): () => void {
-    if (this.maintenanceLocked) {
-      throw new ConversationWorkingStateMaintenanceError();
-    }
+    this.assertSaverAvailable();
     this.activeRuntimeUsers += 1;
     let released = false;
     return () => {
@@ -119,9 +118,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
   }
 
   beginCapabilityJobUse(): () => void {
-    if (this.maintenanceLocked) {
-      throw new ConversationWorkingStateMaintenanceError();
-    }
+    this.assertSaverAvailable();
     this.activeCapabilityJobUsers += 1;
     let released = false;
     return () => {
@@ -132,9 +129,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
   }
 
   acquireSaver(): SqliteSaver {
-    if (this.maintenanceLocked) {
-      throw new ConversationWorkingStateMaintenanceError();
-    }
+    this.assertSaverAvailable();
     return this.getOrCreateSaver();
   }
 
@@ -150,7 +145,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
   }
 
   deleteThread(threadId: string): Promise<void> {
-    if (this.compactionLocked) {
+    if (this.compactionLocked || this.recoveryBlocked) {
       return Promise.reject(new ConversationWorkingStateMaintenanceError());
     }
     const operation = this.getOrCreateSaver().deleteThread(threadId);
@@ -162,7 +157,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
   }
 
   assertConversationDeletionAllowed(): void {
-    if (this.compactionLocked) {
+    if (this.compactionLocked || this.recoveryBlocked) {
       throw new ConversationWorkingStateMaintenanceError();
     }
   }
@@ -179,9 +174,12 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
       blockedReason: null,
       failureReason: null,
     };
+    let recoveryCompleted = false;
     try {
       this.close();
       recoverInterruptedConversationWorkingStateCompaction(this.resolveDatabasePath());
+      recoveryCompleted = true;
+      this.recoveryBlocked = false;
       const liveThreadIds = [...readLiveThreadIds()];
       const result = await runner.run({
         checkpointDatabasePath: this.resolveDatabasePath(),
@@ -190,6 +188,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
       this.storageStatus = { ...NORMAL_STORAGE_STATUS };
       return { ok: true, deletedThreadCount: result.deletedThreadCount };
     } catch (error) {
+      if (!recoveryCompleted) this.recoveryBlocked = true;
       this.storageStatus = {
         phase: 'failed',
         maintenancePhase: null,
@@ -211,6 +210,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
     readLiveThreadIds: () => readonly string[],
     runner: ConversationWorkingStateCompactionRunnerContract
   ): Promise<ConversationWorkingStateCompactionOutcome> {
+    if (this.recoveryBlocked) throw new ConversationWorkingStateMaintenanceError();
     this.captureStorageInspection();
     this.enterMaintenance();
     this.compactionLocked = true;
@@ -258,8 +258,17 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
       this.storageStatus = { ...NORMAL_STORAGE_STATUS };
       return { ok: true, ...result };
     } catch (error) {
-      const code = typeof error === 'object' && error !== null && 'code' in error
-        ? (error as { code?: unknown }).code
+      let outcomeError = error;
+      try {
+        this.close();
+        recoverInterruptedConversationWorkingStateCompaction(this.resolveDatabasePath());
+        this.recoveryBlocked = false;
+      } catch (recoveryError) {
+        outcomeError = recoveryError;
+        this.recoveryBlocked = true;
+      }
+      const code = typeof outcomeError === 'object' && outcomeError !== null && 'code' in outcomeError
+        ? (outcomeError as { code?: unknown }).code
         : undefined;
       const failureReason = isFailureReason(code)
         ? code
@@ -270,7 +279,7 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
         blockedReason: null,
         failureReason,
       };
-      return { ok: false, failureReason, error };
+      return { ok: false, failureReason, error: outcomeError };
     } finally {
       this.compactionLocked = false;
       this.leaveMaintenance();
@@ -307,6 +316,12 @@ class SqliteConversationWorkingStateLifecycle implements ConversationWorkingStat
     const saver = this.saver;
     this.saver = null;
     saver?.db.close();
+  }
+
+  private assertSaverAvailable(): void {
+    if (this.maintenanceLocked || this.recoveryBlocked) {
+      throw new ConversationWorkingStateMaintenanceError();
+    }
   }
 
   private captureStorageInspection(): void {

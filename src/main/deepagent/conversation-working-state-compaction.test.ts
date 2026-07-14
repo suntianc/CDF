@@ -2,7 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import type { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   compactConversationWorkingStateStorage,
   findConversationWorkingStateMaintenanceBlocker,
@@ -56,6 +58,24 @@ describe('Conversation Working State compaction engine', () => {
     db.close();
   }
 
+  function maintenanceArtifacts(): string[] {
+    return fs.readdirSync(tempDir).filter(
+      (name) => name.includes('.compact-') || name.includes('.rollback-')
+    );
+  }
+
+  function createWalSnapshot(destinationPath: string): void {
+    const sourcePath = path.join(tempDir, 'wal-snapshot-source.db');
+    const source = new Database(sourcePath);
+    source.pragma('journal_mode = WAL');
+    source.exec('CREATE TABLE pending_state (value TEXT); INSERT INTO pending_state VALUES (\'in wal\')');
+    fs.copyFileSync(sourcePath, destinationPath);
+    fs.copyFileSync(`${sourcePath}-wal`, `${destinationPath}-wal`);
+    fs.copyFileSync(`${sourcePath}-shm`, `${destinationPath}-shm`);
+    source.close();
+    for (const suffix of ['', '-wal', '-shm']) fs.rmSync(`${sourcePath}${suffix}`, { force: true });
+  }
+
   it('restores a valid rollback candidate when replacement was interrupted', () => {
     createFreelistHeavyFixture();
     const rollbackPath = `${databasePath}.rollback-interrupted`;
@@ -70,17 +90,110 @@ describe('Conversation Working State compaction engine', () => {
     expect(fs.existsSync(rollbackPath)).toBe(false);
   });
 
-  it('keeps a valid installed database and removes a stale rollback candidate', () => {
+  it('keeps a valid installed database and removes every stale maintenance file family', () => {
     createFreelistHeavyFixture();
     const rollbackPath = `${databasePath}.rollback-stale`;
     const compactPath = `${databasePath}.compact-stale`;
     fs.linkSync(databasePath, rollbackPath);
+    fs.writeFileSync(`${rollbackPath}-wal`, 'stale rollback wal');
+    fs.writeFileSync(`${rollbackPath}-shm`, 'stale rollback shm');
     fs.writeFileSync(compactPath, 'incomplete');
+    fs.writeFileSync(`${compactPath}-wal`, 'stale compact wal');
+    fs.writeFileSync(`${compactPath}-shm`, 'stale compact shm');
 
     expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(false);
-    expect(fs.existsSync(databasePath)).toBe(true);
-    expect(fs.existsSync(rollbackPath)).toBe(false);
-    expect(fs.existsSync(compactPath)).toBe(false);
+
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.pragma('integrity_check', { simple: true })).toBe('ok');
+    reopened.close();
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it('preserves committed WAL state when the canonical database is already valid', () => {
+    createWalSnapshot(databasePath);
+    fs.writeFileSync(`${databasePath}.compact-interrupted`, 'incomplete rebuild');
+
+    expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(false);
+
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.prepare('SELECT value FROM pending_state').get()).toEqual({ value: 'in wal' });
+    reopened.close();
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it('folds rollback WAL state into the restored canonical database', () => {
+    const rollbackPath = `${databasePath}.rollback-interrupted`;
+    createWalSnapshot(rollbackPath);
+
+    expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(true);
+
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.prepare('SELECT value FROM pending_state').get()).toEqual({ value: 'in wal' });
+    reopened.close();
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it('fails closed when only canonical SQLite sidecars remain', () => {
+    fs.writeFileSync(`${databasePath}-wal`, 'orphaned wal evidence');
+    fs.writeFileSync(`${databasePath}-shm`, 'orphaned shm evidence');
+
+    expect(() => recoverInterruptedConversationWorkingStateCompaction(databasePath))
+      .toThrow(expect.objectContaining({ code: 'INTEGRITY_CHECK_FAILED' }));
+
+    expect(fs.readFileSync(`${databasePath}-wal`, 'utf8')).toBe('orphaned wal evidence');
+    expect(fs.readFileSync(`${databasePath}-shm`, 'utf8')).toBe('orphaned shm evidence');
+  });
+
+  it('never promotes a temporary rebuild that lacks a rollback candidate', () => {
+    const temporaryPath = `${databasePath}.compact-interrupted`;
+    const temporary = new Database(temporaryPath);
+    temporary.exec('CREATE TABLE evidence (value TEXT); INSERT INTO evidence VALUES (\'temp only\')');
+    temporary.close();
+
+    expect(() => recoverInterruptedConversationWorkingStateCompaction(databasePath))
+      .toThrow(expect.objectContaining({ code: 'INTEGRITY_CHECK_FAILED' }));
+
+    expect(fs.existsSync(databasePath)).toBe(false);
+    const evidence = new Database(temporaryPath, { readonly: true });
+    expect(evidence.prepare('SELECT value FROM evidence').get()).toEqual({ value: 'temp only' });
+    evidence.close();
+  });
+
+  it('fails closed when more than one distinct rollback database is valid', () => {
+    const firstRollbackPath = `${databasePath}.rollback-first`;
+    const secondRollbackPath = `${databasePath}.rollback-second`;
+    const first = new Database(firstRollbackPath);
+    first.exec('CREATE TABLE evidence (value TEXT); INSERT INTO evidence VALUES (\'first\')');
+    first.close();
+    const second = new Database(secondRollbackPath);
+    second.exec('CREATE TABLE evidence (value TEXT); INSERT INTO evidence VALUES (\'second\')');
+    second.close();
+
+    expect(() => recoverInterruptedConversationWorkingStateCompaction(databasePath))
+      .toThrow(expect.objectContaining({ code: 'INTEGRITY_CHECK_FAILED' }));
+
+    expect(fs.existsSync(databasePath)).toBe(false);
+    expect(fs.existsSync(firstRollbackPath)).toBe(true);
+    expect(fs.existsSync(secondRollbackPath)).toBe(true);
+  });
+
+  it('restores a rollback without attaching stale canonical WAL files', () => {
+    createFreelistHeavyFixture();
+    const rollbackPath = `${databasePath}.rollback-interrupted`;
+    fs.copyFileSync(databasePath, rollbackPath);
+    fs.writeFileSync(databasePath, 'corrupt installed database');
+    fs.writeFileSync(`${databasePath}-wal`, 'stale live wal');
+    fs.writeFileSync(`${databasePath}-shm`, 'stale live shm');
+
+    expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(true);
+
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.prepare('SELECT COUNT(*) AS count FROM checkpoints').get())
+      .toEqual({ count: 13 });
+    reopened.close();
+    expect(fs.existsSync(`${databasePath}-wal`)).toBe(false);
+    expect(fs.existsSync(`${databasePath}-shm`)).toBe(false);
+    expect(maintenanceArtifacts()).toEqual([]);
   });
 
   it('reconciles orphans, validates, replaces safely, preserves live state, and shrinks storage', () => {
@@ -111,7 +224,92 @@ describe('Conversation Working State compaction engine', () => {
       .toEqual([{ thread_id: 'conversation-live', value: Buffer.from('pending-write') }]);
     expect(reopened.pragma('integrity_check', { simple: true })).toBe('ok');
     reopened.close();
-    expect(fs.readdirSync(tempDir).filter((name) => name.includes('.compact-') || name.includes('.rollback-'))).toEqual([]);
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it.each([
+    ['temporary rebuild', { beforeRebuild: () => { throw new Error('rebuild interrupted'); } }],
+    ['original-to-rollback replacement', {
+      beforeRollbackCreation: () => { throw new Error('rollback interrupted'); },
+    }],
+    ['temporary-to-live replacement', {
+      beforeInstall: () => { throw new Error('install interrupted'); },
+    }],
+  ])('keeps the original readable when %s fails', (_window, dependencies) => {
+    createFreelistHeavyFixture();
+
+    expect(() => compactConversationWorkingStateStorage({
+      checkpointDatabasePath: databasePath,
+      liveThreadIds: ['conversation-live', 'conversation-orphan'],
+    }, dependencies)).toThrow(expect.objectContaining({ code: 'COMPACTION_FAILED' }));
+
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.prepare('SELECT COUNT(*) AS count FROM checkpoints').get())
+      .toEqual({ count: 13 });
+    expect(reopened.pragma('integrity_check', { simple: true })).toBe('ok');
+    reopened.close();
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it('recovers an interrupted long rebuild without replacing the prior database', () => {
+    createFreelistHeavyFixture();
+    const temporaryPath = `${databasePath}.compact-forced-exit`;
+    const source = new Database(databasePath, { readonly: true });
+    source.prepare('VACUUM INTO ?').run(temporaryPath);
+    source.close();
+
+    expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(false);
+
+    const reopened = new Database(databasePath, { readonly: true });
+    expect(reopened.prepare('SELECT COUNT(*) AS count FROM checkpoints').get())
+      .toEqual({ count: 13 });
+    reopened.close();
+    expect(maintenanceArtifacts()).toEqual([]);
+  });
+
+  it('reopens a recovered database through the real saver with its checkpoint chain and pending writes', async () => {
+    const saver = SqliteSaver.fromConnString(databasePath);
+    const metadata: CheckpointMetadata = { source: 'input', step: -1, parents: {} };
+    const first: Checkpoint = {
+      v: 4,
+      id: 'checkpoint-1',
+      ts: '2026-07-14T00:00:00.000Z',
+      channel_values: { messages: ['first'] },
+      channel_versions: { messages: 1 },
+      versions_seen: {},
+    };
+    const firstConfig = await saver.put(
+      { configurable: { thread_id: 'conversation-live', checkpoint_ns: '' } },
+      first,
+      metadata
+    );
+    await saver.put(
+      firstConfig,
+      { ...first, id: 'checkpoint-2', channel_values: { messages: ['second'] } },
+      { ...metadata, source: 'loop', step: 0 }
+    );
+    await saver.putWrites(firstConfig, [['messages', 'pending']], 'task-1');
+    saver.db.pragma('wal_checkpoint(TRUNCATE)');
+    saver.db.close();
+    const rollbackPath = `${databasePath}.rollback-interrupted`;
+    fs.renameSync(databasePath, rollbackPath);
+
+    expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(true);
+
+    const reopened = SqliteSaver.fromConnString(databasePath);
+    await expect(reopened.getTuple({
+      configurable: { thread_id: 'conversation-live', checkpoint_ns: '' },
+    })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-2' } });
+    const checkpointIds: string[] = [];
+    for await (const tuple of reopened.list({
+      configurable: { thread_id: 'conversation-live', checkpoint_ns: '' },
+    })) {
+      checkpointIds.push(tuple.checkpoint.id);
+    }
+    expect(checkpointIds).toEqual(['checkpoint-2', 'checkpoint-1']);
+    expect(reopened.db.prepare('SELECT COUNT(*) AS count FROM writes').get())
+      .toEqual({ count: 1 });
+    reopened.db.close();
   });
 
   it('leaves the original usable when free space is insufficient', () => {

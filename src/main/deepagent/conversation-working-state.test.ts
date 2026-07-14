@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
 import {
@@ -150,6 +151,63 @@ describe('ConversationWorkingStateLifecycle', () => {
       blockedReason: null,
       failureReason: null,
     });
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('restores interrupted maintenance before orphan reconciliation observes the database', async () => {
+    const databasePath = path.join(tempDir, 'deepagents-checkpoints.db');
+    const rollbackPath = `${databasePath}.rollback-interrupted`;
+    const rollback = new Database(rollbackPath);
+    rollback.exec('CREATE TABLE recovery_marker (value TEXT); INSERT INTO recovery_marker VALUES (\'restored\')');
+    rollback.close();
+    const runner = {
+      run: vi.fn(async ({ checkpointDatabasePath }: { checkpointDatabasePath: string }) => {
+        const recovered = new Database(checkpointDatabasePath, { readonly: true });
+        try {
+          expect(recovered.prepare('SELECT value FROM recovery_marker').get())
+            .toEqual({ value: 'restored' });
+        } finally {
+          recovered.close();
+        }
+        return { deletedThreadCount: 0 };
+      }),
+    };
+
+    await expect(lifecycle.reconcileOrphansAtStartup(() => [], runner))
+      .resolves.toEqual({ ok: true, deletedThreadCount: 0 });
+
+    expect(runner.run).toHaveBeenCalledOnce();
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('fails closed after ambiguous startup recovery but releases maintenance for a deterministic retry', async () => {
+    const databasePath = path.join(tempDir, 'deepagents-checkpoints.db');
+    const firstRollbackPath = `${databasePath}.rollback-first`;
+    const secondRollbackPath = `${databasePath}.rollback-second`;
+    for (const [rollbackPath, value] of [
+      [firstRollbackPath, 'first'],
+      [secondRollbackPath, 'second'],
+    ] as const) {
+      const rollback = new Database(rollbackPath);
+      rollback.exec(`CREATE TABLE evidence (value TEXT); INSERT INTO evidence VALUES ('${value}')`);
+      rollback.close();
+    }
+    const runner = { run: vi.fn(async () => ({ deletedThreadCount: 0 })) };
+
+    const failed = await lifecycle.reconcileOrphansAtStartup(() => [], runner);
+
+    expect(failed).toMatchObject({
+      ok: false,
+      failureReason: STARTUP_RECONCILIATION_FAILED,
+    });
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(() => lifecycle.acquireSaver()).toThrowError(
+      expect.objectContaining({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED })
+    );
+
+    fs.rmSync(secondRollbackPath);
+    await expect(lifecycle.reconcileOrphansAtStartup(() => [], runner))
+      .resolves.toEqual({ ok: true, deletedThreadCount: 0 });
     expect(lifecycle.acquireSaver()).toBeDefined();
   });
 
@@ -311,6 +369,91 @@ describe('ConversationWorkingStateLifecycle', () => {
       physicalBytesAfter: 0,
     });
     expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('recovers Worker interruption artifacts before releasing the maintenance lock', async () => {
+    const saver = lifecycle.acquireSaver();
+    await saver.put(
+      { configurable: { thread_id: 'conversation-1', checkpoint_ns: '' } },
+      checkpoint('checkpoint-before-worker-exit', 'retained'),
+      metadata
+    );
+    const runner: ConversationWorkingStateCompactionRunnerContract = {
+      run: vi.fn(async ({ checkpointDatabasePath }) => {
+        const source = new Database(checkpointDatabasePath, { readonly: true });
+        source.prepare('VACUUM INTO ?').run(`${checkpointDatabasePath}.compact-worker-exit`);
+        source.close();
+        throw new Error('Worker exited during rebuild');
+      }),
+    };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => ['conversation-1'],
+      runner
+    )).resolves.toMatchObject({ ok: false, failureReason: 'COMPACTION_FAILED' });
+
+    expect(fs.readdirSync(tempDir).some((name) => name.includes('.compact-'))).toBe(false);
+    await expect(lifecycle.acquireSaver().getTuple({
+      configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
+    })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-before-worker-exit' } });
+  });
+
+  it('restores the prior database after a Worker exits with a corrupt replacement installed', async () => {
+    const saver = lifecycle.acquireSaver();
+    await saver.put(
+      { configurable: { thread_id: 'conversation-1', checkpoint_ns: '' } },
+      checkpoint('checkpoint-before-replacement', 'retained'),
+      metadata
+    );
+    const runner: ConversationWorkingStateCompactionRunnerContract = {
+      run: vi.fn(async ({ checkpointDatabasePath }) => {
+        fs.copyFileSync(checkpointDatabasePath, `${checkpointDatabasePath}.rollback-worker-exit`);
+        fs.writeFileSync(checkpointDatabasePath, 'corrupt replacement');
+        throw new Error('Worker exited after replacement');
+      }),
+    };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => ['conversation-1'],
+      runner
+    )).resolves.toMatchObject({ ok: false, failureReason: 'COMPACTION_FAILED' });
+
+    await expect(lifecycle.acquireSaver().getTuple({
+      configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
+    })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-before-replacement' } });
+  });
+
+  it('fails closed when Worker interruption recovery is ambiguous', async () => {
+    const saver = lifecycle.acquireSaver();
+    await saver.put(
+      { configurable: { thread_id: 'conversation-1', checkpoint_ns: '' } },
+      checkpoint('checkpoint-before-ambiguous-recovery', 'retained'),
+      metadata
+    );
+    const runner: ConversationWorkingStateCompactionRunnerContract = {
+      run: vi.fn(async ({ checkpointDatabasePath }) => {
+        fs.copyFileSync(checkpointDatabasePath, `${checkpointDatabasePath}.rollback-first`);
+        fs.copyFileSync(checkpointDatabasePath, `${checkpointDatabasePath}.rollback-second`);
+        fs.writeFileSync(checkpointDatabasePath, 'corrupt replacement');
+        throw new Error('Worker exited after ambiguous replacement');
+      }),
+    };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => ['conversation-1'],
+      runner
+    )).resolves.toMatchObject({ ok: false, failureReason: 'INTEGRITY_CHECK_FAILED' });
+
+    expect(() => lifecycle.acquireSaver()).toThrowError(
+      expect.objectContaining({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED })
+    );
+    const retryRunner: ConversationWorkingStateCompactionRunnerContract = { run: vi.fn() };
+    await expect(lifecycle.compact(() => null, () => ['conversation-1'], retryRunner))
+      .rejects.toMatchObject({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED });
+    expect(retryRunner.run).not.toHaveBeenCalled();
   });
 
   it('records a stable compaction failure and always releases the maintenance lock', async () => {

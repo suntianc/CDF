@@ -33,7 +33,10 @@ export interface ConversationWorkingStateCompactionResult {
 
 export interface ConversationWorkingStateCompactionDependencies {
   getAvailableDiskBytes?: (directoryPath: string) => number;
+  beforeRebuild?: (sourcePath: string, temporaryPath: string) => void;
   beforeValidation?: (temporaryPath: string) => void;
+  beforeRollbackCreation?: (sourcePath: string, rollbackPath: string) => void;
+  beforeInstall?: (temporaryPath: string, installedPath: string) => void;
   beforeReopening?: (installedPath: string) => void;
   onPhase?: (phase: ConversationWorkingStateMaintenancePhase) => void;
 }
@@ -101,11 +104,52 @@ function reopenWithSaver(databasePath: string): void {
   }
 }
 
+const SQLITE_FILE_SUFFIXES = ['', '-wal', '-shm'] as const;
+
+interface SqliteFileFamily {
+  basePath: string;
+  paths: string[];
+}
+
+function sqliteFileFamily(basePath: string): SqliteFileFamily {
+  return {
+    basePath,
+    paths: SQLITE_FILE_SUFFIXES.map((suffix) => `${basePath}${suffix}`),
+  };
+}
+
+function listMaintenanceFileFamilies(
+  directoryPath: string,
+  databaseName: string,
+  kind: 'compact' | 'rollback'
+): SqliteFileFamily[] {
+  const prefix = `${databaseName}.${kind}-`;
+  const baseNames = new Set<string>();
+  for (const entry of fs.readdirSync(directoryPath)) {
+    if (!entry.startsWith(prefix)) continue;
+    const sidecarSuffix = SQLITE_FILE_SUFFIXES.slice(1).find((suffix) => entry.endsWith(suffix));
+    baseNames.add(sidecarSuffix ? entry.slice(0, -sidecarSuffix.length) : entry);
+  }
+  return [...baseNames]
+    .sort()
+    .map((baseName) => sqliteFileFamily(path.join(directoryPath, baseName)));
+}
+
 function removeIfPresent(filePath: string): void {
-  try {
-    fs.rmSync(filePath, { force: true });
-  } catch {
-    // Best-effort cleanup must not mask the maintenance outcome.
+  fs.rmSync(filePath, { force: true });
+}
+
+function removeFileFamily(family: SqliteFileFamily): void {
+  family.paths.forEach(removeIfPresent);
+}
+
+function removeFileFamilyBestEffort(family: SqliteFileFamily): void {
+  for (const filePath of family.paths) {
+    try {
+      removeIfPresent(filePath);
+    } catch {
+      // Best-effort cleanup must not mask the maintenance outcome.
+    }
   }
 }
 
@@ -141,48 +185,91 @@ function hasValidIntegrity(databasePath: string): boolean {
   }
 }
 
+function recoveryIntegrityError(message: string, cause?: unknown): ConversationWorkingStateCompactionError {
+  return new ConversationWorkingStateCompactionError(
+    CONVERSATION_WORKING_STATE_FAILURE_REASONS.INTEGRITY_CHECK_FAILED,
+    message,
+    cause === undefined ? undefined : { cause }
+  );
+}
+
+function rebuildValidatedDatabase(sourcePath: string, temporaryPath: string): void {
+  const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+  try {
+    source.prepare('VACUUM INTO ?').run(temporaryPath);
+  } finally {
+    source.close();
+  }
+  assertIntegrity(temporaryPath);
+  fsyncFile(temporaryPath);
+}
+
+function installValidatedRecoveryDatabase(
+  checkpointDatabasePath: string,
+  rollbackPath: string
+): void {
+  const directoryPath = path.dirname(checkpointDatabasePath);
+  const recoveryPath = `${checkpointDatabasePath}.compact-recovery-${randomUUID()}`;
+  try {
+    rebuildValidatedDatabase(rollbackPath, recoveryPath);
+    removeIfPresent(`${checkpointDatabasePath}-wal`);
+    removeIfPresent(`${checkpointDatabasePath}-shm`);
+    fs.renameSync(recoveryPath, checkpointDatabasePath);
+    fsyncDirectory(directoryPath);
+    assertIntegrity(checkpointDatabasePath);
+  } catch (error) {
+    throw recoveryIntegrityError(
+      'Conversation Working State recovery could not restore the validated rollback database.',
+      error
+    );
+  }
+}
+
 export function recoverInterruptedConversationWorkingStateCompaction(
   checkpointDatabasePath: string
 ): boolean {
   const directoryPath = path.dirname(checkpointDatabasePath);
   if (!fs.existsSync(directoryPath)) return false;
   const databaseName = path.basename(checkpointDatabasePath);
-  const rollbackPrefix = `${databaseName}.rollback-`;
-  const compactPrefix = `${databaseName}.compact-`;
-  const directoryEntries = fs.readdirSync(directoryPath);
-  const compactPaths = directoryEntries
-    .filter((name) => name.startsWith(compactPrefix))
-    .map((name) => path.join(directoryPath, name));
-  const rollbackPaths = directoryEntries
-    .filter((name) => name.startsWith(rollbackPrefix))
-    .map((name) => path.join(directoryPath, name))
-    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
-  if (rollbackPaths.length === 0) {
-    compactPaths.forEach(removeIfPresent);
-    if (compactPaths.length > 0) fsyncDirectory(directoryPath);
+  const compactFamilies = listMaintenanceFileFamilies(directoryPath, databaseName, 'compact');
+  const rollbackFamilies = listMaintenanceFileFamilies(directoryPath, databaseName, 'rollback');
+  const hasLiveDatabase = fs.existsSync(checkpointDatabasePath);
+  const hasLiveSidecars = fs.existsSync(`${checkpointDatabasePath}-wal`)
+    || fs.existsSync(`${checkpointDatabasePath}-shm`);
+  const liveDatabaseIsValid = hasLiveDatabase && hasValidIntegrity(checkpointDatabasePath);
+
+  if (liveDatabaseIsValid) {
+    [...rollbackFamilies, ...compactFamilies].forEach(removeFileFamily);
+    if (rollbackFamilies.length > 0 || compactFamilies.length > 0) {
+      fsyncDirectory(directoryPath);
+    }
     return false;
   }
 
-  if (fs.existsSync(checkpointDatabasePath) && hasValidIntegrity(checkpointDatabasePath)) {
-    rollbackPaths.forEach(removeIfPresent);
-    compactPaths.forEach(removeIfPresent);
-    fsyncDirectory(directoryPath);
-    return false;
-  }
-
-  const rollbackPath = rollbackPaths.find(hasValidIntegrity);
-  if (!rollbackPath) {
-    throw new ConversationWorkingStateCompactionError(
-      CONVERSATION_WORKING_STATE_FAILURE_REASONS.INTEGRITY_CHECK_FAILED,
-      'Conversation Working State recovery could not find a valid rollback candidate.'
+  if (rollbackFamilies.length === 0) {
+    if (!hasLiveDatabase && !hasLiveSidecars && compactFamilies.length === 0) return false;
+    throw recoveryIntegrityError(
+      'Conversation Working State recovery has no validated live or rollback database.'
     );
   }
-  removeIfPresent(checkpointDatabasePath);
-  fs.renameSync(rollbackPath, checkpointDatabasePath);
+
+  const validRollbackFamilies = rollbackFamilies.filter(
+    ({ basePath }) => fs.existsSync(basePath) && hasValidIntegrity(basePath)
+  );
+  if (validRollbackFamilies.length !== 1) {
+    throw recoveryIntegrityError(
+      validRollbackFamilies.length === 0
+        ? 'Conversation Working State recovery could not find a valid rollback candidate.'
+        : 'Conversation Working State recovery found ambiguous rollback candidates.'
+    );
+  }
+
+  installValidatedRecoveryDatabase(
+    checkpointDatabasePath,
+    validRollbackFamilies[0].basePath
+  );
+  [...rollbackFamilies, ...compactFamilies].forEach(removeFileFamily);
   fsyncDirectory(directoryPath);
-  assertIntegrity(checkpointDatabasePath);
-  rollbackPaths.filter((candidate) => candidate !== rollbackPath).forEach(removeIfPresent);
-  compactPaths.forEach(removeIfPresent);
   return true;
 }
 
@@ -231,6 +318,7 @@ export function compactConversationWorkingStateStorage(
 
   try {
     onPhase('rebuilding');
+    dependencies.beforeRebuild?.(checkpointDatabasePath, temporaryPath);
     const source = new Database(checkpointDatabasePath, { fileMustExist: true });
     try {
       source.prepare('VACUUM INTO ?').run(temporaryPath);
@@ -246,8 +334,12 @@ export function compactConversationWorkingStateStorage(
     const sourceMode = fs.statSync(checkpointDatabasePath).mode;
     fs.chmodSync(temporaryPath, sourceMode);
     fsyncFile(temporaryPath);
+    fsyncFile(checkpointDatabasePath);
+    dependencies.beforeRollbackCreation?.(checkpointDatabasePath, rollbackPath);
     fs.linkSync(checkpointDatabasePath, rollbackPath);
     rollbackCreated = true;
+    fsyncDirectory(path.dirname(checkpointDatabasePath));
+    dependencies.beforeInstall?.(temporaryPath, checkpointDatabasePath);
     fs.renameSync(temporaryPath, checkpointDatabasePath);
     compactInstalled = true;
     fsyncDirectory(path.dirname(checkpointDatabasePath));
@@ -266,8 +358,8 @@ export function compactConversationWorkingStateStorage(
   } catch (error) {
     if (compactInstalled && rollbackCreated) {
       try {
-        removeIfPresent(checkpointDatabasePath);
-        fs.renameSync(rollbackPath, checkpointDatabasePath);
+        installValidatedRecoveryDatabase(checkpointDatabasePath, rollbackPath);
+        removeFileFamily(sqliteFileFamily(rollbackPath));
         rollbackCreated = false;
         compactInstalled = false;
         fsyncDirectory(path.dirname(checkpointDatabasePath));
@@ -280,7 +372,7 @@ export function compactConversationWorkingStateStorage(
       }
     }
     if (rollbackCreated && !compactInstalled) {
-      removeIfPresent(rollbackPath);
+      removeFileFamilyBestEffort(sqliteFileFamily(rollbackPath));
       rollbackCreated = false;
     }
     if (error instanceof ConversationWorkingStateCompactionError) throw error;
@@ -290,7 +382,7 @@ export function compactConversationWorkingStateStorage(
       { cause: error }
     );
   } finally {
-    removeIfPresent(temporaryPath);
-    if (!rollbackCreated) removeIfPresent(rollbackPath);
+    removeFileFamilyBestEffort(sqliteFileFamily(temporaryPath));
+    if (!rollbackCreated) removeFileFamilyBestEffort(sqliteFileFamily(rollbackPath));
   }
 }
