@@ -11,6 +11,7 @@ const {
   resolveLLMApprovalMock,
   dbPrepareMock,
   storeGetMock,
+  storeSetMock,
   collectAllCommandsMock,
   ensureProjectWatcherMock,
   resolveAgentSkillConfigOptionsMock,
@@ -37,6 +38,7 @@ const {
     run: vi.fn(),
   })),
   storeGetMock: vi.fn(),
+  storeSetMock: vi.fn(),
   collectAllCommandsMock: vi.fn(async () => ({ commands: [], conflicts: [], warnings: [] })),
   ensureProjectWatcherMock: vi.fn(),
   resolveAgentSkillConfigOptionsMock: vi.fn(() => ({ options: undefined as Record<string, unknown> | undefined, warnings: [] as string[] })),
@@ -71,7 +73,7 @@ vi.mock('electron', () => ({
 vi.mock('./store', () => ({
   default: {
     get: storeGetMock,
-    set: vi.fn(),
+    set: storeSetMock,
   },
 }));
 
@@ -135,6 +137,7 @@ vi.mock('./deepagent/skill-manager', () => ({
   savePhysicalSkill: savePhysicalSkillMock,
   importPhysicalSkillDirectory: importPhysicalSkillDirectoryMock,
   deletePhysicalSkill: vi.fn(),
+  getBuiltInSkillRegistrations: vi.fn(() => []),
 }));
 
 vi.mock('./deepagent/mcp-connector', () => ({
@@ -153,6 +156,7 @@ describe('IPC handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storeGetMock.mockReturnValue(undefined);
+    storeSetMock.mockReset();
     collectAllCommandsMock.mockResolvedValue({ commands: [], conflicts: [], warnings: [] });
     ensureProjectWatcherMock.mockClear();
     resolveAgentSkillConfigOptionsMock.mockReturnValue({ options: undefined, warnings: [] });
@@ -671,6 +675,25 @@ describe('IPC handlers', () => {
     expect(() => deleteAgentHandler({}, 'general-1')).toThrow(
       'General-purpose Agent is protected and cannot be deleted',
     );
+  });
+
+  it('reads and writes Global Skill Scene Exposure through the product IPC API', () => {
+    registerIpcHandlers();
+    const getExposureHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'skills:getGlobalSceneExposure')?.[1];
+    const setExposureHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'skills:setGlobalSceneExposure')?.[1];
+    const skill = { sourceKind: 'user' as const, name: 'personal-review' };
+
+    expect(getExposureHandler({}, skill)).toEqual({
+      skill,
+      exposures: { general: true, research: true },
+    });
+    expect(setExposureHandler({}, skill, 'research', false)).toEqual({
+      skill,
+      exposures: { general: true, research: false },
+    });
+    expect(storeSetMock).toHaveBeenCalledWith('sceneSkillExposures', {
+      'user:personal-review': { research: false },
+    });
   });
 
   it('passes Skill create validation errors through db:saveSkill', () => {

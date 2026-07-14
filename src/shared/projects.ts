@@ -1,4 +1,6 @@
-export type ProjectScene = 'general' | 'research';
+import type { SceneId } from './scenes';
+
+export type ProjectScene = SceneId;
 
 export interface Project {
   id: string;

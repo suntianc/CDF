@@ -3,6 +3,8 @@ import type { ApprovalMode } from '../shared/types';
 import type { PersistedAISubscriptionState } from '../shared/ai-subscriptions';
 import type { SkillOverrideState } from '../shared/skill-overrides';
 
+type SceneSkillExposureStore = Record<string, Record<string, boolean>>;
+
 interface StoreSchema {
   theme: 'light' | 'dark' | 'system';
   currentProjectId: string | null;
@@ -19,6 +21,7 @@ interface StoreSchema {
   approvalMode: ApprovalMode;
   autoSave: boolean;
   skillOverrides: Record<string, SkillOverrideState>;
+  sceneSkillExposures: SceneSkillExposureStore;
   aiSubscriptions: PersistedAISubscriptionState;
 }
 
@@ -33,6 +36,7 @@ const store = new Store<StoreSchema>({
     approvalMode: 'strict',
     autoSave: false,
     skillOverrides: {},
+    sceneSkillExposures: {},
     aiSubscriptions: {},
   },
   schema: {
@@ -58,6 +62,13 @@ const store = new Store<StoreSchema>({
       additionalProperties: {
         type: 'string',
         enum: ['on', 'name-only', 'user-invocable-only', 'off'],
+      },
+    },
+    sceneSkillExposures: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: { type: 'boolean' },
       },
     },
     aiSubscriptions: {

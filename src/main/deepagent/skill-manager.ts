@@ -26,6 +26,8 @@ import {
   resolveSkillVisibility,
 } from './skills-runtime/skill-visibility';
 import type { SkillEffectiveVisibility, SkillOverrideState } from '../../shared/skill-overrides';
+import type { SceneId } from '../../shared/scenes';
+import { classifySkillSourceKind } from '../../shared/skills';
 
 type SkillScope = 'global' | 'project';
 
@@ -205,15 +207,51 @@ function ensureBuiltInPaperSearchSkill(): string {
   return skillDir;
 }
 
+export interface BuiltInSkillRegistration {
+  name: string;
+  defaultSceneIds: readonly SceneId[];
+  materialize: () => string;
+}
+
+const BUILT_IN_SKILL_REGISTRATIONS: readonly BuiltInSkillRegistration[] = [
+  {
+    name: 'knowledge-base',
+    defaultSceneIds: ['general', 'research'],
+    materialize: ensureBuiltInKnowledgeBaseSkill,
+  },
+  {
+    name: 'crawler',
+    defaultSceneIds: ['general', 'research'],
+    materialize: ensureBuiltInCrawlerSkill,
+  },
+  {
+    name: 'pdf-parsing',
+    defaultSceneIds: ['general', 'research'],
+    materialize: ensureBuiltInPdfParsingSkill,
+  },
+  {
+    name: 'paper-search',
+    defaultSceneIds: ['research'],
+    materialize: ensureBuiltInPaperSearchSkill,
+  },
+  {
+    name: 'paper-collection',
+    defaultSceneIds: ['research'],
+    materialize: ensureBuiltInPaperCollectionSkill,
+  },
+  {
+    name: 'paper-reading',
+    defaultSceneIds: ['research'],
+    materialize: ensureBuiltInPaperReadingSkill,
+  },
+];
+
+export function getBuiltInSkillRegistrations(): readonly BuiltInSkillRegistration[] {
+  return BUILT_IN_SKILL_REGISTRATIONS;
+}
+
 export function getBuiltInSkillDirs(): string[] {
-  return [
-    ensureBuiltInKnowledgeBaseSkill(),
-    ensureBuiltInCrawlerSkill(),
-    ensureBuiltInPdfParsingSkill(),
-    ensureBuiltInPaperSearchSkill(),
-    ensureBuiltInPaperCollectionSkill(),
-    ensureBuiltInPaperReadingSkill(),
-  ];
+  return getBuiltInSkillRegistrations().map((registration) => registration.materialize());
 }
 
 function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string; description?: string } {
@@ -433,7 +471,7 @@ function getResolvedSkillId(skill: ResolvedSkillCatalogEntry): string {
 }
 
 function getResolvedSkillScope(skill: ResolvedSkillCatalogEntry): SkillScope {
-  return skill.sourceKind === 'user' ? 'global' : 'project';
+  return classifySkillSourceKind(skill.sourceKind) === 'global' ? 'global' : 'project';
 }
 
 function getResolvedSkillSourceLabel(skill: Pick<ResolvedSkillCatalogEntry, 'sourceKind' | 'qualifier'>): string {

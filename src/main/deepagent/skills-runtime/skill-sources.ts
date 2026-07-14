@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { parseSkillMetadata } from './skill-metadata';
+import type { SkillSourceKind } from '../../../shared/skills';
+export type { SkillSourceKind } from '../../../shared/skills';
 import type {
   SkillEffectiveVisibility,
   SkillModelDiscovery,
@@ -8,14 +10,6 @@ import type {
   SkillVisibilitySource,
 } from '../../../shared/skill-overrides';
 import { parseSkillOverrideRecord, resolveSkillVisibility } from './skill-visibility';
-
-export type SkillSourceKind =
-  | 'built-in'
-  | 'project'
-  | 'project-nested'
-  | 'project-additional'
-  | 'user'
-  | 'enterprise';
 
 export interface ProjectSkillConfig {
   version: 1;

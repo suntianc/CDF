@@ -25,9 +25,13 @@ import {
   savePhysicalSkill,
   deletePhysicalSkill,
   importPhysicalSkillDirectory,
+  getBuiltInSkillRegistrations,
 } from './deepagent/skill-manager';
 import { resolveSkillSourcePlan, updateProjectSkillOverride } from './deepagent/skills-runtime/skill-sources';
 import { parseSkillOverrideState } from '../shared/skill-overrides';
+import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/skills';
+import { isRegisteredSceneId } from '../shared/scenes';
+import { createSceneSkillExposureService } from './scene-skill-exposure';
 import { normalizeWorkflowStages, validateWorkflowStages } from '../shared/workflow-routing';
 import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
@@ -92,6 +96,25 @@ import {
   isMasterAgent,
 } from './project-agent-service';
 
+function resolveSceneSkillExposureInput(skill: GlobalSkillReference): SceneSkillExposureInput {
+  if (!skill || (skill.sourceKind !== 'built-in' && skill.sourceKind !== 'user')
+    || typeof skill.name !== 'string' || !skill.name.trim()) {
+    throw new Error('Invalid Global Skill reference');
+  }
+
+  if (skill.sourceKind === 'user') return { sourceKind: 'user', name: skill.name };
+
+  const registration = getBuiltInSkillRegistrations().find(({ name }) => name === skill.name);
+  if (!registration) {
+    throw new Error(`Unknown Built-in Skill: ${skill.name}`);
+  }
+  return {
+    sourceKind: 'built-in',
+    name: registration.name,
+    defaultSceneIds: registration.defaultSceneIds,
+  };
+}
+
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
   const end = content.indexOf('\n---', 4);
@@ -119,7 +142,7 @@ const getProviderLabel = (type: string): string => {
 };
 
 const normalizeProjectScene = (scene: unknown): ProjectScene => (
-  scene === 'research' ? 'research' : 'general'
+  isRegisteredSceneId(scene) ? scene : 'general'
 );
 
 function normalizeExternalHttpUrl(value: unknown): string {
@@ -186,6 +209,13 @@ function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
 }
 
 export function registerIpcHandlers() {
+  const sceneSkillExposureService = createSceneSkillExposureService({
+    storage: {
+      get: () => store.get('sceneSkillExposures'),
+      set: (_key, value) => { store.set('sceneSkillExposures', value); },
+    },
+  });
+
   typedHandle('capability-jobs:list', (_event, projectId) =>
     backgroundCapabilityJobs.list(projectId)
   );
@@ -854,6 +884,18 @@ export function registerIpcHandlers() {
 
   typedHandle('db:importSkillDirectory', (_, sourceDir) => {
     return importPhysicalSkillDirectory(sourceDir) as Skill;
+  });
+
+  typedHandle('skills:getGlobalSceneExposure', (_, skill) => {
+    return sceneSkillExposureService.get(resolveSceneSkillExposureInput(skill));
+  });
+
+  typedHandle('skills:setGlobalSceneExposure', (_, skill, sceneId, exposed) => {
+    return sceneSkillExposureService.set(
+      resolveSceneSkillExposureInput(skill),
+      sceneId,
+      exposed,
+    );
   });
 
   typedCrud({

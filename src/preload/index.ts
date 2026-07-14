@@ -25,6 +25,7 @@ import type {
   WorkflowRunProjectionEvent,
 } from '../shared/types';
 import type { SkillOverrideState } from '../shared/skill-overrides';
+import type { GlobalSkillReference } from '../shared/skills';
 import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
 import type { CapabilityJobAction } from '../shared/capability-jobs';
 
@@ -59,6 +60,12 @@ const api = {
   },
   shell: {
     openExternalUrl: (url: string) => typedInvoke('shell:openExternalUrl', url),
+  },
+  skills: {
+    getGlobalSceneExposure: (skill: GlobalSkillReference) =>
+      typedInvoke('skills:getGlobalSceneExposure', skill),
+    setGlobalSceneExposure: (skill: GlobalSkillReference, sceneId: string, exposed: boolean) =>
+      typedInvoke('skills:setGlobalSceneExposure', skill, sceneId, exposed),
   },
   db: {
     getProjects: () => typedInvoke('db:getProjects'),

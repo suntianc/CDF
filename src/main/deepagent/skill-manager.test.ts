@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  getBuiltInSkillRegistrations,
   getScopePath,
   importPhysicalSkillDirectory,
   listPhysicalSkills,
@@ -40,6 +41,17 @@ describe('skill-manager', () => {
     vi.restoreAllMocks();
     fs.rmSync(tempProjectPath, { recursive: true, force: true });
     fs.rmSync(tempHomePath, { recursive: true, force: true });
+  });
+
+  it('registers Built-in Skill Scene defaults without extending SKILL.md metadata', () => {
+    expect(getBuiltInSkillRegistrations().map(({ name, defaultSceneIds }) => ({ name, defaultSceneIds }))).toEqual([
+      { name: 'knowledge-base', defaultSceneIds: ['general', 'research'] },
+      { name: 'crawler', defaultSceneIds: ['general', 'research'] },
+      { name: 'pdf-parsing', defaultSceneIds: ['general', 'research'] },
+      { name: 'paper-search', defaultSceneIds: ['research'] },
+      { name: 'paper-collection', defaultSceneIds: ['research'] },
+      { name: 'paper-reading', defaultSceneIds: ['research'] },
+    ]);
   });
 
   it('should resolve .cdf skill scope paths', () => {

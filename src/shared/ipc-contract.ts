@@ -45,7 +45,12 @@ import type {
   SearchProviderSaveInput,
   SearchProviderSaveResult,
 } from './providers';
-import type { Skill, SkillSaveInput } from './skills';
+import type {
+  GlobalSkillReference,
+  SceneSkillExposure,
+  Skill,
+  SkillSaveInput,
+} from './skills';
 import type {
   StageGateResolution,
   Workflow,
@@ -153,6 +158,14 @@ export interface IpcInvokeContract {
   'db:saveSkill': { args: [projectId: string, skill: SkillSaveInput]; result: Skill };
   'db:deleteSkill': { args: [projectId: string, id: string]; result: void };
   'db:importSkillDirectory': { args: [sourceDir: string]; result: Skill };
+  'skills:getGlobalSceneExposure': {
+    args: [skill: GlobalSkillReference];
+    result: SceneSkillExposure;
+  };
+  'skills:setGlobalSceneExposure': {
+    args: [skill: GlobalSkillReference, sceneId: string, exposed: boolean];
+    result: SceneSkillExposure;
+  };
   'db:getAgentRuns': { args: [sessionId: string]; result: AgentRun[] };
   'db:getAgentToolCalls': { args: [runId: string]; result: AgentToolCall[] };
   'db:getDelegatedAgentRuns': { args: [sessionId: string]; result: DelegatedAgentRun[] };
@@ -373,6 +386,8 @@ export const IPC_INVOKE_CHANNELS = [
   'db:saveSkill',
   'db:deleteSkill',
   'db:importSkillDirectory',
+  'skills:getGlobalSceneExposure',
+  'skills:setGlobalSceneExposure',
   'db:getAgentRuns',
   'db:getAgentToolCalls',
   'db:getDelegatedAgentRuns',
