@@ -88,6 +88,7 @@ import {
   ensureGeneralPurposeAgent,
   ensureMasterAgent,
   getProjectAgentRole,
+  resetMasterAgentPrompt,
   isMasterAgent,
 } from './project-agent-service';
 
@@ -227,9 +228,6 @@ export function registerIpcHandlers() {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run('default-project', '默认项目', defaultProjectPath, 'general', now, now);
   };
-
-  const ensureMasterAgentForSession = (projectId: string): string =>
-    ensureMasterAgent(db, projectId).id;
 
   const buildProviderHeaders = (providerType: string, apiUrl: string | undefined, decryptedKey?: string) => {
     const headers: Record<string, string> = {};
@@ -396,12 +394,14 @@ export function registerIpcHandlers() {
     const now = Date.now();
     ensureProjectForSession(projectId);
     // 普通 Conversation 的根始终是受保护的 Master；caller 提供的 Agent 只可作为委派目标。
-    const finalAgentId = ensureMasterAgentForSession(projectId);
+    const master = ensureMasterAgent(db, projectId);
+    const finalAgentId = master.id;
+    const promptSnapshot = master.system_prompt ?? '';
     db.prepare(`
-      INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, now, now);
-    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
+      INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, prompt_snapshot, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, promptSnapshot, now, now);
+    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, prompt_snapshot: promptSnapshot, created_at: now, updated_at: now };
   });
 
   typedHandle('db:deleteSession', (_, sessionId) =>
@@ -672,6 +672,28 @@ export function registerIpcHandlers() {
 
   typedHandle('db:saveAgent', (_, agent) => {
     const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerExclusionIds, skillNames } = agent;
+    const current = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as any;
+    if (current && isMasterAgent(current)) {
+      const allowedFields = new Set(['id', 'project_id', 'system_prompt']);
+      if (Object.keys(agent).some((key) => !allowedFields.has(key))) {
+        throw new Error('Master Agent is protected: only its complete system prompt can be changed.');
+      }
+      if (project_id !== current.project_id || typeof system_prompt !== 'string') {
+        throw new Error('Master Agent is protected: only its complete system prompt can be changed.');
+      }
+      const now = Date.now();
+      db.prepare('UPDATE agents SET system_prompt = ?, updated_at = ? WHERE id = ?').run(system_prompt, now, id);
+      return {
+        ...current,
+        system_prompt,
+        updated_at: now,
+        role: 'master' as const,
+        is_protected: true,
+        mcpServerExclusionIds: [],
+        skillNames: [],
+      };
+    }
+
     const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
     if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
       throw new Error('Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.');
@@ -752,6 +774,18 @@ export function registerIpcHandlers() {
       is_default: is_default ? 1 : 0,
       mcpServerExclusionIds: mcpServerExclusionIds || [],
       skillNames: skillNames || []
+    };
+  });
+
+  typedHandle('db:resetMasterAgentPrompt', (_, projectId) => {
+    const master = resetMasterAgentPrompt(db, projectId);
+    return {
+      ...master,
+      role: 'master' as const,
+      is_protected: true,
+      is_default: 1,
+      mcpServerExclusionIds: [],
+      skillNames: [],
     };
   });
 

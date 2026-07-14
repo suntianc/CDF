@@ -7,6 +7,7 @@ interface AgentState {
   error: string | null;
   fetchAgents: (projectId: string) => Promise<void>;
   saveAgent: (agent: AgentSaveInput) => Promise<void>;
+  resetMasterAgentPrompt: (projectId: string) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
 }
 
@@ -32,6 +33,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       await get().fetchAgents(agent.project_id);
     } catch (err: any) {
       set({ error: err.message || 'Failed to save agent', isLoading: false });
+      throw err;
+    }
+  },
+
+  resetMasterAgentPrompt: async (projectId) => {
+    set({ isLoading: true, error: null });
+    try {
+      await window.electronAPI.db.resetMasterAgentPrompt(projectId);
+      await get().fetchAgents(projectId);
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to reset Master Agent prompt', isLoading: false });
       throw err;
     }
   },

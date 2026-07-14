@@ -59,7 +59,7 @@ function getSkillDisplayName(skill: { name: string; qualifiedName?: string | nul
 
 export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEditDialogProps) {
   const { t } = useTranslation();
-  const { agents, saveAgent } = useAgentStore();
+  const { agents, saveAgent, resetMasterAgentPrompt } = useAgentStore();
   const { providers } = useLLMStore();
   const { skills } = useSkillStore();
   const { mcpServers } = useMcpServerStore();
@@ -92,7 +92,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   const skillContainerRef = useRef<HTMLDivElement>(null);
   const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
-  const isProtectedAgent = editingAgent?.is_protected === true || editingAgent?.role === 'master' || editingAgent?.slug === 'general-purpose';
+  const isMasterAgent = editingAgent?.role === 'master' || editingAgent?.slug === 'master-agent';
+  const isProtectedAgent = editingAgent?.is_protected === true || isMasterAgent || editingAgent?.slug === 'general-purpose';
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -144,6 +145,20 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isMasterAgent && editingAgent) {
+      try {
+        await saveAgent({
+          id: editingAgent.id,
+          project_id: editingAgent.project_id,
+          system_prompt: formSystemPrompt,
+        });
+        showToast(t('agent.masterPromptSaved'), 'success');
+        onClose();
+      } catch {
+        showToast(t('agent.saveError'), 'error');
+      }
+      return;
+    }
     if (!formName.trim()) {
       showToast(t('agent.nameRequired'), 'error');
       return;
@@ -258,6 +273,82 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     skill.sourceLabel || (skill.scope === 'project' ? t('agent.skillSourceProject') : t('agent.skillSourceGlobal'));
 
   if (!isOpen) return null;
+
+  if (isMasterAgent && editingAgent) {
+    const handleResetMasterPrompt = async () => {
+      try {
+        await resetMasterAgentPrompt(editingAgent.project_id);
+        setFormSystemPrompt(editingAgent.system_prompt || '');
+        showToast(t('agent.masterPromptReset'), 'success');
+        onClose();
+      } catch {
+        showToast(t('agent.masterPromptResetError'), 'error');
+      }
+    };
+
+    return (
+      <div className="modal-overlay visible z-50">
+        <div className="modal animate-fade-in w-[95%] max-w-[760px] flex flex-col p-0">
+          <div className="flex justify-between items-center px-6 py-4 border-b border-[var(--color-border)] shrink-0">
+            <span className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
+              <Bot className="w-5 h-5 text-[var(--color-accent)]" />
+              <span>{t('agent.editTitle', { name: editingAgent.name })}</span>
+            </span>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-[background-color,color] duration-150 cursor-pointer"
+              aria-label={t('common.closeModal')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <form onSubmit={handleSaveAgent} className="p-6 space-y-4">
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+              {t('agent.masterPromptOnlyHint')}
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('agent.nameLabel')}</label>
+              <input
+                className="form-input"
+                value={editingAgent.name}
+                placeholder={t('agent.namePlaceholder')}
+                disabled
+              />
+            </div>
+            <div className="form-group flex flex-col min-h-[280px]">
+              <label className="form-label">{t('agent.systemPromptLabel')}</label>
+              <textarea
+                className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
+                value={formSystemPrompt}
+                onChange={(e) => setFormSystemPrompt(e.target.value)}
+                placeholder={t('agent.systemPromptPlaceholder')}
+              />
+            </div>
+            <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+              {t('agent.masterPromptScopeHint')}
+            </p>
+            <div className="border-t border-[var(--color-border)]/50 pt-4 flex justify-between gap-2">
+              <button
+                type="button"
+                onClick={handleResetMasterPrompt}
+                className="btn btn-secondary cursor-pointer"
+              >
+                {t('agent.resetMasterPrompt')}
+              </button>
+              <div className="flex gap-2">
+                <button type="button" onClick={onClose} className="btn btn-secondary cursor-pointer">
+                  {t('common.cancel')}
+                </button>
+                <button type="submit" className="btn btn-primary cursor-pointer">
+                  {t('common.save')}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-overlay visible z-50">

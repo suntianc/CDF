@@ -368,6 +368,32 @@ export function createAgentTools(
           return JSON.stringify({ error: `Agent not found: ${input.id}` });
         }
 
+        if (isInternalMasterAgent(existing)) {
+          const hasForbiddenChange = input.name !== undefined
+            || input.description !== undefined
+            || input.provider_id !== undefined
+            || input.mcpServerExclusionIds !== undefined
+            || input.skillNames !== undefined
+            || input.is_default !== undefined
+            || input.config !== undefined;
+          if (hasForbiddenChange || typeof input.system_prompt !== 'string') {
+            return JSON.stringify({
+              error: 'Master Agent is protected: only its complete system prompt can be changed.',
+            });
+          }
+          db.prepare('UPDATE agents SET system_prompt = ?, updated_at = ? WHERE id = ?').run(
+            input.system_prompt,
+            Date.now(),
+            input.id,
+          );
+          const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(input.id) as AgentRow;
+          return JSON.stringify({
+            ...serializeAgent(row),
+            mcpServerExclusionIds: getMcpExclusionIdsForAgent(input.id),
+            skillNames: getSkillNamesForAgent(input.id),
+          });
+        }
+
         if (input.name !== undefined && !AGENT_NAME_REGEX.test(input.name.trim())) {
           return JSON.stringify({
             error:

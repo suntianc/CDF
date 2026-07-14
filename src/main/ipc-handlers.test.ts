@@ -552,7 +552,7 @@ describe('IPC handlers', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: vi.fn(() => {
         if (sql.includes('SELECT id FROM projects')) return { id: 'project-1' };
-        if (sql.includes("slug = ?")) return { id: 'master-1' };
+        if (sql.includes("slug = ?")) return { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent', system_prompt: 'Captured Master prompt' };
         return undefined;
       }),
       all: vi.fn(() => []),
@@ -567,8 +567,34 @@ describe('IPC handlers', () => {
 
     expect(session.agent_id).toBe('master-1');
     expect(sessionInsert).toHaveBeenCalledWith(
-      expect.any(String), 'project-1', 'Conversation', 'master-1', null, null, expect.any(Number), expect.any(Number),
+      expect.any(String), 'project-1', 'Conversation', 'master-1', null, null, 'Captured Master prompt', expect.any(Number), expect.any(Number),
     );
+    expect(session).toEqual(expect.objectContaining({ prompt_snapshot: 'Captured Master prompt' }));
+  });
+
+  it('accepts a Master prompt-only save but rejects every other Master configuration change', () => {
+    const updates: unknown[][] = [];
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => sql.includes('SELECT * FROM agents WHERE id = ?')
+        ? {
+            id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent',
+            description: 'Project Master Agent', provider_id: null, system_prompt: 'Old prompt', config: null, is_default: 1,
+          }
+        : sql.includes('SELECT slug FROM agents WHERE id = ?') ? { slug: 'master-agent' } : undefined),
+      all: vi.fn(() => []),
+      run: vi.fn((...args: unknown[]) => updates.push(args)),
+    }));
+
+    registerIpcHandlers();
+    const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
+
+    expect(() => saveAgentHandler({}, {
+      id: 'master-1', project_id: 'project-1', system_prompt: 'New complete prompt',
+    })).not.toThrow();
+    expect(updates).toContainEqual(['New complete prompt', expect.any(Number), 'master-1']);
+    expect(() => saveAgentHandler({}, {
+      id: 'master-1', project_id: 'project-1', system_prompt: 'New complete prompt', description: 'Changed',
+    })).toThrow('only its complete system prompt can be changed');
   });
 
   it('rejects deleting the protected Master Agent through IPC', () => {

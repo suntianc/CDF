@@ -459,7 +459,7 @@ export async function aggregateCurrentSessionContext(
     // ALWAYS look up the session's agent → active provider to resolve modelName and agentSystemPrompt.
     const agent = db
       .prepare(
-        `SELECT a.id, a.system_prompt, a.provider_id, a.config, p.context_limit,
+        `SELECT a.id, COALESCE(s.prompt_snapshot, a.system_prompt) AS system_prompt, a.provider_id, a.config, p.context_limit,
                 p.default_model AS model_name, p.name AS provider_name
          FROM agents a
          JOIN sessions s ON s.agent_id = a.id

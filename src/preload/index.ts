@@ -82,6 +82,7 @@ const api = {
     // Phase 3: Agent Library
     getAgents: (projectId: string) => typedInvoke('db:getAgents', projectId),
     saveAgent: (agent: AgentSaveInput) => typedInvoke('db:saveAgent', agent),
+    resetMasterAgentPrompt: (projectId: string) => typedInvoke('db:resetMasterAgentPrompt', projectId),
     deleteAgent: (id: string) => typedInvoke('db:deleteAgent', id),
     // Phase 3: Skills
     getSkills: (projectId: string) => typedInvoke('db:getSkills', projectId),

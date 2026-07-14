@@ -264,6 +264,59 @@ describe('AgentEditDialog', () => {
     }));
   });
 
+  it('lets Master edit and reset only the complete prompt, with changes scoped to new Conversations', () => {
+    const saveAgent = vi.fn(async () => {});
+    const resetMasterAgentPrompt = vi.fn(async () => {});
+    useAgentStore.setState({
+      agents: [{
+        id: 'master-1',
+        project_id: 'project-1',
+        name: 'Master Agent',
+        slug: 'master-agent',
+        role: 'master',
+        is_protected: true,
+        description: 'Project Master Agent',
+        provider_id: undefined,
+        system_prompt: 'General complete prompt',
+        config: { toolScope: { mode: 'inherit' } },
+        is_default: 1,
+        mcpServerExclusionIds: [],
+        skillNames: [],
+        created_at: 0,
+        updated_at: 0,
+      }],
+      saveAgent,
+      resetMasterAgentPrompt,
+    });
+
+    render(
+      <AgentEditDialog
+        isOpen
+        agentId="master-1"
+        onClose={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/only the complete prompt can be changed/i)).toBeTruthy();
+    expect(screen.getByText(/Prompt changes apply only to new Conversations/i)).toBeTruthy();
+    expect(screen.queryByText('Runtime safety configuration')).toBeNull();
+    expect((screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByPlaceholderText(/Enter detailed system prompt/i), {
+      target: { value: 'Edited complete prompt' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+    expect(saveAgent).toHaveBeenCalledWith({
+      id: 'master-1',
+      project_id: 'project-1',
+      system_prompt: 'Edited complete prompt',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Reset to Scene default/i }));
+    expect(resetMasterAgentPrompt).toHaveBeenCalledWith('project-1');
+  });
+
   it('shows the protected General-purpose identity and inherited model selection', () => {
     useAgentStore.setState({
       agents: [{

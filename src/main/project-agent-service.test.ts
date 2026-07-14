@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   GENERAL_PURPOSE_AGENT_SLUG,
   MASTER_AGENT_SLUG,
+  GENERAL_SCENE_DEFAULT_PROMPT,
+  RESEARCH_SCENE_DEFAULT_PROMPT,
   assertProjectAgentCanBeDeleted,
   assertProjectAgentCanBeSaved,
   ensureGeneralPurposeAgent,
   ensureMasterAgent,
+  resetMasterAgentPrompt,
 } from './project-agent-service';
 
 describe('Project Agent service', () => {
@@ -15,7 +18,7 @@ describe('Project Agent service', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     db.exec(`
-      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE projects (id TEXT PRIMARY KEY, scene TEXT NOT NULL DEFAULT 'general');
       CREATE TABLE agents (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -29,7 +32,7 @@ describe('Project Agent service', () => {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
-      INSERT INTO projects (id) VALUES ('project-1');
+      INSERT INTO projects (id, scene) VALUES ('project-1', 'general');
     `);
   });
 
@@ -78,6 +81,30 @@ describe('Project Agent service', () => {
       slug: MASTER_AGENT_SLUG,
       is_default: 1,
     }]);
+  });
+
+  it('initializes each Master with its Scene Default Prompt and resets without overwriting custom content', () => {
+    db.prepare("INSERT INTO projects (id, scene) VALUES ('research-project', 'research')").run();
+    ensureMasterAgent(db, 'project-1', { createId: () => 'general-master', now: () => 10 });
+    ensureMasterAgent(db, 'research-project', { createId: () => 'research-master', now: () => 10 });
+
+    expect(db.prepare('SELECT system_prompt FROM agents WHERE id = ?').get('general-master')).toEqual({
+      system_prompt: GENERAL_SCENE_DEFAULT_PROMPT,
+    });
+    expect(db.prepare('SELECT system_prompt FROM agents WHERE id = ?').get('research-master')).toEqual({
+      system_prompt: RESEARCH_SCENE_DEFAULT_PROMPT,
+    });
+
+    db.prepare('UPDATE agents SET system_prompt = ? WHERE id = ?').run('User-authored complete prompt', 'research-master');
+    ensureMasterAgent(db, 'research-project');
+    expect(db.prepare('SELECT system_prompt FROM agents WHERE id = ?').get('research-master')).toEqual({
+      system_prompt: 'User-authored complete prompt',
+    });
+
+    resetMasterAgentPrompt(db, 'research-project', { now: () => 20 });
+    expect(db.prepare('SELECT system_prompt FROM agents WHERE id = ?').get('research-master')).toEqual({
+      system_prompt: RESEARCH_SCENE_DEFAULT_PROMPT,
+    });
   });
 
   it('rejects deleting, moving, renaming, or shadowing the Master Agent identity', () => {

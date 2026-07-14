@@ -45,6 +45,8 @@ import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
 import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle } from './conversation-working-state';
+import { getConversationPromptSnapshot } from '../conversation-prompt-snapshot';
+import { isMasterAgent } from '../project-agent-service';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -631,7 +633,14 @@ async function buildDeepAgentRuntime(
   releaseWorkingState: () => void,
 ) {
   const project = getProject(projectId);
-  const agentRow = getRuntimeAgent(projectId, agentId);
+  const resolvedAgentRow = getRuntimeAgent(projectId, agentId);
+  const promptSnapshot = getConversationPromptSnapshot(db, sessionId);
+  // Root Conversations are bound to Master. Their durable snapshot, rather
+  // than the current Master record, preserves the exact prompt across turns
+  // and process restarts. Delegated Agents retain their own live prompts.
+  const agentRow = promptSnapshot === null || !isMasterAgent(resolvedAgentRow)
+    ? resolvedAgentRow
+    : { ...resolvedAgentRow, system_prompt: promptSnapshot };
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });

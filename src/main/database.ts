@@ -51,6 +51,7 @@ db.exec(`
     name TEXT NOT NULL,
     agent_id TEXT,
     summary TEXT,
+    prompt_snapshot TEXT,
     workflow_run_id TEXT,
     workflow_run_status TEXT,
     created_at INTEGER NOT NULL,
@@ -105,6 +106,7 @@ try {
 // Safe migration for sessions parent_session_id & summary
 safeMigrate('sessions table (parent_session_id)', `ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`);
 safeMigrate('sessions table (agent_id)', `ALTER TABLE sessions ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`);
+safeMigrate('sessions table (prompt_snapshot)', `ALTER TABLE sessions ADD COLUMN prompt_snapshot TEXT;`);
 
 // Safe migration for llm_providers models
 safeMigrate('llm_providers table (models)', `ALTER TABLE llm_providers ADD COLUMN models TEXT;`);

@@ -139,6 +139,7 @@ export interface IpcInvokeContract {
   // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
   'db:getAgents': { args: [projectId: string]; result: Agent[] };
   'db:saveAgent': { args: [agent: AgentSaveInput]; result: AgentSaveResult };
+  'db:resetMasterAgentPrompt': { args: [projectId: string]; result: AgentSaveResult };
   'db:deleteAgent': { args: [id: string]; result: void };
   'db:getSkills': { args: [projectId: string]; result: Skill[] };
   'db:getProjectSkillOverrides': {
@@ -364,6 +365,7 @@ export const IPC_INVOKE_CHANNELS = [
   'working-state:optimize-storage',
   'db:getAgents',
   'db:saveAgent',
+  'db:resetMasterAgentPrompt',
   'db:deleteAgent',
   'db:getSkills',
   'db:getProjectSkillOverrides',

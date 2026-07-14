@@ -61,7 +61,8 @@ export interface Agent {
 export interface AgentSaveInput {
   id: string;
   project_id: string;
-  name: string;
+  /** Omit only when updating the protected Master Agent's prompt. */
+  name?: string;
   description?: string | null;
   provider_id?: string | null;
   system_prompt?: string | null;
