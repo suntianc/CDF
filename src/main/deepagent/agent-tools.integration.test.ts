@@ -48,6 +48,7 @@ vi.mock('electron', () => ({
 
 import db from '../database';
 import { createAgentTools } from './agent-tools';
+import { ensureGeneralPurposeAgent } from '../project-agent-service';
 
 const PROJECT_ID = 'project-integration-1';
 const PROJECT_PATH = path.join(TMP_DIR, 'project-root');
@@ -107,6 +108,20 @@ async function invokeTool(name: string, input: unknown) {
 
 beforeEach(() => {
   freshDb();
+});
+
+describe('protected General-purpose Agent', () => {
+  it('cannot be shadowed, renamed, or deleted through Agent tools', async () => {
+    ensureGeneralPurposeAgent(db, PROJECT_ID, { createId: () => 'general-1', now: () => 1 });
+
+    const shadow = await invokeTool('create_agent', { name: 'General Purpose' });
+    const rename = await invokeTool('update_agent', { id: 'general-1', name: 'Renamed Agent' });
+    const remove = await invokeTool('delete_agent', { id: 'general-1' });
+
+    expect(shadow.error).toContain('reserved for the protected General-purpose Agent');
+    expect(rename.error).toContain('protected and cannot be renamed');
+    expect(remove.error).toContain('protected and cannot be deleted');
+  });
 });
 
 afterAll(() => {

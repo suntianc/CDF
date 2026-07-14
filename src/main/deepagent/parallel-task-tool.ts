@@ -139,7 +139,6 @@ function pushTaskStep(
     batchId,
     delegatedRunId: delegatedRun.id,
     agentSlug: delegatedRun.target_agent_slug,
-    workerId: delegatedRun.id,
     runTaskId,
     step: { ...step, delegatedRunId: delegatedRun.id },
   });
@@ -201,7 +200,6 @@ export function createParallelTaskTool(
                 type: 'delegation',
                 taskId: runTaskId,
                 batchId,
-                workerId: run.id,
                 delegatedRunId: run.id,
                 agentSlug: targetAgentSlug,
               });

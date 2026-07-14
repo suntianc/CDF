@@ -133,7 +133,7 @@ describe('parallel_tasks + Delegated Run Coordinator integration', () => {
       .toBe(6);
     expect(sendMock).toHaveBeenCalledWith(
       expect.stringContaining('agent:parallel-task-step-'),
-      expect.objectContaining({ delegatedRunId: 'delegated-1', workerId: 'delegated-1' }),
+      expect.objectContaining({ delegatedRunId: 'delegated-1' }),
     );
   });
 });

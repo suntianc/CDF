@@ -28,6 +28,24 @@ export function deleteConversation(db: Database.Database, sessionId: string): vo
       );
     }
 
+    const hasDelegatedRunsTable = db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'delegated_agent_runs' LIMIT 1"
+    ).get();
+    if (hasDelegatedRunsTable) {
+      const activeDelegatedRun = db.prepare(`SELECT 1 FROM delegated_agent_runs
+        JOIN agent_runs ON agent_runs.id = delegated_agent_runs.parent_run_id
+        WHERE agent_runs.session_id = ?
+          AND delegated_agent_runs.status IN ('queued', 'running', 'waiting_approval')
+        LIMIT 1`
+      ).get(sessionId);
+      if (activeDelegatedRun) {
+        throw new ConversationDeleteError(
+          CONVERSATION_DELETE_ERROR_CODES.ACTIVE_AGENT_RUN,
+          'Cannot delete Conversation while a Delegated Agent Run is in progress.'
+        );
+      }
+    }
+
     const hasCapabilityJobsTable = db.prepare(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'capability_jobs' LIMIT 1"
     ).get();

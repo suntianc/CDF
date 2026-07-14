@@ -33,7 +33,7 @@ const nodeTypes = {
   task: TaskNode,
 };
 
-function calculateLayout(stages: ProjectedStage[], tasks: Record<string, WorkflowRunTask>, selectedStageId: string | null) {
+function calculateLayout(stages: ProjectedStage[], tasks: Record<string, WorkflowRunTask>, selectedStageId: string | null, selectedRouteIds: string[]) {
   const nodes: FlowNode[] = [];
   const edges: FlowEdge[] = [];
 
@@ -47,13 +47,20 @@ function calculateLayout(stages: ProjectedStage[], tasks: Record<string, Workflo
         selected: selectedStageId === stage.id,
       });
 
-    if (i > 0) {
+    for (const route of stage.routes ?? []) {
+      const selectedRoute = selectedRouteIds.includes(route.id);
       edges.push({
-        id: `stage-edge-${stages[i - 1].id}-${stage.id}`,
-        source: `stage-${stages[i - 1].id}`,
-        target: `stage-${stage.id}`,
+        id: `stage-route-${route.id}`,
+        source: `stage-${stage.id}`,
+        target: `stage-${route.targetStageId}`,
         type: 'smoothstep',
-        style: { stroke: 'var(--color-border)', strokeWidth: 2 },
+        label: route.condition || undefined,
+        animated: selectedRoute,
+        style: {
+          stroke: selectedRoute ? 'var(--color-accent)' : 'var(--color-border)',
+          strokeWidth: selectedRoute ? 3 : 1.5,
+          strokeDasharray: selectedRoute ? undefined : '4 4',
+        },
       });
     }
   });
@@ -165,6 +172,7 @@ export function WorkflowRunView() {
     waiting: 'waiting',
     active: 'active',
     waiting_gate: 'waitingGate',
+    waiting_input: 'waitingInput',
     passed: 'passed',
     aborted: 'aborted',
     failed: 'failed',
@@ -184,7 +192,7 @@ export function WorkflowRunView() {
   const [submitting, setSubmitting] = useState(false);
   const [rejectWarning, setRejectWarning] = useState(false);
 
-  const { stages, selectedStageId, tasks, gates } = projectionState;
+  const { stages, selectedStageId, tasks, gates, selectedRouteIds } = projectionState;
 
   const selectedStage = useMemo(() => {
     return stages.find((s) => s.id === selectedStageId) || null;
@@ -208,8 +216,8 @@ export function WorkflowRunView() {
 
   // Calculate layout elements
   const { nodes, edges } = useMemo(() => {
-    return calculateLayout(stages, tasks, selectedStageId);
-  }, [stages, tasks, selectedStageId]);
+    return calculateLayout(stages, tasks, selectedStageId, selectedRouteIds);
+  }, [stages, tasks, selectedStageId, selectedRouteIds]);
 
   const onNodeClick = (_event: React.MouseEvent, node: FlowNode) => {
     if (node.type === 'stage') {
@@ -307,7 +315,11 @@ export function WorkflowRunView() {
           <Controls showInteractive={false} className="!bg-[var(--color-bg-surface)] !border-[var(--color-border)] !shadow-none" />
           <Panel position="top-left" className="bg-[var(--color-bg-surface)] px-3 py-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] shadow-sm">
             <span className="text-xs font-semibold text-[var(--color-text-primary)]">
-              {projectionState.run?.status === 'waiting_gate' ? t('workflow.runView.waitingGate') : t('workflow.runView.title')}
+              {projectionState.run?.status === 'waiting_gate'
+                ? t('workflow.runView.waitingGate')
+                : projectionState.run?.status === 'waiting_input'
+                  ? t('workflow.runView.waitingInput')
+                  : t('workflow.runView.title')}
             </span>
           </Panel>
         </ReactFlow>
@@ -411,6 +423,17 @@ export function WorkflowRunView() {
                     </div>
                   </div>
                 )}
+                {(pendingGate.report.routeProposal || pendingGate.report.routeSelection) && (
+                  <div className="rounded-[var(--radius-sm)] border border-[var(--color-accent)]/30 bg-[var(--color-accent-dim)]/20 p-2.5 text-xs">
+                    <div className="font-semibold text-[var(--color-text-primary)]">{t('workflow.runView.selectedRoute')}</div>
+                    <div className="mt-1 font-mono text-[var(--color-text-secondary)]">
+                      {(pendingGate.report.routeProposal || pendingGate.report.routeSelection)?.targetStageId}
+                    </div>
+                    {(pendingGate.report.routeProposal || pendingGate.report.routeSelection)?.rationale && (
+                      <div className="mt-1 text-[var(--color-text-secondary)]">{(pendingGate.report.routeProposal || pendingGate.report.routeSelection)?.rationale}</div>
+                    )}
+                  </div>
+                )}
 
                 {/* Interactive Feedback & Action Buttons */}
                 <div className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-4">
@@ -501,6 +524,15 @@ export function WorkflowRunView() {
                     <div className="p-2.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-canvas)] text-xs text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-wrap">
                       {resolvedGate.report.summary}
                     </div>
+                  </div>
+                )}
+                {resolvedGate.report.routeSelection && (
+                  <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-canvas)] p-2.5 text-xs">
+                    <div className="font-semibold text-[var(--color-text-primary)]">{t('workflow.runView.selectedRoute')}</div>
+                    <div className="mt-1 font-mono text-[var(--color-text-secondary)]">{resolvedGate.report.routeSelection.targetStageId}</div>
+                    {resolvedGate.report.routeSelection.rationale && (
+                      <div className="mt-1 text-[var(--color-text-secondary)]">{resolvedGate.report.routeSelection.rationale}</div>
+                    )}
                   </div>
                 )}
               </div>

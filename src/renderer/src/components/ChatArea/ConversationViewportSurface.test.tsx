@@ -86,6 +86,9 @@ describe('ConversationViewportSurface', () => {
     const approval: AgentApprovalRequest = {
       id: 'approval-1',
       runId: 'run-1',
+      delegatedRunId: 'delegated-run-1',
+      targetAgentName: 'Code Agent',
+      delegatedTask: '更新 README',
       actions: [{ name: 'write_file', args: { file_path: 'README.md' } }],
     };
     const timelineItems: ConversationTimelineItem[] = [
@@ -111,6 +114,8 @@ describe('ConversationViewportSurface', () => {
     expect(screen.getByText(/awaitingApproval/)).toBeTruthy();
 
     fireEvent.click(screen.getByText(/awaitingApproval/));
+    expect(screen.getByText('Code Agent')).toBeTruthy();
+    expect(screen.getByText('更新 README')).toBeTruthy();
     fireEvent.click(screen.getByText('chat.goApproveNow'));
     expect(onOpenTaskPanel).toHaveBeenCalledTimes(1);
   });
@@ -185,7 +190,7 @@ describe('ConversationViewportSurface', () => {
   it('renders parallel worker detail instead of master timeline and wires back navigation', () => {
     const onBackFromParallelWorker = vi.fn();
     const viewingWorkerData: ParallelWorker = {
-      workerId: 'worker-1',
+      delegatedRunId: 'worker-1',
       agentSlug: 'reviewer',
       agentName: 'Reviewer Agent',
       goal: 'Review output',

@@ -14,7 +14,7 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import type { WorkflowRun, WorkflowRunTask, WorkflowStageReport, WorkflowTaskStatus } from '../../shared/types';
-import { advanceStageCursor, getCurrentStage, createTask, setTaskDependencies, updateTaskStatus, listRunTasks, getTask } from './db';
+import { advanceStageCursor, getCurrentStage, createTask, setTaskDependencies, updateTaskStatus, listRunTasks, getTask, updateRunStatus } from './db';
 import { pushProjectionEvent } from './notify';
 
 /** advance_stage 工具注入时需要的上下文 */
@@ -26,12 +26,12 @@ export interface AdvanceStageToolContext {
 
 export function createAdvanceStageTool(ctx: AdvanceStageToolContext) {
   return tool(
-    async ({ report }: { report: WorkflowStageReport }) => {
+    async ({ report, routeId }: { report: WorkflowStageReport; routeId?: string; rationale?: string }) => {
       const run = ctx.getRun();
       if (!run) throw new Error('Workflow run not found');
 
       // 审批已通过，主进程权威推进 cursor
-      const advanced = advanceStageCursor(run.id);
+      const advanced = advanceStageCursor(run.id, routeId);
       if (!advanced) throw new Error('Failed to advance stage cursor');
       pushProjectionEvent({
         type: 'run',
@@ -80,6 +80,37 @@ export function createAdvanceStageTool(ctx: AdvanceStageToolContext) {
           })),
           summary: z.string().describe('本阶段工作总结'),
         }),
+        routeId: z.string().optional().describe('选择的已编排 Stage Route ID；单一路由可省略'),
+        rationale: z.string().optional().describe('选择该条件路由的简短理由'),
+      }),
+    },
+  );
+}
+
+export function createStageRouteBlockerTool(ctx: AdvanceStageToolContext) {
+  return tool(
+    async ({ explanation }: { explanation: string }) => {
+      const run = ctx.getRun();
+      if (!run) throw new Error('Workflow run not found');
+      updateRunStatus(run.id, 'waiting_input');
+      pushProjectionEvent({
+        type: 'run',
+        runId: run.id,
+        status: 'waiting_input',
+        currentStageIndex: run.current_stage_index,
+        error: null,
+      });
+      return {
+        status: 'waiting_input',
+        explanation,
+        message: 'Explain the missing information to the user and wait for their next instruction. Do not select a Stage Route yet.',
+      };
+    },
+    {
+      name: 'report_stage_route_blocker',
+      description: '当信息不足、无法负责任地选择已编排 Stage Route 时，说明缺失信息并等待用户输入。不得用它绕过验收或编造默认路线。',
+      schema: z.object({
+        explanation: z.string().min(1).describe('面向用户的自然语言说明：缺少什么信息，以及为什么当前无法选择路线'),
       }),
     },
   );
@@ -96,7 +127,7 @@ export function createAdvanceStageTool(ctx: AdvanceStageToolContext) {
  *
  * @returns 提取的 report 对象，或 null（如果不是 advance_stage 中断）
  */
-export function isAdvanceStageInterrupt(interruptValue: unknown): { report: WorkflowStageReport } | { error: string } | null {
+export function isAdvanceStageInterrupt(interruptValue: unknown): { report: WorkflowStageReport; routeId?: string; rationale?: string } | { error: string } | null {
   if (!interruptValue || typeof interruptValue !== 'object') return null;
   const val = interruptValue as Record<string, unknown>;
 
@@ -124,7 +155,13 @@ export function isAdvanceStageInterrupt(interruptValue: unknown): { report: Work
   const report = (args as Record<string, unknown>).report;
   if (!report || typeof report !== 'object') return null;
 
-  return { report: report as WorkflowStageReport };
+  const routeId = typeof (args as Record<string, unknown>).routeId === 'string'
+    ? (args as Record<string, unknown>).routeId as string
+    : undefined;
+  const rationale = typeof (args as Record<string, unknown>).rationale === 'string'
+    ? (args as Record<string, unknown>).rationale as string
+    : undefined;
+  return { report: report as WorkflowStageReport, routeId, rationale };
 }
 
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Workflow, WorkflowSaveInput, WorkflowStage } from '../../../shared/types';
+import { normalizeWorkflowStages } from '../../../shared/workflow-routing';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -13,14 +14,14 @@ interface WorkflowState {
   setCurrentWorkflow: (workflow: Workflow | null) => void;
   addStage: () => void;
   removeStage: (stageId: string) => void;
-  updateStage: (stageId: string, data: Partial<Pick<WorkflowStage, 'name' | 'taskDescription' | 'acceptanceCriteria' | 'gateEnabled'>>) => void;
+  updateStage: (stageId: string, data: Partial<Pick<WorkflowStage, 'name' | 'taskDescription' | 'acceptanceCriteria' | 'gateEnabled' | 'terminal' | 'routes'>>) => void;
   moveStageUp: (stageId: string) => void;
   moveStageDown: (stageId: string) => void;
   reorderStages: (fromIndex: number, toIndex: number) => void;
 }
 
 function normalizeWorkflow(workflow: Workflow): Workflow {
-  return { ...workflow, stages: Array.isArray(workflow.stages) ? workflow.stages : [] };
+  return { ...workflow, stages: normalizeWorkflowStages(Array.isArray(workflow.stages) ? workflow.stages : []) };
 }
 
 function updateCurrentStages(
@@ -111,15 +112,33 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   setCurrentWorkflow: (workflow) => set({ currentWorkflow: workflow ? normalizeWorkflow(workflow) : null }),
 
-  addStage: () => updateCurrentStages(set, (stages) => [...stages, {
-    id: crypto.randomUUID(),
+  addStage: () => updateCurrentStages(set, (stages) => {
+    const id = crypto.randomUUID();
+    const previous = stages[stages.length - 1];
+    const connected = previous?.terminal
+      ? stages.map((stage) => stage.id === previous.id ? {
+          ...stage,
+          terminal: false,
+          routes: [{ id: crypto.randomUUID(), targetStageId: id, condition: '' }],
+        } : stage)
+      : stages;
+    return [...connected, {
+    id,
     name: '',
     taskDescription: '',
     acceptanceCriteria: '',
     gateEnabled: true,
-  }]),
+    terminal: true,
+    routes: [],
+  }];
+  }),
 
-  removeStage: (stageId) => updateCurrentStages(set, (stages) => stages.filter((stage) => stage.id !== stageId)),
+  removeStage: (stageId) => updateCurrentStages(set, (stages) => stages
+    .filter((stage) => stage.id !== stageId)
+    .map((stage) => ({
+      ...stage,
+      routes: (stage.routes ?? []).filter((route) => route.targetStageId !== stageId),
+    }))),
 
   updateStage: (stageId, data) => updateCurrentStages(
     set,

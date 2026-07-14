@@ -5,6 +5,10 @@ import type {
   DelegatedAgentRunStatus,
   DelegatedTaskResult,
 } from '../../shared/types';
+import {
+  DelegatedToolActionRepository,
+  initializeDelegatedToolActionSchema,
+} from './delegated-tool-action-repository';
 
 interface DelegatedAgentRunRow extends Omit<DelegatedAgentRun, 'outcome'> {
   outcome: string | null;
@@ -36,7 +40,7 @@ function createDelegatedAgentRunsTableSql(tableName: string): string {
     workflow_run_task_id TEXT,
     goal TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN (
-      'queued', 'running', 'completed', 'failed', 'interrupted'
+      'queued', 'running', 'waiting_approval', 'completed', 'failed', 'cancelled', 'interrupted'
     )),
     outcome TEXT,
     error_code TEXT,
@@ -54,7 +58,12 @@ function migrateDelegatedAgentRunsTable(db: Database.Database): void {
   const existing = db.prepare(
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'delegated_agent_runs'",
   ).get() as { sql: string } | undefined;
-  if (!existing || (existing.sql.includes("'parallel'") && existing.sql.includes('batch_id'))) {
+  if (!existing || (
+    existing.sql.includes("'parallel'")
+    && existing.sql.includes('batch_id')
+    && existing.sql.includes("'waiting_approval'")
+    && existing.sql.includes("'cancelled'")
+  )) {
     return;
   }
 
@@ -103,6 +112,7 @@ export function initializeDelegatedAgentRunSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_delegated_runs_status
       ON delegated_agent_runs(status, created_at);
   `);
+  initializeDelegatedToolActionSchema(db);
 }
 
 function parseRow(row: DelegatedAgentRunRow | undefined): DelegatedAgentRun | null {
@@ -121,6 +131,10 @@ function parseRow(row: DelegatedAgentRunRow | undefined): DelegatedAgentRun | nu
 
 export class DelegatedAgentRunRepository {
   constructor(private readonly db: Database.Database) {}
+
+  createToolActionRepository(): DelegatedToolActionRepository {
+    return new DelegatedToolActionRepository(this.db);
+  }
 
   createSingle(input: CreateDelegatedAgentRunInput): DelegatedAgentRun {
     return this.create(input, 'single');
@@ -196,6 +210,22 @@ export class DelegatedAgentRunRepository {
     return this.getRequired(id);
   }
 
+  markWaitingApproval(id: string, updatedAt: number): DelegatedAgentRun {
+    this.db.prepare(`UPDATE delegated_agent_runs
+      SET status = 'waiting_approval', updated_at = ?
+      WHERE id = ? AND status = 'running'`)
+      .run(updatedAt, id);
+    return this.getRequired(id);
+  }
+
+  markRunningAfterApproval(id: string, updatedAt: number): DelegatedAgentRun {
+    this.db.prepare(`UPDATE delegated_agent_runs
+      SET status = 'running', updated_at = ?
+      WHERE id = ? AND status = 'waiting_approval'`)
+      .run(updatedAt, id);
+    return this.getRequired(id);
+  }
+
   finish(
     id: string,
     status: Extract<DelegatedAgentRunStatus, 'completed' | 'failed'>,
@@ -205,7 +235,7 @@ export class DelegatedAgentRunRepository {
     const error = outcome.status === 'failure' ? outcome.error : undefined;
     this.db.prepare(`UPDATE delegated_agent_runs
       SET status = ?, outcome = ?, error_code = ?, error_message = ?, ended_at = ?, updated_at = ?
-      WHERE id = ? AND status IN ('queued', 'running')`)
+      WHERE id = ? AND status IN ('queued', 'running', 'waiting_approval')`)
       .run(
         status,
         JSON.stringify(outcome),
@@ -218,6 +248,20 @@ export class DelegatedAgentRunRepository {
     return this.getRequired(id);
   }
 
+  cancelForParent(parentAgentRunId: string, endedAt: number): number {
+    const outcome: DelegatedTaskResult = {
+      status: 'failure',
+      artifacts: [],
+      summary: '',
+      error: { code: 'CANCELLED', message: 'Parent Agent Run was stopped by the user' },
+    };
+    return this.db.prepare(`UPDATE delegated_agent_runs
+      SET status = 'cancelled', outcome = ?, error_code = 'CANCELLED',
+          error_message = ?, ended_at = COALESCE(ended_at, ?), updated_at = ?
+      WHERE parent_run_id = ? AND status IN ('queued', 'running', 'waiting_approval')`)
+      .run(JSON.stringify(outcome), outcome.error?.message ?? null, endedAt, endedAt, parentAgentRunId).changes;
+  }
+
   reconcileInterrupted(endedAt: number): number {
     const outcome: DelegatedTaskResult = {
       status: 'failure',
@@ -228,16 +272,18 @@ export class DelegatedAgentRunRepository {
         message: 'Application stopped before the delegated Agent Run completed',
       },
     };
-    return this.db.prepare(`UPDATE delegated_agent_runs
+    const changes = this.db.prepare(`UPDATE delegated_agent_runs
       SET status = 'interrupted', outcome = ?, error_code = 'INTERRUPTED',
           error_message = ?, ended_at = COALESCE(ended_at, ?), updated_at = ?
-      WHERE status IN ('queued', 'running')`)
+      WHERE status IN ('queued', 'running', 'waiting_approval')`)
       .run(
         JSON.stringify(outcome),
         outcome.error?.message ?? null,
         endedAt,
         endedAt,
       ).changes;
+    this.createToolActionRepository().invalidatePending(null, endedAt, 'Application stopped before approval was resolved');
+    return changes;
   }
 
   private getRequired(id: string): DelegatedAgentRun {

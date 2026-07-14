@@ -15,11 +15,11 @@ function createDatabase(): Database.Database {
   db.pragma('foreign_keys = ON');
   db.exec(`
     CREATE TABLE agents (id TEXT PRIMARY KEY);
-    CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
+    CREATE TABLE agent_runs (id TEXT PRIMARY KEY, session_id TEXT NOT NULL);
     CREATE TABLE workflow_run_tasks (id TEXT PRIMARY KEY);
   `);
   db.prepare('INSERT INTO agents (id) VALUES (?)').run('agent-child');
-  db.prepare('INSERT INTO agent_runs (id) VALUES (?)').run('run-parent');
+  db.prepare('INSERT INTO agent_runs (id, session_id) VALUES (?, ?)').run('run-parent', 'session-1');
   for (let index = 1; index <= 6; index += 1) {
     db.prepare('INSERT INTO workflow_run_tasks (id) VALUES (?)').run(`workflow-task-${index}`);
   }
@@ -47,6 +47,320 @@ describe('DelegatedAgentRunCoordinator', () => {
 
   afterEach(() => {
     for (const db of databases.splice(0)) db.close();
+  });
+
+  it('pauses one gated tool action, approves it exactly once, and resumes the child', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    let nextId = 0;
+    let now = 100;
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: () => `id-${++nextId}`, now: () => ++now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, ++now);
+    const approvals: Array<{ id: string; action: { name: string } }> = [];
+    coordinator.subscribeToolApprovals((approval) => approvals.push(approval));
+    const execute = vi.fn(async () => 'written');
+
+    const resultPromise = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-1', name: 'write_file', args: { path: 'a.md' } },
+      requiresApproval: true,
+      execute,
+    });
+    await vi.waitFor(() => expect(approvals).toHaveLength(1));
+
+    expect(repository.get(delegatedRun.id)?.status).toBe('waiting_approval');
+    expect(execute).not.toHaveBeenCalled();
+    coordinator.resolveToolApproval(approvals[0].id, 'approve');
+
+    await expect(resultPromise).resolves.toBe('written');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(repository.get(delegatedRun.id)?.status).toBe('running');
+    expect(coordinator.listToolApprovalHistory(delegatedRun.id)).toEqual([
+      expect.objectContaining({
+        action_id: 'write-1',
+        decision: 'approve',
+        execution_status: 'success',
+      }),
+    ]);
+
+    await expect(coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-1', name: 'write_file', args: { path: 'a.md' } },
+      requiresApproval: true,
+      execute,
+    })).resolves.toBe('written');
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-execute a failed action when the same stable action id is retried', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, Date.now());
+    const execute = vi.fn(async () => {
+      throw new Error('write may have partially completed');
+    });
+    const input = {
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-failed', name: 'write_file', args: { path: 'a.md' } },
+      requiresApproval: false,
+      execute,
+    };
+
+    await expect(coordinator.runToolAction(input)).rejects.toThrow('write may have partially completed');
+    await expect(coordinator.runToolAction(input)).rejects.toThrow('write may have partially completed');
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('claims one approval atomically when duplicate resolutions arrive concurrently', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, Date.now());
+    let approvalId = '';
+    coordinator.subscribeToolApprovals((approval) => { approvalId = approval.id; });
+    const execute = vi.fn(async () => 'written once');
+    const result = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-concurrent', name: 'write_file', args: { path: 'a.md' } },
+      requiresApproval: true,
+      execute,
+    });
+    await vi.waitFor(() => expect(approvalId).not.toBe(''));
+
+    const first = coordinator.resolveToolApproval(approvalId, 'approve');
+    const second = coordinator.resolveToolApproval(approvalId, 'approve');
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    await expect(result).resolves.toBe('written once');
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates throwing approval observers from the active approval lifecycle', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, Date.now());
+    coordinator.subscribeToolApprovals(() => { throw new Error('renderer unavailable'); });
+    let approvalId = '';
+    coordinator.subscribeToolApprovals((approval) => { approvalId = approval.id; });
+
+    const result = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-observer', name: 'write_file', args: {} },
+      requiresApproval: true,
+      execute: async () => 'done',
+    });
+    await vi.waitFor(() => expect(approvalId).not.toBe(''));
+    await coordinator.resolveToolApproval(approvalId, 'approve');
+    await expect(result).resolves.toBe('done');
+  });
+
+  it('isolates throwing run-change observers before publishing an approval', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, Date.now());
+    coordinator.subscribeRunChanges(() => { throw new Error('renderer unavailable'); });
+    let approvalId = '';
+    coordinator.subscribeToolApprovals((approval) => { approvalId = approval.id; });
+
+    const result = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-run-observer', name: 'write_file', args: {} },
+      requiresApproval: true,
+      execute: async () => 'done',
+    });
+    await vi.waitFor(() => expect(approvalId).not.toBe(''));
+    await coordinator.resolveToolApproval(approvalId, 'approve');
+    await expect(result).resolves.toBe('done');
+  });
+
+  it('rejects without side effects and returns a standard rejection observation', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, Date.now());
+    let approvalId = '';
+    coordinator.subscribeToolApprovals((approval) => { approvalId = approval.id; });
+    const execute = vi.fn(async () => 'should not run');
+
+    const resultPromise = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'delete-1', name: 'delete_file', args: { path: 'a.md' } },
+      requiresApproval: true,
+      execute,
+    });
+    await vi.waitFor(() => expect(approvalId).not.toBe(''));
+    coordinator.resolveToolApproval(approvalId, 'reject');
+
+    const result = await resultPromise as { content?: unknown; name?: unknown };
+    expect(execute).not.toHaveBeenCalled();
+    expect(result.name).toBe('delete_file');
+    expect(result.content).toContain('rejected');
+    expect(repository.get(delegatedRun.id)?.status).toBe('running');
+  });
+
+  it('releases permitted siblings immediately and presents gated siblings in proposal order', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const delegatedRun = coordinator.queueSingle(request);
+    repository.markRunning(delegatedRun.id, Date.now());
+    const approvals: Array<{ id: string; action: { id: string } }> = [];
+    coordinator.subscribeToolApprovals((approval) => approvals.push(approval));
+    const effects: string[] = [];
+
+    const first = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-1', name: 'write_file', args: {} },
+      requiresApproval: true,
+      execute: async () => { effects.push('write-1'); return 'one'; },
+    });
+    const permitted = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'read-1', name: 'read_file', args: {} },
+      requiresApproval: false,
+      execute: async () => { effects.push('read-1'); return 'read'; },
+    });
+    const second = coordinator.runToolAction({
+      delegatedRunId: delegatedRun.id,
+      action: { id: 'write-2', name: 'write_file', args: {} },
+      requiresApproval: true,
+      execute: async () => { effects.push('write-2'); return 'two'; },
+    });
+
+    await expect(permitted).resolves.toBe('read');
+    expect(effects).toEqual(['read-1']);
+    await vi.waitFor(() => expect(approvals.map(item => item.action.id)).toEqual(['write-1']));
+
+    coordinator.resolveToolApproval(approvals[0].id, 'approve');
+    await expect(first).resolves.toBe('one');
+    await vi.waitFor(() => expect(approvals.map(item => item.action.id)).toEqual(['write-1', 'write-2']));
+    coordinator.resolveToolApproval(approvals[1].id, 'reject');
+
+    const [, rejected] = await Promise.all([first, second]);
+    expect((rejected as { content: string }).content).toContain('rejected');
+    expect(effects).toEqual(['read-1', 'write-1']);
+  });
+
+  it('keeps one active approval per child and resolves different children in reverse order', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `id-${++id}`; })(), now: Date.now },
+    );
+    const firstRun = coordinator.queueSingle(request);
+    const secondRun = coordinator.queueSingle({ ...request, taskToolCallId: 'task-call-2', targetAgentSlug: 'child-2' });
+    repository.markRunning(firstRun.id, Date.now());
+    repository.markRunning(secondRun.id, Date.now());
+    const approvals: Array<{ id: string; delegatedRunId: string }> = [];
+    coordinator.subscribeToolApprovals((approval) => approvals.push(approval));
+    const firstEffect = vi.fn(async () => 'first');
+    const secondEffect = vi.fn(async () => 'second');
+    const first = coordinator.runToolAction({
+      delegatedRunId: firstRun.id,
+      action: { id: 'write-first', name: 'write_file' },
+      requiresApproval: true,
+      execute: firstEffect,
+    });
+    const second = coordinator.runToolAction({
+      delegatedRunId: secondRun.id,
+      action: { id: 'write-second', name: 'write_file' },
+      requiresApproval: true,
+      execute: secondEffect,
+    });
+    await vi.waitFor(() => expect(approvals).toHaveLength(2));
+
+    await coordinator.resolveToolApproval(approvals[1].id, 'approve');
+    await expect(second).resolves.toBe('second');
+    expect(repository.get(firstRun.id)?.status).toBe('waiting_approval');
+    expect(repository.get(secondRun.id)?.status).toBe('running');
+    expect(firstEffect).not.toHaveBeenCalled();
+
+    await coordinator.resolveToolApproval(approvals[0].id, 'reject');
+    await first;
+    expect(firstEffect).not.toHaveBeenCalled();
+    expect(secondEffect).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels queued, running, and approval-waiting children without deleting terminal history', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(
+      repository,
+      { run: vi.fn(async () => success) },
+      { createId: (() => { let id = 0; return () => `cancel-${++id}`; })(), now: () => 500 },
+    );
+    const running = coordinator.queueSingle(request);
+    const waiting = coordinator.queueSingle({ ...request, taskToolCallId: 'task-call-waiting' });
+    const queued = coordinator.queueSingle({ ...request, taskToolCallId: 'task-call-queued' });
+    repository.markRunning(running.id, 100);
+    repository.markRunning(waiting.id, 100);
+    const approvalResult = coordinator.runToolAction({
+      delegatedRunId: waiting.id,
+      action: { id: 'delete-waiting', name: 'delete_file' },
+      requiresApproval: true,
+      execute: vi.fn(async () => 'deleted'),
+    });
+    await vi.waitFor(() => expect(repository.get(waiting.id)?.status).toBe('waiting_approval'));
+
+    expect(coordinator.cancelParent('run-parent', 500)).toBe(3);
+    await expect(approvalResult).resolves.toEqual(expect.objectContaining({ name: 'cancelled' }));
+    expect([running, waiting, queued].map((run) => repository.get(run.id)?.status))
+      .toEqual(['cancelled', 'cancelled', 'cancelled']);
+    expect(coordinator.listToolApprovalHistory(waiting.id)).toEqual([
+      expect.objectContaining({ approval_status: 'invalidated', execution_status: 'rejected' }),
+    ]);
+    expect(repository.createToolActionRepository().listForConversation('session-1')).toEqual([
+      expect.objectContaining({ delegated_run_id: waiting.id, approval_status: 'invalidated' }),
+    ]);
   });
 
   function setup(adapter: DelegatedRuntimeAdapter) {
@@ -347,5 +661,6 @@ describe('DelegatedAgentRunCoordinator', () => {
       error_code: 'INTERRUPTED',
       ended_at: 500,
     });
+    expect(coordinator.reconcileInterrupted(600)).toBe(0);
   });
 });

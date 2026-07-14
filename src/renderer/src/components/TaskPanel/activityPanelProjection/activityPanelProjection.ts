@@ -1,4 +1,4 @@
-import type { Agent, AgentApprovalRequest, AgentRun, AgentToolCall } from '@shared/types';
+import type { Agent, AgentApprovalHistoryEntry, AgentApprovalRequest, AgentRun, AgentToolCall } from '@shared/types';
 import { estimateTokens } from '@/stores/sessionStore';
 import type { DelegatedTask, ParallelBatch, ParallelWorker } from '@/stores/sessionStore';
 import { projectVideoApprovalSummary } from '../../shared/videoApprovalSummary';
@@ -42,7 +42,18 @@ export type ActivityPanelConversationApprovalSection = {
   approvalId: string;
   title: string;
   actionCountText: string;
+  sourceAgent?: string;
+  delegatedTask?: string;
   actions: ActivityPanelApprovalActionSummary[];
+};
+
+export type ActivityPanelApprovalHistoryItem = {
+  approvalId: string;
+  sourceAgent: string;
+  toolName: string;
+  status: string;
+  outcome: string;
+  resolvedAt: number;
 };
 
 
@@ -88,6 +99,8 @@ export type ActivityPanelProjection = {
   runSection: ActivityPanelRunSection | null;
   toolSummarySection: ActivityPanelToolSummarySection | null;
   conversationApprovalSection: ActivityPanelConversationApprovalSection | null;
+  conversationApprovalSections: ActivityPanelConversationApprovalSection[];
+  approvalHistorySection: ActivityPanelApprovalHistoryItem[];
   delegatedWorkSection: ActivityPanelDelegatedWorkSection | null;
   parallelWorkSection: ActivityPanelParallelWorkSection | null;
 };
@@ -100,9 +113,11 @@ export type ProjectActivityPanelInput = {
   delegatedTasks: DelegatedTask[];
   parallelBatches: ParallelBatch[];
   pendingApproval: AgentApprovalRequest | null;
+  pendingApprovals?: AgentApprovalRequest[];
+  approvalHistory?: AgentApprovalHistoryEntry[];
   agents: Agent[];
   viewingSubagentId: string | null;
-  viewingParallelWorker: { batchId: string; agentSlug: string; workerId?: string } | null;
+  viewingParallelWorker: { batchId: string; delegatedRunId: string; agentSlug: string } | null;
   t: (key: string, options?: Record<string, unknown>) => string;
 };
 
@@ -113,6 +128,8 @@ function statusLabel(status: AgentRun['status'], t: ProjectActivityPanelInput['t
     case 'completed': return t('taskPanel.statusCompleted');
     case 'failed': return t('taskPanel.statusFailed');
     case 'aborted': return t('taskPanel.statusAborted');
+    case 'cancelled': return t('taskPanel.statusCancelled');
+    case 'interrupted': return t('taskPanel.statusInterrupted');
   }
 }
 
@@ -165,6 +182,22 @@ function approvalActionSummary(
       previewLabel: t('taskPanel.approvalInputSummary'),
     };
   }
+  if (action.name === 'advance_stage') {
+    const report = toRecord(args.report);
+    const proposal = toRecord(report.routeProposal || report.routeSelection);
+    return {
+      key: `${action.name}-${index}`,
+      name: action.name,
+      title: t('taskPanel.stageRouteApproval'),
+      targetLabel: t('taskPanel.stageRouteTarget'),
+      target: toDisplayText(proposal.targetStageId),
+      preview: clipText([
+        toDisplayText(report.summary),
+        toDisplayText(proposal.rationale),
+      ].filter(Boolean).join('\n')),
+      previewLabel: t('taskPanel.stageRouteReportRationale'),
+    };
+  }
   const target = toDisplayText(args.file_path || args.path || args.target || args.command);
   const preview = toDisplayText(args.content || args.new_string || args.old_string || args.input);
   const previewLabel = args.content
@@ -202,6 +235,10 @@ function projectConversationApproval(
     actionCountText: approval.actions.length > 1
       ? t('taskPanel.approvalActionsMultiple', { count: approval.actions.length })
       : t('taskPanel.approvalActionsSingle'),
+    ...(approval.targetAgentName || approval.targetAgentSlug
+      ? { sourceAgent: approval.targetAgentName || approval.targetAgentSlug }
+      : {}),
+    ...(approval.delegatedTask ? { delegatedTask: approval.delegatedTask } : {}),
     actions: approval.actions.map((action, index) => approvalActionSummary(action, index, t)),
   };
 }
@@ -277,12 +314,9 @@ function projectParallelWork(input: ProjectActivityPanelInput): ActivityPanelPar
     batches: parallelBatches.map((batch) => ({
       batchId: batch.batchId,
       workers: batch.workers.map((worker) => {
-        const key = worker.workerId ?? `${worker.agentSlug}-${worker.startedAt}`;
-        const isActive = input.viewingParallelWorker?.batchId === batch.batchId && (
-          worker.workerId
-            ? input.viewingParallelWorker?.workerId === worker.workerId
-            : input.viewingParallelWorker?.agentSlug === worker.agentSlug
-        );
+        const key = worker.delegatedRunId;
+        const isActive = input.viewingParallelWorker?.batchId === batch.batchId
+          && input.viewingParallelWorker?.delegatedRunId === worker.delegatedRunId;
         return {
           worker,
           key,
@@ -304,6 +338,12 @@ export function projectActivityPanel(input: ProjectActivityPanelInput): Activity
   const toolCalls = activeRun ? agentToolCalls : [];
   const failedCalls = toolCalls.filter((toolCall) => toolCall.status === 'error');
 
+  const pendingApprovals = input.pendingApprovals?.length
+    ? input.pendingApprovals
+    : input.pendingApproval ? [input.pendingApproval] : [];
+  const approvalSections = pendingApprovals
+    .map((approval) => projectConversationApproval(approval, input.t))
+    .filter((section): section is ActivityPanelConversationApprovalSection => Boolean(section));
   return {
     sessionEmptyState: !input.activeSessionId
       ? { kind: 'noSession', message: input.t('taskPanel.emptyNoSession') }
@@ -331,6 +371,15 @@ export function projectActivityPanel(input: ProjectActivityPanelInput): Activity
         }
       : null,
     conversationApprovalSection: projectConversationApproval(input.pendingApproval, input.t),
+    conversationApprovalSections: approvalSections,
+    approvalHistorySection: (input.approvalHistory ?? []).map((entry) => ({
+      approvalId: entry.approval.id,
+      sourceAgent: entry.approval.targetAgentName || entry.approval.targetAgentSlug || input.t('taskPanel.approvalUnknownAgent'),
+      toolName: entry.approval.actions[0]?.name || input.t('taskPanel.approvalUnknownTool'),
+      status: input.t(`taskPanel.approvalHistory.${entry.status}`),
+      outcome: input.t(`taskPanel.approvalOutcome.${entry.executionStatus || 'pending'}`),
+      resolvedAt: entry.resolvedAt,
+    })),
     delegatedWorkSection: projectDelegatedWork(input, activeRun),
     parallelWorkSection: projectParallelWork(input),
   };

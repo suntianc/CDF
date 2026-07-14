@@ -263,4 +263,79 @@ describe('AgentEditDialog', () => {
       }),
     }));
   });
+
+  it('shows the protected General-purpose identity and inherited model selection', () => {
+    useAgentStore.setState({
+      agents: [{
+        id: 'general-1',
+        project_id: 'project-1',
+        name: 'General-purpose',
+        slug: 'general-purpose',
+        is_protected: true,
+        provider_id: undefined,
+        is_default: 0,
+        created_at: 0,
+        updated_at: 0,
+      }],
+    });
+
+    render(
+      <AgentEditDialog
+        isOpen
+        agentId="general-1"
+        onClose={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+
+    const nameInput = screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement;
+    expect(nameInput.disabled).toBe(true);
+    expect(screen.getAllByText(/protected Project Agent/i)).toHaveLength(2);
+    expect(screen.getByText(/inherits the invoking Agent's model/i)).toBeTruthy();
+  });
+
+  it('saves an explicitly narrowed built-in and MCP tool scope independently from Skills', () => {
+    const saveAgent = vi.fn(async () => {});
+    useAgentStore.setState({ saveAgent });
+    useMcpServerStore.setState({
+      mcpServers: [{
+        id: 'github',
+        name: 'GitHub',
+        server_type: 'stdio',
+        config: {},
+        is_connected: true,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      <AgentEditDialog
+        isOpen
+        agentId={null}
+        onClose={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: 'Scoped Agent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Explicitly narrow/i }));
+    fireEvent.click(screen.getByLabelText(/Allow bash/i));
+    fireEvent.click(screen.getByLabelText(/Allow GitHub MCP server/i));
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        toolScope: {
+          mode: 'narrow',
+          builtInTools: ['bash'],
+          mcpServerIds: ['github'],
+        },
+      }),
+    }));
+  });
 });

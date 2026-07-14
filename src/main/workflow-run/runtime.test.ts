@@ -40,8 +40,9 @@ import {
   handleAdvanceStageInterrupt,
   getRunBySessionId,
   resolveGateFromExternal,
+  resumeWorkflowRunFromInput,
 } from './runtime';
-import { createAdvanceStageTool, createTaskGraphTools, isAdvanceStageInterrupt } from './tools';
+import { createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools, isAdvanceStageInterrupt } from './tools';
 import { createTask, getPendingTasks, getStageGate, getTask, listRunTasks, setTaskDependencies, updateTaskStatus, listStageGates, createStageGate, resolveStageGate } from './db';
 import type { WorkflowStageReport, WorkflowRun } from '../../shared/types';
 
@@ -159,11 +160,16 @@ describe('startRun', () => {
     expect(snapshot.stages[0].taskDescription).toBe('分析需求文档');
     expect(snapshot.stages[0].acceptanceCriteria).toBe('需求清晰');
     expect(snapshot.stages[0].gateEnabled).toBe(true);
+    expect(snapshot.stages[0]).toMatchObject({
+      terminal: false,
+      routes: [{ id: 'route:stage-1:stage-2', targetStageId: 'stage-2', condition: '' }],
+    });
     expect(snapshot.stages[1].id).toBe('stage-2');
     expect(snapshot.stages[1].name).toBe('方案设计');
     expect(snapshot.stages[1].taskDescription).toBe('设计技术方案');
     expect(snapshot.stages[1].acceptanceCriteria).toBe('方案完整');
     expect(snapshot.stages[1].gateEnabled).toBe(false);
+    expect(snapshot.stages[1]).toMatchObject({ terminal: true, routes: [] });
     expect(snapshot.agentId).toBe(lastMasterAgentId);
   });
 
@@ -321,6 +327,33 @@ describe('handleAdvanceStageInterrupt', () => {
     expect(unchanged.current_stage_index).toBe(1);
   });
 
+  it('records and traverses an approval-off route, then auto-completes the explicit terminal', async () => {
+    const stages = [
+      {
+        id: 'a', name: 'A', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: false,
+        routes: [{ id: 'to-b', targetStageId: 'b', condition: '' }],
+      },
+      { id: 'b', name: 'B', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+    ];
+    db.prepare('UPDATE workflows SET stages = ? WHERE id = ?').run(JSON.stringify(stages), lastWorkflowId);
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const report = { acceptanceSelfCheck: [], artifacts: [], summary: 'done' };
+
+    await handleAdvanceStageInterrupt(run.id, report, undefined, undefined, undefined, { routeId: 'to-b' });
+    expect(getPendingStageGates(run.id)).toEqual([]);
+    expect(listStageGates(run.id)[0]).toMatchObject({
+      status: 'auto_approved',
+      report: { routeSelection: { routeId: 'to-b', targetStageId: 'b' } },
+    });
+    const tool = createAdvanceStageTool({ runId: run.id, projectId: PROJECT_ID, getRun: () => getWorkflowRun(run.id) });
+    await tool.invoke({ report, routeId: 'to-b' });
+    expect(getWorkflowRun(run.id)).toMatchObject({ current_stage_index: 1, status: 'running' });
+
+    await handleAdvanceStageInterrupt(run.id, report);
+    await tool.invoke({ report });
+    expect(getWorkflowRun(run.id)?.status).toBe('completed');
+  });
+
   it('creates pending gate when gateEnabled=true and waits for resolution', async () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
 
@@ -357,6 +390,58 @@ describe('handleAdvanceStageInterrupt', () => {
     expect(unchanged.current_stage_index).toBe(0);
   });
 
+  it('persists the selected authored route and rationale in the Stage Gate report', async () => {
+    const routedStages = [
+      {
+        id: 'a', name: 'A', taskDescription: 'choose', acceptanceCriteria: '', gateEnabled: true, terminal: false,
+        routes: [
+          { id: 'route-b', targetStageId: 'b', condition: 'Use B' },
+          { id: 'route-c', targetStageId: 'c', condition: 'Use C' },
+        ],
+      },
+      { id: 'b', name: 'B', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+      { id: 'c', name: 'C', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+    ];
+    db.prepare('UPDATE workflows SET stages = ? WHERE id = ?').run(JSON.stringify(routedStages), lastWorkflowId);
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const promise = handleAdvanceStageInterrupt(
+      run.id,
+      { acceptanceSelfCheck: [], artifacts: [], summary: 'choose C' },
+      undefined,
+      undefined,
+      undefined,
+      { routeId: 'route-c', rationale: 'C matches the report' },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [gate] = getPendingStageGates(run.id);
+
+    expect(gate.report.routeProposal).toEqual({
+      routeId: 'route-c',
+      targetStageId: 'c',
+      rationale: 'C matches the report',
+    });
+    resolveGateFromExternal(gate.id, { decision: 'approve' });
+    await promise;
+    expect(getStageGate(gate.id)?.report.routeSelection).toEqual({
+      routeId: 'route-c',
+      targetStageId: 'c',
+      rationale: 'C matches the report',
+    });
+  });
+
+  it('rejects a route not owned by the current Stage', async () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    await expect(handleAdvanceStageInterrupt(
+      run.id,
+      { acceptanceSelfCheck: [], artifacts: [], summary: 'bad route' },
+      undefined,
+      undefined,
+      undefined,
+      { routeId: 'foreign-route', rationale: 'invalid' },
+    )).rejects.toThrow('Unknown route');
+    expect(getPendingStageGates(run.id)).toEqual([]);
+  });
+
   it('reject saves feedback and stays on same stage', async () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
 
@@ -381,6 +466,59 @@ describe('handleAdvanceStageInterrupt', () => {
     const unchanged = getWorkflowRun(run.id)!;
     expect(unchanged.current_stage_index).toBe(0);
     expect(unchanged.status).toBe('running');
+  });
+
+  it('claims a pending Stage Gate once when duplicate decisions arrive together', async () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const pending = handleAdvanceStageInterrupt(run.id, {
+      acceptanceSelfCheck: [], artifacts: [], summary: 'ready',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const gate = getPendingStageGates(run.id)[0];
+
+    resolveGateFromExternal(gate.id, { decision: 'approve' });
+    expect(() => resolveGateFromExternal(gate.id, { decision: 'approve' })).toThrow('already resolved');
+    await expect(pending).resolves.toEqual({ resume: { decisions: [{ type: 'approve' }] } });
+    expect(getStageGate(gate.id)?.status).toBe('approved');
+  });
+
+  it('supports rejection, rework, and a later accepted route without selecting the rejected proposal', async () => {
+    const routedStages = [
+      {
+        id: 'a', name: 'A', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: false,
+        routes: [
+          { id: 'route-b', targetStageId: 'b', condition: 'B' },
+          { id: 'route-c', targetStageId: 'c', condition: 'C' },
+        ],
+      },
+      { id: 'b', name: 'B', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+      { id: 'c', name: 'C', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+    ];
+    db.prepare('UPDATE workflows SET stages = ? WHERE id = ?').run(JSON.stringify(routedStages), lastWorkflowId);
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const report = { acceptanceSelfCheck: [], artifacts: [], summary: 'report' };
+    const rejected = handleAdvanceStageInterrupt(run.id, report, undefined, undefined, undefined, {
+      routeId: 'route-b', rationale: 'first choice',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const firstGate = getPendingStageGates(run.id)[0];
+    resolveGateFromExternal(firstGate.id, { decision: 'reject', feedback: 'rework' });
+    await rejected;
+    expect(getStageGate(firstGate.id)?.report.routeSelection).toBeUndefined();
+    expect(getWorkflowRun(run.id)?.current_stage_index).toBe(0);
+
+    const accepted = handleAdvanceStageInterrupt(run.id, report, undefined, undefined, undefined, {
+      routeId: 'route-c', rationale: 'reworked choice',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const secondGate = getPendingStageGates(run.id)[0];
+    resolveGateFromExternal(secondGate.id, { decision: 'approve' });
+    await accepted;
+    expect(getStageGate(secondGate.id)?.report.routeSelection?.routeId).toBe('route-c');
+
+    const tool = createAdvanceStageTool({ runId: run.id, projectId: PROJECT_ID, getRun: () => getWorkflowRun(run.id) });
+    await tool.invoke({ report, routeId: 'route-c', rationale: 'reworked choice' });
+    expect(getWorkflowRun(run.id)?.current_stage_index).toBe(2);
   });
 
   it('repeated reject allows retry', async () => {
@@ -484,6 +622,35 @@ describe('handleAdvanceStageInterrupt', () => {
 // =============================================================================
 
 describe('createAdvanceStageTool callback advances cursor', () => {
+  it.each([
+    ['route-to-b', 1, 'B'],
+    ['route-to-c', 2, 'C'],
+  ])('advances through authored conditional route %s', async (routeId, expectedIndex, expectedName) => {
+    const routedStages = [
+      {
+        id: 'a', name: 'A', taskDescription: 'choose', acceptanceCriteria: '', gateEnabled: false, terminal: false,
+        routes: [
+          { id: 'route-to-b', targetStageId: 'b', condition: 'Use B' },
+          { id: 'route-to-c', targetStageId: 'c', condition: 'Use C' },
+        ],
+      },
+      { id: 'b', name: 'B', taskDescription: 'branch B', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+      { id: 'c', name: 'C', taskDescription: 'branch C', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+    ];
+    db.prepare('UPDATE workflows SET stages = ? WHERE id = ?').run(JSON.stringify(routedStages), lastWorkflowId);
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const tool = createAdvanceStageTool({ runId: run.id, projectId: PROJECT_ID, getRun: () => getWorkflowRun(run.id) });
+
+    const result = await tool.invoke({
+      routeId,
+      rationale: `Choose ${expectedName}`,
+      report: { acceptanceSelfCheck: [], artifacts: [], summary: 'selected' },
+    });
+
+    expect(result).toMatchObject({ status: 'stage_advanced', nextStageIndex: expectedIndex, nextStageName: expectedName });
+    expect(getWorkflowRun(run.id)?.current_stage_index).toBe(expectedIndex);
+  });
+
   it('advances cursor on approve (gate-off)', async () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
 
@@ -557,6 +724,28 @@ describe('createAdvanceStageTool callback advances cursor', () => {
         summary: 'test',
       },
     })).rejects.toThrow('Workflow run not found');
+  });
+});
+
+describe('Stage Route Blocker', () => {
+  it('waits for ordinary user input in the same Stage and later resumes valid routing', async () => {
+    const { run, sessionId } = startRun(lastWorkflowId, PROJECT_ID);
+    const planned = createTask(run.id, 'stage-1', 'Clarify scope', 'Need user input');
+    const blocker = createStageRouteBlockerTool({ runId: run.id, projectId: PROJECT_ID, getRun: () => getWorkflowRun(run.id) });
+
+    const observation = await blocker.invoke({ explanation: '请确认需要覆盖的平台。' });
+    expect(observation).toMatchObject({ status: 'waiting_input', explanation: '请确认需要覆盖的平台。' });
+    expect(getWorkflowRun(run.id)).toMatchObject({ status: 'waiting_input', current_stage_index: 0 });
+    expect(getTask(planned.id)).toMatchObject({ id: planned.id, status: 'planned' });
+    expect(listStageGates(run.id)).toEqual([]);
+
+    const resumed = resumeWorkflowRunFromInput(sessionId);
+    expect(resumed).toMatchObject({ status: 'running', current_stage_index: 0 });
+    expect(listStageGates(run.id)).toEqual([]);
+
+    const advance = createAdvanceStageTool({ runId: run.id, projectId: PROJECT_ID, getRun: () => getWorkflowRun(run.id) });
+    await advance.invoke({ report: { acceptanceSelfCheck: [], artifacts: [], summary: 'now enough information' } });
+    expect(getWorkflowRun(run.id)?.current_stage_index).toBe(1);
   });
 });
 

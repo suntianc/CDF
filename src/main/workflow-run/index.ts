@@ -6,7 +6,7 @@
  */
 
 export { registerWorkflowRunIpcHandlers } from './ipc';
-export { createAdvanceStageTool, isAdvanceStageInterrupt, createTaskGraphTools } from './tools';
+export { createAdvanceStageTool, createStageRouteBlockerTool, isAdvanceStageInterrupt, createTaskGraphTools } from './tools';
 export type { AdvanceStageToolContext, TaskGraphToolContext } from './tools';
 export {
   startRun,
@@ -15,4 +15,5 @@ export {
   getWorkflowRun,
   getPendingStageGates,
   registerResumeAgentCallback,
+  resumeWorkflowRunFromInput,
 } from './runtime';

@@ -327,7 +327,7 @@ describe('projectActivityPanel', () => {
         startedAt: 1_000,
         workers: [
           {
-            workerId: 'worker-1',
+            delegatedRunId: 'worker-1',
             agentSlug: 'writer',
             agentName: 'Writer',
             status: 'success',
@@ -338,6 +338,7 @@ describe('projectActivityPanel', () => {
             completedAt: 2_000,
           },
           {
+            delegatedRunId: 'worker-2',
             agentSlug: 'reviewer',
             status: 'running',
             steps: [],
@@ -357,7 +358,7 @@ describe('projectActivityPanel', () => {
         pendingApproval: null,
         agents: [],
         viewingSubagentId: null,
-        viewingParallelWorker: { batchId: 'batch-1', agentSlug: 'writer', workerId: 'worker-1' },
+        viewingParallelWorker: { batchId: 'batch-1', agentSlug: 'writer', delegatedRunId: 'worker-1' },
         t,
       });
 
@@ -378,7 +379,7 @@ describe('projectActivityPanel', () => {
               },
               {
                 worker: batch.workers[1],
-                key: 'reviewer-3000',
+                key: 'worker-2',
                 isActive: false,
                 displayName: 'reviewer',
                 tokenDisplay: '4',

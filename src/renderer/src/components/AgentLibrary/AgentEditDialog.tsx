@@ -7,6 +7,10 @@ import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { SKILL_OVERRIDE_STATES, type SkillOverrideState } from '../../../../shared/skill-overrides';
 import {
+  AGENT_BUILT_IN_TOOL_NAMES,
+  type AgentToolScopeConfig,
+} from '../../../../shared/agents';
+import {
   X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -33,6 +37,22 @@ function readSkillOverridesFromConfig(config?: Record<string, unknown>): Record<
   return overrides;
 }
 
+function readToolScopeFromConfig(config?: Record<string, unknown>): AgentToolScopeConfig {
+  const raw = config?.toolScope;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { mode: 'inherit' };
+  const value = raw as Record<string, unknown>;
+  if (value.mode !== 'narrow') return { mode: 'inherit' };
+  return {
+    mode: 'narrow',
+    builtInTools: Array.isArray(value.builtInTools)
+      ? value.builtInTools.filter((item): item is string => typeof item === 'string')
+      : [],
+    mcpServerIds: Array.isArray(value.mcpServerIds)
+      ? value.mcpServerIds.filter((item): item is string => typeof item === 'string')
+      : [],
+  };
+}
+
 function getSkillDisplayName(skill: { name: string; qualifiedName?: string | null }): string {
   return skill.qualifiedName?.trim() || skill.name;
 }
@@ -49,10 +69,14 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const [formName, setFormName] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formProviderId, setFormProviderId] = useState('');
+  const [formModel, setFormModel] = useState('');
   const [formSystemPrompt, setFormSystemPrompt] = useState('');
   const [formMcpExclusionIds, setFormMcpExclusionIds] = useState<string[]>([]);
   const [formSkillIds, setFormSkillIds] = useState<string[]>([]);
   const [formSkillOverrides, setFormSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
+  const [formToolScopeMode, setFormToolScopeMode] = useState<AgentToolScopeConfig['mode']>('inherit');
+  const [formBuiltInTools, setFormBuiltInTools] = useState<string[]>([]);
+  const [formToolScopeMcpServerIds, setFormToolScopeMcpServerIds] = useState<string[]>([]);
 
   // Multi-selector dropdown states
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
@@ -67,6 +91,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   }, [skillDropdownOpen]);
 
   const skillContainerRef = useRef<HTMLDivElement>(null);
+  const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
+  const isProtectedAgent = editingAgent?.is_protected === true || editingAgent?.slug === 'general-purpose';
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -88,21 +114,30 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         setFormName(agent.name);
         setFormDesc(agent.description || '');
         const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
-        setFormProviderId(agent.provider_id || activeProvider?.id || '');
+        setFormProviderId(agent.provider_id || (agent.is_protected || agent.slug === 'general-purpose' ? '' : activeProvider?.id || ''));
+        setFormModel(typeof agent.config?.model === 'string' ? agent.config.model : '');
         setFormSystemPrompt(agent.system_prompt || '');
         setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
         setFormSkillIds(agent.skillNames || []);
         setFormSkillOverrides(readSkillOverridesFromConfig(agent.config));
+        const toolScope = readToolScopeFromConfig(agent.config);
+        setFormToolScopeMode(toolScope.mode);
+        setFormBuiltInTools(toolScope.builtInTools ?? []);
+        setFormToolScopeMcpServerIds(toolScope.mcpServerIds ?? []);
       }
     } else {
       setFormName('');
       setFormDesc('');
       const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
       setFormProviderId(activeProvider?.id || '');
+      setFormModel('');
       setFormSystemPrompt('');
       setFormMcpExclusionIds([]);
       setFormSkillIds([]);
       setFormSkillOverrides({});
+      setFormToolScopeMode('inherit');
+      setFormBuiltInTools([]);
+      setFormToolScopeMcpServerIds([]);
     }
     setSkillDropdownOpen(false);
   }, [isOpen, agentId, agents, providers]);
@@ -120,7 +155,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       return;
     }
 
-    if (!formProviderId) {
+    if (!formProviderId && !isProtectedAgent) {
       showToast(t('agent.providerRequired'), 'error');
       return;
     }
@@ -128,6 +163,22 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     const id = agentId || window.crypto.randomUUID();
     const existingAgent = agentId ? agents.find((item) => item.id === agentId) : null;
     const defaultExists = agents.some((item) => item.project_id === (currentProjectId || 'default-project') && item.is_default === 1);
+    const nextConfig: Record<string, unknown> = {
+      ...(existingAgent?.config ?? {}),
+      permissionsPreset: 'project-safe',
+      approvalPreset: 'write-operations',
+      skillOverrides: formSkillOverrides,
+      toolScope: formToolScopeMode === 'narrow'
+        ? {
+            mode: 'narrow',
+            builtInTools: formBuiltInTools,
+            mcpServerIds: formToolScopeMcpServerIds,
+          }
+        : { mode: 'inherit' },
+    };
+    if (formModel) nextConfig.model = formModel;
+    else delete nextConfig.model;
+
     const payload = {
       id,
       project_id: currentProjectId || 'default-project',
@@ -135,12 +186,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       description: formDesc,
       provider_id: formProviderId || null,
       system_prompt: formSystemPrompt,
-      config: {
-        ...(existingAgent?.config ?? {}),
-        permissionsPreset: 'project-safe',
-        approvalPreset: 'write-operations',
-        skillOverrides: formSkillOverrides,
-      },
+      config: nextConfig,
       mcpServerExclusionIds: formMcpExclusionIds,
       skillNames: formSkillIds,
       is_default: existingAgent?.is_default ?? (defaultExists ? 0 : 1),
@@ -176,6 +222,18 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     });
   };
 
+  const toggleBuiltInTool = (toolName: string) => {
+    setFormBuiltInTools(prev => prev.includes(toolName)
+      ? prev.filter(name => name !== toolName)
+      : [...prev, toolName]);
+  };
+
+  const toggleToolScopeMcpServer = (serverId: string) => {
+    setFormToolScopeMcpServerIds(prev => prev.includes(serverId)
+      ? prev.filter(id => id !== serverId)
+      : [...prev, serverId]);
+  };
+
   const skillPreloadCandidates = skills.filter(sk => {
     const query = skillSearchQuery.toLowerCase();
     return sk.name.toLowerCase().includes(query)
@@ -187,6 +245,14 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     server.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())
   );
   const visibleMcpCount = mcpServers.filter(server => !formMcpExclusionIds.includes(server.id)).length;
+  const selectedProvider = providers.find(provider => provider.id === formProviderId);
+  const modelOptions = selectedProvider
+    ? [
+        { value: '', label: t('agent.providerDefaultModel', { model: selectedProvider.default_model }) },
+        ...Array.from(new Set([selectedProvider.default_model, ...(selectedProvider.models ?? [])]))
+          .map(model => ({ value: model, label: model })),
+      ]
+    : [];
 
   const getSkillSourceLabel = (skill: { scope: string; sourceLabel?: string | null }) =>
     skill.sourceLabel || (skill.scope === 'project' ? t('agent.skillSourceProject') : t('agent.skillSourceGlobal'));
@@ -226,8 +292,14 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder={t('agent.namePlaceholder')}
+                disabled={isProtectedAgent}
                 required
               />
+              {isProtectedAgent && (
+                <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                  {t('agent.protectedAgentHint')}
+                </p>
+              )}
             </div>
 
             <div className="form-group">
@@ -241,18 +313,44 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
             </div>
 
             <div className="form-group">
-              <label className="form-label">{t('agent.providerLabel')} <span className="text-[var(--color-danger)]">*</span></label>
+              <label className="form-label">
+                {t('agent.providerLabel')}
+                {!isProtectedAgent && <span className="text-[var(--color-danger)]"> *</span>}
+              </label>
               <CustomSelect
                 value={formProviderId}
-                onChange={(val) => setFormProviderId(val)}
-                options={providers.map(p => ({
-                  value: p.id,
-                  label: `${p.name} (${p.default_model})`
-                }))}
+                onChange={(val) => {
+                  setFormProviderId(val);
+                  setFormModel('');
+                }}
+                options={[
+                  ...(isProtectedAgent ? [{ value: '', label: t('agent.inheritInvokingModel') }] : []),
+                  ...providers.map(p => ({
+                    value: p.id,
+                    label: `${p.name} (${p.default_model})`
+                  })),
+                ]}
                 placeholder={providers.length === 0 ? t('agent.providerEmptyPlaceholder') : t('agent.providerPlaceholder')}
-                disabled={providers.length === 0}
+                disabled={providers.length === 0 && !isProtectedAgent}
               />
+              {isProtectedAgent && !formProviderId && (
+                <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                  {t('agent.inheritedModelHint')}
+                </p>
+              )}
             </div>
+
+            {formProviderId && (
+              <div className="form-group">
+                <label className="form-label">{t('agent.modelOverrideLabel')}</label>
+                <CustomSelect
+                  value={formModel}
+                  onChange={setFormModel}
+                  options={modelOptions}
+                  placeholder={t('agent.providerDefaultModel', { model: selectedProvider?.default_model ?? '' })}
+                />
+              </div>
+            )}
           </div>
 
           {/* Right Column - Ability & Prompt Config (60%) */}
@@ -285,6 +383,87 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 onChange={(e) => setFormSystemPrompt(e.target.value)}
                 placeholder={t('agent.systemPromptPlaceholder')}
               />
+            </div>
+
+            <div className="mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-[var(--color-text-primary)]">
+                    {t('agent.toolScopeLabel')}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                    {formToolScopeMode === 'inherit'
+                      ? t('agent.toolScopeInheritedDesc')
+                      : t('agent.toolScopeNarrowDesc')}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px] shrink-0">
+                  {(['inherit', 'narrow'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-label={mode === 'inherit' ? t('agent.toolScopeInherit') : t('agent.toolScopeNarrow')}
+                      aria-pressed={formToolScopeMode === mode}
+                      onClick={() => setFormToolScopeMode(mode)}
+                      className={`px-2.5 py-1.5 transition-colors ${
+                        formToolScopeMode === mode
+                          ? 'bg-[var(--color-accent)] text-white'
+                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+                      }`}
+                    >
+                      {mode === 'inherit' ? t('agent.toolScopeInherit') : t('agent.toolScopeNarrow')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {formToolScopeMode === 'narrow' && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                      {t('agent.builtInToolsLabel')}
+                    </div>
+                    <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--color-border)]/60 bg-[var(--color-bg-app)]/40 p-1.5 grid grid-cols-2 gap-1">
+                      {AGENT_BUILT_IN_TOOL_NAMES.map(toolName => (
+                        <label key={toolName} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+                          <input
+                            type="checkbox"
+                            checked={formBuiltInTools.includes(toolName)}
+                            onChange={() => toggleBuiltInTool(toolName)}
+                            aria-label={t('agent.allowBuiltInTool', { name: toolName })}
+                            className="accent-[var(--color-accent)]"
+                          />
+                          <span className="truncate font-mono">{toolName}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                      {t('agent.mcpToolScopeLabel')}
+                    </div>
+                    <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--color-border)]/60 bg-[var(--color-bg-app)]/40 p-1.5 space-y-1">
+                      {mcpServers.map(server => (
+                        <label key={server.id} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+                          <input
+                            type="checkbox"
+                            checked={formToolScopeMcpServerIds.includes(server.id)}
+                            onChange={() => toggleToolScopeMcpServer(server.id)}
+                            aria-label={t('agent.allowMcpServerTools', { name: server.name })}
+                            className="accent-[var(--color-accent)]"
+                          />
+                          <span className="truncate">{server.name}</span>
+                        </label>
+                      ))}
+                      {mcpServers.length === 0 && (
+                        <div className="px-1.5 py-2 text-[10px] italic text-[var(--color-text-muted)]">
+                          {t('agent.noMcpServers')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
         {/* MCP visibility and Skill Preload controls */}

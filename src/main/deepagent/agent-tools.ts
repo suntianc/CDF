@@ -19,6 +19,10 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import db from '../database';
 import { ensureUniqueSlug, generateSlug, resolveAgentSlug } from './agent-slug';
+import {
+  assertProjectAgentCanBeDeleted,
+  assertProjectAgentCanBeSaved,
+} from '../project-agent-service';
 
 const AGENT_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
 
@@ -155,6 +159,15 @@ export function createAgentTools(
             error:
               'Invalid agent name. Must contain only English letters, numbers, spaces, hyphens, or underscores.',
           });
+        }
+        try {
+          assertProjectAgentCanBeSaved(db, {
+            id: '__new_agent__',
+            projectId,
+            name: input.name.trim(),
+          });
+        } catch (error) {
+          return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
         }
 
         // provider 是统一 Agent runtime 装配的必填输入。省略时回退到
@@ -366,6 +379,15 @@ export function createAgentTools(
               'Invalid agent name. Must contain only English letters, numbers, spaces, hyphens, or underscores.',
           });
         }
+        try {
+          assertProjectAgentCanBeSaved(db, {
+            id: input.id,
+            projectId,
+            name: input.name?.trim() ?? existing.name,
+          });
+        } catch (error) {
+          return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
+        }
         // 不允许显式清空 provider：统一 Agent runtime 装配要求 provider_id
         // 可解析。想换 provider 时传合法 id，想保留时省略该字段。
         if (input.provider_id !== undefined) {
@@ -570,6 +592,11 @@ export function createAgentTools(
           .get(id, projectId) as { id: string; name: string; is_default: number } | undefined;
         if (!existing) {
           return JSON.stringify({ error: `Agent not found: ${id}` });
+        }
+        try {
+          assertProjectAgentCanBeDeleted(db, id);
+        } catch (error) {
+          return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
         }
 
         // Codex P2 #9 + P2 #10: 防御深度 — 即使本 runtime 的 activeAgentId 跟目标 id 不匹配,

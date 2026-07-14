@@ -57,7 +57,7 @@ vi.mock('./database', () => ({
   },
 }));
 
-import { resolveLLMApproval, runLLMChat, stopLLMChat } from './llm';
+import { delegatedParentRunStatus, resolveLLMApproval, runLLMChat, stopLLMChat } from './llm';
 import { appendCurrentText } from './deepagent/stream-accumulator';
 
 describe('runLLMChat', () => {
@@ -88,6 +88,26 @@ describe('runLLMChat', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('waits at the parent only when every unfinished delegated branch is approval-blocked', () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      run: vi.fn(),
+      all: vi.fn(() => []),
+      get: vi.fn(() => sql.includes('COUNT(*) AS unfinished')
+        ? { unfinished: 2, waiting: 1 }
+        : undefined),
+    }));
+    expect(delegatedParentRunStatus('run-1')).toBe('running');
+
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      run: vi.fn(),
+      all: vi.fn(() => []),
+      get: vi.fn(() => sql.includes('COUNT(*) AS unfinished')
+        ? { unfinished: 2, waiting: 2 }
+        : undefined),
+    }));
+    expect(delegatedParentRunStatus('run-1')).toBe('waiting_approval');
   });
 
   it('should stream assistant tokens with the current user message', async () => {
@@ -146,6 +166,87 @@ describe('runLLMChat', () => {
     expect(send).toHaveBeenCalledWith('llm:chunk-req-1', { type: 'message_chunk', text: '收' });
     expect(send).toHaveBeenCalledWith('llm:chunk-req-1', { type: 'message_chunk', text: '到' });
     expect(send).toHaveBeenLastCalledWith('llm:chunk-req-1', { type: 'message_done' });
+  });
+
+  it('bridges a delegated tool approval through the existing conversation approval channel', async () => {
+    let delegatedApprovalListener!: (approval: any) => void;
+    let finishOutput!: () => void;
+    const output = new Promise<void>((resolve) => {
+      finishOutput = resolve;
+    });
+    const resolveDelegatedToolApproval = vi.fn(() => finishOutput());
+    createDeepAgentRuntimeMock.mockResolvedValue({
+      agent: {
+        streamEvents: vi.fn().mockResolvedValue({
+          messages: (async function* () {})(),
+          toolCalls: (async function* () {})(),
+          output,
+        }),
+      },
+      inputMessages: [{ role: 'user', content: 'delegate' }],
+      agentId: 'agent-1',
+      subscribeDelegatedToolApprovals: vi.fn((listener) => {
+        delegatedApprovalListener = listener;
+        return vi.fn();
+      }),
+      resolveDelegatedToolApproval,
+      cleanup: vi.fn(),
+    });
+
+    const send = vi.fn();
+    const promise = runLLMChat({ send } as any, 'req-delegated-approval', {
+      projectId: 'project-1',
+      sessionId: 'session-delegated-approval',
+      message: { id: 'message-delegated-approval', content: 'delegate' },
+    });
+
+    await vi.waitFor(() => expect(delegatedApprovalListener).toBeTypeOf('function'));
+    delegatedApprovalListener({
+      id: 'delegated-approval-1',
+      runId: 'run-1',
+      delegatedRunId: 'delegated-run-1',
+      targetAgentId: 'worker-1',
+      targetAgentSlug: 'worker',
+      targetAgentName: 'Worker',
+      delegatedTask: 'write the result',
+      action: {
+        id: 'write-call-1',
+        name: 'dangerous_write',
+        args: { path: '/tmp/result.md' },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith(
+        'llm:chunk-req-delegated-approval',
+        expect.objectContaining({
+          type: 'approval_required',
+          approval: expect.objectContaining({
+            id: 'delegated-approval-1',
+            delegatedRunId: 'delegated-run-1',
+            targetAgentName: 'Worker',
+            delegatedTask: 'write the result',
+            actionId: 'write-call-1',
+            actions: [{
+              name: 'dangerous_write',
+              args: { path: '/tmp/result.md' },
+              allowedDecisions: ['approve', 'reject'],
+            }],
+          }),
+        }),
+      );
+    });
+    resolveLLMApproval('req-delegated-approval', {
+      approvalId: 'delegated-approval-1',
+      decisions: [{ type: 'approve' }],
+    });
+    await promise;
+
+    expect(resolveDelegatedToolApproval).toHaveBeenCalledWith('delegated-approval-1', 'approve');
+    expect(send).toHaveBeenCalledWith(
+      'llm:chunk-req-delegated-approval',
+      expect.objectContaining({ type: 'approval_resolved', approvalId: 'delegated-approval-1', status: 'approved' }),
+    );
   });
 
   it('should stream tool lifecycle events and runtime errors', async () => {
@@ -953,6 +1054,7 @@ describe('runLLMChat', () => {
   });
 
   it('should abort a run while waiting for pending output', async () => {
+    const cancelDelegatedRuns = vi.fn();
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
         streamEvents: vi.fn().mockResolvedValue({
@@ -970,6 +1072,7 @@ describe('runLLMChat', () => {
       },
       inputMessages: [{ role: 'user', content: '停止测试' }],
       agentId: 'agent-1',
+      cancelDelegatedRuns,
       cleanup: vi.fn(),
     });
 
@@ -988,6 +1091,8 @@ describe('runLLMChat', () => {
     });
     stopLLMChat('req-stop-output');
     await promise;
+
+    expect(cancelDelegatedRuns).toHaveBeenCalledWith(expect.any(String));
 
     expect(send).toHaveBeenCalledWith(
       'llm:chunk-req-stop-output',

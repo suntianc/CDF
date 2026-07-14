@@ -12,7 +12,7 @@ interface TestDatabase {
   deleteWasInsideTransaction: () => boolean | null;
 }
 
-function createDatabase(options: { withCapabilityJobs?: boolean } = {}): TestDatabase {
+function createDatabase(options: { withCapabilityJobs?: boolean; withDelegatedRuns?: boolean } = {}): TestDatabase {
   const db = new Database(':memory:');
   let deleteAttempts = 0;
   let deleteWasInsideTransaction: boolean | null = null;
@@ -39,6 +39,13 @@ function createDatabase(options: { withCapabilityJobs?: boolean } = {}): TestDat
     db.exec(`CREATE TABLE capability_jobs (
       id TEXT PRIMARY KEY,
       source_session_id TEXT,
+      status TEXT NOT NULL
+    )`);
+  }
+  if (options.withDelegatedRuns) {
+    db.exec(`CREATE TABLE delegated_agent_runs (
+      id TEXT PRIMARY KEY,
+      parent_run_id TEXT NOT NULL,
       status TEXT NOT NULL
     )`);
   }
@@ -92,6 +99,21 @@ describe('deleteConversation', () => {
       expect(deleteAttempts()).toBe(1);
     }
   );
+
+  it('protects a Conversation while a delegated child is active and permits deletion after reconciliation', () => {
+    const { db, deleteAttempts } = createDatabase({ withDelegatedRuns: true });
+    db.prepare("INSERT INTO agent_runs VALUES ('run-1', 'conversation-1', 'interrupted')").run();
+    db.prepare("INSERT INTO delegated_agent_runs VALUES ('child-1', 'run-1', 'waiting_approval')").run();
+
+    expect(() => deleteConversation(db, 'conversation-1')).toThrowError(
+      expect.objectContaining({ code: CONVERSATION_DELETE_ERROR_CODES.ACTIVE_AGENT_RUN }),
+    );
+    expect(deleteAttempts()).toBe(0);
+
+    db.prepare("UPDATE delegated_agent_runs SET status = 'interrupted'").run();
+    expect(deleteConversation(db, 'conversation-1')).toBeUndefined();
+    expect(deleteAttempts()).toBe(1);
+  });
 
   it.each([
     'queued',

@@ -116,6 +116,20 @@ const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApp
 
         {expanded && (
           <div className="px-4 pb-3 flex flex-col gap-3 animate-slide-down">
+            {approval.delegatedRunId && (
+              <div className="rounded-[var(--radius-sm)] border border-[var(--color-warning)]/20 bg-[var(--color-bg-sunken)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                <div>
+                  <span className="font-medium text-[var(--color-text-primary)]">{t('chat.delegatedApprovalAgent')}</span>
+                  {' '}{approval.targetAgentName || approval.targetAgentSlug}
+                </div>
+                {approval.delegatedTask && (
+                  <div className="mt-1">
+                    <span className="font-medium text-[var(--color-text-primary)]">{t('chat.delegatedApprovalTask')}</span>
+                    {' '}{approval.delegatedTask}
+                  </div>
+                )}
+              </div>
+            )}
             {actions.map((action: any, idx: number) => (
               <div key={idx} className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-[var(--color-warning)]">

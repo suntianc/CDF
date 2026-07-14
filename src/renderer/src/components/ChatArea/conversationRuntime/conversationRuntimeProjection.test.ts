@@ -285,6 +285,7 @@ describe('Conversation Runtime Projection', () => {
         runId: 'run-1',
         actions: [],
       },
+      pendingApprovals: [{ id: 'approval-1', runId: 'run-1', actions: [] }],
     });
 
     const result = projectConversationRuntime(
@@ -299,6 +300,10 @@ describe('Conversation Runtime Projection', () => {
     expect(result.state.isStreaming).toBe(false);
     expect(result.state.streamingMessageId).toBe(null);
     expect(result.state.pendingApproval).toBe(null);
+    expect(result.state.pendingApprovals).toEqual([]);
+    expect(result.state.approvalHistory).toEqual([
+      expect.objectContaining({ status: 'invalidated', executionStatus: 'rejected' }),
+    ]);
     expect(result.effects).toEqual([
       {
         type: 'saveMessage',
@@ -355,6 +360,7 @@ describe('Conversation Runtime Projection', () => {
         runId: 'run-1',
         actions: [],
       },
+      pendingApprovals: [{ id: 'approval-1', runId: 'run-1', actions: [] }],
       runtimeToolMessageIds: ['tool-1'],
       pendingToolMessages: { read_file: ['tool-1'] },
     });
@@ -369,6 +375,10 @@ describe('Conversation Runtime Projection', () => {
     expect(result.state.isStreaming).toBe(false);
     expect(result.state.streamingMessageId).toBe(null);
     expect(result.state.pendingApproval).toBe(null);
+    expect(result.state.pendingApprovals).toEqual([]);
+    expect(result.state.approvalHistory).toEqual([
+      expect.objectContaining({ status: 'invalidated', executionStatus: 'rejected', error: 'graph failed' }),
+    ]);
     expect(result.effects).toEqual([
       { type: 'cleanupStream' },
       { type: 'setRetryableError', message: 'graph failed' },
@@ -459,6 +469,41 @@ describe('Conversation Runtime Projection', () => {
     expect(waiting.effects).toEqual([]);
     expect(resolved.state.pendingApproval).toBe(null);
     expect(resolved.effects).toEqual([]);
+  });
+
+  it('resolves concurrent delegated approvals in reverse order and ignores stale duplicates', () => {
+    const initial = createConversationRuntimeState({
+      sessionId: 'session-1',
+      streamingMessageId: 'assistant-current',
+      currentAssistantMsgId: 'assistant-current',
+    });
+    const first = {
+      id: 'approval-1', runId: 'run-1', delegatedRunId: 'child-1', targetAgentName: 'Writer',
+      actions: [{ name: 'write_file', args: { path: 'a.md' } }],
+    };
+    const second = {
+      id: 'approval-2', runId: 'run-1', delegatedRunId: 'child-2', targetAgentName: 'Cleaner',
+      actions: [{ name: 'delete_file', args: { path: 'b.md' } }],
+    };
+    const withFirst = projectConversationRuntime(initial, { kind: 'llm', event: { type: 'approval_required', approval: first } }, deps).state;
+    const withBoth = projectConversationRuntime(withFirst, { kind: 'llm', event: { type: 'approval_required', approval: second } }, deps).state;
+    const duplicate = projectConversationRuntime(withBoth, { kind: 'llm', event: { type: 'approval_required', approval: first } }, deps).state;
+    const resolvedSecond = projectConversationRuntime(duplicate, {
+      kind: 'llm',
+      event: { type: 'approval_resolved', approvalId: second.id, status: 'rejected', resolvedAt: 123, executionStatus: 'rejected' },
+    }, deps).state;
+    const staleResolution = projectConversationRuntime(resolvedSecond, {
+      kind: 'llm',
+      event: { type: 'approval_resolved', approvalId: 'unknown-approval', status: 'approved', resolvedAt: 124 },
+    }, deps).state;
+
+    expect(duplicate.pendingApprovals.map((item) => item.id)).toEqual(['approval-1', 'approval-2']);
+    expect(resolvedSecond.pendingApprovals).toEqual([first]);
+    expect(resolvedSecond.pendingApproval).toBe(first);
+    expect(resolvedSecond.approvalHistory).toEqual([
+      expect.objectContaining({ approval: second, status: 'rejected', resolvedAt: 123, executionStatus: 'rejected' }),
+    ]);
+    expect(staleResolution).toBe(resolvedSecond);
   });
 
   it('projects run lifecycle events into active run state', () => {
@@ -705,7 +750,6 @@ describe('Conversation Runtime Projection', () => {
           batchId: 'batch-1',
           delegatedRunId: 'delegated-1',
           agentSlug: 'code',
-          workerId: 'delegated-1',
           step: { type: 'task_start', label: 'Code Agent', goal: 'Inspect files', ts: 1000 },
         },
       },
@@ -719,7 +763,6 @@ describe('Conversation Runtime Projection', () => {
           batchId: 'batch-1',
           delegatedRunId: 'delegated-1',
           agentSlug: 'code',
-          workerId: 'delegated-1',
           step: { type: 'text_chunk', content: 'Reading...', ts: 1000 },
         },
       },
@@ -733,7 +776,6 @@ describe('Conversation Runtime Projection', () => {
           batchId: 'batch-1',
           delegatedRunId: 'delegated-1',
           agentSlug: 'code',
-          workerId: 'delegated-1',
           step: { type: 'task_end', success: true, summary: 'Done', ts: 1000 },
         },
       },
@@ -747,7 +789,6 @@ describe('Conversation Runtime Projection', () => {
         workers: [
           {
             delegatedRunId: 'delegated-1',
-            workerId: 'delegated-1',
             agentSlug: 'code',
             agentName: 'Code Agent',
             goal: 'Inspect files',
@@ -779,7 +820,6 @@ describe('Conversation Runtime Projection', () => {
             batchId: 'batch-1',
             delegatedRunId,
             agentSlug: 'code',
-            workerId: delegatedRunId,
             step: { type: 'task_start', label: 'Code Agent', goal: delegatedRunId, ts: 1000 },
           },
         },
@@ -802,6 +842,7 @@ describe('Conversation Runtime Projection', () => {
           startedAt: 900,
           workers: [
             {
+              delegatedRunId: 'delegated-1',
               agentSlug: 'code',
               status: 'running',
               steps: [],
@@ -823,7 +864,7 @@ describe('Conversation Runtime Projection', () => {
           name: 'parallel_tasks',
           output: JSON.stringify({
             batchId: 'batch-1',
-            results: [{ name: 'code', status: 'failure' }],
+            results: [{ delegatedRunId: 'delegated-1', name: 'code', status: 'failure' }],
           }),
         },
       },
@@ -831,6 +872,7 @@ describe('Conversation Runtime Projection', () => {
     );
 
     expect(result.state.parallelBatches[0].workers[0]).toEqual({
+      delegatedRunId: 'delegated-1',
       agentSlug: 'code',
       status: 'failure',
       steps: [],
@@ -892,44 +934,43 @@ describe('Conversation Runtime Projection', () => {
 
     expect(restored.activeRunId).toBe('run-1');
     expect(restored.todos).toEqual([{ content: 'Inspect files', status: 'in_progress' }]);
-    expect(restored.delegatedTasks).toEqual([
-      {
-        delegatedRunId: 'legacy:task-call-1',
-        taskId: 'task-call-1',
-        agentSlug: 'code',
-        agentName: 'code',
-        goal: 'Inspect files',
-        status: 'failure',
-        chunks: [],
-        steps: [],
-        result: {
-          status: 'failure',
-          artifacts: [],
-          summary: '',
-          error: { code: 'DISCONNECTED', message: '会话流已结束，任务未正常完成' },
-        },
-        errorCode: 'DISCONNECTED',
-        startedAt: 900,
-        completedAt: undefined,
-      },
-    ]);
-    expect(restored.parallelBatches).toEqual([
-      {
-        batchId: 'parallel-call-1',
-        startedAt: 920,
-        workers: [
-          {
-            agentSlug: 'reviewer',
-            agentName: undefined,
-            goal: 'Review output',
-            status: 'failure',
-            steps: [],
-            textBuffer: '',
-            startedAt: 920,
-            completedAt: undefined,
-          },
-        ],
-      },
+    expect(restored.delegatedTasks).toEqual([]);
+    expect(restored.parallelBatches).toEqual([]);
+  });
+
+  it('restores resolved and startup-invalidated delegated approvals as read-only history', () => {
+    const delegatedRun = {
+      id: 'child-1', parent_run_id: 'run-1', target_agent_id: 'agent-child',
+      target_agent_slug: 'writer', target_agent_name: 'Writer', launch_form: 'single' as const,
+      task_tool_call_id: 'task-1', batch_id: null, workflow_run_task_id: null,
+      goal: 'Write a report', status: 'interrupted' as const, outcome: null,
+      error_code: 'INTERRUPTED', error_message: 'stopped', created_at: 1,
+      started_at: 2, ended_at: 5, updated_at: 5,
+    };
+    const action = (approvalStatus: 'approved' | 'invalidated', id: string) => ({
+      id, delegated_run_id: delegatedRun.id, parent_run_id: 'run-1', action_id: `${id}-action`,
+      tool_name: 'write_file', arguments: { path: 'report.md' }, description: 'Write report',
+      sequence: 1, requires_approval: true, approval_status: approvalStatus,
+      decision: approvalStatus === 'approved' ? 'approve' as const : null,
+      execution_status: approvalStatus === 'approved' ? 'success' as const : 'rejected' as const,
+      output: approvalStatus === 'approved' ? 'written' : null,
+      error: approvalStatus === 'invalidated' ? 'Application stopped' : null,
+      created_at: 2, decided_at: approvalStatus === 'approved' ? 3 : null,
+      ended_at: 4, updated_at: 4,
+    });
+
+    const restored = restoreConversationRuntime({
+      sessionId: 'session-1', isStreaming: false, agentRuns: [], agentToolCalls: [],
+      delegatedAgentRuns: [delegatedRun],
+      delegatedToolActions: [action('approved', 'approval-1'), action('invalidated', 'approval-2')],
+    });
+
+    expect(restored.approvalHistory).toEqual([
+      expect.objectContaining({
+        approval: expect.objectContaining({ id: 'approval-1', targetAgentName: 'Writer', delegatedTask: 'Write a report' }),
+        status: 'approved', executionStatus: 'success',
+      }),
+      expect.objectContaining({ status: 'invalidated', executionStatus: 'rejected', error: 'Application stopped' }),
     ]);
   });
 
@@ -983,13 +1024,27 @@ describe('Conversation Runtime Projection', () => {
           approval_status: null,
         },
       ],
+      delegatedAgentRuns: [
+        {
+          id: 'delegated-single', parent_run_id: 'run-1', target_agent_id: 'code-id', target_agent_slug: 'code', target_agent_name: 'Code',
+          launch_form: 'single', task_tool_call_id: 'task-call-1', batch_id: null, workflow_run_task_id: null, goal: 'Implement feature',
+          status: 'completed', outcome: { status: 'success', artifacts: ['a.ts'], summary: 'Implemented' }, error_code: null, error_message: null,
+          created_at: 850, started_at: 900, ended_at: 950, updated_at: 950,
+        },
+        {
+          id: 'delegated-parallel', parent_run_id: 'run-1', target_agent_id: 'reviewer-id', target_agent_slug: 'reviewer', target_agent_name: 'Reviewer',
+          launch_form: 'parallel', task_tool_call_id: null, batch_id: 'batch-1', workflow_run_task_id: null, goal: 'Review output',
+          status: 'completed', outcome: { status: 'success', artifacts: [], summary: 'Looks good' }, error_code: null, error_message: null,
+          created_at: 920, started_at: 920, ended_at: 980, updated_at: 980,
+        },
+      ],
     });
 
     expect(restored.delegatedTasks[0]).toEqual({
-      delegatedRunId: 'legacy:task-call-1',
+      delegatedRunId: 'delegated-single',
       taskId: 'task-call-1',
       agentSlug: 'code',
-      agentName: 'code',
+      agentName: 'Code',
       goal: 'Implement feature',
       status: 'success',
       chunks: [],
@@ -1005,9 +1060,11 @@ describe('Conversation Runtime Projection', () => {
         startedAt: 920,
         workers: [
           {
+            delegatedRunId: 'delegated-parallel',
             agentSlug: 'reviewer',
             agentName: 'Reviewer',
             goal: 'Review output',
+            summary: 'Looks good',
             status: 'success',
             steps: [],
             textBuffer: 'Looks good',

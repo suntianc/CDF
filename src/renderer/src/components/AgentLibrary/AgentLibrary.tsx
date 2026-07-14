@@ -132,6 +132,7 @@ export function AgentLibrary() {
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
+            const isProtected = agent.is_protected === true || agent.slug === 'general-purpose';
             return (
               <div key={agent.id} className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
                 <div className="min-w-0 flex-1">
@@ -144,9 +145,18 @@ export function AgentLibrary() {
                       )}
                     </div>
                     <div className="truncate">
-                      <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">{agent.name}</div>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">{agent.name}</div>
+                        {isProtected && (
+                          <span className="shrink-0 rounded bg-[var(--color-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
+                            {t('agent.protectedBadge')}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-[var(--color-text-secondary)] truncate">
-                        {t('agent.modelLabel')}{provider ? `${provider.name} (${provider.default_model})` : t('agent.noModel')}
+                        {t('agent.modelLabel')}{provider
+                          ? `${provider.name} (${provider.default_model})`
+                          : isProtected ? t('agent.inheritedModelShort') : t('agent.noModel')}
                       </div>
                     </div>
                   </div>
@@ -175,13 +185,15 @@ export function AgentLibrary() {
                     <Edit2 className="w-3.5 h-3.5" />
                     <span>{t('common.edit')}</span>
                   </button>
-                  <button
-                    className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
-                    onClick={() => handleDeleteAgent(agent.id, agent.name)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>{t('common.delete')}</span>
-                  </button>
+                  {!isProtected && (
+                    <button
+                      className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
+                      onClick={() => handleDeleteAgent(agent.id, agent.name)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{t('common.delete')}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );

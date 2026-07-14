@@ -27,6 +27,7 @@ const legacyFacadeExports = [
   'Agent',
   'AgentApprovalAction',
   'AgentApprovalDecisionType',
+  'AgentApprovalHistoryEntry',
   'AgentApprovalRequest',
   'AgentApprovalResolution',
   'AgentApprovalStatus',
@@ -56,6 +57,11 @@ const legacyFacadeExports = [
   'DelegatedAgentRunLaunchForm',
   'DelegatedAgentRunStatus',
   'DelegatedTaskResult',
+  'DelegatedToolActionRecord',
+  'DelegatedToolApprovalDecision',
+  'DelegatedToolApprovalRequest',
+  'DelegatedToolApprovalStatus',
+  'DelegatedToolExecutionStatus',
   'DirectoryEntry',
   'ExecutionStep',
   'ExecutionStepType',
@@ -116,6 +122,7 @@ const legacyFacadeExports = [
   'WorkflowStage',
   'WorkflowStageGate',
   'WorkflowStageReport',
+  'WorkflowStageRoute',
   'WorkflowTaskStatus',
 ] as const;
 

@@ -109,7 +109,7 @@ export function SubagentView({ task, onBack }: { task: SubagentInput; onBack: ()
   const isRunning = task.status === 'running';
   const isFailure = task.status === 'failure';
   const agentName = isDelegate ? task.agentName : (task.agentName ?? task.agentSlug);
-  const taskKey = isDelegate ? task.taskId : ((task as ParallelWorker).workerId ?? task.agentSlug);
+  const taskKey = isDelegate ? task.taskId : (task as ParallelWorker).delegatedRunId;
 
   const totalText = useMemo(
     () => isDelegate

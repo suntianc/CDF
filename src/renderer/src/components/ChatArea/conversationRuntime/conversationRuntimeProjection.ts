@@ -1,9 +1,11 @@
 import type {
   AgentApprovalRequest,
+  AgentApprovalHistoryEntry,
   ConversationRunStreamSnapshot,
   AgentRun,
   AgentToolCall,
   DelegatedAgentRun,
+  DelegatedToolActionRecord,
   ExecutionStep,
   LLMStreamEvent,
   Message,
@@ -31,9 +33,7 @@ export interface DelegatedTaskProjection {
 }
 
 export interface ParallelWorkerProjection {
-  delegatedRunId?: string;
-  /** @deprecated Use delegatedRunId. */
-  workerId?: string;
+  delegatedRunId: string;
   agentSlug: string;
   agentName?: string;
   goal?: string;
@@ -62,6 +62,8 @@ export interface ConversationRuntimeProjectionState {
   parallelBatches: ParallelBatchProjection[];
   activeRunId: string | null;
   pendingApproval: AgentApprovalRequest | null;
+  pendingApprovals: AgentApprovalRequest[];
+  approvalHistory: AgentApprovalHistoryEntry[];
   isStreaming: boolean;
   streamingMessageId: string | null;
   currentAssistantMsgId: string;
@@ -78,7 +80,7 @@ export interface ConversationRuntimeProjectionDeps {
 
 export type ConversationRuntimeEvent =
   | { kind: 'llm'; event: LLMStreamEvent }
-  | { kind: 'parallelTaskStep'; event: { batchId: string; delegatedRunId?: string; agentSlug: string; workerId?: string; step: ExecutionStep } };
+  | { kind: 'parallelTaskStep'; event: { batchId: string; delegatedRunId: string; agentSlug: string; step: ExecutionStep } };
 
 export type RuntimeMessageDraft = Omit<Message, 'created_at'> & { created_at?: number };
 
@@ -101,12 +103,13 @@ export interface RestoreConversationRuntimeInput {
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
   delegatedAgentRuns?: DelegatedAgentRun[];
+  delegatedToolActions?: DelegatedToolActionRecord[];
   latestTodos?: TodoItem[];
 }
 
 export type RestoredConversationRuntimeProjection = Pick<
   ConversationRuntimeProjectionState,
-  'agentRuns' | 'agentToolCalls' | 'delegatedTasks' | 'parallelBatches' | 'todos' | 'activeRunId'
+  'agentRuns' | 'agentToolCalls' | 'delegatedTasks' | 'parallelBatches' | 'todos' | 'activeRunId' | 'approvalHistory'
 >;
 
 export function createConversationRuntimeState(
@@ -122,6 +125,8 @@ export function createConversationRuntimeState(
     parallelBatches: [],
     activeRunId: null,
     pendingApproval: null,
+    pendingApprovals: [],
+    approvalHistory: [],
     isStreaming: true,
     accumulatedContent: '',
     pendingToolMessages: {},
@@ -144,6 +149,8 @@ export function hydrateConversationRuntimeStream(
     currentAssistantMsgId: snapshot.messageId,
     activeRunId: null,
     pendingApproval: null,
+    pendingApprovals: [],
+    approvalHistory: [],
     isStreaming: true,
     accumulatedContent: '',
   };
@@ -228,142 +235,6 @@ function parseTodosFromToolOutput(output: unknown): TodoItem[] | null {
   }
 
   return null;
-}
-
-function parseJsonValue(value: unknown): unknown {
-  if (typeof value === 'string') return JSON.parse(value);
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function parseDelegatedTaskInput(inputValue: unknown): { agentSlug: string; goal: string } {
-  let agentSlug = 'unknown';
-  let goal = '';
-  try {
-    const input = parseJsonValue(inputValue);
-    if (!isRecord(input)) return { agentSlug, goal };
-    agentSlug = String(input.subagent_type || input.name || 'unknown');
-    if (input.task) {
-      try {
-        const taskPackage = parseJsonValue(input.task);
-        goal = isRecord(taskPackage) && typeof taskPackage.goal === 'string'
-          ? taskPackage.goal
-          : '';
-      } catch {
-        goal = typeof input.name === 'string' ? input.name : '任务执行';
-      }
-    } else if (typeof input.description === 'string') {
-      goal = input.description;
-    }
-  } catch {
-    agentSlug = 'unknown';
-  }
-  return { agentSlug, goal };
-}
-
-function parseDelegatedTaskOutput(call: AgentToolCall): {
-  status: 'running' | 'success' | 'failure';
-  errorCode?: string;
-  result?: DelegatedTaskProjection['result'];
-} {
-  if (call.status === 'error') {
-    const message = call.error || '';
-    const lower = message.toLowerCase();
-    let errorCode = 'UNKNOWN';
-    if (lower.includes('timeout') || lower.includes('timed out')) errorCode = 'TIMEOUT';
-    // undici/fetch stream cut — was shown as opaque "UNKNOWN terminated"
-    else if (lower === 'terminated' || lower.includes('network') || lower.includes('fetch failed')) {
-      errorCode = 'NETWORK';
-    } else if (lower.includes('interrupt') || lower.includes('cancel') || lower.includes('aborted')) {
-      errorCode = 'INTERRUPTED';
-    }
-    return {
-      status: 'failure',
-      errorCode,
-      result: {
-        status: 'failure',
-        artifacts: [],
-        summary: '',
-        error: { code: errorCode, message },
-      },
-    };
-  }
-
-  if (call.status === 'running') {
-    return { status: 'running' };
-  }
-
-  try {
-    const parsedOutput = parseJsonValue(call.output);
-    if (!isRecord(parsedOutput)) {
-      return { status: 'success', result: { status: 'success', artifacts: [], summary: '任务执行完成' } };
-    }
-
-    if (parsedOutput.status === 'failure') {
-      const parsedError = isRecord(parsedOutput.error) ? parsedOutput.error : {};
-      const errorCode = typeof parsedError.code === 'string' ? parsedError.code : 'PARSE_FAILED';
-      return {
-        status: 'failure',
-        errorCode,
-        result: parsedOutput as DelegatedTaskProjection['result'],
-      };
-    }
-
-    if (parsedOutput.summary !== undefined) {
-      return {
-        status: 'success',
-        result: parsedOutput as DelegatedTaskProjection['result'],
-      };
-    }
-
-    const update = isRecord(parsedOutput.update) ? parsedOutput.update : null;
-    const messages = Array.isArray(update?.messages) ? update.messages : null;
-    if (parsedOutput.lg_name === 'Command' && messages && messages.length > 0) {
-      const toolMessage = messages[messages.length - 1];
-      const content = isRecord(toolMessage) && isRecord(toolMessage.kwargs)
-        ? toolMessage.kwargs.content
-        : toolMessage;
-      if (typeof content === 'string') {
-        try {
-          const nestedResult = parseJsonValue(content);
-          if (isRecord(nestedResult) && nestedResult.status === 'failure') {
-            const nestedError = isRecord(nestedResult.error) ? nestedResult.error : {};
-            return {
-              status: 'failure',
-              errorCode: typeof nestedError.code === 'string' ? nestedError.code : 'PARSE_FAILED',
-              result: nestedResult as DelegatedTaskProjection['result'],
-            };
-          }
-          return {
-            status: 'success',
-            result: nestedResult as DelegatedTaskProjection['result'],
-          };
-        } catch {
-          return {
-            status: 'success',
-            result: { status: 'success', artifacts: [], summary: content.slice(0, 500) },
-          };
-        }
-      }
-    }
-
-    return { status: 'success', result: { status: 'success', artifacts: [], summary: '任务执行完成' } };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown parse error';
-    return {
-      status: 'failure',
-      errorCode: 'PARSE_FAILED',
-      result: {
-        status: 'failure',
-        artifacts: [],
-        summary: '',
-        error: { code: 'PARSE_FAILED', message },
-      },
-    };
-  }
 }
 
 export function projectConversationRuntime(
@@ -570,15 +441,59 @@ export function projectConversationRuntime(
   }
 
   if (streamEvent.type === 'approval_required') {
+    const existingIndex = state.pendingApprovals.findIndex((item) => item.id === streamEvent.approval.id);
+    const pendingApprovals = existingIndex >= 0
+      ? state.pendingApprovals.map((item, index) => index === existingIndex ? streamEvent.approval : item)
+      : [...state.pendingApprovals, streamEvent.approval];
     return {
-      state: { ...state, pendingApproval: streamEvent.approval },
+      state: { ...state, pendingApprovals, pendingApproval: pendingApprovals[0] ?? null },
       effects: [],
     };
   }
 
   if (streamEvent.type === 'approval_resolved') {
+    const approval = state.pendingApprovals.find((item) => item.id === streamEvent.approvalId);
+    if (!approval) return { state, effects: [] };
+    const pendingApprovals = state.pendingApprovals.filter((item) => item.id !== streamEvent.approvalId);
+    const historyEntry = approval
+      ? {
+          approval,
+          status: streamEvent.status,
+          resolvedAt: streamEvent.resolvedAt ?? deps.now(),
+          executionStatus: streamEvent.executionStatus,
+          output: streamEvent.output,
+          error: streamEvent.error,
+        }
+      : null;
+    const approvalHistory = historyEntry && !state.approvalHistory.some((item) => item.approval.id === streamEvent.approvalId)
+      ? [...state.approvalHistory, historyEntry]
+      : state.approvalHistory;
     return {
-      state: { ...state, pendingApproval: null },
+      state: {
+        ...state,
+        pendingApprovals,
+        pendingApproval: pendingApprovals[0] ?? null,
+        approvalHistory,
+      },
+      effects: [],
+    };
+  }
+
+  if (streamEvent.type === 'approval_outcome') {
+    return {
+      state: {
+        ...state,
+        approvalHistory: state.approvalHistory.map((item) => (
+          item.approval.id === streamEvent.approvalId
+            ? {
+                ...item,
+                executionStatus: streamEvent.executionStatus,
+                output: streamEvent.output,
+                error: streamEvent.error,
+              }
+            : item
+        )),
+      },
       effects: [],
     };
   }
@@ -681,7 +596,7 @@ export function projectConversationRuntime(
         const raw = typeof streamEvent.output === 'string'
           ? streamEvent.output
           : JSON.stringify(streamEvent.output ?? '{}');
-        const parsed = JSON.parse(raw) as { batchId?: string; results?: Array<{ delegatedRunId?: string; name: string; status: 'success' | 'failure' }> };
+        const parsed = JSON.parse(raw) as { batchId?: string; results?: Array<{ delegatedRunId: string; name: string; status: 'success' | 'failure' }> };
         if (parsed.batchId && Array.isArray(parsed.results)) {
           parallelBatches = state.parallelBatches.map((batch) => (
             batch.batchId !== parsed.batchId
@@ -689,11 +604,7 @@ export function projectConversationRuntime(
               : {
                   ...batch,
                   workers: batch.workers.map((worker) => {
-                    const result = parsed.results?.find((item) => (
-                      worker.delegatedRunId
-                        ? item.delegatedRunId === worker.delegatedRunId
-                        : item.name === worker.agentSlug
-                    ));
+                    const result = parsed.results?.find((item) => item.delegatedRunId === worker.delegatedRunId);
                     return result ? { ...worker, status: result.status, completedAt: deps.now() } : worker;
                   }),
                 }
@@ -796,6 +707,22 @@ export function projectConversationRuntime(
     messages = messages.filter((message) => !(message.role === 'assistant' && message.content === ''));
     effects.push({ type: 'cleanupStream' }, { type: 'resolveStream' });
 
+    const unresolved = state.pendingApprovals.length > 0
+      ? state.pendingApprovals
+      : state.pendingApproval ? [state.pendingApproval] : [];
+    const knownHistoryIds = new Set(state.approvalHistory.map((entry) => entry.approval.id));
+    const approvalHistory = [
+      ...state.approvalHistory,
+      ...unresolved
+        .filter((approval) => !knownHistoryIds.has(approval.id))
+        .map((approval) => ({
+          approval,
+          status: 'invalidated' as const,
+          resolvedAt: deps.now(),
+          executionStatus: 'rejected' as const,
+          error: 'Conversation run ended before approval was resolved',
+        })),
+    ];
     return {
       state: {
         ...state,
@@ -803,6 +730,8 @@ export function projectConversationRuntime(
         isStreaming: false,
         streamingMessageId: null,
         pendingApproval: null,
+        pendingApprovals: [],
+        approvalHistory,
         accumulatedContent: '',
       },
       effects,
@@ -821,6 +750,22 @@ export function projectConversationRuntime(
       !(message.role === 'assistant' && message.content === '')
     ));
 
+    const unresolved = state.pendingApprovals.length > 0
+      ? state.pendingApprovals
+      : state.pendingApproval ? [state.pendingApproval] : [];
+    const knownHistoryIds = new Set(state.approvalHistory.map((entry) => entry.approval.id));
+    const approvalHistory = [
+      ...state.approvalHistory,
+      ...unresolved
+        .filter((approval) => !knownHistoryIds.has(approval.id))
+        .map((approval) => ({
+          approval,
+          status: 'invalidated' as const,
+          resolvedAt: deps.now(),
+          executionStatus: 'rejected' as const,
+          error: streamEvent.error,
+        })),
+    ];
     return {
       state: {
         ...state,
@@ -828,6 +773,8 @@ export function projectConversationRuntime(
         isStreaming: false,
         streamingMessageId: null,
         pendingApproval: null,
+        pendingApprovals: [],
+        approvalHistory,
         accumulatedContent: '',
       },
       effects: [
@@ -853,6 +800,37 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
   const activeRun = input.agentRuns[0] || null;
   const delegatedTasks: DelegatedTaskProjection[] = [];
   const parallelBatches: ParallelBatchProjection[] = [];
+  const delegatedRunsById = new Map((input.delegatedAgentRuns ?? []).map((run) => [run.id, run]));
+  const approvalHistory: AgentApprovalHistoryEntry[] = (input.delegatedToolActions ?? [])
+    .filter((action) => action.approval_status !== 'pending' && action.approval_status !== 'not_required')
+    .map((action) => {
+      const delegatedRun = delegatedRunsById.get(action.delegated_run_id);
+      return {
+        approval: {
+          id: action.id,
+          runId: action.parent_run_id,
+          delegatedRunId: action.delegated_run_id,
+          targetAgentId: delegatedRun?.target_agent_id,
+          targetAgentSlug: delegatedRun?.target_agent_slug,
+          targetAgentName: delegatedRun?.target_agent_name,
+          delegatedTask: delegatedRun?.goal,
+          actionId: action.action_id,
+          actions: [{
+            name: action.tool_name,
+            args: action.arguments,
+            description: action.description ?? undefined,
+            allowedDecisions: ['approve', 'reject'],
+          }],
+        },
+        status: action.approval_status === 'approved'
+          ? 'approved'
+          : action.approval_status === 'rejected' ? 'rejected' : 'invalidated',
+        resolvedAt: action.decided_at ?? action.ended_at ?? action.updated_at,
+        executionStatus: action.execution_status,
+        output: action.output,
+        error: action.error,
+      };
+    });
 
   for (const run of input.delegatedAgentRuns ?? []) {
     const isActive = run.status === 'queued' || run.status === 'running';
@@ -869,7 +847,6 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
       batch.startedAt = Math.min(batch.startedAt, run.created_at);
       batch.workers.push({
         delegatedRunId: run.id,
-        workerId: run.id,
         agentSlug: run.target_agent_slug,
         agentName: run.target_agent_name,
         goal: run.goal,
@@ -900,91 +877,6 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
     });
   }
 
-  for (const call of input.agentToolCalls) {
-    const hasDelegatedRecord = delegatedTasks.some((task) => (
-      task.delegatedRunId === call.delegated_run_id || task.taskId === call.id
-    ));
-    if (call.tool_name === 'task' && !hasDelegatedRecord) {
-      const { agentSlug, goal } = parseDelegatedTaskInput(call.input);
-
-      let { status, errorCode, result } = parseDelegatedTaskOutput(call);
-      if (status === 'running') {
-        if (input.isStreaming) {
-          status = 'running';
-        } else {
-          status = 'failure';
-          errorCode = 'DISCONNECTED';
-          result = {
-            status: 'failure',
-            artifacts: [],
-            summary: '',
-            error: { code: 'DISCONNECTED', message: '会话流已结束，任务未正常完成' },
-          };
-        }
-      }
-
-      delegatedTasks.push({
-        delegatedRunId: call.delegated_run_id ?? `legacy:${call.id}`,
-        taskId: call.id,
-        agentSlug,
-        agentName: agentSlug,
-        goal,
-        status,
-        chunks: [],
-        steps: [],
-        result,
-        errorCode,
-        startedAt: call.started_at,
-        completedAt: call.ended_at || undefined,
-      });
-    }
-  }
-
-  for (const call of input.agentToolCalls) {
-    if (call.tool_name !== 'parallel_tasks') continue;
-    try {
-      const parsedInput = parseJsonValue(call.input);
-      const inputRecord = isRecord(parsedInput) ? parsedInput : {};
-      const tasks = Array.isArray(inputRecord.tasks)
-        ? inputRecord.tasks.filter(isRecord)
-        : [];
-      const parsedOutput = call.output ? parseJsonValue(call.output) : {};
-      const outputRecord = isRecord(parsedOutput) ? parsedOutput : {};
-      const batchId = typeof outputRecord.batchId === 'string' ? outputRecord.batchId : call.id;
-      if (parallelBatches.some((batch) => batch.batchId === batchId)) continue;
-      const results = Array.isArray(outputRecord.results)
-        ? outputRecord.results.filter(isRecord)
-        : [];
-      const workers = tasks.map((task) => {
-        let status: 'running' | 'success' | 'failure' = 'success';
-        const taskName = typeof task.name === 'string' ? task.name : 'unknown';
-        const result = results.find((item) => item.name === taskName);
-        if (call.status === 'running') {
-          status = input.isStreaming ? 'running' : 'failure';
-        } else if (call.status === 'error' || result?.status === 'failure') {
-          status = 'failure';
-        }
-        return {
-          agentSlug: taskName,
-          agentName: typeof result?.agentName === 'string' ? result.agentName : undefined,
-          goal: typeof task.description === 'string' ? task.description : undefined,
-          status,
-          steps: [],
-          textBuffer: typeof result?.output === 'string' ? result.output : '',
-          startedAt: call.started_at ?? Date.now(),
-          completedAt: call.ended_at || undefined,
-        };
-      });
-      parallelBatches.push({
-        batchId,
-        workers,
-        startedAt: call.started_at ?? Date.now(),
-      });
-    } catch {
-      // Ignore malformed persisted parallel task calls; the activity adapter can still show other calls.
-    }
-  }
-
   return {
     agentRuns: input.agentRuns,
     agentToolCalls: input.agentToolCalls,
@@ -992,28 +884,22 @@ export function restoreConversationRuntime(input: RestoreConversationRuntimeInpu
     parallelBatches,
     todos: input.latestTodos ?? [],
     activeRunId: activeRun?.id || null,
+    approvalHistory,
   };
 }
 
 function projectParallelTaskStep(
   state: ConversationRuntimeProjectionState,
-  event: { batchId: string; delegatedRunId?: string; agentSlug: string; workerId?: string; step: ExecutionStep },
+  event: { batchId: string; delegatedRunId: string; agentSlug: string; step: ExecutionStep },
   deps: ConversationRuntimeProjectionDeps,
 ): ConversationRuntimeProjectionResult {
   const findWorker = (workers: ParallelWorkerProjection[]) =>
-    workers.findIndex((worker) => (
-      event.delegatedRunId
-        ? worker.delegatedRunId === event.delegatedRunId
-        : event.workerId
-          ? worker.workerId === event.workerId
-          : worker.agentSlug === event.agentSlug
-    ));
+    workers.findIndex((worker) => worker.delegatedRunId === event.delegatedRunId);
   const batchIndex = state.parallelBatches.findIndex((batch) => batch.batchId === event.batchId);
 
   if (event.step.type === 'task_start') {
     const newWorker: ParallelWorkerProjection = {
       delegatedRunId: event.delegatedRunId,
-      workerId: event.workerId,
       agentSlug: event.agentSlug,
       agentName: event.step.label,
       goal: event.step.goal,
@@ -1066,7 +952,6 @@ function projectParallelTaskStep(
   const chunk = isTextChunk ? (event.step.content ?? '') : '';
   const newWorker: ParallelWorkerProjection = {
     delegatedRunId: event.delegatedRunId,
-    workerId: event.workerId,
     agentSlug: event.agentSlug,
     status: 'running',
     steps: isTextChunk ? [] : [event.step],

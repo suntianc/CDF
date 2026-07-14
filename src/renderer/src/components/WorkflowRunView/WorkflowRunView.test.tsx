@@ -124,7 +124,6 @@ function createMockTask(overrides: Partial<WorkflowRunTask> = {}): WorkflowRunTa
     status: 'completed',
     dependencies: [],
     delegation_batch_id: null,
-    delegation_worker_id: null,
     delegation_agent_slug: null,
     created_at: Date.now() - 8000,
     updated_at: Date.now() - 3000,
@@ -141,13 +140,19 @@ describe('WorkflowRunProjection – Gate operations', () => {
   describe('stage advance', () => {
     it('marks current stage as waiting_gate when pending gate exists', () => {
       const run = createMockRun({ status: 'running', current_stage_index: 1 });
+      const approvedGate = createMockGate({
+        id: 'gate-stage-1',
+        stage_id: 'stage-1',
+        stage_name: '需求分析',
+        status: 'approved',
+      });
       const gate = createMockGate({ status: 'pending' });
       const task = createMockTask();
 
       const state = projectWorkflowRun(initialProjectionState, {
         type: 'snapshot',
         run,
-        gates: [gate],
+        gates: [approvedGate, gate],
         tasks: [task],
       });
 
@@ -244,7 +249,6 @@ describe('WorkflowRunProjection – Gate operations', () => {
         status: 'completed',
         dependencies: [],
         delegation_batch_id: null,
-        delegation_worker_id: null,
         delegation_agent_slug: null,
         created_at: Date.now(),
         updated_at: Date.now(),
@@ -278,7 +282,7 @@ describe('WorkflowRunProjection – Gate operations', () => {
           type: 'delegation',
           taskId: 'delegated-1',
           batchId: 'batch-1',
-          workerId: 'worker-1',
+          delegatedRunId: 'worker-1',
           agentSlug: 'code-agent',
         }
       );
@@ -303,7 +307,6 @@ describe('WorkflowRunProjection – Gate operations', () => {
         status: 'in_progress',
         dependencies: [],
         delegation_batch_id: null,
-        delegation_worker_id: null,
         delegation_agent_slug: null,
         created_at: Date.now(),
         updated_at: Date.now(),

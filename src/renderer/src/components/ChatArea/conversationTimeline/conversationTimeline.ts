@@ -35,6 +35,7 @@ export function projectConversationTimeline(input: {
   messages: Message[];
   isStreaming: boolean;
   pendingApproval: AgentApprovalRequest | null;
+  pendingApprovals?: AgentApprovalRequest[];
 }): ConversationTimelineItem[] {
   const groupedItems = groupToolMessages(input.messages);
   const turns = splitIntoTurns(groupedItems);
@@ -54,11 +55,14 @@ export function projectConversationTimeline(input: {
     timelineItems.push(...foldResponseItems(turn.responseItems, turnIndex));
   });
 
-  if (input.pendingApproval) {
+  const pendingApprovals = input.pendingApprovals?.length
+    ? input.pendingApprovals
+    : input.pendingApproval ? [input.pendingApproval] : [];
+  for (const approval of pendingApprovals) {
     timelineItems.push({
       type: 'pending_approval_block',
-      id: `pending-approval-${input.pendingApproval.id}`,
-      approval: input.pendingApproval,
+      id: `pending-approval-${approval.id}`,
+      approval,
     });
   }
 

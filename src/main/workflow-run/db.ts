@@ -17,6 +17,7 @@ import type {
   WorkflowStageReport,
   WorkflowTaskStatus,
 } from '../../shared/types';
+import { normalizeWorkflowStages, selectWorkflowStageRoute } from '../../shared/workflow-routing';
 
 // ---- Row 类型（DB 行 → 应用类型转换） ----
 
@@ -130,12 +131,19 @@ export function updateRunStatus(runId: string, status: WorkflowRunStatus, error?
     .run(status, runId);
 }
 
-export function advanceStageCursor(runId: string): WorkflowRun | undefined {
+export function advanceStageCursor(runId: string, routeId?: string): WorkflowRun | undefined {
   const run = getWorkflowRun(runId);
   if (!run) return undefined;
-  const nextIndex = run.current_stage_index + 1;
+  const stages = normalizeWorkflowStages(JSON.parse(run.stages) as WorkflowStage[]);
+  const currentStage = stages[run.current_stage_index];
+  if (!currentStage) return undefined;
+  const route = selectWorkflowStageRoute(currentStage, routeId);
+  const nextIndex = route
+    ? stages.findIndex((stage) => stage.id === route.targetStageId)
+    : run.total_stages;
+  if (route && nextIndex < 0) throw new Error(`Route target Stage not found: ${route.targetStageId}`);
   const now = Date.now();
-  const newStatus: WorkflowRunStatus = nextIndex >= run.total_stages ? 'completed' : 'running';
+  const newStatus: WorkflowRunStatus = currentStage.terminal ? 'completed' : 'running';
   const isComplete = newStatus === 'completed' ? 1 : 0;
   db.prepare(`
     UPDATE workflow_runs SET current_stage_index = ?, status = ?, updated_at = ?,
@@ -155,7 +163,7 @@ export function getCurrentStage(run: WorkflowRun): WorkflowStage | null {
   if (run.current_stage_index >= run.total_stages) return null;
   let stages: WorkflowStage[];
   try {
-    stages = JSON.parse(run.stages as string);
+    stages = normalizeWorkflowStages(JSON.parse(run.stages as string));
   } catch {
     return null;
   }
@@ -191,10 +199,19 @@ export function resolveStageGate(
   const row = db.prepare('SELECT * FROM workflow_stage_gates WHERE id = ?').get(gateId) as GateRow | undefined;
   if (!row) return undefined;
   const now = Date.now();
-  db.prepare(`
-    UPDATE workflow_stage_gates SET status = ?, feedback = ?, decided_at = ? WHERE id = ?
-  `).run(decision, feedback ?? null, now, gateId);
-  return { ...toWorkflowStageGate(row), status: decision, feedback: feedback ?? null, decided_at: now };
+  const report = JSON.parse(row.report) as WorkflowStageReport;
+  if (decision === 'approved' || decision === 'auto_approved') {
+    if (report.routeProposal) report.routeSelection = report.routeProposal;
+  } else {
+    delete report.routeSelection;
+  }
+  delete report.routeProposal;
+  const update = db.prepare(`
+    UPDATE workflow_stage_gates SET status = ?, feedback = ?, report = ?, decided_at = ?
+    WHERE id = ? AND status = 'pending'
+  `).run(decision, feedback ?? null, JSON.stringify(report), now, gateId);
+  if (update.changes !== 1) return undefined;
+  return { ...toWorkflowStageGate(row), report, status: decision, feedback: feedback ?? null, decided_at: now };
 }
 
 export function listStageGates(runId: string, status?: string): WorkflowStageGate[] {
@@ -240,8 +257,9 @@ interface TaskRow {
 }
 
 function toWorkflowRunTask(row: TaskRow): WorkflowRunTask {
+  const { delegation_worker_id: _legacyWorkerId, ...current } = row;
   return {
-    ...row,
+    ...current,
     status: row.status as WorkflowTaskStatus,
     dependencies: JSON.parse(row.dependencies) as string[],
   };
@@ -265,7 +283,7 @@ export function createTask(
   return {
     id, run_id: runId, stage_id: stageId, title, description,
     status: 'planned', dependencies: dependencies ?? [],
-    delegation_batch_id: null, delegation_worker_id: null, delegated_run_id: null, delegation_agent_slug: null,
+    delegation_batch_id: null, delegated_run_id: null, delegation_agent_slug: null,
     created_at: now, updated_at: now, completed_at: null,
   };
 }
@@ -414,8 +432,8 @@ export function setTaskDelegation(
   const now = Date.now();
   db.prepare(`
     UPDATE workflow_run_tasks
-    SET delegation_batch_id = ?, delegation_worker_id = ?, delegated_run_id = ?,
+    SET delegation_batch_id = ?, delegated_run_id = ?,
         delegation_agent_slug = ?, updated_at = ?
     WHERE id = ?
-  `).run(batchId, delegatedRunId, delegatedRunId, agentSlug, now, taskId);
+  `).run(batchId, delegatedRunId, agentSlug, now, taskId);
 }

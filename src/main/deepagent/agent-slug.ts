@@ -26,6 +26,7 @@
  */
 
 import db from '../database';
+import { generateAgentSlug } from '../../shared/agents';
 
 /**
  * Slugify a human-readable name. Lower-cased, non-alphanumeric
@@ -33,11 +34,7 @@ import db from '../database';
  * at 50 chars to keep `task(name: ...)` keys reasonable.
  */
 export function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
+  return generateAgentSlug(name);
 }
 
 interface SlugSource {

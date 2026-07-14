@@ -29,6 +29,10 @@ function RunStatusIcon({ status }: { status?: AgentRunStatus }) {
       return <XCircle className="w-4 h-4 text-[var(--color-danger)]" aria-hidden="true" />;
     case 'aborted':
       return <CircleAlert className="w-4 h-4 text-[var(--color-text-muted)]" aria-hidden="true" />;
+    case 'cancelled':
+      return <XCircle className="w-4 h-4 text-[var(--color-text-muted)]" aria-hidden="true" />;
+    case 'interrupted':
+      return <CircleAlert className="w-4 h-4 text-[var(--color-warning)]" aria-hidden="true" />;
     case 'waiting_approval':
       return <ShieldAlert className="w-4 h-4 text-[var(--color-warning)]" aria-hidden="true" />;
     default:
@@ -127,7 +131,7 @@ function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkS
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setViewingParallelWorker({ batchId: batch.batchId, agentSlug: worker.agentSlug, workerId: worker.workerId })}
+                onClick={() => setViewingParallelWorker({ batchId: batch.batchId, delegatedRunId: worker.delegatedRunId, agentSlug: worker.agentSlug })}
                 className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-[background-color,border-color] duration-150 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] focus-visible:outline-none ${
                   item.isActive
                     ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
@@ -428,6 +432,8 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
   const delegatedTasks = useSessionStore((state) => state.delegatedTasks);
   const parallelBatches = useSessionStore((state) => state.parallelBatches);
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
+  const pendingApprovals = useSessionStore((state) => state.pendingApprovals) ?? [];
+  const approvalHistory = useSessionStore((state) => state.approvalHistory) ?? [];
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
   const viewingSubagentId = useSessionStore((state) => state.viewingSubagentId);
@@ -444,6 +450,8 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
       delegatedTasks,
       parallelBatches,
       pendingApproval,
+      pendingApprovals,
+      approvalHistory,
       agents,
       viewingSubagentId,
       viewingParallelWorker,
@@ -457,6 +465,8 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
       delegatedTasks,
       parallelBatches,
       pendingApproval,
+      pendingApprovals,
+      approvalHistory,
       agents,
       viewingSubagentId,
       viewingParallelWorker,
@@ -522,35 +532,59 @@ function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
         </div>
       )}
 
-      {projection.conversationApprovalSection && (
-        <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
+      {projection.conversationApprovalSections.map((approvalSection) => (
+        <div key={approvalSection.approvalId} className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-warning-dim)] text-[var(--color-warning)]">
               <ShieldAlert className="w-4 h-4" aria-hidden="true" />
             </div>
             <div className="min-w-0">
               {/* [P2-G] div → h3 for proper heading hierarchy */}
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.conversationApprovalSection.title}</h3>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{approvalSection.title}</h3>
               {/* [P1-B] muted → secondary */}
               <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-                {projection.conversationApprovalSection.actionCountText}
+                {approvalSection.actionCountText}
               </div>
+              {approvalSection.sourceAgent && (
+                <div className="mt-1 text-xs font-medium text-[var(--color-text-primary)]">{approvalSection.sourceAgent}</div>
+              )}
+              {approvalSection.delegatedTask && (
+                <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">{approvalSection.delegatedTask}</div>
+              )}
             </div>
           </div>
-          <div id="pending-approval-actions" className="space-y-3 w-full">
-            {projection.conversationApprovalSection.actions.map((summary) => (
+          <div id={`pending-approval-actions-${approvalSection.approvalId}`} className="space-y-3 w-full">
+            {approvalSection.actions.map((summary) => (
               <ApprovalActionCard key={summary.key} summary={summary} />
             ))}
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-primary text-xs min-h-11" aria-describedby="pending-approval-actions" onClick={() => resolveApproval('approve')}>
+            <button type="button" className="btn btn-primary text-xs min-h-11" aria-label={`${t('common.approve')} ${approvalSection.sourceAgent || ''}`.trim()} aria-describedby={`pending-approval-actions-${approvalSection.approvalId}`} onClick={() => pendingApprovals.length > 0 ? resolveApproval('approve', undefined, approvalSection.approvalId) : resolveApproval('approve')}>
               {t('common.approve')}
             </button>
-            <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" aria-describedby="pending-approval-actions" onClick={() => resolveApproval('reject')}>
+            <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" aria-label={`${t('common.reject')} ${approvalSection.sourceAgent || ''}`.trim()} aria-describedby={`pending-approval-actions-${approvalSection.approvalId}`} onClick={() => pendingApprovals.length > 0 ? resolveApproval('reject', undefined, approvalSection.approvalId) : resolveApproval('reject')}>
               {t('common.reject')}
             </button>
           </div>
         </div>
+      ))}
+
+      {projection.approvalHistorySection.length > 0 && (
+        <section className="space-y-2" aria-label={t('taskPanel.approvalHistoryTitle')}>
+          <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">{t('taskPanel.approvalHistoryTitle')}</h3>
+          {projection.approvalHistorySection.map((item) => (
+            <div key={item.approvalId} className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-[var(--color-text-primary)]">{item.sourceAgent} · {item.toolName}</span>
+                <span className="text-[var(--color-text-secondary)]">{item.status}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[var(--color-text-muted)]">
+                <span>{item.outcome}</span>
+                <time dateTime={new Date(item.resolvedAt).toISOString()}>{new Date(item.resolvedAt).toLocaleTimeString()}</time>
+              </div>
+            </div>
+          ))}
+        </section>
       )}
 
 

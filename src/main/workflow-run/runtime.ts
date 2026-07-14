@@ -14,12 +14,6 @@
 import crypto from 'crypto';
 import db from '../database';
 import { BrowserWindow } from 'electron';
-
-let resumeAgentCallback: ((sessionId: string, projectId: string, decisions: Array<{ type: 'approve' | 'reject'; message?: string }>) => void) | null = null;
-
-export function registerResumeAgentCallback(cb: typeof resumeAgentCallback) {
-  resumeAgentCallback = cb;
-}
 import type {
   WorkflowRun,
   WorkflowRunStatus,
@@ -44,6 +38,24 @@ import {
   updateRunStatus,
 } from './db';
 import { pushProjectionEvent } from './notify';
+import { normalizeWorkflowStages, selectWorkflowStageRoute, validateWorkflowStages } from '../../shared/workflow-routing';
+
+let resumeAgentCallback: ((sessionId: string, projectId: string, decisions: Array<{ type: 'approve' | 'reject'; message?: string }>) => void) | null = null;
+
+export function registerResumeAgentCallback(cb: typeof resumeAgentCallback) {
+  resumeAgentCallback = cb;
+}
+
+export function resumeWorkflowRunFromInput(sessionId: string): WorkflowRun | undefined {
+  const run = getRunBySessionId(sessionId);
+  if (!run || run.status !== 'waiting_input') return run;
+  updateRunStatus(run.id, 'running');
+  const resumed = getWorkflowRun(run.id);
+  if (resumed) {
+    pushProjectionEvent({ type: 'run', runId: resumed.id, status: 'running', currentStageIndex: resumed.current_stage_index, error: null });
+  }
+  return resumed;
+}
 // =============================================================================
 // 开始运行
 // =============================================================================
@@ -67,9 +79,11 @@ export function startRun(workflowId: string, projectId: string): StartRunResult 
   if (!wfRow) throw new Error(`Workflow not found: ${workflowId}`);
   if (wfRow.project_id !== projectId) throw new Error('Workflow does not belong to this project');
 
-  const stages: WorkflowStage[] = JSON.parse(wfRow.stages);
+  const stages = normalizeWorkflowStages(JSON.parse(wfRow.stages) as WorkflowStage[]);
   const masterAgentId = wfRow.master_agent_id;
   if (!stages.length) throw new Error('Workflow has no stages defined');
+  const routeErrors = validateWorkflowStages(stages);
+  if (routeErrors.length > 0) throw new Error(`Invalid Workflow Stage routes: ${routeErrors.join('; ')}`);
   if (!masterAgentId) throw new Error('Workflow has no master_agent_id defined');
 
   const agentRow = db.prepare('SELECT id FROM agents WHERE id = ?').get(masterAgentId) as { id: string } | undefined;
@@ -166,15 +180,30 @@ export async function handleAdvanceStageInterrupt(
   sender?: { send: (channel: string, payload: unknown) => void },
   channel?: string,
   signal?: AbortSignal,
+  selection?: { routeId?: string; rationale?: string },
 ): Promise<AdvanceStageInterruptResult> {
   const run = getWorkflowRun(runId);
   if (!run) throw new Error(`Workflow run not found: ${runId}`);
 
   const stageIndex = run.current_stage_index;
-  const stages: WorkflowStage[] = JSON.parse(run.stages as string);
+  const stages = normalizeWorkflowStages(JSON.parse(run.stages as string) as WorkflowStage[]);
   const stage = stages[stageIndex];
   if (!stage) throw new Error(`Stage ${stageIndex} not found in run ${runId}`);
-  const gate = createStageGate(runId, stage.id, stage.name, report);
+  const selectedRoute = selectWorkflowStageRoute(stage, selection?.routeId);
+  if ((stage.routes?.length ?? 0) > 1 && !selection?.rationale?.trim()) {
+    throw new Error(`Stage ${stage.name} requires a route rationale`);
+  }
+  const persistedReport: WorkflowStageReport = selectedRoute
+    ? {
+        ...report,
+        routeProposal: {
+          routeId: selectedRoute.id,
+          targetStageId: selectedRoute.targetStageId,
+          rationale: selection?.rationale?.trim() ?? '',
+        },
+      }
+    : report;
+  const gate = createStageGate(runId, stage.id, stage.name, persistedReport);
   pushProjectionEvent({ type: 'stage_gate', gate });
   if (stage.gateEnabled) {
     pushProjectionEvent({ type: 'run', runId, status: 'waiting_gate', currentStageIndex: stageIndex, error: null });
@@ -201,7 +230,7 @@ export async function handleAdvanceStageInterrupt(
         runId: run.id,
         actions: [{
           name: 'advance_stage',
-          args: { report },
+          args: { report: persistedReport, routeId: selectedRoute?.id, rationale: selection?.rationale?.trim() },
           description: `阶段 "${stage.name}" 完成，等待审批`,
           allowedDecisions: ['approve', 'reject'],
         }],
@@ -270,8 +299,16 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
   if (!gate) throw new Error(`Stage gate not found: ${gateId}`);
   if (gate.status !== 'pending') throw new Error(`Stage gate ${gateId} already resolved`);
 
+  const claimedGate = resolveStageGate(
+    gate.id,
+    resolution.decision === 'approve' ? 'approved' : 'rejected',
+    resolution.feedback || (resolution.decision === 'terminate' ? '已终止' : null),
+  );
+  if (!claimedGate) throw new Error(`Stage gate ${gateId} already resolved`);
+  pushProjectionEvent({ type: 'stage_gate', gate: claimedGate });
+
   if (pendingGateResolutions.has(gateId)) {
-    // 先解析等待的 promise（桥接 LLM），再更新 DB
+    // Gate decision is durably claimed before resuming the in-memory waiter.
     resolveGatePromise(gateId, resolution);
   } else {
     // 内存 waiter 不在，说明是重启/重载后的 resume
@@ -280,19 +317,15 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
 
     if (resolution.decision === 'terminate') {
       abortWorkflowRun(run.id);
-      const resolvedGate = resolveStageGate(gate.id, 'rejected', resolution.feedback || '已终止');
       db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('aborted', run.session_id);
-      if (resolvedGate) pushProjectionEvent({ type: 'stage_gate', gate: resolvedGate });
       pushProjectionEvent({ type: 'run', runId: run.id, status: 'aborted', currentStageIndex: run.current_stage_index, error: '已终止' });
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
         win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
       }
     } else if (resolution.decision === 'reject') {
-      const rejectedGate = resolveStageGate(gate.id, 'rejected', resolution.feedback || null);
       updateRunStatus(run.id, 'running');
       db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
-      if (rejectedGate) pushProjectionEvent({ type: 'stage_gate', gate: rejectedGate });
       pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageIndex: run.current_stage_index, error: null });
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
@@ -305,10 +338,8 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
         }]);
       }
     } else {
-      const approvedGate = resolveStageGate(gate.id, 'approved', resolution.feedback || null);
       updateRunStatus(run.id, 'running');
       db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
-      if (approvedGate) pushProjectionEvent({ type: 'stage_gate', gate: approvedGate });
       pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageIndex: run.current_stage_index, error: null });
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {

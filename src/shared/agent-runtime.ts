@@ -12,16 +12,18 @@ export const DELEGATED_TASK_RESULT_SCHEMA = z.object({
 });
 export type DelegatedTaskResult = z.infer<typeof DELEGATED_TASK_RESULT_SCHEMA>;
 
-export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted';
+export type AgentRunStatus = 'running' | 'waiting_approval' | 'completed' | 'failed' | 'aborted' | 'cancelled' | 'interrupted';
 export type DelegatedAgentRunStatus =
   | 'queued'
   | 'running'
+  | 'waiting_approval'
   | 'completed'
   | 'failed'
+  | 'cancelled'
   | 'interrupted';
 export type DelegatedAgentRunLaunchForm = 'single' | 'parallel';
 export type AgentToolCallStatus = 'running' | 'success' | 'error' | 'skipped';
-export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited';
+export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'edited' | 'invalidated';
 export type AgentApprovalDecisionType = 'approve' | 'reject' | 'edit';
 
 export interface AgentRun {
@@ -82,6 +84,72 @@ export interface AgentApprovalRequest {
   id: string;
   runId: string;
   actions: AgentApprovalAction[];
+  delegatedRunId?: string;
+  targetAgentId?: string | null;
+  targetAgentSlug?: string;
+  targetAgentName?: string;
+  delegatedTask?: string;
+  actionId?: string;
+}
+
+export interface AgentApprovalHistoryEntry {
+  approval: AgentApprovalRequest;
+  status: AgentApprovalStatus;
+  resolvedAt: number;
+  executionStatus?: DelegatedToolExecutionStatus;
+  output?: unknown;
+  error?: string | null;
+}
+
+export type DelegatedToolApprovalDecision = 'approve' | 'reject';
+export type DelegatedToolApprovalStatus =
+  | 'not_required'
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'invalidated';
+export type DelegatedToolExecutionStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'rejected';
+
+export interface DelegatedToolActionRecord {
+  id: string;
+  delegated_run_id: string;
+  parent_run_id: string;
+  action_id: string;
+  tool_name: string;
+  arguments: unknown;
+  description: string | null;
+  sequence: number;
+  requires_approval: boolean;
+  approval_status: DelegatedToolApprovalStatus;
+  decision: DelegatedToolApprovalDecision | null;
+  execution_status: DelegatedToolExecutionStatus;
+  output: unknown;
+  error: string | null;
+  created_at: number;
+  decided_at: number | null;
+  ended_at: number | null;
+  updated_at: number;
+}
+
+export interface DelegatedToolApprovalRequest {
+  id: string;
+  runId: string;
+  delegatedRunId: string;
+  targetAgentId: string | null;
+  targetAgentSlug: string;
+  targetAgentName: string;
+  delegatedTask: string;
+  action: {
+    id: string;
+    name: string;
+    args?: unknown;
+    description?: string;
+  };
 }
 
 export interface AgentApprovalResolution {
@@ -127,8 +195,6 @@ export interface ParallelTaskStepEvent {
   batchId: string;
   delegatedRunId: string;
   agentSlug: string;
-  /** @deprecated Use delegatedRunId. Kept for persisted/UI compatibility. */
-  workerId: string;
   runTaskId?: string;
   step: ExecutionStep;
 }

@@ -1,4 +1,4 @@
-import type { WorkflowRun, WorkflowStageGate, WorkflowRunTask, WorkflowRunProjectionEvent, WorkflowRunStatus, WorkflowTaskStatus } from '../../../../shared/types';
+import type { WorkflowRun, WorkflowStageGate, WorkflowRunTask, WorkflowRunProjectionEvent, WorkflowRunStatus, WorkflowTaskStatus, WorkflowStageRoute } from '../../../../shared/types';
 
 export interface ProjectedStage {
   [key: string]: unknown;
@@ -7,7 +7,9 @@ export interface ProjectedStage {
   taskDescription: string;
   acceptanceCriteria: string[];
   gateEnabled: boolean;
-  status: 'waiting' | 'active' | 'waiting_gate' | 'passed' | 'aborted' | 'failed';
+  terminal?: boolean;
+  routes?: WorkflowStageRoute[];
+  status: 'waiting' | 'active' | 'waiting_gate' | 'waiting_input' | 'passed' | 'aborted' | 'failed';
 }
 
 export interface WorkflowRunProjectionState {
@@ -21,6 +23,7 @@ export interface WorkflowRunProjectionState {
   selectedStageId: string | null;
   tasks: Record<string, WorkflowRunTask>;
   gates: Record<string, WorkflowStageGate>;
+  selectedRouteIds: string[];
 }
 
 
@@ -30,6 +33,7 @@ export const initialProjectionState: WorkflowRunProjectionState = {
   selectedStageId: null,
   tasks: {},
   gates: {},
+  selectedRouteIds: [],
 };
 
 export function normalizeAcceptanceCriteria(value: string | string[]): string[] {
@@ -63,6 +67,8 @@ export function projectWorkflowRun(
         taskDescription: string;
         acceptanceCriteria: string | string[];
         gateEnabled: boolean;
+        terminal?: boolean;
+        routes?: WorkflowStageRoute[];
       }>;
 
       // Group gates and tasks by ID for easy lookup
@@ -70,26 +76,40 @@ export function projectWorkflowRun(
       for (const g of gates) {
         nextGates[g.id] = g;
       }
+      const acceptedGates = gates.filter((gate) => gate.status === 'approved' || gate.status === 'auto_approved');
+      const acceptedStageIds = new Set(acceptedGates.map((gate) => gate.stage_id));
+      const selectedRouteIds = acceptedGates
+        .map((gate) => gate.report.routeSelection?.routeId)
+        .filter((routeId): routeId is string => Boolean(routeId));
+      const actualStageIds = new Set(acceptedStageIds);
+      const currentStageId = parsedStages[run.current_stage_index]?.id;
+      if (currentStageId) actualStageIds.add(currentStageId);
       const nextTasks: Record<string, WorkflowRunTask> = {};
-      for (const t of tasks) {
-        nextTasks[t.id] = t;
+      for (const task of tasks) {
+        if (actualStageIds.has(task.stage_id)) nextTasks[task.id] = task;
       }
 
       // Compute stages status
       const stages = parsedStages.map((stage, index) => {
         let status: ProjectedStage['status'] = 'waiting';
-        if (run.status === 'aborted' && index === run.current_stage_index) {
+        if (run.status === 'completed' && index === run.current_stage_index) {
+          status = 'passed';
+        } else if (run.status === 'aborted' && index === run.current_stage_index) {
           status = 'aborted';
         } else if (run.status === 'failed' && index === run.current_stage_index) {
           status = 'failed';
-        } else if (index < run.current_stage_index) {
-          status = 'passed';
         } else if (index === run.current_stage_index) {
+          if (run.status === 'waiting_input') {
+            status = 'waiting_input';
+          } else {
           // Check if there is a pending gate for this stage
           const hasPendingGate = Object.values(nextGates).some(
             (g) => g.stage_id === stage.id && g.status === 'pending'
           );
           status = hasPendingGate ? 'waiting_gate' : 'active';
+          }
+        } else if (acceptedStageIds.has(stage.id)) {
+          status = 'passed';
         }
         return {
           id: stage.id,
@@ -97,6 +117,8 @@ export function projectWorkflowRun(
           taskDescription: stage.taskDescription,
           acceptanceCriteria: normalizeAcceptanceCriteria(stage.acceptanceCriteria),
           gateEnabled: !!stage.gateEnabled,
+          terminal: stage.terminal === true,
+          routes: stage.routes ?? [],
           status,
         };
       });
@@ -117,6 +139,7 @@ export function projectWorkflowRun(
         selectedStageId,
         tasks: nextTasks,
         gates: nextGates,
+        selectedRouteIds,
       };
     }
 
@@ -131,19 +154,28 @@ export function projectWorkflowRun(
       };
 
       const nextGates = { ...state.gates };
+      const acceptedStageIds = new Set(Object.values(nextGates)
+        .filter((gate) => gate.status === 'approved' || gate.status === 'auto_approved')
+        .map((gate) => gate.stage_id));
       const stages = state.stages.map((stage, index) => {
         let status: ProjectedStage['status'] = 'waiting';
-        if (event.status === 'aborted' && index === event.currentStageIndex) {
+        if (event.status === 'completed' && index === event.currentStageIndex) {
+          status = 'passed';
+        } else if (event.status === 'aborted' && index === event.currentStageIndex) {
           status = 'aborted';
         } else if (event.status === 'failed' && index === event.currentStageIndex) {
           status = 'failed';
-        } else if (index < event.currentStageIndex) {
-          status = 'passed';
         } else if (index === event.currentStageIndex) {
+          if (event.status === 'waiting_input') {
+            status = 'waiting_input';
+          } else {
           const hasPendingGate = Object.values(nextGates).some(
             (gate) => gate.stage_id === stage.id && gate.status === 'pending',
           );
           status = hasPendingGate ? 'waiting_gate' : 'active';
+          }
+        } else if (acceptedStageIds.has(stage.id)) {
+          status = 'passed';
         }
         return { ...stage, status };
       });
@@ -162,6 +194,10 @@ export function projectWorkflowRun(
       const { gate } = event;
       if (state.run && gate.run_id !== state.run.id) return state;
       const nextGates = { ...state.gates, [gate.id]: gate };
+      const selectedRouteIds = Object.values(nextGates)
+        .filter((item) => item.status === 'approved' || item.status === 'auto_approved')
+        .map((item) => item.report.routeSelection?.routeId)
+        .filter((routeId): routeId is string => Boolean(routeId));
 
       // Update active stage status if the active stage is waiting on a gate
       const stages = state.stages.map((stage, index) => {
@@ -181,6 +217,7 @@ export function projectWorkflowRun(
         ...state,
         gates: nextGates,
         stages,
+        selectedRouteIds,
       };
     }
 
@@ -210,7 +247,7 @@ export function projectWorkflowRun(
     }
 
     case 'delegation': {
-      const { taskId, batchId, workerId, delegatedRunId, agentSlug } = event;
+      const { taskId, batchId, delegatedRunId, agentSlug } = event;
       const existing = state.tasks[taskId];
       if (!existing) {
         // If task doesn't exist yet, create placeholder fallback task
@@ -227,8 +264,7 @@ export function projectWorkflowRun(
           status: 'in_progress',
           dependencies: [],
           delegation_batch_id: batchId,
-          delegation_worker_id: workerId,
-          delegated_run_id: delegatedRunId ?? workerId,
+          delegated_run_id: delegatedRunId,
           delegation_agent_slug: agentSlug,
           created_at: Date.now(),
           updated_at: Date.now(),
@@ -246,8 +282,7 @@ export function projectWorkflowRun(
       const updatedTask: WorkflowRunTask = {
         ...existing,
         delegation_batch_id: batchId,
-        delegation_worker_id: workerId,
-        delegated_run_id: delegatedRunId ?? workerId,
+        delegated_run_id: delegatedRunId,
         delegation_agent_slug: agentSlug,
         updated_at: Date.now(),
       };

@@ -8,6 +8,7 @@ import type {
   AgentRun,
   AgentToolCall,
   DelegatedAgentRun,
+  DelegatedToolActionRecord,
   ParallelTaskStepEvent,
 } from './agent-runtime';
 import type { AtMentionCandidateList } from './at-mention';
@@ -145,6 +146,7 @@ export interface IpcInvokeContract {
   'db:getAgentRuns': { args: [sessionId: string]; result: AgentRun[] };
   'db:getAgentToolCalls': { args: [runId: string]; result: AgentToolCall[] };
   'db:getDelegatedAgentRuns': { args: [sessionId: string]; result: DelegatedAgentRun[] };
+  'db:getDelegatedToolActions': { args: [sessionId: string]; result: DelegatedToolActionRecord[] };
   'db:getLatestTodos': { args: [sessionId: string]; result: AgentToolCall | undefined };
   'db:getMcpServers': { args: []; result: MCPServer[] };
   'db:saveMcpServer': { args: [server: MCPServerSaveInput]; result: MCPServerSaveResult };
@@ -361,6 +363,7 @@ export const IPC_INVOKE_CHANNELS = [
   'db:getAgentRuns',
   'db:getAgentToolCalls',
   'db:getDelegatedAgentRuns',
+  'db:getDelegatedToolActions',
   'db:getLatestTodos',
   'db:getMcpServers',
   'db:saveMcpServer',

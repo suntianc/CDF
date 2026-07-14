@@ -155,8 +155,8 @@ describe('createParallelTaskTool', () => {
     ]);
     const stepEvents = sendMock.mock.calls.map((call) => call[1]);
     expect(stepEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ delegatedRunId: 'delegated-1', workerId: 'delegated-1' }),
-      expect.objectContaining({ delegatedRunId: 'delegated-2', workerId: 'delegated-2' }),
+      expect.objectContaining({ delegatedRunId: 'delegated-1' }),
+      expect.objectContaining({ delegatedRunId: 'delegated-2' }),
     ]));
   });
 

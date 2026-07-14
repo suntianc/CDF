@@ -28,6 +28,7 @@ import {
 } from './deepagent/skill-manager';
 import { resolveSkillSourcePlan, updateProjectSkillOverride } from './deepagent/skills-runtime/skill-sources';
 import { parseSkillOverrideState } from '../shared/skill-overrides';
+import { normalizeWorkflowStages, validateWorkflowStages } from '../shared/workflow-routing';
 import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import type {
@@ -76,6 +77,13 @@ import { backgroundCapabilityJobs } from './capabilities/background-capability-r
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { deleteConversation } from './conversation-deletion';
 import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
+import {
+  GENERAL_PURPOSE_AGENT_SLUG,
+  assertProjectAgentCanBeDeleted,
+  assertProjectAgentCanBeSaved,
+  ensureGeneralPurposeAgent,
+  isGeneralPurposeAgent,
+} from './project-agent-service';
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -370,6 +378,7 @@ export function registerIpcHandlers() {
     db.prepare(
       'INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(id, name, projectPath, projectScene, now, now);
+    ensureGeneralPurposeAgent(db, id);
     initializeScenePreset({ projectId: id, projectPath, scene: projectScene });
     const isGit = projectPath ? fs.existsSync(path.join(projectPath, '.git')) : false;
     return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
@@ -661,12 +670,14 @@ export function registerIpcHandlers() {
   // ===== Phase 3: Agent Library IPC Handlers =====
 
   typedHandle('db:getAgents', (_, projectId) => {
+    ensureGeneralPurposeAgent(db, projectId);
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
     return agents.map(a => {
       const mcpExclusions = db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(a.id) as any[];
       const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
       return {
         ...a,
+        is_protected: isGeneralPurposeAgent(a),
         config: a.config ? JSON.parse(a.config) : null,
         mcpServerExclusionIds: mcpExclusions.map(s => s.mcp_server_id),
         skillNames: skills.map(s => s.skill_name),
@@ -680,6 +691,7 @@ export function registerIpcHandlers() {
     if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
       throw new Error('Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.');
     }
+    assertProjectAgentCanBeSaved(db, { id, projectId: project_id, name });
     const now = Date.now();
     const configStr = config ? JSON.stringify(config) : null;
 
@@ -738,10 +750,15 @@ export function registerIpcHandlers() {
 
     runTx();
 
-    return { 
+    const saved = db.prepare('SELECT slug FROM agents WHERE id = ?').get(id) as
+      | { slug?: string | null }
+      | undefined;
+    return {
       id, 
       project_id,
-      name, 
+      name,
+      slug: saved?.slug ?? undefined,
+      is_protected: saved?.slug === GENERAL_PURPOSE_AGENT_SLUG,
       description, 
       provider_id, 
       system_prompt, 
@@ -755,6 +772,7 @@ export function registerIpcHandlers() {
   typedCrud({
     channel: 'db:deleteAgent',
     remove: (id) => {
+      assertProjectAgentCanBeDeleted(db, id);
       db.prepare('DELETE FROM agents WHERE id = ?').run(id);
     },
   });
@@ -836,6 +854,13 @@ export function registerIpcHandlers() {
     channel: 'db:getDelegatedAgentRuns',
     read: (sessionId) => {
       return new DelegatedAgentRunRepository(db).listForConversation(sessionId);
+    },
+  });
+
+  typedCrud({
+    channel: 'db:getDelegatedToolActions',
+    read: (sessionId) => {
+      return new DelegatedAgentRunRepository(db).createToolActionRepository().listForConversation(sessionId);
     },
   });
 
@@ -1017,7 +1042,12 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('db:saveWorkflow', (_, workflow) => {
-    const { project_id, name, description, stages = [], master_agent_id, status } = workflow;
+    const { project_id, name, description, stages: rawStages = [], master_agent_id, status } = workflow;
+    const stages = normalizeWorkflowStages(rawStages);
+    const routeErrors = validateWorkflowStages(stages);
+    if (routeErrors.length > 0) {
+      throw new Error(`Invalid Workflow Stage routes: ${routeErrors.join('; ')}`);
+    }
     const id = workflow.id?.trim() || crypto.randomUUID();
     const now = Date.now();
     const stagesJson = JSON.stringify(stages);

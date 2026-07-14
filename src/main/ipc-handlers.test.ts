@@ -418,6 +418,45 @@ describe('IPC handlers', () => {
     });
   });
 
+  it('creates the protected General-purpose Agent together with a Project', () => {
+    const insertedAgents: unknown[][] = [];
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(),
+      all: vi.fn(() => []),
+      run: vi.fn((...args: unknown[]) => {
+        if (sql.includes('INSERT INTO agents')) insertedAgents.push(args);
+      }),
+    }));
+
+    registerIpcHandlers();
+    const createProjectHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createProject')?.[1];
+    const project = createProjectHandler({}, 'CDF', '/tmp/cdf', 'general');
+
+    expect(insertedAgents).toHaveLength(1);
+    expect(insertedAgents[0]).toEqual(expect.arrayContaining([
+      project.id,
+      'General-purpose',
+      'general-purpose',
+    ]));
+  });
+
+  it('rejects deleting the protected General-purpose Agent through IPC', () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => sql.includes('SELECT slug FROM agents')
+        ? { slug: 'general-purpose' }
+        : undefined),
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    }));
+
+    registerIpcHandlers();
+    const deleteAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:deleteAgent')?.[1];
+
+    expect(() => deleteAgentHandler({}, 'general-1')).toThrow(
+      'General-purpose Agent is protected and cannot be deleted',
+    );
+  });
+
   it('passes Skill create validation errors through db:saveSkill', () => {
     savePhysicalSkillMock.mockImplementationOnce(() => {
       throw new Error('Skill 描述不能为空');

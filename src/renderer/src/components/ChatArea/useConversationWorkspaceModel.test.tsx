@@ -161,7 +161,7 @@ describe('useConversationWorkspaceModel', () => {
       steps: [],
     };
     const selectedWorker = {
-      workerId: 'worker-2',
+      delegatedRunId: 'worker-2',
       agentSlug: 'tester',
       agentName: 'Tester',
       status: 'success' as const,
@@ -179,7 +179,7 @@ describe('useConversationWorkspaceModel', () => {
           startedAt: 1_000,
           workers: [
             {
-              workerId: 'worker-1',
+              delegatedRunId: 'worker-1',
               agentSlug: 'tester',
               status: 'running',
               steps: [],
@@ -193,7 +193,7 @@ describe('useConversationWorkspaceModel', () => {
       viewingParallelWorker: {
         batchId: 'batch-1',
         agentSlug: selectedWorker.agentSlug,
-        workerId: selectedWorker.workerId,
+        delegatedRunId: selectedWorker.delegatedRunId,
       },
     });
 

@@ -21,6 +21,7 @@ import {
 } from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
 import {
   AgentApprovalRequest,
+  AgentApprovalHistoryEntry,
   AgentRun,
   AgentToolCall,
   ChatRuntimeOverrides,
@@ -114,8 +115,7 @@ export type SendMessageResult =
   | { ok: false; code: 'CONVERSATION_BUSY' };
 
 export interface ParallelWorker {
-  delegatedRunId?: string;
-  workerId?: string;    // 兼容旧投影；新运行与 delegatedRunId 相同
+  delegatedRunId: string;
   agentSlug: string;
   agentName?: string;   // 来自 task_start.label
   goal?: string;        // 来自 task_start.goal（原始任务描述）
@@ -179,6 +179,8 @@ interface SessionState {
   parallelBatches: ParallelBatch[];
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
+  pendingApprovals: AgentApprovalRequest[];
+  approvalHistory: AgentApprovalHistoryEntry[];
   error: SessionError | null;
   isConversationLoading: boolean;
   conversationRuntimeRegistry: ConversationRuntimeRegistryState;
@@ -220,9 +222,9 @@ interface SessionState {
   clearGoalJudgeStatus: (sessionId: string) => void;
   viewingSubagentId: string | null;
   setViewingSubagent: (id: string | null) => void;
-  viewingParallelWorker: { batchId: string; agentSlug: string; workerId?: string } | null;
-  setViewingParallelWorker: (key: { batchId: string; agentSlug: string; workerId?: string } | null) => void;
-  resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
+  viewingParallelWorker: { batchId: string; delegatedRunId: string; agentSlug: string } | null;
+  setViewingParallelWorker: (key: { batchId: string; delegatedRunId: string; agentSlug: string } | null) => void;
+  resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string, approvalId?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
@@ -262,6 +264,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
     agentToolCalls: projection.agentToolCalls,
     activeRunId: projection.activeRunId,
     pendingApproval: projection.pendingApproval,
+    pendingApprovals: projection.pendingApprovals,
+    approvalHistory: projection.approvalHistory,
     isStreaming: projection.isStreaming,
     streamingMessageId: projection.streamingMessageId,
     isConversationLoading: false,
@@ -430,6 +434,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
   parallelBatches: [],
   todos: [],
   pendingApproval: null,
+  pendingApprovals: [],
+  approvalHistory: [],
   error: null,
   isConversationLoading: false,
   conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
@@ -599,7 +605,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       if (activeSessionId) {
         await get().selectSession(activeSessionId);
       } else {
-        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null });
+        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null, pendingApprovals: [], approvalHistory: [] });
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -618,7 +624,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
   selectSession: async (sessionId: string | null) => {
     const requestId = ++latestSelectSessionRequestId;
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null, isConversationLoading: false, viewingSubagentId: null, viewingParallelWorker: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null, pendingApprovals: [], approvalHistory: [], error: null, isStreaming: false, streamingMessageId: null, isConversationLoading: false, viewingSubagentId: null, viewingParallelWorker: null });
       return;
     }
 
@@ -638,6 +644,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
             todos: [],
             activeRunId: null,
             pendingApproval: null,
+            pendingApprovals: [],
+            approvalHistory: [],
             error: null,
             isStreaming: false,
             streamingMessageId: null,
@@ -756,6 +764,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
         const delegatedAgentRuns = typeof window.electronAPI.db.getDelegatedAgentRuns === 'function'
           ? await window.electronAPI.db.getDelegatedAgentRuns(sessionId)
           : [];
+        const delegatedToolActions = typeof window.electronAPI.db.getDelegatedToolActions === 'function'
+          ? await window.electronAPI.db.getDelegatedToolActions(sessionId)
+          : [];
         const activeRun = runs[0] || null;
         const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
         const historicalToolCalls = runs.length > 1
@@ -802,6 +813,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
           agentRuns: runs,
           agentToolCalls: toolCalls,
           delegatedAgentRuns,
+          delegatedToolActions,
           latestTodos,
         });
         const tasks = restoredRuntime.delegatedTasks;
@@ -859,6 +871,11 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
         const currentEntry = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
         if (currentEntry) {
+          const restoredApprovalIds = new Set(restoredRuntime.approvalHistory.map((entry) => entry.approval.id));
+          const approvalHistory = [
+            ...restoredRuntime.approvalHistory,
+            ...currentEntry.projection.approvalHistory.filter((entry) => !restoredApprovalIds.has(entry.approval.id)),
+          ];
           const baseProjection = {
             ...currentEntry.baseProjection,
             messages,
@@ -868,6 +885,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             parallelBatches: restoredRuntime.parallelBatches,
             todos: restoredRuntime.todos,
             activeRunId: restoredRuntime.activeRunId,
+            approvalHistory,
           };
           transitionRegistry({
             type: 'mergeHistory',
@@ -877,6 +895,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             projection: {
               ...currentEntry.projection,
               messages: mergeConversationRuntimeMessages(messages, currentEntry.projection),
+              approvalHistory,
             },
           });
         } else {
@@ -888,6 +907,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             parallelBatches: restoredRuntime.parallelBatches,
             todos: restoredRuntime.todos,
             activeRunId: restoredRuntime.activeRunId,
+            approvalHistory: restoredRuntime.approvalHistory,
           });
         }
       } catch (err: any) {
@@ -943,6 +963,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
             agentToolCalls: visibleProjection?.agentToolCalls ?? current.agentToolCalls,
             activeRunId: visibleProjection?.activeRunId ?? current.activeRunId,
             pendingApproval: visibleProjection?.pendingApproval ?? current.pendingApproval,
+            pendingApprovals: visibleProjection?.pendingApprovals ?? current.pendingApprovals,
+            approvalHistory: visibleProjection?.approvalHistory ?? current.approvalHistory,
           }
         : {}),
     });
@@ -1021,6 +1043,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
                 agentToolCalls: current.agentToolCalls,
                 activeRunId: current.activeRunId,
                 pendingApproval: current.pendingApproval,
+                pendingApprovals: current.pendingApprovals,
+                approvalHistory: current.approvalHistory,
                 isStreaming: current.isStreaming,
               }
             : {}),
@@ -1098,6 +1122,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
       agentToolCalls: [],
       activeRunId: null,
       pendingApproval: null,
+      pendingApprovals: [],
+      approvalHistory: [],
       isStreaming: true,
       accumulatedContent: '',
       pendingToolMessages: {},
@@ -1241,7 +1267,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         return false;
       };
 
-      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; delegatedRunId: string; agentSlug: string; workerId: string; step: ExecutionStep }) => {
+      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; delegatedRunId: string; agentSlug: string; step: ExecutionStep }) => {
         const runtime = get().conversationRuntimeRegistry.entries[sessionId];
         if (!runtime || runtime.requestId !== assistantMsgId) return;
         const result = projectConversationRuntime(runtime.projection, { kind: 'parallelTaskStep', event: data }, projectionDeps);
@@ -1341,6 +1367,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
             isStreaming: false,
             streamingMessageId: null,
             pendingApproval: null,
+            pendingApprovals: [],
+            approvalHistory: [],
             error: state.error ?? { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
           }));
         }
@@ -1362,23 +1390,29 @@ export const useSessionStore = create<SessionState>((set, get) => {
     return { ok: true };
   },
 
-  resolveApproval: async (decision, editedArgs) => {
-    const { streamingMessageId, pendingApproval } = get();
-    if (!pendingApproval) return;
+  resolveApproval: async (decision, editedArgs, approvalId) => {
+    const { streamingMessageId, pendingApproval, pendingApprovals } = get();
+    const selectedApproval = approvalId
+      ? pendingApprovals.find((item) => item.id === approvalId) ?? null
+      : pendingApproval;
+    if (!selectedApproval) return;
 
-    const isWorkflowStageGate = pendingApproval.actions.length === 1
-      && pendingApproval.actions[0].name === 'advance_stage';
+    const isWorkflowStageGate = selectedApproval.actions.length === 1
+      && selectedApproval.actions[0].name === 'advance_stage';
     if (isWorkflowStageGate) {
       if (decision === 'edit') {
         set({ error: { message: '阶段门禁仅支持批准或打回。' } });
         return;
       }
       try {
-        await window.electronAPI.workflowRun.resolveStageGate(pendingApproval.id, {
+        await window.electronAPI.workflowRun.resolveStageGate(selectedApproval.id, {
           decision: decision === 'approve' ? 'approve' : 'reject',
           feedback: decision === 'reject' ? '用户打回了当前阶段，请继续完善。' : undefined,
         });
-        set({ pendingApproval: null });
+        set((state) => {
+          const next = state.pendingApprovals.filter((item) => item.id !== selectedApproval.id);
+          return { pendingApprovals: next, pendingApproval: next[0] ?? null };
+        });
       } catch (err: unknown) {
         set({ error: { message: err instanceof Error ? err.message : String(err) } });
       }
@@ -1397,8 +1431,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
     }
 
     await window.electronAPI.llm.resolveApproval(streamingMessageId, {
-      approvalId: pendingApproval.id,
-      decisions: pendingApproval.actions.map((action) => ({
+      approvalId: selectedApproval.id,
+      decisions: selectedApproval.actions.map((action) => ({
         type: decision,
         editedAction: decision === 'edit' ? { name: action.name, args: editedAction } : undefined,
         message: decision === 'reject' ? '用户拒绝了该工具调用。' : undefined,

@@ -90,6 +90,7 @@ const api = {
     getAgentRuns: (sessionId: string) => typedInvoke('db:getAgentRuns', sessionId),
     getAgentToolCalls: (runId: string) => typedInvoke('db:getAgentToolCalls', runId),
     getDelegatedAgentRuns: (sessionId: string) => typedInvoke('db:getDelegatedAgentRuns', sessionId),
+    getDelegatedToolActions: (sessionId: string) => typedInvoke('db:getDelegatedToolActions', sessionId),
     getLatestTodos: (sessionId: string) => typedInvoke('db:getLatestTodos', sessionId),
     // Phase 3: MCP Servers
     getMcpServers: () => typedInvoke('db:getMcpServers'),

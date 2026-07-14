@@ -452,6 +452,38 @@ describe('TaskPanel — Activity Trail', () => {
     expect(resolveApproval).toHaveBeenCalledWith('approve');
   });
 
+  it('resolves concurrent delegated approvals by owning approval id with accessible source labels', () => {
+    const resolveApproval = vi.fn();
+    const writer = {
+      id: 'approval-writer', runId: 'run-1', delegatedRunId: 'child-writer', targetAgentName: 'Writer', delegatedTask: 'write a.md',
+      actions: [{ name: 'write_file', args: { path: 'a.md' } }],
+    };
+    const cleaner = {
+      id: 'approval-cleaner', runId: 'run-1', delegatedRunId: 'child-cleaner', targetAgentName: 'Cleaner', delegatedTask: 'delete b.md',
+      actions: [{ name: 'delete_file', args: { path: 'b.md' } }],
+    };
+    sessionState = {
+      ...sessionState,
+      resolveApproval,
+      pendingApproval: writer,
+      pendingApprovals: [writer, cleaner],
+      approvalHistory: [{
+        approval: { ...cleaner, id: 'approval-old' },
+        status: 'approved',
+        resolvedAt: 1,
+        executionStatus: 'success',
+      }],
+    };
+
+    const { getByRole, getByText } = render(<TaskPanel isOpen onClose={vi.fn()} />);
+    fireEvent.click(getByRole('button', { name: 'common.reject Cleaner' }));
+
+    expect(resolveApproval).toHaveBeenCalledWith('reject', undefined, 'approval-cleaner');
+    expect(getByText('write a.md')).toBeTruthy();
+    expect(getByText('delete b.md')).toBeTruthy();
+    expect(getByText('taskPanel.approvalHistoryTitle')).toBeTruthy();
+  });
+
   it('D-09: clicking a delegated task card selects it for viewing', async () => {
     const setViewingSubagent = vi.fn();
     sessionState = {

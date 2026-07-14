@@ -77,6 +77,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     error,
     todos,
     pendingApproval,
+    pendingApprovals,
     delegatedTasks,
     parallelBatches,
     viewingSubagentId,
@@ -103,8 +104,9 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
       messages: messages || [],
       isStreaming,
       pendingApproval,
+      pendingApprovals,
     })
-  ), [messages, isStreaming, pendingApproval]);
+  ), [messages, isStreaming, pendingApproval, pendingApprovals]);
 
   const viewingTask = useMemo(
     () => viewingSubagentId ? delegatedTasks.find((task) => task.taskId === viewingSubagentId) ?? null : null,
@@ -115,11 +117,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     if (!viewingParallelWorker) return null;
     const batch = parallelBatches.find((item) => item.batchId === viewingParallelWorker.batchId);
     if (!batch) return null;
-    return batch.workers.find((worker) => (
-      viewingParallelWorker.workerId
-        ? worker.workerId === viewingParallelWorker.workerId
-        : worker.agentSlug === viewingParallelWorker.agentSlug
-    )) ?? null;
+    return batch.workers.find((worker) => worker.delegatedRunId === viewingParallelWorker.delegatedRunId) ?? null;
   }, [viewingParallelWorker, parallelBatches]);
 
   const defaultAgent = useMemo(() => (

@@ -33,7 +33,7 @@ import {
 } from './shared-infra';
 import { createAgentTools } from './agent-tools';
 import { createParallelTaskTool } from './parallel-task-tool';
-import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createTaskGraphTools } from '../workflow-run';
+import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools } from '../workflow-run';
 import { isTransientRuntimeError } from './runtime-errors';
 import { DelegatedAgentRunRepository } from './delegated-agent-run-repository';
 import {
@@ -43,6 +43,8 @@ import {
 } from './delegated-agent-run-coordinator';
 import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types';
 import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
+import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
+import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -51,6 +53,7 @@ const WORKFLOW_RUN_PROMPT = `
 
 [工作流运行纪律]
 你正在以主 Agent 身份执行一个多阶段工作流（Workflow Run）。请严格遵守：
+当信息不足以选择当前 Stage 的已编排路线时，调用 report_stage_route_blocker，向用户说明缺失信息并停止本轮；不要展示内部路线控制，不要猜测默认路线。
 - 每完成一个阶段并对照验收标准自检通过后，必须调用 advance_stage 工具提交结构化验收报告（逐条自评 + 产物清单 + 总结）；这会触发阶段门禁并推进到下一阶段。不要只用文字宣布"完成"就停下——不调用 advance_stage 工作流不会前进。
 - 阶段内先用 create_task 一次性规划任务图并用 set_task_dependencies 标注依赖，再用 parallel_tasks 派子 Agent 执行，用 update_task_status / list_tasks 跟踪进度。
 - 阶段游标由主进程在门禁通过后权威推进，你无需自行编号或跳跃阶段。`;
@@ -496,9 +499,9 @@ function createSubagentStepMiddleware() {
   });
 }
 
-export function createSubagentResilienceMiddleware(allowedTools?: string[]) {
+export function createSubagentResilienceMiddleware(...allowedToolSets: Array<string[] | undefined>) {
   return [
-    ...getAllowedToolsMiddlewares(allowedTools),
+    ...allowedToolSets.flatMap((allowedTools) => getAllowedToolsMiddlewares(allowedTools)),
     createSubagentStepMiddleware(),
     createRecoverableToolErrorMiddleware(),
     toolRetryMiddleware({
@@ -512,6 +515,31 @@ export function createSubagentResilienceMiddleware(allowedTools?: string[]) {
       onFailure: formatRecoverableModelErrorObservation,
     }),
   ];
+}
+
+function createDelegatedToolApprovalMiddleware(
+  coordinator: DelegatedAgentRunCoordinator,
+  delegatedRunId: string,
+  gatedToolNames: Set<string>,
+) {
+  return createMiddleware({
+    name: 'DelegatedToolApprovalMiddleware',
+    wrapToolCall: async (request, handler) => {
+      const runtimeTool = request as { tool?: { name?: string } };
+      const toolName = request.toolCall?.name || runtimeTool.tool?.name || 'unknown';
+      const actionId = request.toolCall?.id || crypto.randomUUID();
+      return coordinator.runToolAction({
+        delegatedRunId,
+        action: {
+          id: actionId,
+          name: toolName,
+          args: (request.toolCall as { args?: unknown })?.args,
+        },
+        requiresApproval: gatedToolNames.has(toolName),
+        execute: async () => handler(request),
+      });
+    },
+  });
 }
 
 
@@ -682,10 +710,26 @@ export async function createDeepAgentRuntime(
       } catch (error) {
         log.warn('[runtime] Failed to load delegated built-in tools from registry:', error);
       }
-      const childMcpServers = getAgentMcpServers(target.id);
-      const childMcpRuntime = await loadMcpTools(target.id, childMcpServers, allMcpServers);
+      const targetToolScope = readAgentToolScope(target.config);
+      const childScope = selectDelegatedToolScope({
+        agentConfig: target.config,
+        parentBuiltInToolNames: builtInToolNames,
+        childBuiltInTools,
+        parentMcpServerIds: mcpServers.map((server) => server.id),
+        childMcpServers: getAgentMcpServers(target.id),
+      });
+      const childMcpRuntime = await loadMcpTools(target.id, childScope.mcpServers, allMcpServers);
       const childSkillNames = getAgentSkillNames(target.id);
-      const childToolNames = getRuntimeToolNames([...childMcpRuntime.tools, ...childBuiltInTools]);
+      const childToolNames = getRuntimeToolNames([
+        ...childMcpRuntime.tools,
+        ...childScope.builtInTools,
+      ]);
+      const childOverrides = resolveDelegatedModelOverrides({
+        targetProviderId: target.provider_id,
+        targetConfig: target.config,
+        parentProviderId: provider.id,
+        parentOverrides: overrides,
+      });
       const childAssembly = await assembleDeepAgentRuntime(
         target,
         provider.id,
@@ -693,24 +737,42 @@ export async function createDeepAgentRuntime(
         childSkillNames,
         extractPathMentionContext(request.goal),
         childToolNames,
-        overrides,
+        childOverrides,
       );
       for (const warning of childAssembly.assemblyWarnings) {
         log.warn('[runtime] Ignored invalid delegated Agent Skill runtime input:', warning);
       }
 
-      const childInterruptOn = resolveInterruptOn(currentApprovalMode, childToolNames);
+      const childInterruptOn = resolveInterruptOn(
+        currentApprovalMode,
+        getRuntimeToolNames(childMcpRuntime.tools),
+      );
+      const gatedToolNames = new Set(Object.keys(childInterruptOn));
       const childAgent = createDeepAgent({
         model: childAssembly.model,
         backend: childBackend,
         systemPrompt: childAssembly.systemPrompt || undefined,
         permissions: childAssembly.permissions,
-        tools: [...childMcpRuntime.tools, ...childBuiltInTools],
-        middleware: createSubagentResilienceMiddleware(overrides?.allowedTools),
+        tools: [...childMcpRuntime.tools, ...childScope.builtInTools],
+        middleware: [
+          createDelegatedToolApprovalMiddleware(
+            delegatedRunCoordinator,
+            request.delegatedRunId,
+            gatedToolNames,
+          ),
+          ...createSubagentResilienceMiddleware(
+            overrides?.allowedTools,
+            targetToolScope.mode === 'narrow'
+              ? [
+                  ...(targetToolScope.builtInTools ?? []),
+                  ...getRuntimeToolNames(childMcpRuntime.tools),
+                ]
+              : undefined,
+          ),
+        ],
         responseFormat: DELEGATED_TASK_RESULT_SCHEMA as unknown as NonNullable<
           NonNullable<Parameters<typeof createDeepAgent>[0]>['responseFormat']
         >,
-        interruptOn: Object.keys(childInterruptOn).length > 0 ? childInterruptOn : undefined,
         checkpointer: new MemorySaver(),
       });
       const progressCallbacks = createDelegatedProgressCallbacks(request);
@@ -807,6 +869,7 @@ export async function createDeepAgentRuntime(
     const stages = JSON.parse(workflowRun!.stages) as Array<{ id: string }>;
     const currentStageId = stages[workflowRun!.current_stage_index]?.id ?? '';
     masterAgentTools.push(createAdvanceStageTool({ runId, projectId, getRun }));
+    masterAgentTools.push(createStageRouteBlockerTool({ runId, projectId, getRun }));
     masterAgentTools.push(...createTaskGraphTools({ runId, currentStageId, getRun }));
   }
 
@@ -864,6 +927,11 @@ export async function createDeepAgentRuntime(
         goal,
       });
     },
+    subscribeDelegatedToolApprovals: delegatedRunCoordinator.subscribeToolApprovals.bind(delegatedRunCoordinator),
+    subscribeDelegatedRunChanges: delegatedRunCoordinator.subscribeRunChanges.bind(delegatedRunCoordinator),
+    resolveDelegatedToolApproval: delegatedRunCoordinator.resolveToolApproval.bind(delegatedRunCoordinator),
+    listDelegatedToolApprovalHistory: delegatedRunCoordinator.listToolApprovalHistory.bind(delegatedRunCoordinator),
+    cancelDelegatedRuns: delegatedRunCoordinator.cancelParent.bind(delegatedRunCoordinator),
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
     },

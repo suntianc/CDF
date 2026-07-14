@@ -79,6 +79,50 @@ beforeEach(() => {
 });
 
 describe('StageEditor component', () => {
+  it('authors explicit next Stage routes and terminal completion in the Stage list', () => {
+    const stages: WorkflowStage[] = [
+      {
+        id: 's1', name: 'Start', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: false,
+        routes: [{ id: 'route-1', targetStageId: 's2', condition: '' }],
+      },
+      { id: 's2', name: 'Done', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+    ];
+    const workflow = createWorkflow(stages);
+    useWorkflowStore.getState().setCurrentWorkflow(workflow);
+    render(<StageEditor workflow={workflow} onBack={vi.fn()} />);
+
+    expect(screen.getAllByText('workflow.editor.nextStep')).toHaveLength(2);
+    expect(screen.getByDisplayValue('→ Done')).toBeTruthy();
+    fireEvent.click(screen.getByText('workflow.editor.addRoute'));
+    expect(useWorkflowStore.getState().currentWorkflow?.stages[0].routes).toHaveLength(2);
+
+    const terminalToggles = screen.getAllByLabelText('workflow.editor.completeRun');
+    fireEvent.click(terminalToggles[0]);
+    expect(useWorkflowStore.getState().currentWorkflow?.stages[0]).toMatchObject({ terminal: true, routes: [] });
+  });
+
+  it('shows Stage-specific validation and does not save an invalid cyclic Skeleton', () => {
+    const stages: WorkflowStage[] = [
+      {
+        id: 'entry', name: 'Entry', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: false,
+        routes: [{ id: 'to-loop', targetStageId: 'loop', condition: '' }],
+      },
+      {
+        id: 'loop', name: 'Loop', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: false,
+        routes: [{ id: 'to-entry', targetStageId: 'entry', condition: '' }],
+      },
+    ];
+    const workflow = createWorkflow(stages);
+    useWorkflowStore.getState().setCurrentWorkflow(workflow);
+    const saveWorkflowSpy = vi.spyOn(useWorkflowStore.getState(), 'saveWorkflow');
+    render(<StageEditor workflow={workflow} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(saveWorkflowSpy).not.toHaveBeenCalled();
+    expect(screen.getByText(/Loop:.*entry|route cycle|terminal Stage/s)).toBeTruthy();
+  });
+
   it('renders empty state when no stages', () => {
     const onBack = vi.fn();
     render(<StageEditor workflow={createWorkflow([])} onBack={onBack} />);
@@ -134,9 +178,9 @@ describe('StageEditor component', () => {
 
   it('moves a stage up and down', () => {
     const stages: WorkflowStage[] = [
-      { id: 's1', name: 'First', taskDescription: '', acceptanceCriteria: '', gateEnabled: true },
-      { id: 's2', name: 'Second', taskDescription: '', acceptanceCriteria: '', gateEnabled: true },
-      { id: 's3', name: 'Third', taskDescription: '', acceptanceCriteria: '', gateEnabled: true },
+      { id: 's1', name: 'First', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: false, routes: [{ id: 'first-third', targetStageId: 's3', condition: '' }] },
+      { id: 's2', name: 'Second', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: false, routes: [{ id: 'second-third', targetStageId: 's3', condition: '' }] },
+      { id: 's3', name: 'Third', taskDescription: '', acceptanceCriteria: '', gateEnabled: true, terminal: true, routes: [] },
     ];
     useWorkflowStore.getState().setCurrentWorkflow(createWorkflow(stages));
     const onBack = vi.fn();
@@ -155,6 +199,8 @@ describe('StageEditor component', () => {
 
     const result2 = useWorkflowStore.getState().currentWorkflow?.stages!;
     expect(result2.map(s => s.name)).toEqual(['Second', 'Third', 'First']);
+    expect(result2.find((stage) => stage.id === 's1')?.routes?.[0].targetStageId).toBe('s3');
+    expect(result2.find((stage) => stage.id === 's2')?.routes?.[0].targetStageId).toBe('s3');
   });
 
   it('disables move up for first stage and move down for last stage', () => {
@@ -218,7 +264,16 @@ describe('StageEditor component', () => {
     const saveWorkflowSpy = vi.spyOn(useWorkflowStore.getState(), 'saveWorkflow')
       .mockResolvedValue(createWorkflow());
 
-    render(<StageEditor workflow={createWorkflow()} onBack={vi.fn()} />);
+    const terminalStage: WorkflowStage = {
+      id: 'terminal',
+      name: 'Done',
+      taskDescription: '',
+      acceptanceCriteria: '',
+      gateEnabled: false,
+      terminal: true,
+      routes: [],
+    };
+    render(<StageEditor workflow={createWorkflow([terminalStage])} onBack={vi.fn()} />);
 
     // 默认展示 Default Agent
     expect(screen.getByText('Default Agent')).toBeTruthy();
@@ -240,7 +295,16 @@ describe('StageEditor component', () => {
   });
 
   it('reuses the generated workflow id when a new Workflow Skeleton is saved twice', async () => {
-    const draft = { ...createWorkflow(), id: '' };
+    const terminalStage: WorkflowStage = {
+      id: 'terminal',
+      name: 'Done',
+      taskDescription: '',
+      acceptanceCriteria: '',
+      gateEnabled: false,
+      terminal: true,
+      routes: [],
+    };
+    const draft = { ...createWorkflow([terminalStage]), id: '' };
     const saved = { ...draft, id: 'wf-created' };
     const saveWorkflowSpy = vi.spyOn(useWorkflowStore.getState(), 'saveWorkflow')
       .mockResolvedValue(saved);

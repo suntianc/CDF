@@ -267,6 +267,17 @@ describe('workflowRunStore.loadRunForSession', () => {
     const run = makeRun({ id: 'run-gates', session_id: 'session-gates', current_stage_index: 1 });
     const gates: WorkflowStageGate[] = [
       {
+        id: 'gate-stage-1',
+        run_id: 'run-gates',
+        stage_id: 'stage-1',
+        stage_name: 'Stage 1',
+        report: { summary: 'Accepted', acceptanceSelfCheck: [], artifacts: [] },
+        status: 'approved',
+        feedback: null,
+        created_at: Date.now() - 1000,
+        decided_at: Date.now() - 500,
+      },
+      {
         id: 'gate-1',
         run_id: 'run-gates',
         stage_id: 'stage-2',

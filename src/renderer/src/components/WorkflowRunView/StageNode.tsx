@@ -25,6 +25,12 @@ const statusStyles = {
     text: 'text-[var(--color-text-primary)]',
     icon: <Clock className="w-3.5 h-3.5 text-[var(--color-warning)]" />,
   },
+  waiting_input: {
+    border: 'border-solid border-[var(--color-accent)]',
+    bg: 'bg-[var(--color-bg-surface)]',
+    text: 'text-[var(--color-text-primary)]',
+    icon: <Clock className="w-3.5 h-3.5 text-[var(--color-accent)]" />,
+  },
   passed: {
     border: 'border-solid border-[var(--color-success)]',
     bg: 'bg-[var(--color-bg-surface)]',

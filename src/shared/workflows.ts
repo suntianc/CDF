@@ -21,7 +21,7 @@ export interface WorkflowSaveInput {
   status?: Workflow['status'];
 }
 
-export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'aborted' | 'waiting_gate';
+export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'aborted' | 'waiting_gate' | 'waiting_input';
 
 export interface WorkflowStage {
   id: string;
@@ -29,6 +29,14 @@ export interface WorkflowStage {
   taskDescription: string;
   acceptanceCriteria: string | string[];
   gateEnabled: boolean;
+  terminal?: boolean;
+  routes?: WorkflowStageRoute[];
+}
+
+export interface WorkflowStageRoute {
+  id: string;
+  targetStageId: string;
+  condition: string;
 }
 
 export interface WorkflowStageReport {
@@ -36,6 +44,16 @@ export interface WorkflowStageReport {
   artifacts: Array<{ path: string; description?: string }>;
   summary: string;
   tasks?: WorkflowRunTask[];
+  routeSelection?: {
+    routeId: string;
+    targetStageId: string;
+    rationale: string;
+  };
+  routeProposal?: {
+    routeId: string;
+    targetStageId: string;
+    rationale: string;
+  };
 }
 
 export interface WorkflowRun {
@@ -67,8 +85,6 @@ export interface WorkflowRunTask {
   status: WorkflowTaskStatus;
   dependencies: string[];
   delegation_batch_id: string | null;
-  /** @deprecated Delegated Agent Run identity supersedes worker identity. */
-  delegation_worker_id: string | null;
   delegated_run_id?: string | null;
   delegation_agent_slug: string | null;
   created_at: number;
@@ -98,5 +114,5 @@ export type WorkflowRunProjectionEvent =
   | { type: 'run'; runId?: string; status: WorkflowRunStatus; currentStageIndex: number; error: string | null }
   | { type: 'stage_gate'; gate: WorkflowStageGate }
   | { type: 'task'; task: WorkflowRunTask }
-  | { type: 'delegation'; taskId: string; batchId: string; workerId: string; delegatedRunId?: string; agentSlug: string }
+  | { type: 'delegation'; taskId: string; batchId: string; delegatedRunId: string; agentSlug: string }
   | { type: 'replay'; events: WorkflowRunProjectionEvent[] };

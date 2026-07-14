@@ -16,7 +16,7 @@ import type {
   WorkflowRunStatus,
 } from '../shared/types';
 import { llmChunkChannel } from '../shared/ipc-contract';
-import { getRunBySessionId, isAdvanceStageInterrupt, handleAdvanceStageInterrupt, registerResumeAgentCallback } from './workflow-run';
+import { getRunBySessionId, isAdvanceStageInterrupt, handleAdvanceStageInterrupt, registerResumeAgentCallback, resumeWorkflowRunFromInput } from './workflow-run';
 import { updateRunStatus } from './workflow-run/db';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import type { ActiveConversationRunStream } from './conversation-run-streams';
@@ -53,6 +53,7 @@ export function setConversationIdleListener(listener: (sessionId: string) => voi
 }
 
 const activeRequests = new Map<string, AbortController>();
+const activeRuntimes = new Map<string, { cancelDelegatedRuns?: (parentRunId: string) => void }>();
 const pendingApprovals = new Map<string, (resolution: AgentApprovalResolution) => void>();
 
 // think-tag 常量与可见文本过滤器已迁入 Runtime Stream Projection 纯核心。
@@ -154,12 +155,25 @@ function createRun(sessionId: string, agentId: string, requestId: string): strin
 }
 
 function updateRun(runId: string, status: AgentRunStatus, error?: string, aborted = false): void {
-  const endedAt = ['completed', 'failed', 'aborted'].includes(status) ? Date.now() : null;
+  const endedAt = ['completed', 'failed', 'aborted', 'cancelled', 'interrupted'].includes(status) ? Date.now() : null;
   db.prepare(`
     UPDATE agent_runs
     SET status = ?, error = ?, ended_at = COALESCE(?, ended_at), aborted = ?
     WHERE id = ?
   `).run(status, error || null, endedAt, aborted ? 1 : 0, runId);
+}
+
+export function delegatedParentRunStatus(runId: string): Extract<AgentRunStatus, 'running' | 'waiting_approval'> {
+  const counts = db.prepare(`
+    SELECT
+      COUNT(*) AS unfinished,
+      SUM(CASE WHEN status = 'waiting_approval' THEN 1 ELSE 0 END) AS waiting
+    FROM delegated_agent_runs
+    WHERE parent_run_id = ? AND status IN ('queued', 'running', 'waiting_approval')
+  `).get(runId) as { unfinished?: number; waiting?: number | null } | undefined;
+  const unfinished = Number(counts?.unfinished ?? 0);
+  const waiting = Number(counts?.waiting ?? 0);
+  return unfinished > 0 && unfinished === waiting ? 'waiting_approval' : 'running';
 }
 
 export const lastRunApprovals = new Map<string, string>();
@@ -358,8 +372,11 @@ export function resolveLLMApproval(requestId: string, resolution: AgentApprovalR
 export function stopLLMChat(requestId: string): void {
   const controller = activeRequests.get(requestId);
   if (controller) {
+    const runId = getLatestRunId(requestId);
+    if (runId) activeRuntimes.get(requestId)?.cancelDelegatedRuns?.(runId);
     controller.abort();
     activeRequests.delete(requestId);
+    activeRuntimes.delete(requestId);
   }
 }
 
@@ -462,9 +479,13 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
 
   return runWithStreamAccumulator(accumulator, async () => {
     let cleanup = async () => {};
+    let unsubscribeDelegatedApprovals = () => {};
+    let unsubscribeDelegatedRunChanges = () => {};
+    const delegatedApprovalKeys = new Set<string>();
     let runtime: any = null;
     const lastTodosJsonRef = { current: '' };
     try {
+      if (!payload.resume) resumeWorkflowRunFromInput(payload.sessionId);
       runtime = await createDeepAgentRuntime(
         payload.projectId,
         payload.sessionId,
@@ -473,9 +494,78 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         payload.overrides
       );
       cleanup = runtime.cleanup;
+      activeRuntimes.set(requestId, runtime);
 
     const runId = createRun(payload.sessionId, runtime.agentId, requestId);
     sender.send(channel, { type: 'run_started', runId, agentId: runtime.agentId, status: 'running' });
+    if (typeof runtime.subscribeDelegatedToolApprovals === 'function') {
+      const publishParentStatus = () => {
+        const status = delegatedParentRunStatus(runId);
+        updateRun(runId, status);
+        sender.send(channel, { type: 'run_updated', runId, status });
+      };
+      if (typeof runtime.subscribeDelegatedRunChanges === 'function') {
+        unsubscribeDelegatedRunChanges = runtime.subscribeDelegatedRunChanges((parentRunId: string) => {
+          if (parentRunId === runId) publishParentStatus();
+        });
+      }
+      unsubscribeDelegatedApprovals = runtime.subscribeDelegatedToolApprovals((request: any) => {
+        const approval = {
+          id: request.id,
+          runId,
+          delegatedRunId: request.delegatedRunId,
+          targetAgentId: request.targetAgentId,
+          targetAgentSlug: request.targetAgentSlug,
+          targetAgentName: request.targetAgentName,
+          delegatedTask: request.delegatedTask,
+          actionId: request.action.id,
+          actions: [{
+            name: request.action.name,
+            args: request.action.args,
+            description: request.action.description,
+            allowedDecisions: ['approve', 'reject'],
+          }],
+        };
+
+        db.exec('BEGIN');
+        markApprovalStatus(runId, 'pending');
+        db.exec('COMMIT');
+        publishParentStatus();
+        sender.send(channel, { type: 'approval_required', approval });
+
+        const key = `${requestId}:${approval.id}`;
+        delegatedApprovalKeys.add(key);
+        pendingApprovals.set(key, (resolution) => {
+          delegatedApprovalKeys.delete(key);
+          const decision = resolution.decisions.every((item) => item.type === 'approve')
+            ? 'approve'
+            : 'reject';
+          const outcome = runtime.resolveDelegatedToolApproval(approval.id, decision);
+          const approvalStatus = decision === 'approve' ? 'approved' : 'rejected';
+          db.exec('BEGIN');
+          markApprovalStatus(runId, approvalStatus);
+          db.exec('COMMIT');
+          sender.send(channel, {
+            type: 'approval_resolved',
+            approvalId: approval.id,
+            status: approvalStatus,
+            resolvedAt: Date.now(),
+            executionStatus: decision === 'approve' ? 'running' : 'rejected',
+          });
+          publishParentStatus();
+          Promise.resolve(outcome).then((record: any) => {
+            if (!record) return;
+            sender.send(channel, {
+              type: 'approval_outcome',
+              approvalId: approval.id,
+              executionStatus: record.execution_status,
+              output: record.output,
+              error: record.error,
+            });
+          }).catch(() => undefined);
+        });
+      });
+    }
     const preloadedSkillAttributions = (runtime.skillAttributions as SkillAttribution[] | undefined)
       ?.filter((item) => item.phase === 'preload') ?? [];
     if (preloadedSkillAttributions.length > 0) {
@@ -773,6 +863,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
             sender,
             channel,
             controller.signal,
+            { routeId: stageInfo.routeId, rationale: stageInfo.rationale },
           );
           if (result.terminate) {
             controller.abort();
@@ -917,6 +1008,12 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
     }
   } finally {
     activeRequests.delete(requestId);
+    activeRuntimes.delete(requestId);
+    unsubscribeDelegatedApprovals();
+    unsubscribeDelegatedRunChanges();
+    for (const key of delegatedApprovalKeys) {
+      pendingApprovals.delete(key);
+    }
     const runId = getLatestRunId(requestId);
     if (runId) {
       lastRunApprovals.delete(runId);

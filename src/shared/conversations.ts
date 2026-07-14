@@ -56,7 +56,8 @@ export type LLMStreamEvent =
   | { type: 'tool_error'; id?: string; delegatedRunId?: string; name: string; error: string }
   | { type: 'skill_attribution'; attributions: SkillAttribution[] }
   | { type: 'approval_required'; approval: AgentApprovalRequest }
-  | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus }
+  | { type: 'approval_resolved'; approvalId: string; status: AgentApprovalStatus; resolvedAt?: number; executionStatus?: import('./agent-runtime').DelegatedToolExecutionStatus; output?: unknown; error?: string | null }
+  | { type: 'approval_outcome'; approvalId: string; executionStatus: import('./agent-runtime').DelegatedToolExecutionStatus; output?: unknown; error?: string | null }
   | { type: 'runtime_error'; error: string; errorCode?: string; errorMessageKey?: string; errorMessageParams?: Record<string, string | number> }
   | { type: 'delegated_task_start'; delegatedRunId: string; taskId: string; agentSlug: string; agentName: string; goal: string }
   | { type: 'delegated_task_chunk'; delegatedRunId: string; taskId: string; text: string }

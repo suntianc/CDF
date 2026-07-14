@@ -5,6 +5,7 @@ import { useWorkflowStore } from '../../stores/workflowStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { CustomSelect } from '../ui/CustomSelect';
 import type { Workflow, WorkflowStage } from '../../../../shared/types';
+import { validateWorkflowStages } from '../../../../shared/workflow-routing';
 
 interface StageEditorProps {
   workflow: Workflow;
@@ -95,6 +96,11 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
     }
     setIsSaving(true);
     try {
+      const routeErrors = validateWorkflowStages(stages);
+      if (routeErrors.length > 0) {
+        showToast(routeErrors.join('\n'), 'error');
+        return;
+      }
       const saved = await saveWorkflow({
         id: workflowId,
         project_id: workflow.project_id,
@@ -107,16 +113,37 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
       setWorkflowId(saved.id);
       setCurrentWorkflow(saved);
       showToast(t('workflow.editor.saveSuccess'), 'success');
-    } catch {
-      showToast(t('workflow.editor.saveFailed'), 'error');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t('workflow.editor.saveFailed'), 'error');
     } finally {
       setIsSaving(false);
     }
   }, [name, workflow, workflowId, stages, masterAgentId, saveWorkflow, setCurrentWorkflow, t]);
 
-  const handleUpdateStage = (stageId: string, field: keyof Pick<WorkflowStage, 'name' | 'taskDescription' | 'acceptanceCriteria' | 'gateEnabled'>, value: string | boolean) => {
+  const handleUpdateStage = (stageId: string, field: keyof Pick<WorkflowStage, 'name' | 'taskDescription' | 'acceptanceCriteria' | 'gateEnabled' | 'terminal' | 'routes'>, value: WorkflowStage[typeof field]) => {
     updateStage(stageId, { [field]: value });
   };
+
+  const setStageTerminal = (stage: WorkflowStage, terminal: boolean) => {
+    const fallbackTarget = stages.find((candidate) => candidate.id !== stage.id)?.id ?? '';
+    updateStage(stage.id, {
+      terminal,
+      routes: terminal
+        ? []
+        : (stage.routes?.length ? stage.routes : [{ id: crypto.randomUUID(), targetStageId: fallbackTarget, condition: '' }]),
+    });
+  };
+
+  const updateRoute = (stage: WorkflowStage, routeId: string, patch: { targetStageId?: string; condition?: string }) => {
+    updateStage(stage.id, {
+      routes: (stage.routes ?? []).map((route) => route.id === routeId ? { ...route, ...patch } : route),
+    });
+  };
+
+  const addRoute = (stage: WorkflowStage) => updateStage(stage.id, {
+    terminal: false,
+    routes: [...(stage.routes ?? []), { id: crypto.randomUUID(), targetStageId: '', condition: '' }],
+  });
 
   const handleDragStart = (e: React.DragEvent, idx: number) => {
     setDragIdx(idx);
@@ -337,6 +364,57 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
                             {t('workflow.editor.gateEnabled')}
                           </span>
                         </label>
+                      </div>
+
+                      <div className="rounded-[var(--radius-md)] border border-[var(--color-border)]/50 bg-[var(--color-bg-sunken)]/20 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">{t('workflow.editor.nextStep')}</span>
+                          <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={stage.terminal === true}
+                              onChange={(event) => setStageTerminal(stage, event.target.checked)}
+                            />
+                            {t('workflow.editor.completeRun')}
+                          </label>
+                        </div>
+                        {!stage.terminal && (
+                          <div className="space-y-2">
+                            {(stage.routes ?? []).map((route, routeIndex) => (
+                              <div key={route.id} className="grid grid-cols-[minmax(0,1fr)_minmax(9rem,0.7fr)_auto] gap-2 items-center">
+                                <input
+                                  aria-label={t('workflow.editor.routeCondition', { index: routeIndex + 1 })}
+                                  className="min-w-0 rounded border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2 py-1.5 text-xs"
+                                  placeholder={(stage.routes?.length ?? 0) > 1 ? t('workflow.editor.routeConditionPlaceholder') : t('workflow.editor.onComplete')}
+                                  value={route.condition}
+                                  onChange={(event) => updateRoute(stage, route.id, { condition: event.target.value })}
+                                />
+                                <select
+                                  aria-label={t('workflow.editor.routeTarget', { index: routeIndex + 1 })}
+                                  className="min-w-0 rounded border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2 py-1.5 text-xs"
+                                  value={route.targetStageId}
+                                  onChange={(event) => updateRoute(stage, route.id, { targetStageId: event.target.value })}
+                                >
+                                  <option value="">{t('workflow.editor.selectRouteTarget')}</option>
+                                  {stages.filter((candidate) => candidate.id !== stage.id).map((candidate) => (
+                                    <option key={candidate.id} value={candidate.id}>→ {candidate.name || t('workflow.editor.unnamedStage')}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  aria-label={t('workflow.editor.removeRoute', { index: routeIndex + 1 })}
+                                  className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
+                                  onClick={() => updateStage(stage.id, { routes: (stage.routes ?? []).filter((item) => item.id !== route.id) })}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            <button type="button" className="text-xs text-[var(--color-accent)] hover:underline" onClick={() => addRoute(stage)}>
+                              {t('workflow.editor.addRoute')}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

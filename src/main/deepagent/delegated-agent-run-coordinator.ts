@@ -3,10 +3,17 @@ import { DELEGATED_TASK_RESULT_SCHEMA } from '../../shared/types';
 import type {
   DelegatedAgentRun,
   DelegatedTaskResult,
+  DelegatedToolActionRecord,
+  DelegatedToolApprovalDecision,
+  DelegatedToolApprovalRequest,
   ExecutionStep,
 } from '../../shared/types';
 import { DelegatedAgentRunRepository } from './delegated-agent-run-repository';
 import { classifyDelegatedRunFailure } from './delegated-run-failure';
+import {
+  DelegatedToolApprovalScheduler,
+  type DelegatedToolActionInput,
+} from './delegated-tool-approval-scheduler';
 
 export interface QueueSingleDelegatedRunInput {
   parentAgentRunId: string;
@@ -86,6 +93,8 @@ export class DelegatedAgentRunCoordinator {
   private readonly maxActiveRuns: number;
   private readonly inFlight = new Map<string, Promise<DelegatedTaskResult>>();
   private readonly pending: PendingExecution[] = [];
+  private readonly toolApprovals: DelegatedToolApprovalScheduler;
+  private readonly runChangeListeners = new Set<(parentRunId: string) => void>();
   private activeRuns = 0;
 
   constructor(
@@ -96,6 +105,55 @@ export class DelegatedAgentRunCoordinator {
     this.createId = options.createId ?? crypto.randomUUID;
     this.now = options.now ?? Date.now;
     this.maxActiveRuns = Math.max(1, options.maxActiveRuns ?? 4);
+    this.toolApprovals = new DelegatedToolApprovalScheduler(
+      repository,
+      repository.createToolActionRepository(),
+      {
+        createId: this.createId,
+        now: this.now,
+        onRunStatusChanged: (parentRunId) => this.notifyRunChanged(parentRunId),
+      },
+    );
+  }
+
+  subscribeRunChanges(listener: (parentRunId: string) => void): () => void {
+    this.runChangeListeners.add(listener);
+    return () => this.runChangeListeners.delete(listener);
+  }
+
+  subscribeToolApprovals(listener: (approval: DelegatedToolApprovalRequest) => void): () => void {
+    return this.toolApprovals.subscribe(listener);
+  }
+
+  runToolAction<T>(input: DelegatedToolActionInput<T>) {
+    return this.toolApprovals.runAction(input);
+  }
+
+  resolveToolApproval(approvalId: string, decision: DelegatedToolApprovalDecision) {
+    return this.toolApprovals.resolve(approvalId, decision);
+  }
+
+  listToolApprovalHistory(delegatedRunId: string): DelegatedToolActionRecord[] {
+    return this.toolApprovals.listHistory(delegatedRunId);
+  }
+
+  cancelParent(parentRunId: string, endedAt = this.now()): number {
+    this.toolApprovals.cancelParent(parentRunId);
+    const cancellation: DelegatedTaskResult = {
+      status: 'failure', artifacts: [], summary: '',
+      error: { code: 'CANCELLED', message: 'Parent Agent Run was stopped by the user' },
+    };
+    for (let index = this.pending.length - 1; index >= 0; index -= 1) {
+      const pending = this.pending[index];
+      const run = this.repository.get(pending.delegatedRunId);
+      if (run?.parent_run_id !== parentRunId) continue;
+      this.pending.splice(index, 1);
+      this.inFlight.delete(pending.delegatedRunId);
+      pending.resolve(cancellation);
+    }
+    const changes = this.repository.cancelForParent(parentRunId, endedAt);
+    this.notifyRunChanged(parentRunId);
+    return changes;
   }
 
   queueSingle(input: QueueSingleDelegatedRunInput): DelegatedAgentRun {
@@ -192,6 +250,7 @@ export class DelegatedAgentRunCoordinator {
     input: RunSingleDelegatedRunInput,
   ): Promise<DelegatedTaskResult> {
     const running = this.repository.markRunning(delegatedRunId, this.now());
+    this.notifyRunChanged(running.parent_run_id);
     try {
       input.onStarted?.(running);
     } catch {
@@ -218,6 +277,7 @@ export class DelegatedAgentRunCoordinator {
       outcome,
       this.now(),
     );
+    this.notifyRunChanged(finished.parent_run_id);
     try {
       input.onFinished?.(finished, outcome);
     } catch {
@@ -228,5 +288,15 @@ export class DelegatedAgentRunCoordinator {
 
   reconcileInterrupted(endedAt = this.now()): number {
     return this.repository.reconcileInterrupted(endedAt);
+  }
+
+  private notifyRunChanged(parentRunId: string): void {
+    for (const listener of this.runChangeListeners) {
+      try {
+        listener(parentRunId);
+      } catch {
+        // Projection observers cannot change the durable run lifecycle.
+      }
+    }
   }
 }

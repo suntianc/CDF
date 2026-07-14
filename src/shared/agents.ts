@@ -1,7 +1,48 @@
+export function generateAgentSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
+export const AGENT_BUILT_IN_TOOL_NAMES = [
+  'write_todos',
+  'read_file',
+  'write_file',
+  'edit_file',
+  'ls',
+  'glob',
+  'grep',
+  'delete_file',
+  'bash',
+  'fetch',
+  'obscura_browse',
+  'knowledge_search',
+  'knowledge_create',
+  'generate_image',
+  'generate_video',
+  'manage_background_jobs',
+  'synthesize_speech',
+  'generate_music',
+  'tavily_search',
+  'anysearch',
+  'arxiv_search',
+  'arxiv_get_papers',
+] as const;
+
+export interface AgentToolScopeConfig {
+  mode: 'inherit' | 'narrow';
+  builtInTools?: string[];
+  mcpServerIds?: string[];
+}
+
 export interface Agent {
   id: string;
   project_id: string;
   name: string;
+  slug?: string;
+  is_protected?: boolean;
   description?: string;
   provider_id?: string;
   system_prompt?: string;
@@ -32,6 +73,8 @@ export interface AgentSaveResult {
   id: string;
   project_id: string;
   name: string;
+  slug?: string;
+  is_protected?: boolean;
   description?: string | null;
   provider_id?: string | null;
   system_prompt?: string | null;
