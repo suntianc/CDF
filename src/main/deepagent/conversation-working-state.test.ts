@@ -12,6 +12,10 @@ import {
   type ConversationWorkingStateLifecycle,
 } from './conversation-working-state';
 import type { ConversationWorkingStateCompactionRunnerContract } from './conversation-working-state-compaction-runner';
+import {
+  compactConversationWorkingStateStorage,
+  type ConversationWorkingStateCompactionDependencies,
+} from './conversation-working-state-compaction';
 
 function checkpoint(id: string, value: string): Checkpoint {
   return {
@@ -454,6 +458,55 @@ describe('ConversationWorkingStateLifecycle', () => {
     await expect(lifecycle.compact(() => null, () => ['conversation-1'], retryRunner))
       .rejects.toMatchObject({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED });
     expect(retryRunner.run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['free-space check', {
+      getAvailableDiskBytes: () => 0,
+    }, 'INSUFFICIENT_DISK_SPACE'],
+    ['temporary rebuild', {
+      rebuildTemporaryDatabase: () => { throw new Error('rebuild failed'); },
+    }, 'COMPACTION_FAILED'],
+    ['integrity validation', {
+      beforeValidation: (temporaryPath: string) => fs.writeFileSync(temporaryPath, 'invalid'),
+    }, 'INTEGRITY_CHECK_FAILED'],
+    ['original-to-rollback replacement', {
+      createRollback: () => { throw new Error('rollback failed'); },
+    }, 'COMPACTION_FAILED'],
+    ['temporary-to-live replacement', {
+      installTemporaryDatabase: () => { throw new Error('install failed'); },
+    }, 'COMPACTION_FAILED'],
+    ['reopened-database validation', {
+      reopenDatabase: () => { throw new Error('reopen failed'); },
+    }, 'COMPACTION_FAILED'],
+  ] as Array<[
+    string,
+    ConversationWorkingStateCompactionDependencies,
+    string,
+  ]>)('releases maintenance with readable state after %s failure', async (
+    _window,
+    dependencies,
+    expectedFailureReason
+  ) => {
+    const saver = lifecycle.acquireSaver();
+    await saver.put(
+      { configurable: { thread_id: 'conversation-1', checkpoint_ns: '' } },
+      checkpoint('checkpoint-before-failure', 'retained'),
+      metadata
+    );
+    const runner: ConversationWorkingStateCompactionRunnerContract = {
+      run: async (request) => compactConversationWorkingStateStorage(request, dependencies),
+    };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => ['conversation-1'],
+      runner
+    )).resolves.toMatchObject({ ok: false, failureReason: expectedFailureReason });
+
+    await expect(lifecycle.acquireSaver().getTuple({
+      configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
+    })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-before-failure' } });
   });
 
   it('records a stable compaction failure and always releases the maintenance lock', async () => {

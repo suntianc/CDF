@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { spawn } from 'child_process';
 import Database from 'better-sqlite3';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import type { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
@@ -121,16 +122,17 @@ describe('Conversation Working State compaction engine', () => {
     expect(maintenanceArtifacts()).toEqual([]);
   });
 
-  it('folds rollback WAL state into the restored canonical database', () => {
+  it('fails closed and preserves evidence when a rollback has its own WAL state', () => {
     const rollbackPath = `${databasePath}.rollback-interrupted`;
     createWalSnapshot(rollbackPath);
 
-    expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(true);
+    expect(() => recoverInterruptedConversationWorkingStateCompaction(databasePath))
+      .toThrow(expect.objectContaining({ code: 'INTEGRITY_CHECK_FAILED' }));
 
-    const reopened = new Database(databasePath, { readonly: true });
-    expect(reopened.prepare('SELECT value FROM pending_state').get()).toEqual({ value: 'in wal' });
-    reopened.close();
-    expect(maintenanceArtifacts()).toEqual([]);
+    expect(fs.existsSync(databasePath)).toBe(false);
+    const rollback = new Database(rollbackPath, { readonly: true });
+    expect(rollback.prepare('SELECT value FROM pending_state').get()).toEqual({ value: 'in wal' });
+    rollback.close();
   });
 
   it('fails closed when only canonical SQLite sidecars remain', () => {
@@ -157,6 +159,17 @@ describe('Conversation Working State compaction engine', () => {
     const evidence = new Database(temporaryPath, { readonly: true });
     expect(evidence.prepare('SELECT value FROM evidence').get()).toEqual({ value: 'temp only' });
     evidence.close();
+  });
+
+  it('fails closed and preserves a corrupt rollback candidate as evidence', () => {
+    const rollbackPath = `${databasePath}.rollback-corrupt`;
+    fs.writeFileSync(rollbackPath, 'corrupt rollback evidence');
+
+    expect(() => recoverInterruptedConversationWorkingStateCompaction(databasePath))
+      .toThrow(expect.objectContaining({ code: 'INTEGRITY_CHECK_FAILED' }));
+
+    expect(fs.readFileSync(rollbackPath, 'utf8')).toBe('corrupt rollback evidence');
+    expect(fs.existsSync(databasePath)).toBe(false);
   });
 
   it('fails closed when more than one distinct rollback database is valid', () => {
@@ -186,13 +199,17 @@ describe('Conversation Working State compaction engine', () => {
     fs.writeFileSync(`${databasePath}-shm`, 'stale live shm');
 
     expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(true);
+    if (fs.existsSync(`${databasePath}-wal`)) {
+      expect(fs.readFileSync(`${databasePath}-wal`)).not.toEqual(Buffer.from('stale live wal'));
+    }
+    if (fs.existsSync(`${databasePath}-shm`)) {
+      expect(fs.readFileSync(`${databasePath}-shm`)).not.toEqual(Buffer.from('stale live shm'));
+    }
 
     const reopened = new Database(databasePath, { readonly: true });
     expect(reopened.prepare('SELECT COUNT(*) AS count FROM checkpoints').get())
       .toEqual({ count: 13 });
     reopened.close();
-    expect(fs.existsSync(`${databasePath}-wal`)).toBe(false);
-    expect(fs.existsSync(`${databasePath}-shm`)).toBe(false);
     expect(maintenanceArtifacts()).toEqual([]);
   });
 
@@ -228,12 +245,14 @@ describe('Conversation Working State compaction engine', () => {
   });
 
   it.each([
-    ['temporary rebuild', { beforeRebuild: () => { throw new Error('rebuild interrupted'); } }],
+    ['temporary rebuild', {
+      rebuildTemporaryDatabase: () => { throw new Error('rebuild interrupted'); },
+    }],
     ['original-to-rollback replacement', {
-      beforeRollbackCreation: () => { throw new Error('rollback interrupted'); },
+      createRollback: () => { throw new Error('rollback interrupted'); },
     }],
     ['temporary-to-live replacement', {
-      beforeInstall: () => { throw new Error('install interrupted'); },
+      installTemporaryDatabase: () => { throw new Error('install interrupted'); },
     }],
   ])('keeps the original readable when %s fails', (_window, dependencies) => {
     createFreelistHeavyFixture();
@@ -251,12 +270,37 @@ describe('Conversation Working State compaction engine', () => {
     expect(maintenanceArtifacts()).toEqual([]);
   });
 
-  it('recovers an interrupted long rebuild without replacing the prior database', () => {
+  it('recovers after a process is forcibly terminated during a long rebuild', async () => {
     createFreelistHeavyFixture();
     const temporaryPath = `${databasePath}.compact-forced-exit`;
-    const source = new Database(databasePath, { readonly: true });
-    source.prepare('VACUUM INTO ?').run(temporaryPath);
-    source.close();
+    const child = spawn(process.execPath, ['-e', `
+      const Database = require('better-sqlite3');
+      const db = new Database(process.env.CDF_REBUILD_PATH);
+      db.pragma('journal_mode = WAL');
+      db.exec('CREATE TABLE rebuilt_pages (value BLOB)');
+      const insert = db.prepare('INSERT INTO rebuilt_pages VALUES (?)');
+      for (let index = 0; index < 16; index += 1) insert.run(Buffer.alloc(1024 * 1024, index));
+      process.stdout.write('rebuilding\\n');
+      setInterval(() => undefined, 1000);
+    `], {
+      cwd: process.cwd(),
+      env: { ...process.env, CDF_REBUILD_PATH: temporaryPath },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('Timed out waiting for rebuild process.'));
+      }, 10_000);
+      child.once('error', reject);
+      child.stdout.once('data', () => {
+        clearTimeout(timeout);
+        child.kill('SIGKILL');
+        resolve();
+      });
+    });
+    await closed;
 
     expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(false);
 
@@ -341,7 +385,7 @@ describe('Conversation Working State compaction engine', () => {
       checkpointDatabasePath: databasePath,
       liveThreadIds: ['conversation-live', 'conversation-orphan'],
     }, {
-      beforeReopening: () => { throw new Error('reopen rejected'); },
+      reopenDatabase: () => { throw new Error('reopen rejected'); },
     })).toThrow(expect.objectContaining({ code: 'COMPACTION_FAILED' }));
 
     const reopened = new Database(databasePath, { readonly: true });

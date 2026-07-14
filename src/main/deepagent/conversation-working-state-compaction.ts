@@ -33,11 +33,11 @@ export interface ConversationWorkingStateCompactionResult {
 
 export interface ConversationWorkingStateCompactionDependencies {
   getAvailableDiskBytes?: (directoryPath: string) => number;
-  beforeRebuild?: (sourcePath: string, temporaryPath: string) => void;
+  rebuildTemporaryDatabase?: (sourcePath: string, temporaryPath: string) => void;
   beforeValidation?: (temporaryPath: string) => void;
-  beforeRollbackCreation?: (sourcePath: string, rollbackPath: string) => void;
-  beforeInstall?: (temporaryPath: string, installedPath: string) => void;
-  beforeReopening?: (installedPath: string) => void;
+  createRollback?: (sourcePath: string, rollbackPath: string) => void;
+  installTemporaryDatabase?: (temporaryPath: string, installedPath: string) => void;
+  reopenDatabase?: (installedPath: string) => void;
   onPhase?: (phase: ConversationWorkingStateMaintenancePhase) => void;
 }
 
@@ -139,10 +139,6 @@ function removeIfPresent(filePath: string): void {
   fs.rmSync(filePath, { force: true });
 }
 
-function removeFileFamily(family: SqliteFileFamily): void {
-  family.paths.forEach(removeIfPresent);
-}
-
 function removeFileFamilyBestEffort(family: SqliteFileFamily): void {
   for (const filePath of family.paths) {
     try {
@@ -176,6 +172,14 @@ function fsyncDirectory(directoryPath: string): void {
   }
 }
 
+function fsyncDirectoryBestEffort(directoryPath: string): void {
+  try {
+    fsyncDirectory(directoryPath);
+  } catch {
+    // A validated live database remains usable; stale artifacts can be retried at next startup.
+  }
+}
+
 function hasValidIntegrity(databasePath: string): boolean {
   try {
     assertIntegrity(databasePath);
@@ -193,31 +197,37 @@ function recoveryIntegrityError(message: string, cause?: unknown): ConversationW
   );
 }
 
-function rebuildValidatedDatabase(sourcePath: string, temporaryPath: string): void {
-  const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+function rebuildTemporaryDatabase(sourcePath: string, temporaryPath: string): void {
+  const source = new Database(sourcePath, { fileMustExist: true });
   try {
     source.prepare('VACUUM INTO ?').run(temporaryPath);
   } finally {
     source.close();
   }
-  assertIntegrity(temporaryPath);
-  fsyncFile(temporaryPath);
 }
 
-function installValidatedRecoveryDatabase(
+function installValidatedRollbackDatabase(
   checkpointDatabasePath: string,
-  rollbackPath: string
+  rollbackFamily: SqliteFileFamily,
+  hadRollbackSidecars = false
 ): void {
   const directoryPath = path.dirname(checkpointDatabasePath);
-  const recoveryPath = `${checkpointDatabasePath}.compact-recovery-${randomUUID()}`;
+  if (hadRollbackSidecars) {
+    throw recoveryIntegrityError(
+      'Conversation Working State recovery cannot atomically restore a rollback with sidecars.'
+    );
+  }
   try {
-    rebuildValidatedDatabase(rollbackPath, recoveryPath);
+    assertIntegrity(rollbackFamily.basePath);
+    rollbackFamily.paths.slice(1).forEach(removeIfPresent);
+    fsyncFile(rollbackFamily.basePath);
     removeIfPresent(`${checkpointDatabasePath}-wal`);
     removeIfPresent(`${checkpointDatabasePath}-shm`);
-    fs.renameSync(recoveryPath, checkpointDatabasePath);
+    fs.renameSync(rollbackFamily.basePath, checkpointDatabasePath);
     fsyncDirectory(directoryPath);
     assertIntegrity(checkpointDatabasePath);
   } catch (error) {
+    if (error instanceof ConversationWorkingStateCompactionError) throw error;
     throw recoveryIntegrityError(
       'Conversation Working State recovery could not restore the validated rollback database.',
       error
@@ -239,9 +249,9 @@ export function recoverInterruptedConversationWorkingStateCompaction(
   const liveDatabaseIsValid = hasLiveDatabase && hasValidIntegrity(checkpointDatabasePath);
 
   if (liveDatabaseIsValid) {
-    [...rollbackFamilies, ...compactFamilies].forEach(removeFileFamily);
+    [...rollbackFamilies, ...compactFamilies].forEach(removeFileFamilyBestEffort);
     if (rollbackFamilies.length > 0 || compactFamilies.length > 0) {
-      fsyncDirectory(directoryPath);
+      fsyncDirectoryBestEffort(directoryPath);
     }
     return false;
   }
@@ -253,23 +263,28 @@ export function recoverInterruptedConversationWorkingStateCompaction(
     );
   }
 
-  const validRollbackFamilies = rollbackFamilies.filter(
-    ({ basePath }) => fs.existsSync(basePath) && hasValidIntegrity(basePath)
-  );
-  if (validRollbackFamilies.length !== 1) {
+  const validRollbackCandidates = rollbackFamilies
+    .map((family) => ({
+      family,
+      hadSidecars: family.paths.slice(1).some((filePath) => fs.existsSync(filePath)),
+    }))
+    .filter(({ family }) => fs.existsSync(family.basePath) && hasValidIntegrity(family.basePath));
+  if (validRollbackCandidates.length !== 1) {
     throw recoveryIntegrityError(
-      validRollbackFamilies.length === 0
+      validRollbackCandidates.length === 0
         ? 'Conversation Working State recovery could not find a valid rollback candidate.'
         : 'Conversation Working State recovery found ambiguous rollback candidates.'
     );
   }
 
-  installValidatedRecoveryDatabase(
+  const rollbackCandidate = validRollbackCandidates[0];
+  installValidatedRollbackDatabase(
     checkpointDatabasePath,
-    validRollbackFamilies[0].basePath
+    rollbackCandidate.family,
+    rollbackCandidate.hadSidecars
   );
-  [...rollbackFamilies, ...compactFamilies].forEach(removeFileFamily);
-  fsyncDirectory(directoryPath);
+  [...rollbackFamilies, ...compactFamilies].forEach(removeFileFamilyBestEffort);
+  fsyncDirectoryBestEffort(directoryPath);
   return true;
 }
 
@@ -318,13 +333,8 @@ export function compactConversationWorkingStateStorage(
 
   try {
     onPhase('rebuilding');
-    dependencies.beforeRebuild?.(checkpointDatabasePath, temporaryPath);
-    const source = new Database(checkpointDatabasePath, { fileMustExist: true });
-    try {
-      source.prepare('VACUUM INTO ?').run(temporaryPath);
-    } finally {
-      source.close();
-    }
+    const rebuild = dependencies.rebuildTemporaryDatabase ?? rebuildTemporaryDatabase;
+    rebuild(checkpointDatabasePath, temporaryPath);
 
     onPhase('validating');
     dependencies.beforeValidation?.(temporaryPath);
@@ -335,18 +345,18 @@ export function compactConversationWorkingStateStorage(
     fs.chmodSync(temporaryPath, sourceMode);
     fsyncFile(temporaryPath);
     fsyncFile(checkpointDatabasePath);
-    dependencies.beforeRollbackCreation?.(checkpointDatabasePath, rollbackPath);
-    fs.linkSync(checkpointDatabasePath, rollbackPath);
+    const createRollback = dependencies.createRollback ?? fs.linkSync;
+    createRollback(checkpointDatabasePath, rollbackPath);
     rollbackCreated = true;
     fsyncDirectory(path.dirname(checkpointDatabasePath));
-    dependencies.beforeInstall?.(temporaryPath, checkpointDatabasePath);
-    fs.renameSync(temporaryPath, checkpointDatabasePath);
+    const installTemporaryDatabase = dependencies.installTemporaryDatabase ?? fs.renameSync;
+    installTemporaryDatabase(temporaryPath, checkpointDatabasePath);
     compactInstalled = true;
     fsyncDirectory(path.dirname(checkpointDatabasePath));
 
     onPhase('reopening');
-    dependencies.beforeReopening?.(checkpointDatabasePath);
-    reopenWithSaver(checkpointDatabasePath);
+    const reopenDatabase = dependencies.reopenDatabase ?? reopenWithSaver;
+    reopenDatabase(checkpointDatabasePath);
     fs.rmSync(rollbackPath, { force: true });
     rollbackCreated = false;
     fsyncDirectory(path.dirname(checkpointDatabasePath));
@@ -358,8 +368,8 @@ export function compactConversationWorkingStateStorage(
   } catch (error) {
     if (compactInstalled && rollbackCreated) {
       try {
-        installValidatedRecoveryDatabase(checkpointDatabasePath, rollbackPath);
-        removeFileFamily(sqliteFileFamily(rollbackPath));
+        installValidatedRollbackDatabase(checkpointDatabasePath, sqliteFileFamily(rollbackPath));
+        removeFileFamilyBestEffort(sqliteFileFamily(rollbackPath));
         rollbackCreated = false;
         compactInstalled = false;
         fsyncDirectory(path.dirname(checkpointDatabasePath));
