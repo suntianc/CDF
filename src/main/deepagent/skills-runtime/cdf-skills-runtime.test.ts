@@ -57,6 +57,54 @@ describe('buildCdfSkillsRuntime', () => {
     expect(runtime.warnings).toEqual([]);
   });
 
+  it('filters Global Skills by the current Scene without suppressing same-named Project Skills', () => {
+    const builtInSkillDir = path.join(tempProjectPath, 'built-in', 'paper-search');
+    const userSkillsDir = path.join(tempProjectPath, 'user-skills');
+    const projectSkillDir = path.join(tempProjectPath, '.cdf', 'skills', 'shared');
+    const userSharedSkillDir = path.join(userSkillsDir, 'shared');
+    const userVisibleSkillDir = path.join(userSkillsDir, 'personal-review');
+    for (const [skillDir, name, description] of [
+      [builtInSkillDir, 'paper-search', 'Research-only Built-in'] as const,
+      [projectSkillDir, 'shared', 'Project-owned shared workflow'] as const,
+      [userSharedSkillDir, 'shared', 'Disabled Global shared workflow'] as const,
+      [userVisibleSkillDir, 'personal-review', 'Visible Global workflow'] as const,
+    ]) {
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
+        '---',
+        `name: ${name}`,
+        `description: ${description}`,
+        '---',
+        '',
+        `# ${name}`,
+      ].join('\n'), 'utf-8');
+    }
+
+    const runtime = buildCdfSkillsRuntime(tempProjectPath, {
+      builtInSkillDirs: [builtInSkillDir],
+      userSkillsDir,
+      userOverrides: { 'personal-review': 'off' },
+      sceneId: 'general',
+      isGlobalSkillExposed: ({ sourceKind, name }) => !(
+        (sourceKind === 'built-in' && name === 'paper-search')
+        || (sourceKind === 'user' && name === 'shared')
+      ),
+    });
+
+    expect(runtime.skills.map((skill) => [skill.name, skill.sourceKind])).toEqual([
+      ['secret-review', 'project'],
+      ['shared', 'project'],
+      ['personal-review', 'user'],
+    ]);
+    expect(runtime.prompt).not.toContain('paper-search');
+    expect(runtime.prompt).toContain('Project-owned shared workflow');
+    expect(runtime.prompt).not.toContain('Disabled Global shared workflow');
+    expect(runtime.skills.find((skill) => skill.name === 'personal-review')).toMatchObject({
+      modelDiscovery: 'full',
+      visibilitySource: 'default',
+    });
+  });
+
   it('attributes preloaded Skills separately from model discovery', () => {
     const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'preload-review');
     fs.mkdirSync(skillDir, { recursive: true });

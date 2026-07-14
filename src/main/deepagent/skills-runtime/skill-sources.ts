@@ -87,9 +87,15 @@ export interface SkillSourcePlanOptions {
 export interface SkillCatalogOptions {
   userOverrides?: Record<string, SkillOverrideState>;
   agentOverrides?: Record<string, SkillOverrideState>;
+  /** Filters a source entry before same-name resolution so excluded Globals cannot shadow Project Skills. */
+  includeSkill?: (source: SkillSourceEntry, skillName: string) => boolean;
   pathContext?: string[];
   /** See {@link SkillSourcePlanOptions.includeNestedProjectSkills}. Gates path-aware ranking. */
   includeNestedProjectSkills?: boolean;
+}
+
+function classifyGlobalSource(sourceKind: SkillSourceKind): boolean {
+  return sourceKind === 'built-in' || sourceKind === 'user';
 }
 
 const DEFAULT_PROJECT_SKILL_CONFIG: ProjectSkillConfig = {
@@ -419,6 +425,9 @@ export function resolveSkillCatalog(
       }
       return;
     }
+    if (options.includeSkill && !options.includeSkill(source, parsed.metadata.name)) {
+      return;
+    }
     const qualifiedName = source.qualifier
       ? `${source.qualifier}:${parsed.metadata.name}`
       : parsed.metadata.name;
@@ -429,11 +438,16 @@ export function resolveSkillCatalog(
         disableModelInvocation: parsed.metadata.disableModelInvocation,
         userInvocable: parsed.metadata.userInvocable,
       },
-      overrides: {
-        user: options.userOverrides,
-        project: plan.config.overrides,
-        agent: options.agentOverrides,
-      },
+      // Scene exposure replaces legacy Override policy for Global Skills. Keep
+      // old override records readable for the migration tickets, but never let
+      // a stale hidden state erase a Global catalog entry before Scene policy.
+      overrides: classifyGlobalSource(source.kind)
+        ? undefined
+        : {
+          user: options.userOverrides,
+          project: plan.config.overrides,
+          agent: options.agentOverrides,
+        },
     });
     const mergeKey = source.qualifier ? qualifiedName : parsed.metadata.name;
     const existing = merged.get(mergeKey);

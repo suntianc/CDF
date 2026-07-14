@@ -16,6 +16,7 @@ import { createLangChainModel, type RuntimeProviderModelConfig } from './llm-ada
 import { prepareAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
 import {
   getBuiltInSkillDirs,
+  getBuiltInSkillRegistrations,
   getScopePath,
   resolveAgentSkillConfigOptions,
   resolveAgentSkillsConfig,
@@ -23,7 +24,31 @@ import {
 } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
-import type { ChatRuntimeOverrides } from '../../shared/types';
+import type { ChatRuntimeOverrides, ProjectScene } from '../../shared/types';
+import { createSceneSkillExposureService } from '../scene-skill-exposure';
+
+function createGlobalSkillSceneExposureFilter(sceneId: ProjectScene) {
+  const sceneSkillExposureService = createSceneSkillExposureService({
+    storage: {
+      get: (key) => store.get(key as 'sceneSkillExposures'),
+      set: (key, value) => store.set(key as 'sceneSkillExposures', value),
+    },
+  });
+  const builtInDefaults = new Map(
+    getBuiltInSkillRegistrations().map((registration) => [registration.name, registration.defaultSceneIds]),
+  );
+
+  return ({ sourceKind, name }: { sourceKind: 'built-in' | 'user'; name: string }) => {
+    const exposure = sourceKind === 'user'
+      ? sceneSkillExposureService.get({ sourceKind, name })
+      : sceneSkillExposureService.get({
+        sourceKind,
+        name,
+        defaultSceneIds: builtInDefaults.get(name) ?? [],
+      });
+    return exposure.exposures[sceneId] === true;
+  };
+}
 
 // =============================================================================
 // Provider 模型配置解析
@@ -270,6 +295,7 @@ export function buildCdfSkillsRuntimeAssembly(
   skillNames: string[],
   config: string | null | undefined,
   pathContext: string[],
+  sceneId: ProjectScene = 'general',
 ): CdfSkillsAssemblyResult {
   const resolved = resolveAgentSkillConfigOptions(config, (key) => store.get(key));
   const overrideOptions = resolved.options;
@@ -285,6 +311,8 @@ export function buildCdfSkillsRuntimeAssembly(
     userSkillsDir: getScopePath(projectPath, 'global'),
     preloadSkillNames: getPreloadSkillNames(skillNames),
     pathContext,
+    sceneId,
+    isGlobalSkillExposed: createGlobalSkillSceneExposureFilter(sceneId),
   });
   warnings.push(...skillsRuntime.warnings);
 
@@ -327,7 +355,7 @@ export async function assembleDeepAgentRuntime(
     config?: string | null;
   },
   fallbackProviderId: string | null | undefined,
-  project: { name: string; path: string },
+  project: { name: string; path: string; scene?: ProjectScene },
   skillNames: string[],
   pathContext: string[],
   capabilityToolNames: string[],
@@ -347,6 +375,7 @@ export async function assembleDeepAgentRuntime(
     skillNames,
     agentRow.config,
     pathContext,
+    project.scene ?? 'general',
   );
 
   const systemPrompt = appendRuntimePrompt(

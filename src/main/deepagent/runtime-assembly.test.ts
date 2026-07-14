@@ -405,6 +405,26 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     );
   });
 
+  it('passes the current Project Scene and persisted Global exposure filter into the catalog', () => {
+    storeGetMock.mockImplementation((key: string) => key === 'sceneSkillExposures'
+      ? { 'built-in:paper-search': { general: false, research: true } }
+      : {});
+
+    buildCdfSkillsRuntimeAssembly(projectPath, [], null, [], 'research');
+
+    const options = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as {
+      sceneId: string;
+      isGlobalSkillExposed: (skill: { sourceKind: 'built-in' | 'user'; name: string }) => boolean;
+    };
+    expect(options.sceneId).toBe('research');
+    expect(options.isGlobalSkillExposed({ sourceKind: 'built-in', name: 'paper-search' })).toBe(true);
+    expect(options.isGlobalSkillExposed({ sourceKind: 'user', name: 'personal-review' })).toBe(true);
+
+    buildCdfSkillsRuntimeAssembly(projectPath, [], null, [], 'general');
+    const generalOptions = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as typeof options;
+    expect(generalOptions.isGlobalSkillExposed({ sourceKind: 'built-in', name: 'paper-search' })).toBe(false);
+  });
+
   it('includes warnings from both config resolution and skills runtime', () => {
     buildCdfSkillsRuntimeMock.mockReturnValueOnce({
       skills: [],

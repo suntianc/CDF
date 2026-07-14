@@ -8,9 +8,18 @@ import {
   type SkillSourcePlanOptions,
 } from './skill-sources';
 import type { SkillAttribution } from '../../../shared/types';
+import type { GlobalSkillSourceKind, SkillSourceKind } from '../../../shared/skills';
 
 export interface CdfSkillsRuntimeOptions extends SkillSourcePlanOptions, SkillCatalogOptions {
   preloadSkillNames?: string[];
+  /** Current Project Scene, carried by the runtime assembly for catalog policy. */
+  sceneId?: string;
+  /** Global Scene policy. Project Skills are intentionally never passed to this predicate. */
+  isGlobalSkillExposed?: (skill: { sourceKind: GlobalSkillSourceKind; name: string }) => boolean;
+}
+
+function isGlobalSkillSourceKind(sourceKind: SkillSourceKind): sourceKind is GlobalSkillSourceKind {
+  return sourceKind === 'built-in' || sourceKind === 'user';
 }
 
 export interface CdfSkillsRuntime {
@@ -97,6 +106,8 @@ export function buildCdfSkillsRuntime(
   const catalog = resolveSkillCatalog(plan, {
     userOverrides: options.userOverrides,
     agentOverrides: options.agentOverrides,
+    includeSkill: (source, name) => !isGlobalSkillSourceKind(source.kind)
+      || options.isGlobalSkillExposed?.({ sourceKind: source.kind, name }) !== false,
     pathContext: options.pathContext,
     includeNestedProjectSkills: options.includeNestedProjectSkills,
   });

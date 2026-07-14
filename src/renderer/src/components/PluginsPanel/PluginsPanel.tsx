@@ -4,13 +4,10 @@ import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { MCPServer } from '../../../../shared/types';
+import type { SceneSkillExposure } from '../../../../shared/skills';
+import { SCENE_REGISTRY } from '../../../../shared/scenes';
 import {
-  SKILL_OVERRIDE_STATES,
-  parseSkillOverrideState,
-  type SkillOverrideState,
-} from '../../../../shared/skill-overrides';
-import {
-  Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2, CircleHelp
+  Trash2, X, Code, Layers, RefreshCw, Loader2, Search, FolderInput, Plus, Edit2
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
@@ -18,17 +15,6 @@ interface Toast {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
-}
-
-function readSkillOverrideRecord(raw: unknown): Record<string, SkillOverrideState> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-
-  const overrides: Record<string, SkillOverrideState> = {};
-  for (const [skillName, value] of Object.entries(raw)) {
-    const state = parseSkillOverrideState(value);
-    if (state) overrides[skillName] = state;
-  }
-  return overrides;
 }
 
 function getUnknownErrorMessage(error: unknown): string | null {
@@ -121,29 +107,31 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
   const { currentProjectId } = useProjectStore();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [projectSkillOverrides, setProjectSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
-  const [userSkillOverrides, setUserSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
+  const [sceneExposures, setSceneExposures] = useState<Record<string, SceneSkillExposure>>({});
 
   useEffect(() => {
     if (!currentProjectId) return;
     fetchSkills(currentProjectId);
-  }, [currentProjectId]);
+  }, [currentProjectId, fetchSkills]);
 
   useEffect(() => {
-    if (!currentProjectId) {
-      setProjectSkillOverrides({});
-      return;
-    }
-    window.electronAPI.db.getProjectSkillOverrides(currentProjectId)
-      .then(setProjectSkillOverrides)
-      .catch(() => setProjectSkillOverrides({}));
-  }, [currentProjectId]);
-
-  useEffect(() => {
-    window.electronAPI.store.get('skillOverrides')
-      .then((raw: unknown) => setUserSkillOverrides(readSkillOverrideRecord(raw)))
-      .catch(() => setUserSkillOverrides({}));
-  }, []);
+    let cancelled = false;
+    const globalSkills = skills.filter((skill) => skill.sourceKind === 'built-in' || skill.sourceKind === 'user');
+    Promise.all(globalSkills.map(async (skill) => {
+      const exposure = await window.electronAPI.skills.getGlobalSceneExposure({
+        sourceKind: skill.sourceKind as 'built-in' | 'user',
+        name: skill.name,
+      });
+      return [`${skill.sourceKind}:${skill.name}`, exposure] as const;
+    }))
+      .then((entries) => {
+        if (!cancelled) setSceneExposures(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (!cancelled) setSceneExposures({});
+      });
+    return () => { cancelled = true; };
+  }, [skills]);
 
   const handleImportSkillDirectory = async () => {
     try {
@@ -168,7 +156,8 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     }
   };
 
-  const filteredSkills = skills
+  const globalSkills = skills.filter((skill) => skill.sourceKind === 'built-in' || skill.sourceKind === 'user');
+  const filteredSkills = globalSkills
     .filter(s =>
       s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (s.qualifiedName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -176,58 +165,27 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
       (s.sourceLabel || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-  const handleProjectSkillOverride = async (skillName: string, visibility: SkillOverrideState) => {
-    if (!currentProjectId) return;
+  const handleSceneExposureChange = async (
+    sourceKind: 'built-in' | 'user',
+    name: string,
+    sceneId: string,
+    exposed: boolean,
+  ) => {
     try {
-      const overrides = await window.electronAPI.db.setProjectSkillOverride(currentProjectId, skillName, visibility);
-      setProjectSkillOverrides(overrides);
+      const exposure = await window.electronAPI.skills.setGlobalSceneExposure(
+        { sourceKind, name }, sceneId, exposed,
+      );
+      setSceneExposures((current) => ({ ...current, [`${sourceKind}:${name}`]: exposure }));
     } catch (error: unknown) {
-      showToast(getUnknownErrorMessage(error) || t('plugins.skillOverrideSaveError'), 'error');
+      showToast(getUnknownErrorMessage(error) || t('plugins.skillSceneExposureSaveError'), 'error');
     }
   };
-
-  const handleUserSkillOverride = async (skillName: string, visibility: SkillOverrideState) => {
-    const nextOverrides = { ...userSkillOverrides };
-    nextOverrides[skillName] = visibility;
-
-    try {
-      await window.electronAPI.store.set('skillOverrides', nextOverrides);
-      setUserSkillOverrides(nextOverrides);
-    } catch (error: unknown) {
-      showToast(getUnknownErrorMessage(error) || t('plugins.skillOverrideSaveError'), 'error');
-    }
-  };
-
-  const skillOverrideOptions = SKILL_OVERRIDE_STATES.map(state => ({
-    value: state,
-    label: t(`plugins.skillOverrideStateLong.${state}`),
-  }));
-
-  const renderOverrideHelp = (id: string, label: string, tooltip: string) => (
-    <span className="group/help relative inline-flex">
-      <button
-        type="button"
-        aria-label={label}
-        aria-describedby={id}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-text-muted)] outline-none transition-colors hover:text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)]"
-      >
-        <CircleHelp className="h-3.5 w-3.5" />
-      </button>
-      <span
-        id={id}
-        role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-56 -translate-x-1/2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-2.5 py-2 text-left text-[11px] font-normal leading-relaxed text-[var(--color-text-secondary)] shadow-lg group-hover/help:block group-focus-within/help:block"
-      >
-        {tooltip}
-      </span>
-    </span>
-  );
 
   return (
     <div className="h-full flex flex-col px-5 pb-6 pt-4 overflow-y-auto">
       <div className="flex justify-between items-center mb-3 shrink-0">
         <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
-          {t('plugins.skillsListTitle', { count: skills.length })}
+          {t('plugins.skillsListTitle', { count: globalSkills.length })}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex h-8 items-center gap-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] px-3 rounded-[var(--radius-sm)] w-[220px] no-drag focus-within:border-[var(--color-accent)]">
@@ -252,19 +210,18 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
         </div>
       </div>
 
+      <p className="mb-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
+        {t('plugins.skillSceneExposureDescription')}
+      </p>
+
       <div className="resource-card-grid">
         {filteredSkills.map((skill) => {
           const displayName = skill.qualifiedName ?? skill.name;
-          const overrideKey = displayName;
+          const sourceKind = skill.sourceKind as 'built-in' | 'user';
           const sourceLabel = skill.sourceLabel ?? (
-            skill.scope === 'project' ? t('plugins.skillSourceProject') : t('plugins.skillSourceGlobal')
+            sourceKind === 'built-in' ? t('plugins.skillSourceBuiltIn') : t('plugins.skillSourceGlobal')
           );
-          const projectOverride = projectSkillOverrides[overrideKey];
-          const userOverride = userSkillOverrides[overrideKey];
-          const shadowedSkills = skill.shadowedSkills ?? [];
-          const shadowedSummary = shadowedSkills
-            .map((shadowed) => `${shadowed.qualifiedName ?? shadowed.name} (${shadowed.sourceLabel ?? shadowed.sourceKind ?? t('plugins.skillSourceUnknown')})`)
-            .join('\n');
+          const sceneExposure = sceneExposures[`${sourceKind}:${skill.name}`];
           return (
             <div key={skill.id} className="provider-card resource-square-card p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors flex flex-col group">
             <div className="flex min-h-0 flex-1 flex-col">
@@ -278,71 +235,34 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
               <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 line-clamp-2" title={skill.description}>
                 {skill.description || t('plugins.skillNoDescription')}
               </p>
-              {shadowedSkills.length > 0 && (
-                <div
-                  className="mt-1 text-[10px] text-[var(--color-text-muted)]"
-                  title={t('plugins.skillShadowsTitle', { list: shadowedSummary })}
-                >
-                  {t('plugins.skillShadowsLabel', { count: shadowedSkills.length })}
-                </div>
-              )}
               {skill.userInvocable === false && (
                 <div className="mt-1 text-[10px] text-[var(--color-warning)]">
                   {t('plugins.skillNotUserInvocable')}
                 </div>
               )}
-              <div className="mt-3 rounded-md border border-[var(--color-border)]/40 bg-[var(--color-bg-sidebar)]/25 p-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="min-w-0 space-y-1.5">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <label
-                        htmlFor={`project-skill-override-${skill.id}`}
-                        className="truncate text-[10px] font-semibold text-[var(--color-text-secondary)]"
+              <div className="mt-3 space-y-1.5 rounded-md border border-[var(--color-border)]/40 bg-[var(--color-bg-sidebar)]/25 p-2">
+                {sceneExposure && SCENE_REGISTRY.map((scene) => {
+                  const exposed = sceneExposure.exposures[scene.id] === true;
+                  return (
+                    <button
+                      key={scene.id}
+                      type="button"
+                      role="switch"
+                      aria-checked={exposed}
+                      aria-label={t('plugins.skillSceneExposureControlLabel', { name: displayName, scene: scene.label })}
+                      onClick={() => handleSceneExposureChange(sourceKind, skill.name, scene.id, !exposed)}
+                      className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-[11px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                    >
+                      <span>{scene.label}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${exposed
+                        ? 'bg-[var(--color-success-dim)] text-[var(--color-success)]'
+                        : 'bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)]'}`}
                       >
-                        {t('plugins.skillProjectOverrideLabel')}
-                      </label>
-                      {renderOverrideHelp(
-                        `project-skill-override-help-${skill.id}`,
-                        t('plugins.skillProjectOverrideHelpLabel'),
-                        t('plugins.skillProjectOverrideHelp')
-                      )}
-                    </div>
-                    <CustomSelect
-                      id={`project-skill-override-${skill.id}`}
-                      value={projectOverride ?? 'on'}
-                      onChange={(visibility) => handleProjectSkillOverride(overrideKey, visibility as SkillOverrideState)}
-                      options={skillOverrideOptions}
-                      ariaLabel={t('plugins.skillProjectOverrideSelectLabel', { name: displayName })}
-                      className="w-full"
-                      buttonClassName="h-7 rounded-md bg-[var(--color-bg-surface)] px-2 py-1 text-[11px] font-medium"
-                    />
-                  </div>
-
-                  <div className="min-w-0 space-y-1.5">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <label
-                        htmlFor={`user-skill-override-${skill.id}`}
-                        className="truncate text-[10px] font-semibold text-[var(--color-text-secondary)]"
-                      >
-                        {t('plugins.skillUserOverrideLabel')}
-                      </label>
-                      {renderOverrideHelp(
-                        `user-skill-override-help-${skill.id}`,
-                        t('plugins.skillUserOverrideHelpLabel'),
-                        t('plugins.skillUserOverrideHelp')
-                      )}
-                    </div>
-                    <CustomSelect
-                      id={`user-skill-override-${skill.id}`}
-                      value={userOverride ?? 'on'}
-                      onChange={(visibility) => handleUserSkillOverride(overrideKey, visibility as SkillOverrideState)}
-                      options={skillOverrideOptions}
-                      ariaLabel={t('plugins.skillUserOverrideSelectLabel', { name: displayName })}
-                      className="w-full"
-                      buttonClassName="h-7 rounded-md bg-[var(--color-bg-surface)] px-2 py-1 text-[11px] font-medium"
-                    />
-                  </div>
-                </div>
+                        {exposed ? t('common.enable') : t('common.disable')}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
