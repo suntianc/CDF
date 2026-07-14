@@ -80,7 +80,6 @@ function createMockRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     current_stage_id: overrides.current_stage_id ?? stages[currentStageIndex]?.id ?? '',
     current_stage_index: currentStageIndex,
     total_stages: 3,
-    master_agent_id: 'agent-1',
     stages: JSON.stringify(stages),
     skeleton_snapshot: null,
     error: null,

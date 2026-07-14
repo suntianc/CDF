@@ -1044,25 +1044,21 @@ export function registerIpcHandlers() {
 
   typedHandle('db:getWorkflows', (_, projectId) => {
     const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
-    return rows.map((row) => ({
-      ...row,
-      stages: row.stages ? JSON.parse(row.stages) : [],
-      master_agent_id: row.master_agent_id ?? undefined,
-    }));
+    return rows.map((row) => {
+      const { master_agent_id: _legacyMasterAgentId, ...workflow } = row;
+      return { ...workflow, stages: row.stages ? JSON.parse(row.stages) : [] };
+    });
   });
 
   typedHandle('db:getWorkflow', (_, id) => {
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
     if (!row) return undefined;
-    return {
-      ...row,
-      stages: row.stages ? JSON.parse(row.stages) : [],
-      master_agent_id: row.master_agent_id ?? undefined,
-    };
+    const { master_agent_id: _legacyMasterAgentId, ...workflow } = row;
+    return { ...workflow, stages: row.stages ? JSON.parse(row.stages) : [] };
   });
 
   typedHandle('db:saveWorkflow', (_, workflow) => {
-    const { project_id, name, description, stages: rawStages = [], master_agent_id, status } = workflow;
+    const { project_id, name, description, stages: rawStages = [], status } = workflow;
     const stages = normalizeWorkflowStages(rawStages);
     const routeErrors = validateWorkflowStages(stages);
     if (routeErrors.length > 0) {
@@ -1076,14 +1072,14 @@ export function registerIpcHandlers() {
     if (existing) {
       db.prepare(`
         UPDATE workflows
-        SET name = ?, description = ?, stages = ?, master_agent_id = ?, status = ?, updated_at = ?
+        SET name = ?, description = ?, stages = ?, master_agent_id = NULL, status = ?, updated_at = ?
         WHERE id = ?
-      `).run(name, description || null, stagesJson, master_agent_id || null, status || 'draft', now, id);
+      `).run(name, description || null, stagesJson, status || 'draft', now, id);
     } else {
       db.prepare(`
         INSERT INTO workflows (id, project_id, name, description, stages, master_agent_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, project_id, name, description || null, stagesJson, master_agent_id || null, status || 'draft', now, now);
+        VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+      `).run(id, project_id, name, description || null, stagesJson, status || 'draft', now, now);
     }
 
     return {
@@ -1092,7 +1088,6 @@ export function registerIpcHandlers() {
       name,
       description,
       stages,
-      master_agent_id,
       status: status || 'draft',
       created_at: existing?.created_at ?? now,
       updated_at: now,

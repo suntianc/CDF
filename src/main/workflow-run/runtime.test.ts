@@ -2,7 +2,7 @@
  * runtime.test.ts — Workflow Run 运行编排核心测试
  *
  * 使用真实 SQLite（临时目录）验证：
- * - startRun：读取 stages/master_agent_id，创建 session + run，冻结完整 stages 骨架快照
+ * - startRun：解析 Project Master，创建 session + run，冻结完整 stages 骨架快照
  * - isAdvanceStageInterrupt：检测 deepagents 标准 actionRequests 格式
  * - gateEnabled=false 自动批准，返回 approve decision（非 cursor 推进）
  * - gateEnabled=true 等待审批，返回 approve/reject decision（cursor 由工具 callback 推进）
@@ -44,6 +44,7 @@ import {
 } from './runtime';
 import { createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools, isAdvanceStageInterrupt } from './tools';
 import { createTask, getPendingTasks, getStageGate, getTask, listRunTasks, setTaskDependencies, updateTaskStatus, listStageGates, createStageGate, resolveStageGate } from './db';
+import { ensureMasterAgent } from '../project-agent-service';
 import type { WorkflowStageReport, WorkflowRun } from '../../shared/types';
 
 const PROJECT_ID = 'test-project-1';
@@ -63,6 +64,7 @@ const TABLES_IN_DELETE_ORDER = [
 ];
 
 let lastMasterAgentId: string;
+let lastMasterPrompt: string;
 let lastWorkflowId: string;
 
 interface SessionRow {
@@ -72,6 +74,7 @@ interface SessionRow {
   agent_id: string | null;
   workflow_run_id: string | null;
   workflow_run_status: string | null;
+  prompt_snapshot: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -98,12 +101,15 @@ function seedData(): void {
   db.prepare('INSERT INTO llm_providers (id, name, provider_type, api_url, default_model, context_limit, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)')
     .run(providerId, 'Test OpenAI', 'openai', 'https://api.openai.com/v1', 'gpt-4o', 8192, now, now);
 
-  const masterAgentId = crypto.randomUUID();
-  db.prepare('INSERT INTO agents (id, project_id, name, provider_id, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)')
-    .run(masterAgentId, PROJECT_ID, 'Master Agent', providerId, now, now);
-  lastMasterAgentId = masterAgentId;
+  const legacySelectedAgentId = crypto.randomUUID();
+  db.prepare('INSERT INTO agents (id, project_id, name, provider_id, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)')
+    .run(legacySelectedAgentId, PROJECT_ID, 'Legacy selected Agent', providerId, now, now);
+  const master = ensureMasterAgent(db, PROJECT_ID);
+  lastMasterAgentId = master.id;
+  lastMasterPrompt = master.system_prompt ?? '';
 
-  // 创建一个两阶段 workflow
+  // 创建一个两阶段 workflow；遗留列中存在的值不可控制根 Agent。
+
   const stages = [
     { id: 'stage-1', name: '需求分析', taskDescription: '分析需求文档', acceptanceCriteria: '需求清晰', gateEnabled: true },
     { id: 'stage-2', name: '方案设计', taskDescription: '设计技术方案', acceptanceCriteria: '方案完整', gateEnabled: false },
@@ -111,7 +117,7 @@ function seedData(): void {
   const stagesJson = JSON.stringify(stages);
   const wfId = crypto.randomUUID();
   db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(wfId, PROJECT_ID, '测试工作流', stagesJson, masterAgentId, 'active', now, now);
+    .run(wfId, PROJECT_ID, '测试工作流', stagesJson, legacySelectedAgentId, 'active', now, now);
   lastWorkflowId = wfId;
 }
 
@@ -137,7 +143,7 @@ describe('startRun', () => {
     expect(run.current_stage_id).toBe('stage-1');
     expect(run.current_stage_index).toBe(0);
     expect(run.total_stages).toBe(2);
-    expect(run.master_agent_id).toBe(lastMasterAgentId);
+    expect(run).not.toHaveProperty('master_agent_id');
     expect(firstStage.id).toBe('stage-1');
     expect(firstStage.name).toBe('需求分析');
 
@@ -147,6 +153,13 @@ describe('startRun', () => {
     expect(session!.workflow_run_id).toBe(run.id);
     expect(session!.workflow_run_status).toBe('running');
     expect(session!.project_id).toBe(PROJECT_ID);
+    expect(session!.agent_id).toBe(lastMasterAgentId);
+    expect(session!.prompt_snapshot).toBe(lastMasterPrompt);
+
+    // 旧 schema 列为 expand-compatible 保留，不参与产品/API/runtime 语义。
+    expect(db.prepare('SELECT master_agent_id FROM workflow_runs WHERE id = ?').get(run.id)).toEqual({
+      master_agent_id: '',
+    });
   });
 
   it('freezes full stages skeleton snapshot', () => {
@@ -171,10 +184,10 @@ describe('startRun', () => {
     expect(snapshot.stages[1].acceptanceCriteria).toBe('方案完整');
     expect(snapshot.stages[1].gateEnabled).toBe(false);
     expect(snapshot.stages[1]).toMatchObject({ terminal: true, routes: [] });
-    expect(snapshot.agentId).toBe(lastMasterAgentId);
+    expect(snapshot).not.toHaveProperty('agentId');
   });
 
-  it('skeleton snapshot is frozen (independent from workflow edit)', () => {
+  it('skeleton snapshot is frozen and ignores a later legacy root-Agent value', () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
     const snapshot = JSON.parse(run.skeleton_snapshot!);
     // 修改 DB 中的 workflow，验证 snapshot 不受影响
@@ -195,14 +208,22 @@ describe('startRun', () => {
   it('throws for workflow without stages', () => {
     const wfId = crypto.randomUUID();
     db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(wfId, PROJECT_ID, 'Empty', '[]', lastMasterAgentId, 'active', Date.now(), Date.now());
+      .run(wfId, PROJECT_ID, 'Empty', '[]', 'legacy-agent', 'active', Date.now(), Date.now());
+
+    expect(() => startRun(wfId, PROJECT_ID)).toThrow('Workflow has no stages defined');
   });
 
-  it('throws for workflow without master_agent_id', () => {
-    const noAgentStages = JSON.stringify([{ id: 's1', name: 'S1', taskDescription: '', acceptanceCriteria: '', gateEnabled: false }]);
+  it('starts a Workflow with no legacy master_agent_id by resolving the protected Project Master', () => {
+    const stages = JSON.stringify([{ id: 's1', name: 'S1', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] }]);
     const wfId = crypto.randomUUID();
     db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(wfId, PROJECT_ID, 'No Agent', noAgentStages, '', 'active', Date.now(), Date.now());
+      .run(wfId, PROJECT_ID, 'No legacy root', stages, null, 'active', Date.now(), Date.now());
+
+    const { sessionId } = startRun(wfId, PROJECT_ID);
+    expect(db.prepare('SELECT agent_id, prompt_snapshot FROM sessions WHERE id = ?').get(sessionId)).toEqual({
+      agent_id: lastMasterAgentId,
+      prompt_snapshot: lastMasterPrompt,
+    });
   });
 });
 

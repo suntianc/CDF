@@ -38,7 +38,6 @@ describe('workflowStore C-lite stages CRUD', () => {
       name: 'Test workflow',
       description: '',
       stages: [],
-      master_agent_id: '',
       status: 'draft' as const,
       created_at: 1000,
       updated_at: 1000,
@@ -60,7 +59,6 @@ describe('workflowStore C-lite stages CRUD', () => {
         project_id: 'proj-1',
         name: 'Test',
         stages: [stageA, stageB],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -81,7 +79,6 @@ describe('workflowStore C-lite stages CRUD', () => {
         project_id: 'proj-1',
         name: 'Test',
         stages: [sample],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -125,7 +122,6 @@ describe('workflowStore C-lite stage reordering', () => {
         project_id: 'proj-1',
         name: 'Reorder',
         stages: [s1, s2, s3],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -144,7 +140,6 @@ describe('workflowStore C-lite stage reordering', () => {
         project_id: 'proj-1',
         name: 'Reorder',
         stages: [s1, s2],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -163,7 +158,6 @@ describe('workflowStore C-lite stage reordering', () => {
         project_id: 'proj-1',
         name: 'Reorder',
         stages: [s1, s2, s3],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -182,7 +176,6 @@ describe('workflowStore C-lite stage reordering', () => {
         project_id: 'proj-1',
         name: 'Reorder',
         stages: [s1, s2],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -201,7 +194,6 @@ describe('workflowStore C-lite stage reordering', () => {
         project_id: 'proj-1',
         name: 'Reorder',
         stages: [s1, s2, s3],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -226,7 +218,6 @@ describe('workflowStore C-lite save/load with stages', () => {
         name: 'Test',
         description: '',
         stages,
-        master_agent_id: 'agent-1',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,
@@ -241,7 +232,6 @@ describe('workflowStore C-lite save/load with stages', () => {
       name: 'Saved workflow',
       description: '',
       stages,
-      master_agent_id: '',
       status: 'draft' as const,
     });
 
@@ -256,7 +246,7 @@ describe('workflowStore C-lite save/load with stages', () => {
     expect(workflows).toHaveLength(1);
     expect(workflows[0].stages).toHaveLength(1);
     expect(workflows[0].stages![0].name).toBe('Design');
-    expect(workflows[0].master_agent_id).toBe('agent-1');
+    expect(workflows[0]).not.toHaveProperty('master_agent_id');
   });
 
   it('loads a single workflow with stages via fetchWorkflow', async () => {
@@ -266,7 +256,6 @@ describe('workflowStore C-lite save/load with stages', () => {
       name: 'Single',
       description: '',
       stages: [sampleStage({ id: 'st-2', name: 'Analyze' })],
-      master_agent_id: 'agent-2',
       status: 'draft' as const,
       created_at: 1000,
       updated_at: 1000,
@@ -276,7 +265,7 @@ describe('workflowStore C-lite save/load with stages', () => {
     const wf = useWorkflowStore.getState().currentWorkflow;
     expect(wf?.stages).toHaveLength(1);
     expect(wf?.stages![0].name).toBe('Analyze');
-    expect(wf?.master_agent_id).toBe('agent-2');
+    expect(wf).not.toHaveProperty('master_agent_id');
   });
 
   it('handles empty stages on load gracefully', async () => {
@@ -287,7 +276,6 @@ describe('workflowStore C-lite save/load with stages', () => {
         name: 'Empty stages',
         description: '',
         stages: [],
-        master_agent_id: '',
         status: 'draft' as const,
         created_at: 1000,
         updated_at: 1000,

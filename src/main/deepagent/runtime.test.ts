@@ -167,6 +167,7 @@ describe('createDeepAgentRuntime', () => {
     id: 'agent-1',
     project_id: 'project-1',
     name: 'Master Agent',
+    slug: 'master-agent',
     provider_id: 'provider-1',
     system_prompt: 'System prompt',
     config: null,
@@ -184,9 +185,16 @@ describe('createDeepAgentRuntime', () => {
   const agent2 = {
     ...agent,
     id: 'agent-2',
+    slug: 'custom-agent',
     provider_id: 'provider-2',
     system_prompt: 'Agent 2 prompt',
     is_default: 0,
+  };
+  const generalPurposeAgent = {
+    ...agent,
+    id: 'agent-3',
+    slug: 'general-purpose',
+    name: 'General-purpose',
   };
   const provider2 = {
     ...provider,
@@ -215,7 +223,11 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('FROM agents WHERE id')) return arg === 'agent-2' ? agent2 : undefined;
+        if (sql.includes('FROM agents WHERE id')) {
+          if (arg === 'agent-2') return agent2;
+          if (arg === 'agent-3') return generalPurposeAgent;
+          return undefined;
+        }
         if (sql.includes('FROM llm_providers WHERE id')) {
           if (arg === 'provider-1') return provider;
           if (arg === 'provider-2') return provider2;
@@ -988,7 +1000,6 @@ describe('createDeepAgentRuntime', () => {
       workflow_id: 'wf-1',
       project_id: 'project-1',
       session_id: 'session-wf',
-      master_agent_id: 'agent-1',
       status: 'running',
       current_stage_index: 0,
       total_stages: 1,
@@ -1049,13 +1060,41 @@ describe('createDeepAgentRuntime', () => {
       expect(params.interruptOn ?? {}).not.toHaveProperty('advance_stage');
     });
 
-    it('does not inject workflow tools when the session run belongs to a different master Agent', async () => {
+    it('ignores a legacy run master_agent_id and keeps workflow tools on the protected Master', async () => {
       getRunBySessionIdMock.mockReturnValue({ ...workflowRun, master_agent_id: 'someone-else' });
 
       await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
 
       const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
+      expect(toolNames).toContain('advance_stage');
+    });
+
+    it('does not inject workflow tools for a Custom Agent', async () => {
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
+
+      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' }, 'agent-2');
+
+      const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
       expect(toolNames).not.toContain('advance_stage');
+    });
+
+    it('keeps Custom and General-purpose Agents available for Master Stage delegation', async () => {
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
+
+      await createDeepAgentRuntime(
+        'project-1',
+        'session-wf',
+        { id: 'message-1', content: '[系统指令] 请开始执行工作流' },
+        undefined,
+        undefined,
+        ['agent-2', 'agent-3'],
+      );
+
+      const subagentNames = firstCreateDeepAgentParams().subagents as Array<{ name: string }>;
+      expect(subagentNames.map((subagent) => subagent.name)).toEqual([
+        'custom-agent',
+        'general-purpose',
+      ]);
     });
 
     it('adds workflow discipline guidance referencing advance_stage to the system prompt', async () => {

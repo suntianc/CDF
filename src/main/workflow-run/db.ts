@@ -41,11 +41,12 @@ interface RunRow {
 }
 
 function toWorkflowRun(row: RunRow): WorkflowRun {
+  const { master_agent_id: _legacyMasterAgentId, ...run } = row;
   const stages = normalizeWorkflowStages(JSON.parse(row.stages) as WorkflowStage[]);
   const currentStageId = row.current_stage_id ?? '';
   const currentStageIndex = stages.findIndex((stage) => stage.id === currentStageId);
   return {
-    ...row,
+    ...run,
     status: row.status as WorkflowRunStatus,
     current_stage_id: currentStageId,
     current_stage_index: currentStageIndex,
@@ -80,17 +81,18 @@ export function createWorkflowRun(
   projectId: string,
   sessionId: string,
   stages: WorkflowStage[],
-  masterAgentId: string,
   skeletonSnapshot: string,
 ): WorkflowRun {
   const id = crypto.randomUUID();
   const now = Date.now();
+  // The non-null legacy column remains only for schema compatibility. Root
+  // ownership is session-bound to the protected Project Master, never this value.
   db.prepare(`
     INSERT INTO workflow_runs
       (id, workflow_id, project_id, session_id, master_agent_id, status, current_stage_id, current_stage_index,
        total_stages, stages, skeleton_snapshot, started_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 'running', ?, 0, ?, ?, ?, ?, ?, ?)
-  `).run(id, workflowId, projectId, sessionId, masterAgentId, stages[0].id, stages.length, JSON.stringify(stages), skeletonSnapshot, now, now, now);
+  `).run(id, workflowId, projectId, sessionId, '', stages[0].id, stages.length, JSON.stringify(stages), skeletonSnapshot, now, now, now);
 
   return {
     id,
@@ -101,7 +103,6 @@ export function createWorkflowRun(
     current_stage_id: stages[0].id,
     current_stage_index: 0,
     total_stages: stages.length,
-    master_agent_id: masterAgentId,
     stages: JSON.stringify(stages),
     skeleton_snapshot: skeletonSnapshot,
     error: null,

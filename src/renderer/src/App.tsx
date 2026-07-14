@@ -232,7 +232,6 @@ export default function App() {
                   name: '',
                   project_id: workflowProjectId,
                   stages: [],
-                  master_agent_id: '',
                   status: 'draft',
                   created_at: 0,
                   updated_at: 0,

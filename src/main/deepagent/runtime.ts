@@ -884,7 +884,9 @@ async function buildDeepAgentRuntime(
   // Workflow Run（运行即会话）：当本 session 是某个 Workflow Run 的宿主、且当前 Agent
   // 就是该运行的主 Agent 时，注入阶段推进工具 advance_stage（门禁即一次工具审批）。
   const workflowRun = getRunBySessionId(sessionId);
-  const isWorkflowMasterAgent = !!workflowRun && workflowRun.master_agent_id === agentRow.id;
+  // Workflow root ownership follows the protected Project Master identity, not
+  // a caller-controlled or legacy persisted workflow agent ID.
+  const isWorkflowMasterAgent = !!workflowRun && isMasterAgent(agentRow);
   if (isWorkflowMasterAgent) {
     const runId = workflowRun!.id;
     const getRun = () => getWorkflowRun(runId);

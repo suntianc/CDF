@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, GripVertical, Save, Loader2, Info } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { useAgentStore } from '../../stores/agentStore';
-import { CustomSelect } from '../ui/CustomSelect';
 import type { Workflow, WorkflowStage } from '../../../../shared/types';
 import { validateWorkflowStages } from '../../../../shared/workflow-routing';
 
@@ -37,11 +35,8 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
   const setCurrentWorkflow = useWorkflowStore(s => s.setCurrentWorkflow);
   const isLoading = useWorkflowStore(s => s.isLoading);
 
-  const agents = useAgentStore(s => s.agents);
-  const fetchAgents = useAgentStore(s => s.fetchAgents);
   const [name, setName] = useState(workflow.name);
   const [workflowId, setWorkflowId] = useState(workflow.id);
-  const [masterAgentId, setMasterAgentId] = useState(workflow.master_agent_id ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -59,27 +54,6 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
 
   // Use stages from store, falling back to prop for initial render
   const stages = storeWorkflow?.stages ?? workflow.stages ?? [];
-  const projectAgents = useMemo(
-    () => agents.filter(agent => agent.project_id === workflow.project_id),
-    [agents, workflow.project_id],
-  );
-
-  const agentOptions = useMemo(() => {
-    return [
-      { value: '', label: t('workflow.editor.selectMasterAgentPlaceholder') },
-      ...projectAgents.map(agent => ({ value: agent.id, label: agent.name }))
-    ];
-  }, [projectAgents, t]);
-
-  useEffect(() => {
-    void fetchAgents(workflow.project_id);
-  }, [fetchAgents, workflow.project_id]);
-
-  useEffect(() => {
-    if (masterAgentId) return;
-    const defaultAgent = projectAgents.find(agent => agent.is_default === 1);
-    if (defaultAgent) setMasterAgentId(defaultAgent.id);
-  }, [masterAgentId, projectAgents]);
 
   const showToast = (message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -107,7 +81,6 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
         name: name.trim(),
         description: undefined,
         stages,
-        master_agent_id: masterAgentId,
         status: workflow.status,
       });
       setWorkflowId(saved.id);
@@ -118,7 +91,7 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
     } finally {
       setIsSaving(false);
     }
-  }, [name, workflow, workflowId, stages, masterAgentId, saveWorkflow, setCurrentWorkflow, t]);
+  }, [name, workflow, workflowId, stages, saveWorkflow, setCurrentWorkflow, t]);
 
   const handleUpdateStage = (stageId: string, field: keyof Pick<WorkflowStage, 'name' | 'taskDescription' | 'acceptanceCriteria' | 'gateEnabled' | 'terminal' | 'routes'>, value: WorkflowStage[typeof field]) => {
     updateStage(stageId, { [field]: value });
@@ -232,25 +205,6 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
         <div className="max-w-3xl mx-auto space-y-6">
-          {/* Master Agent selector */}
-          <div className="bg-[var(--color-bg-surface)] rounded-[var(--radius-lg)] border border-[var(--color-border)]/60 p-5 shadow-2xs space-y-2.5">
-            <label className="block text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider px-0.5">
-              {t('workflow.editor.selectMasterAgent')}
-            </label>
-            <CustomSelect
-              id="select-master-agent"
-              value={masterAgentId}
-              onChange={setMasterAgentId}
-              options={agentOptions}
-              ariaLabel={t('workflow.editor.selectMasterAgent')}
-              buttonClassName="!bg-[var(--color-bg-sunken)]/30 !border-[var(--color-border)]/60 focus:!border-[var(--color-accent)] focus-visible:!border-[var(--color-accent)] !rounded-[var(--radius-md)] !px-3.5 !py-2.5 !text-xs !text-[var(--color-text-primary)] !outline-none !transition-all !cursor-pointer focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!outline-none"
-            />
-            <p className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5 pt-0.5 px-0.5">
-              <Info className="w-3.5 h-3.5 text-[var(--color-accent)]" />
-              <span>{t('workflow.editor.stageEditorHelp')}</span>
-            </p>
-          </div>
-
           {/* Stage list */}
           <div className="space-y-3.5">
             <div className="flex items-center justify-between px-0.5">

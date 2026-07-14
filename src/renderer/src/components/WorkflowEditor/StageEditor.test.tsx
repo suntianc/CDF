@@ -1,9 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StageEditor } from './StageEditor';
-import { useAgentStore } from '../../stores/agentStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import type { Agent, Workflow, WorkflowStage } from '../../../../shared/types';
+import type { Workflow, WorkflowStage } from '../../../../shared/types';
 
 // Mock i18n
 vi.mock('react-i18next', () => ({
@@ -26,10 +25,7 @@ vi.mock('react-i18next', () => ({
         'workflow.editor.moveUp': 'Move up',
         'workflow.editor.moveDown': 'Move down',
         'workflow.editor.stageCount': `${params?.count ?? 0} stages`,
-        'workflow.editor.stageEditorHelp': 'Help text',
         'workflow.editor.noStages': 'No stages yet',
-        'workflow.editor.selectMasterAgent': 'Master Agent',
-        'workflow.editor.selectMasterAgentPlaceholder': 'Select agent',
         'workflow.list.nodeCount': `${params?.count ?? 0} nodes`,
       };
       return mockT[key] || key;
@@ -43,19 +39,7 @@ function createWorkflow(stages?: WorkflowStage[]): Workflow {
     project_id: 'proj-1',
     name: 'Test WF',
     stages: stages ?? [],
-    master_agent_id: '',
     status: 'draft',
-    created_at: 1000,
-    updated_at: 1000,
-  };
-}
-
-function createAgent(id: string, name: string, isDefault: number): Agent {
-  return {
-    id,
-    project_id: 'proj-1',
-    name,
-    is_default: isDefault,
     created_at: 1000,
     updated_at: 1000,
   };
@@ -69,12 +53,6 @@ beforeEach(() => {
     currentWorkflow: null,
     isLoading: false,
     error: null,
-  });
-  useAgentStore.setState({
-    agents: [],
-    isLoading: false,
-    error: null,
-    fetchAgents: vi.fn().mockResolvedValue(undefined),
   });
 });
 
@@ -257,13 +235,9 @@ describe('StageEditor component', () => {
     const updated = useWorkflowStore.getState().currentWorkflow?.stages![0];
     expect(updated?.name).toBe('New name');
   });
-  it('defaults to the project default Agent and allows selecting another Agent', async () => {
-    const defaultAgent = createAgent('agent-default', 'Default Agent', 1);
-    const reviewer = createAgent('agent-reviewer', 'Reviewer', 0);
-    useAgentStore.setState({ agents: [defaultAgent, reviewer] });
+  it('does not expose a root Agent selector or save caller-controlled root configuration', async () => {
     const saveWorkflowSpy = vi.spyOn(useWorkflowStore.getState(), 'saveWorkflow')
       .mockResolvedValue(createWorkflow());
-
     const terminalStage: WorkflowStage = {
       id: 'terminal',
       name: 'Done',
@@ -275,23 +249,11 @@ describe('StageEditor component', () => {
     };
     render(<StageEditor workflow={createWorkflow([terminalStage])} onBack={vi.fn()} />);
 
-    // 默认展示 Default Agent
-    expect(screen.getByText('Default Agent')).toBeTruthy();
-
-    // 点击下拉框触发展开
-    const triggerBtn = screen.getByRole('button', { name: 'Master Agent' });
-    fireEvent.click(triggerBtn);
-
-    // 此时展开了浮层，点击选项 "Reviewer"
-    const option = screen.getByText('Reviewer');
-    fireEvent.click(option);
-
-    // 点击 Save 保存
+    expect(screen.queryByRole('button', { name: 'Master Agent' })).toBeNull();
     fireEvent.click(screen.getByText('Save'));
 
-    expect(saveWorkflowSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ master_agent_id: 'agent-reviewer' }),
-    );
+    expect(saveWorkflowSpy).toHaveBeenCalledOnce();
+    expect(saveWorkflowSpy.mock.calls[0][0]).not.toHaveProperty('master_agent_id');
   });
 
   it('reuses the generated workflow id when a new Workflow Skeleton is saved twice', async () => {

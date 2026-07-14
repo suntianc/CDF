@@ -4,7 +4,6 @@ export interface Workflow {
   name: string;
   description?: string;
   stages: WorkflowStage[];
-  master_agent_id?: string;
   status: 'draft' | 'active';
   created_at: number;
   updated_at: number;
@@ -17,7 +16,6 @@ export interface WorkflowSaveInput {
   name: string;
   description?: string;
   stages?: WorkflowStage[];
-  master_agent_id?: string;
   status?: Workflow['status'];
 }
 
@@ -61,7 +59,6 @@ export interface WorkflowRun {
   workflow_id: string;
   project_id: string;
   session_id: string;
-  master_agent_id: string;
   status: WorkflowRunStatus;
   current_stage_id: string;
   current_stage_index: number;

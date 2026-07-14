@@ -33,7 +33,6 @@ describe('WorkflowRunProjection', () => {
     current_stage_id: 'stage-1',
     current_stage_index: 0,
     total_stages: 2,
-    master_agent_id: 'agent-1',
     stages: JSON.stringify(dummyStages),
     skeleton_snapshot: null,
     error: null,

@@ -39,6 +39,7 @@ import {
 } from './db';
 import { pushProjectionEvent } from './notify';
 import { normalizeWorkflowStages, selectWorkflowStageRoute, validateWorkflowStages } from '../../shared/workflow-routing';
+import { ensureMasterAgent } from '../project-agent-service';
 
 let resumeAgentCallback: ((sessionId: string, projectId: string, decisions: Array<{ type: 'approve' | 'reject'; message?: string }>) => void) | null = null;
 
@@ -68,44 +69,39 @@ export interface StartRunResult {
 
 /**
  * 启动一个 Workflow Run：
- * 1. 从 workflows 表读取 stages + master_agent_id
- * 2. 创建标记了 workflow_run_id 的 Conversation session
+ * 1. 从 workflows 表读取 stages
+ * 2. 解析 Project 受保护的 Master Agent 并创建标记了 workflow_run_id 的 Conversation session
  * 3. 创建 workflow_runs 记录（含完整 stages 的骨架快照）
  * 4. 返回 session/run 及首阶段信息
  */
 export function startRun(workflowId: string, projectId: string): StartRunResult {
-  const wfRow = db.prepare('SELECT id, project_id, name, stages, master_agent_id FROM workflows WHERE id = ?').get(workflowId) as
-    { id: string; project_id: string; name: string; stages: string; master_agent_id: string } | undefined;
+  const wfRow = db.prepare('SELECT id, project_id, name, stages FROM workflows WHERE id = ?').get(workflowId) as
+    { id: string; project_id: string; name: string; stages: string } | undefined;
   if (!wfRow) throw new Error(`Workflow not found: ${workflowId}`);
   if (wfRow.project_id !== projectId) throw new Error('Workflow does not belong to this project');
 
   const stages = normalizeWorkflowStages(JSON.parse(wfRow.stages) as WorkflowStage[]);
-  const masterAgentId = wfRow.master_agent_id;
   if (!stages.length) throw new Error('Workflow has no stages defined');
   const routeErrors = validateWorkflowStages(stages);
   if (routeErrors.length > 0) throw new Error(`Invalid Workflow Stage routes: ${routeErrors.join('; ')}`);
-  if (!masterAgentId) throw new Error('Workflow has no master_agent_id defined');
 
-  const agentRow = db.prepare('SELECT id FROM agents WHERE id = ?').get(masterAgentId) as { id: string } | undefined;
-  if (!agentRow) throw new Error(`Master agent ${masterAgentId} not found`);
-
+  const master = ensureMasterAgent(db, projectId);
   const sessionId = crypto.randomUUID();
   const now = Date.now();
   db.prepare(`
-    INSERT INTO sessions (id, project_id, name, agent_id, workflow_run_id, workflow_run_status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(sessionId, projectId, `工作流: ${wfRow.name}`, masterAgentId, null, 'running', now, now);
+    INSERT INTO sessions (id, project_id, name, agent_id, prompt_snapshot, workflow_run_id, workflow_run_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(sessionId, projectId, `工作流: ${wfRow.name}`, master.id, master.system_prompt ?? '', null, 'running', now, now);
 
   // 骨架快照包含完整 stages（后续编辑 workflow 不影响已冻结的 run）
   const skeletonSnapshot = JSON.stringify({
     workflowId,
     workflowName: wfRow.name,
     stages: JSON.parse(JSON.stringify(stages)),
-    agentId: masterAgentId,
     startedAt: now,
   });
 
-  const run = createWorkflowRun(workflowId, projectId, sessionId, stages, masterAgentId, skeletonSnapshot);
+  const run = createWorkflowRun(workflowId, projectId, sessionId, stages, skeletonSnapshot);
 
   db.prepare('UPDATE sessions SET workflow_run_id = ?, workflow_run_status = ? WHERE id = ?')
     .run(run.id, run.status, sessionId);
