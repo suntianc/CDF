@@ -2,14 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   createDeepAgentRuntimeMock,
-  resetDeepAgentRuntimeThreadMock,
   dbPrepareMock,
   modelCaptureMock,
   queueDelegatedRunMock,
   subagentStepContextRef,
 } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
-  resetDeepAgentRuntimeThreadMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   modelCaptureMock: new WeakMap<object, { reasoningText: string; normalText: string }>(),
   queueDelegatedRunMock: vi.fn(),
@@ -19,7 +17,6 @@ const {
 vi.mock('./deepagent/runtime', () => ({
   DEEPAGENT_CHECKPOINT_NAMESPACE: '',
   createDeepAgentRuntime: createDeepAgentRuntimeMock,
-  resetDeepAgentRuntimeThread: resetDeepAgentRuntimeThreadMock,
   subagentStepStorage: {
     run: async (context: { onStep: (step: unknown) => void }, callback: () => unknown) => {
       const previous = subagentStepContextRef.current;
@@ -511,7 +508,7 @@ describe('runLLMChat', () => {
     );
   });
 
-  it('should clear deepagent checkpoint when a conversation run fails', async () => {
+  it('preserves Conversation Working State when a conversation run fails', async () => {
     createDeepAgentRuntimeMock.mockResolvedValue({
       agent: {
         streamEvents: vi.fn(async () => {
@@ -533,7 +530,6 @@ describe('runLLMChat', () => {
       },
     })).rejects.toThrow('graph failed');
 
-    expect(resetDeepAgentRuntimeThreadMock).toHaveBeenCalledWith('session-reset-checkpoint');
     expect(send).toHaveBeenCalledWith(
       'llm:chunk-req-reset-checkpoint',
       expect.objectContaining({ type: 'runtime_error', error: 'graph failed' })

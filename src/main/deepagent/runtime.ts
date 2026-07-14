@@ -2,8 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { AsyncLocalStorage } from 'async_hooks';
-import { app } from 'electron';
-import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import type { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
@@ -45,6 +44,7 @@ import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types'
 import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
 import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
+import { conversationWorkingStateLifecycle } from './conversation-working-state';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -99,19 +99,6 @@ interface RuntimeInputMessage {
 
 
 export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
-
-let checkpointSaver: SqliteSaver | null = null;
-
-function getCheckpointSaver(): SqliteSaver {
-  if (!checkpointSaver) {
-    checkpointSaver = SqliteSaver.fromConnString(path.join(app.getPath('userData'), 'deepagents-checkpoints.db'));
-  }
-  return checkpointSaver;
-}
-
-export async function resetDeepAgentRuntimeThread(sessionId: string): Promise<void> {
-  await getCheckpointSaver().deleteThread(sessionId);
-}
 
 function getFallbackProviderId(): string {
   const provider = db
@@ -622,7 +609,7 @@ export async function createDeepAgentRuntime(
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
-  const checkpointer = getCheckpointSaver();
+  const checkpointer = conversationWorkingStateLifecycle.acquireSaver();
   const agentSkillNames = getAgentSkillNames(agentRow.id);
   const pathContext = extractPathMentionContext(currentMessage.content);
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);

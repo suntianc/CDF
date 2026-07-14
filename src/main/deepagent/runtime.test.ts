@@ -6,7 +6,7 @@ import type { ExecutionStep } from '../../shared/types';
 
 const {
   createDeepAgentMock,
-  fromConnStringMock,
+  acquireWorkingStateSaverMock,
   checkpointGetTupleMock,
   dbPrepareMock,
   storeGetMock,
@@ -21,7 +21,7 @@ const {
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(() => ({ streamEvents: vi.fn() })),
   getRunBySessionIdMock: vi.fn(),
-  fromConnStringMock: vi.fn(),
+  acquireWorkingStateSaverMock: vi.fn(),
   checkpointGetTupleMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   storeGetMock: vi.fn((key?: string): unknown => key === 'skillOverrides' ? {} : 'strict'),
@@ -52,9 +52,9 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('@langchain/langgraph-checkpoint-sqlite', () => ({
-  SqliteSaver: {
-    fromConnString: fromConnStringMock,
+vi.mock('./conversation-working-state', () => ({
+  conversationWorkingStateLifecycle: {
+    acquireSaver: acquireWorkingStateSaverMock,
   },
 }));
 
@@ -204,7 +204,7 @@ describe('createDeepAgentRuntime', () => {
     });
     getRunBySessionIdMock.mockReturnValue(undefined);
     const checkpointer = { getTuple: checkpointGetTupleMock };
-    fromConnStringMock.mockReturnValue(checkpointer);
+    acquireWorkingStateSaverMock.mockReturnValue(checkpointer);
     checkpointGetTupleMock.mockResolvedValue(undefined);
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
@@ -240,7 +240,7 @@ describe('createDeepAgentRuntime', () => {
   it('should wire checkpointer, memory, virtual backend, and permissions into deepagents', async () => {
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
 
-    expect(fromConnStringMock).toHaveBeenCalledWith(expect.stringContaining('deepagents-checkpoints.db'));
+    expect(acquireWorkingStateSaverMock).toHaveBeenCalledOnce();
     expect(createDeepAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         checkpointer: expect.objectContaining({ getTuple: checkpointGetTupleMock }),
@@ -284,6 +284,23 @@ describe('createDeepAgentRuntime', () => {
     expect(params.interruptOn.delete_file).toEqual({ allowedDecisions: ['approve', 'reject'] });
     expect(params.interruptOn.remove_file).toBeUndefined();
     expect(loadMcpToolsMock).toHaveBeenCalledWith('agent-1', [], []);
+  });
+
+  it('does not assemble an Agent runtime while Working State maintenance is locked', async () => {
+    const maintenanceError = Object.assign(
+      new Error('Conversation Working State is temporarily unavailable during maintenance.'),
+      { code: 'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED', recoverable: true }
+    );
+    acquireWorkingStateSaverMock.mockImplementationOnce(() => {
+      throw maintenanceError;
+    });
+
+    await expect(createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: '新问题' }
+    )).rejects.toBe(maintenanceError);
+    expect(createDeepAgentMock).not.toHaveBeenCalled();
   });
 
   it('should omit interruptOn when global approval mode is bypass', async () => {

@@ -7,12 +7,10 @@ import fs from 'fs';
 
 const {
   createDeepAgentRuntimeMock,
-  resetDeepAgentRuntimeThreadMock,
   dbPrepareMock,
   subagentStepContextRef,
 } = vi.hoisted(() => ({
   createDeepAgentRuntimeMock: vi.fn(),
-  resetDeepAgentRuntimeThreadMock: vi.fn(),
   dbPrepareMock: vi.fn(),
   subagentStepContextRef: { current: null as { onStep: (step: unknown) => void } | null },
 }));
@@ -21,7 +19,6 @@ vi.mock('./deepagent/runtime', async () => ({
   DELEGATED_TASK_RESULT_SCHEMA: (await vi.importActual<typeof import('../shared/types')>('../shared/types')).DELEGATED_TASK_RESULT_SCHEMA,
   DEEPAGENT_CHECKPOINT_NAMESPACE: '',
   createDeepAgentRuntime: createDeepAgentRuntimeMock,
-  resetDeepAgentRuntimeThread: resetDeepAgentRuntimeThreadMock,
   subagentStepStorage: {
     run: async (context: { onStep: (step: unknown) => void }, callback: () => unknown) => {
       const previous = subagentStepContextRef.current;
