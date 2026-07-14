@@ -173,20 +173,20 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group cursor-pointer"
+              className="provider-card resource-square-card flex flex-col p-4 border border-[var(--color-border)]/50 hover:border-[var(--color-border-strong)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-all duration-200 hover:shadow-sm group cursor-pointer relative"
               onClick={() => onSelectWorkflow(workflow)}
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-3 mb-2">
+              <div className="min-w-0 flex-1 flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3 truncate">
-                    <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0">
-                      <GitBranch className="w-6 h-6 text-[var(--color-accent)]" />
+                    <div className="provider-icon bg-[var(--color-accent-dim)]/40 flex items-center justify-center p-1.5 rounded-[var(--radius-sm)] border-0 shrink-0">
+                      <GitBranch className="w-5 h-5 text-[var(--color-accent)]" />
                     </div>
                     <div className="truncate">
                       <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">
                         {workflow.name}
                       </div>
-                      <div className="text-[10px] font-medium mt-0.5">
+                      <div className="text-[10px] font-medium mt-1">
                         {workflow.status === 'active' ? (
                           <span className="text-[var(--color-success)] bg-[var(--color-success-dim)] px-1.5 py-0.5 rounded-[var(--radius-xs)]">{t('workflow.list.enabled')}</span>
                         ) : (
@@ -197,7 +197,7 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   </div>
 
                   {/* Status Toggle Switch */}
-                  <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                         workflow.status === 'active' ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border)]/80'
@@ -214,48 +214,54 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
                   </div>
                 </div>
 
-                <p
-                  className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-2 truncate"
-                  title={workflow.description}
-                >
-                  {workflow.description || t('workflow.list.noDescription')}
-                </p>
+                {/* Workflow Description (Only render if it actually exists) */}
+                {workflow.description && (
+                  <p
+                    className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-1 truncate"
+                    title={workflow.description}
+                  >
+                    {workflow.description}
+                  </p>
+                )}
 
-                <div className="flex items-center gap-2 text-[11px] tabular-nums text-[var(--color-text-muted)]">
-                  <Clock className="w-3 h-3" />
-                  <span>{formatDate(workflow.updated_at)}</span>
-                  <span className="mx-1">·</span>
-                  <span>{t('workflow.list.stageCount', { count: workflow.stages.length })}</span>
+                {/* Metadata row */}
+                <div className="flex flex-wrap items-center gap-2 mt-auto">
+                  <div className="flex items-center gap-1.5 text-[11px] tabular-nums text-[var(--color-text-muted)]">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>{formatDate(workflow.updated_at)}</span>
+                  </div>
+                  <span className="text-[var(--color-text-disabled)] text-[10px]">·</span>
+                  <div className="inline-flex items-center text-[10px] font-semibold bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] px-1.5 py-0.5 rounded-[var(--radius-sm)] border border-[var(--color-border)]/40">
+                    {t('workflow.list.stageCount', { count: workflow.stages.length })}
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-auto flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
+              {/* Action buttons with silent default colors and semantic hover highlights */}
+              <div 
+                className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <button
-                  className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer text-[var(--color-success)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 hover:bg-[var(--color-success-dim)]"
+                  className="btn btn-sm flex items-center gap-1 cursor-pointer border border-[var(--color-border)] bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-success-dim)] hover:text-[var(--color-success)] hover:border-[var(--color-success)]/40 transition-all duration-150 active:scale-95"
                   onClick={(e) => handleRunWorkflow(workflow, e)}
                   title={t('workflow.list.runDirectly')}
                 >
-                  <Play className="w-3.5 h-3.5 fill-[var(--color-success)]" />
+                  <Play className="w-3.5 h-3.5 fill-current text-[var(--color-success)]" />
                   <span>{t('workflow.list.run')}</span>
                 </button>
                 <button
-                  className="btn btn-primary btn-sm flex items-center gap-1 cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectWorkflow(workflow);
-                  }}
+                  className="btn btn-sm flex items-center gap-1 cursor-pointer border border-[var(--color-border)] bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-dim)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 transition-all duration-150 active:scale-95"
+                  onClick={() => onSelectWorkflow(workflow)}
                 >
-                  <Edit className="w-3.5 h-3.5" />
+                  <Edit className="w-3.5 h-3.5 text-[var(--color-accent)]" />
                   <span>{t('workflow.list.edit')}</span>
                 </button>
                 <button
-                  className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteConfirmId(workflow.id);
-                  }}
+                  className="btn btn-sm flex items-center gap-1 cursor-pointer border border-[var(--color-border)] bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-danger-dim)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40 transition-all duration-150 active:scale-95"
+                  onClick={() => setDeleteConfirmId(workflow.id)}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5 text-[var(--color-danger)]" />
                   <span>{t('workflow.list.delete')}</span>
                 </button>
               </div>
