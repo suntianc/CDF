@@ -188,9 +188,10 @@ export function StageEditor({ workflow, onBack }: StageEditorProps) {
             <span>{t('workflow.editor.back')}</span>
           </button>
           <input
-            className="bg-transparent text-[13px] font-bold text-[var(--color-text-primary)] outline-none border-b border-transparent hover:border-[var(--color-border-strong)]/40 focus:border-[var(--color-accent)] transition-all px-1.5 py-0.5 w-[220px]"
+            className="bg-transparent text-[13px] font-bold text-[var(--color-text-primary)] outline-none border-b border-transparent hover:border-[var(--color-border-strong)]/40 focus:border-[var(--color-accent)] transition-all px-1.5 py-0.5 w-[220px] placeholder:text-[var(--color-text-muted)] placeholder:font-normal"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            placeholder={t('workflow.editor.workflowNamePlaceholder')}
             aria-label={t('workflow.editor.workflowName')}
           />
         </div>
