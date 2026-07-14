@@ -77,11 +77,21 @@ export function SystemSettings() {
     void refreshStorageStatus();
   }, [refreshStorageStatus]);
 
-  useEffect(() => () => {
-    mounted.current = false;
-    if (storagePollTimer.current !== null) {
-      window.clearInterval(storagePollTimer.current);
-    }
+  useEffect(() => {
+    mounted.current = true;
+    const stopStorageObservation = () => {
+      mounted.current = false;
+      if (storagePollTimer.current !== null) {
+        window.clearInterval(storagePollTimer.current);
+        storagePollTimer.current = null;
+      }
+    };
+
+    window.addEventListener('beforeunload', stopStorageObservation);
+    return () => {
+      window.removeEventListener('beforeunload', stopStorageObservation);
+      stopStorageObservation();
+    };
   }, []);
 
   useEffect(() => {

@@ -144,6 +144,24 @@ describe('SystemSettings Conversation Working State storage', () => {
     expect(await screen.findByText(/Optimization complete|优化完成/)).toBeTruthy();
   });
 
+  it('stops maintenance status polling when the Electron window starts unloading', async () => {
+    optimizeStorageMock.mockReturnValueOnce(new Promise(() => undefined));
+    getStorageStatusMock
+      .mockResolvedValueOnce(normalStatus())
+      .mockResolvedValue(normalStatus({ phase: 'optimizing', maintenancePhase: 'rebuilding' }));
+    render(<SystemSettings />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Optimize storage|优化存储/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Optimize now|立即优化/ }));
+    await waitFor(() => expect(getStorageStatusMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    window.dispatchEvent(new Event('beforeunload'));
+    const callsWhenUnloadStarted = getStorageStatusMock.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+
+    expect(getStorageStatusMock).toHaveBeenCalledTimes(callsWhenUnloadStarted);
+  });
+
   it('refreshes usage after success', async () => {
     getStorageStatusMock
       .mockResolvedValueOnce(normalStatus())
