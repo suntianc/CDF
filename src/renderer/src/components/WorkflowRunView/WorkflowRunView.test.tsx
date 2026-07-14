@@ -65,20 +65,23 @@ import {
 } from './workflowRunProjection';
 
 function createMockRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
+  const stages = [
+    { id: 'stage-1', name: '需求分析', taskDescription: '分析需求', acceptanceCriteria: '["完成分析"]', gateEnabled: true },
+    { id: 'stage-2', name: '设计', taskDescription: '设计架构', acceptanceCriteria: '["完成设计"]', gateEnabled: true },
+    { id: 'stage-3', name: '实现', taskDescription: '实现功能', acceptanceCriteria: '["完成实现"]', gateEnabled: false },
+  ];
+  const currentStageIndex = overrides.current_stage_index ?? 1;
   return {
     id: 'run-1',
     workflow_id: 'wf-1',
     project_id: 'proj-1',
     session_id: 'session-1',
     status: 'waiting_gate',
-    current_stage_index: 1,
+    current_stage_id: overrides.current_stage_id ?? stages[currentStageIndex]?.id ?? '',
+    current_stage_index: currentStageIndex,
     total_stages: 3,
     master_agent_id: 'agent-1',
-    stages: JSON.stringify([
-      { id: 'stage-1', name: '需求分析', taskDescription: '分析需求', acceptanceCriteria: '["完成分析"]', gateEnabled: true },
-      { id: 'stage-2', name: '设计', taskDescription: '设计架构', acceptanceCriteria: '["完成设计"]', gateEnabled: true },
-      { id: 'stage-3', name: '实现', taskDescription: '实现功能', acceptanceCriteria: '["完成实现"]', gateEnabled: false },
-    ]),
+    stages: JSON.stringify(stages),
     skeleton_snapshot: null,
     error: null,
     started_at: Date.now() - 10000,
@@ -222,6 +225,7 @@ describe('WorkflowRunProjection – Gate operations', () => {
       state = projectWorkflowRun(state, {
         type: 'run',
         status: 'running',
+        currentStageId: 'stage-2',
         currentStageIndex: 1,
         error: null,
       });
@@ -341,6 +345,7 @@ describe('WorkflowRunProjection – Gate operations', () => {
         {
           type: 'run' as const,
           status: 'running' as const,
+          currentStageId: 'stage-3',
           currentStageIndex: 2,
           error: null,
         },

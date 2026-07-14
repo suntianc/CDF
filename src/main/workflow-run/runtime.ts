@@ -52,7 +52,7 @@ export function resumeWorkflowRunFromInput(sessionId: string): WorkflowRun | und
   updateRunStatus(run.id, 'running');
   const resumed = getWorkflowRun(run.id);
   if (resumed) {
-    pushProjectionEvent({ type: 'run', runId: resumed.id, status: 'running', currentStageIndex: resumed.current_stage_index, error: null });
+    pushProjectionEvent({ type: 'run', runId: resumed.id, status: 'running', currentStageId: resumed.current_stage_id, currentStageIndex: resumed.current_stage_index, error: null });
   }
   return resumed;
 }
@@ -185,10 +185,10 @@ export async function handleAdvanceStageInterrupt(
   const run = getWorkflowRun(runId);
   if (!run) throw new Error(`Workflow run not found: ${runId}`);
 
-  const stageIndex = run.current_stage_index;
   const stages = normalizeWorkflowStages(JSON.parse(run.stages as string) as WorkflowStage[]);
-  const stage = stages[stageIndex];
-  if (!stage) throw new Error(`Stage ${stageIndex} not found in run ${runId}`);
+  const stage = getCurrentStage(run);
+  if (!stage) throw new Error(`Current Stage ${run.current_stage_id} not found in run ${runId}`);
+  const stageIndex = stages.findIndex((candidate) => candidate.id === stage.id);
   const selectedRoute = selectWorkflowStageRoute(stage, selection?.routeId);
   if ((stage.routes?.length ?? 0) > 1 && !selection?.rationale?.trim()) {
     throw new Error(`Stage ${stage.name} requires a route rationale`);
@@ -206,7 +206,7 @@ export async function handleAdvanceStageInterrupt(
   const gate = createStageGate(runId, stage.id, stage.name, persistedReport);
   pushProjectionEvent({ type: 'stage_gate', gate });
   if (stage.gateEnabled) {
-    pushProjectionEvent({ type: 'run', runId, status: 'waiting_gate', currentStageIndex: stageIndex, error: null });
+    pushProjectionEvent({ type: 'run', runId, status: 'waiting_gate', currentStageId: stage.id, currentStageIndex: stageIndex, error: null });
   }
 
   if (!stage.gateEnabled) {
@@ -246,7 +246,7 @@ export async function handleAdvanceStageInterrupt(
     if (err instanceof Error && (err.name === 'AbortError' || signal?.aborted)) {
       abortWorkflowRun(runId);
       resolveStageGate(gate.id, 'rejected', '已中止');
-      pushProjectionEvent({ type: 'run', runId, status: 'aborted', currentStageIndex: stageIndex, error: '已中止' });
+      pushProjectionEvent({ type: 'run', runId, status: 'aborted', currentStageId: stage.id, currentStageIndex: stageIndex, error: '已中止' });
       return { terminate: true };
     }
     throw err;
@@ -255,7 +255,7 @@ export async function handleAdvanceStageInterrupt(
   if (resolution.decision === 'terminate') {
     abortWorkflowRun(runId);
     resolveStageGate(gate.id, 'rejected', resolution.feedback || '已终止');
-    pushProjectionEvent({ type: 'run', runId, status: 'aborted', currentStageIndex: stageIndex, error: '已终止' });
+    pushProjectionEvent({ type: 'run', runId, status: 'aborted', currentStageId: stage.id, currentStageIndex: stageIndex, error: '已终止' });
     return { terminate: true };
   }
 
@@ -265,7 +265,7 @@ export async function handleAdvanceStageInterrupt(
     updateRunStatus(runId, 'running');
     db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
     if (rejectedGate) pushProjectionEvent({ type: 'stage_gate', gate: rejectedGate });
-    pushProjectionEvent({ type: 'run', runId, status: 'running', currentStageIndex: stageIndex, error: null });
+    pushProjectionEvent({ type: 'run', runId, status: 'running', currentStageId: stage.id, currentStageIndex: stageIndex, error: null });
     return {
       resume: {
         decisions: [{
@@ -281,7 +281,7 @@ export async function handleAdvanceStageInterrupt(
   updateRunStatus(runId, 'running');
   db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
   if (approvedGate) pushProjectionEvent({ type: 'stage_gate', gate: approvedGate });
-  pushProjectionEvent({ type: 'run', runId, status: 'running', currentStageIndex: stageIndex, error: null });
+  pushProjectionEvent({ type: 'run', runId, status: 'running', currentStageId: stage.id, currentStageIndex: stageIndex, error: null });
   return { resume: { decisions: [{ type: 'approve' as const }] } };
 }
 
@@ -318,7 +318,7 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
     if (resolution.decision === 'terminate') {
       abortWorkflowRun(run.id);
       db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('aborted', run.session_id);
-      pushProjectionEvent({ type: 'run', runId: run.id, status: 'aborted', currentStageIndex: run.current_stage_index, error: '已终止' });
+      pushProjectionEvent({ type: 'run', runId: run.id, status: 'aborted', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: '已终止' });
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
         win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
@@ -326,7 +326,7 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
     } else if (resolution.decision === 'reject') {
       updateRunStatus(run.id, 'running');
       db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
-      pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageIndex: run.current_stage_index, error: null });
+      pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: null });
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
         win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
@@ -340,7 +340,7 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
     } else {
       updateRunStatus(run.id, 'running');
       db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
-      pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageIndex: run.current_stage_index, error: null });
+      pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: null });
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
         win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });

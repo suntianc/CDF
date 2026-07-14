@@ -16,6 +16,7 @@ export interface WorkflowRunProjectionState {
   run: {
     id: string;
     status: WorkflowRunStatus;
+    currentStageId: string;
     currentStageIndex: number;
     error: string | null;
   } | null;
@@ -54,6 +55,14 @@ export function normalizeAcceptanceCriteria(value: string | string[]): string[] 
     .filter(Boolean);
 }
 
+function resolveCurrentStagePosition(
+  stages: Array<{ id: string }>,
+  currentStageId: string,
+): { id: string; index: number } {
+  const stableIndex = stages.findIndex((stage) => stage.id === currentStageId);
+  return { id: currentStageId, index: stableIndex };
+}
+
 export function projectWorkflowRun(
   state: WorkflowRunProjectionState,
   event: WorkflowRunProjectionEvent
@@ -82,7 +91,8 @@ export function projectWorkflowRun(
         .map((gate) => gate.report.routeSelection?.routeId)
         .filter((routeId): routeId is string => Boolean(routeId));
       const actualStageIds = new Set(acceptedStageIds);
-      const currentStageId = parsedStages[run.current_stage_index]?.id;
+      const currentStage = resolveCurrentStagePosition(parsedStages, run.current_stage_id);
+      const currentStageId = currentStage.id;
       if (currentStageId) actualStageIds.add(currentStageId);
       const nextTasks: Record<string, WorkflowRunTask> = {};
       for (const task of tasks) {
@@ -90,15 +100,15 @@ export function projectWorkflowRun(
       }
 
       // Compute stages status
-      const stages = parsedStages.map((stage, index) => {
+      const stages = parsedStages.map((stage) => {
         let status: ProjectedStage['status'] = 'waiting';
-        if (run.status === 'completed' && index === run.current_stage_index) {
+        if (run.status === 'completed' && stage.id === currentStageId) {
           status = 'passed';
-        } else if (run.status === 'aborted' && index === run.current_stage_index) {
+        } else if (run.status === 'aborted' && stage.id === currentStageId) {
           status = 'aborted';
-        } else if (run.status === 'failed' && index === run.current_stage_index) {
+        } else if (run.status === 'failed' && stage.id === currentStageId) {
           status = 'failed';
-        } else if (index === run.current_stage_index) {
+        } else if (stage.id === currentStageId) {
           if (run.status === 'waiting_input') {
             status = 'waiting_input';
           } else {
@@ -123,7 +133,7 @@ export function projectWorkflowRun(
         };
       });
 
-      const defaultStageId = stages[Math.min(run.current_stage_index, stages.length - 1)]?.id ?? null;
+      const defaultStageId = currentStageId || null;
       const selectedStageId = stages.some((stage) => stage.id === state.selectedStageId)
         ? state.selectedStageId
         : defaultStageId;
@@ -132,7 +142,8 @@ export function projectWorkflowRun(
         run: {
           id: run.id,
           status: run.status,
-          currentStageIndex: run.current_stage_index,
+          currentStageId,
+          currentStageIndex: currentStage.index,
           error: run.error,
         },
         stages,
@@ -149,7 +160,6 @@ export function projectWorkflowRun(
       const nextRun = {
         ...state.run,
         status: event.status,
-        currentStageIndex: event.currentStageIndex,
         error: event.error,
       };
 
@@ -157,15 +167,18 @@ export function projectWorkflowRun(
       const acceptedStageIds = new Set(Object.values(nextGates)
         .filter((gate) => gate.status === 'approved' || gate.status === 'auto_approved')
         .map((gate) => gate.stage_id));
-      const stages = state.stages.map((stage, index) => {
+      const currentStage = resolveCurrentStagePosition(state.stages, event.currentStageId);
+      nextRun.currentStageId = currentStage.id;
+      nextRun.currentStageIndex = currentStage.index;
+      const stages = state.stages.map((stage) => {
         let status: ProjectedStage['status'] = 'waiting';
-        if (event.status === 'completed' && index === event.currentStageIndex) {
+        if (event.status === 'completed' && stage.id === currentStage.id) {
           status = 'passed';
-        } else if (event.status === 'aborted' && index === event.currentStageIndex) {
+        } else if (event.status === 'aborted' && stage.id === currentStage.id) {
           status = 'aborted';
-        } else if (event.status === 'failed' && index === event.currentStageIndex) {
+        } else if (event.status === 'failed' && stage.id === currentStage.id) {
           status = 'failed';
-        } else if (index === event.currentStageIndex) {
+        } else if (stage.id === currentStage.id) {
           if (event.status === 'waiting_input') {
             status = 'waiting_input';
           } else {
@@ -180,7 +193,10 @@ export function projectWorkflowRun(
         return { ...stage, status };
       });
 
-      const selectedStageId = state.selectedStageId || (stages[event.currentStageIndex]?.id ?? null);
+      const currentStageChanged = state.run.currentStageId !== currentStage.id;
+      const selectedStageId = currentStageChanged
+        ? currentStage.id || null
+        : state.selectedStageId || currentStage.id || null;
 
       return {
         ...state,
@@ -200,8 +216,8 @@ export function projectWorkflowRun(
         .filter((routeId): routeId is string => Boolean(routeId));
 
       // Update active stage status if the active stage is waiting on a gate
-      const stages = state.stages.map((stage, index) => {
-        if (state.run && index === state.run.currentStageIndex) {
+      const stages = state.stages.map((stage) => {
+        if (state.run && stage.id === state.run.currentStageId) {
           const hasPendingGate = Object.values(nextGates).some(
             (g) => g.stage_id === stage.id && g.status === 'pending'
           );
@@ -229,7 +245,7 @@ export function projectWorkflowRun(
       // 无主派单兜底当前 Stage:
       let finalTask = task;
       if (!task.stage_id && state.run) {
-        const currentStageId = state.stages[state.run.currentStageIndex]?.id;
+        const currentStageId = state.run.currentStageId;
         if (currentStageId) {
           finalTask = {
             ...task,
@@ -253,7 +269,7 @@ export function projectWorkflowRun(
         // If task doesn't exist yet, create placeholder fallback task
         let stageId = '';
         if (state.run) {
-          stageId = state.stages[state.run.currentStageIndex]?.id ?? '';
+          stageId = state.run.currentStageId;
         }
         const placeholderTask: WorkflowRunTask = {
           id: taskId,

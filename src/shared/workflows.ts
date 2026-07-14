@@ -63,6 +63,7 @@ export interface WorkflowRun {
   session_id: string;
   master_agent_id: string;
   status: WorkflowRunStatus;
+  current_stage_id: string;
   current_stage_index: number;
   total_stages: number;
   stages: string;
@@ -111,7 +112,7 @@ export interface StageGateResolution {
 
 export type WorkflowRunProjectionEvent =
   | { type: 'snapshot'; run: WorkflowRun; gates: WorkflowStageGate[]; tasks: WorkflowRunTask[] }
-  | { type: 'run'; runId?: string; status: WorkflowRunStatus; currentStageIndex: number; error: string | null }
+  | { type: 'run'; runId?: string; status: WorkflowRunStatus; currentStageId: string; currentStageIndex: number; error: string | null }
   | { type: 'stage_gate'; gate: WorkflowStageGate }
   | { type: 'task'; task: WorkflowRunTask }
   | { type: 'delegation'; taskId: string; batchId: string; delegatedRunId: string; agentSlug: string }

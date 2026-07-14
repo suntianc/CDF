@@ -37,6 +37,7 @@ export function createAdvanceStageTool(ctx: AdvanceStageToolContext) {
         type: 'run',
         runId: advanced.id,
         status: advanced.status,
+        currentStageId: advanced.current_stage_id,
         currentStageIndex: advanced.current_stage_index,
         error: advanced.error,
       });
@@ -97,6 +98,7 @@ export function createStageRouteBlockerTool(ctx: AdvanceStageToolContext) {
         type: 'run',
         runId: run.id,
         status: 'waiting_input',
+        currentStageId: run.current_stage_id,
         currentStageIndex: run.current_stage_index,
         error: null,
       });
@@ -172,7 +174,6 @@ export function isAdvanceStageInterrupt(interruptValue: unknown): { report: Work
 /** 为 Workflow Session 创建 task graph 管理工具的上下文 */
 export interface TaskGraphToolContext {
   runId: string;
-  currentStageId: string;
   getRun: () => WorkflowRun | undefined;
 }
 
@@ -183,8 +184,7 @@ export interface TaskGraphToolContext {
 function getActiveStageId(ctx: TaskGraphToolContext): string | null {
   const run = ctx.getRun();
   if (!run) return null;
-  const stages = JSON.parse(run.stages) as Array<{ id: string }>;
-  return stages[run.current_stage_index]?.id ?? null;
+  return run.current_stage_id || null;
 }
 
 export function createTaskGraphTools(ctx: TaskGraphToolContext) {

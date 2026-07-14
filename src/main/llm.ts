@@ -972,6 +972,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
               type: 'run',
               runId: workflowRun.id,
               status: wfStatus,
+              currentStageId: workflowRun.current_stage_id,
               currentStageIndex: workflowRun.current_stage_index,
               error: error?.message || String(error),
             });

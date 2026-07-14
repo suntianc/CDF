@@ -134,6 +134,7 @@ describe('startRun', () => {
     expect(run.workflow_id).toBe(lastWorkflowId);
     expect(run.project_id).toBe(PROJECT_ID);
     expect(run.status).toBe('running');
+    expect(run.current_stage_id).toBe('stage-1');
     expect(run.current_stage_index).toBe(0);
     expect(run.total_stages).toBe(2);
     expect(run.master_agent_id).toBe(lastMasterAgentId);
@@ -304,8 +305,8 @@ describe('handleAdvanceStageInterrupt', () => {
   it('auto-approves when gateEnabled=false and returns approve decision', async () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
 
-    // 推进到 stage 1 (gateEnabled=false) by directly updating cursor
-    db.prepare('UPDATE workflow_runs SET current_stage_index = 1 WHERE id = ?').run(run.id);
+    // 推进到 stage 1 (gateEnabled=false) by directly updating the persisted Stage identity.
+    db.prepare('UPDATE workflow_runs SET current_stage_id = ?, current_stage_index = 1 WHERE id = ?').run('stage-2', run.id);
 
     const report: WorkflowStageReport = {
       acceptanceSelfCheck: [{ criterion: '方案完整', passed: true, notes: '已通过' }],
@@ -622,6 +623,34 @@ describe('handleAdvanceStageInterrupt', () => {
 // =============================================================================
 
 describe('createAdvanceStageTool callback advances cursor', () => {
+  it('uses the stable current Stage identity when the compatibility index disagrees', async () => {
+    const routedStages = [
+      {
+        id: 'entry', name: 'Entry', taskDescription: 'choose', acceptanceCriteria: '', gateEnabled: false, terminal: false,
+        routes: [
+          { id: 'route-left', targetStageId: 'left', condition: 'Use left' },
+          { id: 'route-right', targetStageId: 'right', condition: 'Use right' },
+        ],
+      },
+      { id: 'left', name: 'Left', taskDescription: 'not current', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+      { id: 'right', name: 'Right', taskDescription: 'selected', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] },
+    ];
+    db.prepare('UPDATE workflows SET stages = ? WHERE id = ?').run(JSON.stringify(routedStages), lastWorkflowId);
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+
+    db.prepare('UPDATE workflow_runs SET current_stage_index = 1, current_stage_id = ? WHERE id = ?')
+      .run('entry', run.id);
+    const tool = createAdvanceStageTool({ runId: run.id, projectId: PROJECT_ID, getRun: () => getWorkflowRun(run.id) });
+
+    const result = await tool.invoke({
+      routeId: 'route-right',
+      report: { acceptanceSelfCheck: [], artifacts: [], summary: 'selected' },
+    });
+
+    expect(result).toMatchObject({ status: 'stage_advanced', nextStageIndex: 2, nextStageName: 'Right' });
+    expect(getWorkflowRun(run.id)).toMatchObject({ current_stage_id: 'right', current_stage_index: 2 });
+  });
+
   it.each([
     ['route-to-b', 1, 'B'],
     ['route-to-c', 2, 'C'],
@@ -655,7 +684,7 @@ describe('createAdvanceStageTool callback advances cursor', () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
 
     // Bypass gate: set current to stage 1 (gateEnabled=false)
-    db.prepare('UPDATE workflow_runs SET current_stage_index = 1 WHERE id = ?').run(run.id);
+    db.prepare('UPDATE workflow_runs SET current_stage_id = ?, current_stage_index = 1 WHERE id = ?').run('stage-2', run.id);
 
     const tool = createAdvanceStageTool({
       runId: run.id,
@@ -674,9 +703,9 @@ describe('createAdvanceStageTool callback advances cursor', () => {
 
     expect(result).toHaveProperty('status', 'completed');
 
-    // Cursor advanced to 2 (completed)
+    // Terminal completion retains the stable terminal Stage identity.
     const advanced = getWorkflowRun(run.id)!;
-    expect(advanced.current_stage_index).toBe(2);
+    expect(advanced).toMatchObject({ current_stage_id: 'stage-2', current_stage_index: 1 });
     expect(advanced.status).toBe('completed');
     expect(advanced.ended_at).not.toBeNull();
   });
@@ -899,14 +928,13 @@ describe('Run Task Graph orchestration', () => {
     const otherTask = createTask(otherRun.id, 'stage-1', '外部任务', '不能跨 Run 修改');
     const tools = createTaskGraphTools({
       runId: firstRun.id,
-      currentStageId: 'stage-1',
       getRun: () => getWorkflowRun(firstRun.id),
     });
     const createTool = tools.find((candidate) => candidate.name === 'create_task')!;
     const dependencyTool = tools.find((candidate) => candidate.name === 'set_task_dependencies')!;
     const statusTool = tools.find((candidate) => candidate.name === 'update_task_status')!;
 
-    db.prepare('UPDATE workflow_runs SET current_stage_index = 1 WHERE id = ?').run(firstRun.id);
+    db.prepare('UPDATE workflow_runs SET current_stage_id = ?, current_stage_index = 1 WHERE id = ?').run('stage-2', firstRun.id);
     const created = JSON.parse(String(await createTool.invoke({
       title: '方案任务',
       description: '当前阶段任务',

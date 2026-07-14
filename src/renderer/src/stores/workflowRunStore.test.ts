@@ -8,19 +8,22 @@ import { initialProjectionState } from '../components/WorkflowRunView/workflowRu
 
 function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   const now = Date.now();
+  const stages = [
+    { id: 'stage-1', name: 'Stage 1', taskDescription: 'Task 1', acceptanceCriteria: 'criterion 1', gateEnabled: true },
+    { id: 'stage-2', name: 'Stage 2', taskDescription: 'Task 2', acceptanceCriteria: ['criterion 2a', 'criterion 2b'], gateEnabled: true },
+  ];
+  const currentStageIndex = overrides.current_stage_index ?? 0;
   return {
     id: 'run-1',
     workflow_id: 'wf-1',
     project_id: 'proj-1',
     session_id: 'session-1',
     status: 'running',
-    current_stage_index: 0,
+    current_stage_id: overrides.current_stage_id ?? stages[currentStageIndex]?.id ?? '',
+    current_stage_index: currentStageIndex,
     total_stages: 2,
     master_agent_id: 'agent-1',
-    stages: JSON.stringify([
-      { id: 'stage-1', name: 'Stage 1', taskDescription: 'Task 1', acceptanceCriteria: 'criterion 1', gateEnabled: true },
-      { id: 'stage-2', name: 'Stage 2', taskDescription: 'Task 2', acceptanceCriteria: ['criterion 2a', 'criterion 2b'], gateEnabled: true },
-    ]),
+    stages: JSON.stringify(stages),
     skeleton_snapshot: null,
     error: null,
     started_at: now,
@@ -104,7 +107,7 @@ describe('workflowRunStore.loadRunForSession', () => {
     // 先设置一个已有 run
     useWorkflowRunStore.setState({
       activeRun: makeRun({ id: 'old-run' }),
-      projectionState: { ...initialProjectionState, run: { id: 'old-run', status: 'completed', currentStageIndex: 0, error: null } },
+      projectionState: { ...initialProjectionState, run: { id: 'old-run', status: 'completed', currentStageId: 'stage-1', currentStageIndex: 0, error: null } },
     });
 
     vi.mocked(window.electronAPI.workflowRun.getRunBySession).mockResolvedValue(null);
@@ -177,7 +180,7 @@ describe('workflowRunStore.loadRunForSession', () => {
     // 先设一个已有 run，模拟正常态
     useWorkflowRunStore.setState({
       activeRun: makeRun({ id: 'run-b' }),
-      projectionState: { ...initialProjectionState, run: { id: 'run-b', status: 'running', currentStageIndex: 0, error: null } },
+      projectionState: { ...initialProjectionState, run: { id: 'run-b', status: 'running', currentStageId: 'stage-1', currentStageIndex: 0, error: null } },
     });
 
     // 同时发起：A 慢（最终 no-run）、B
@@ -247,7 +250,7 @@ describe('workflowRunStore.loadRunForSession', () => {
     // 先设一个已有 run
     useWorkflowRunStore.setState({
       activeRun: makeRun({ id: 'existing-run' }),
-      projectionState: { ...initialProjectionState, run: { id: 'existing-run', status: 'running', currentStageIndex: 0, error: null } },
+      projectionState: { ...initialProjectionState, run: { id: 'existing-run', status: 'running', currentStageId: 'stage-1', currentStageIndex: 0, error: null } },
     });
 
     const promise = useWorkflowRunStore.getState().loadRunForSession('session-a');

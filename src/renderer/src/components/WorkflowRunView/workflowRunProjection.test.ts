@@ -30,6 +30,7 @@ describe('WorkflowRunProjection', () => {
     project_id: 'proj-1',
     session_id: 'sess-1',
     status: 'running',
+    current_stage_id: 'stage-1',
     current_stage_index: 0,
     total_stages: 2,
     master_agent_id: 'agent-1',
@@ -50,7 +51,7 @@ describe('WorkflowRunProjection', () => {
     expect(state.stages[0].status).toBe('waiting_input');
 
     state = projectWorkflowRun(state, {
-      type: 'run', runId: waitingRun.id, status: 'running', currentStageIndex: 0, error: null,
+      type: 'run', runId: waitingRun.id, status: 'running', currentStageId: 'stage-1', currentStageIndex: 0, error: null,
     });
     expect(state.stages[0].status).toBe('active');
     expect(state.run).toMatchObject({ status: 'running', currentStageIndex: 0 });
@@ -78,7 +79,7 @@ describe('WorkflowRunProjection', () => {
     });
     const state = projectWorkflowRun(initialProjectionState, {
       type: 'snapshot',
-      run: { ...dummyRun, current_stage_index: 3, total_stages: 4, stages: JSON.stringify(branchStages) },
+      run: { ...dummyRun, current_stage_id: 'end', current_stage_index: 3, total_stages: 4, stages: JSON.stringify(branchStages) },
       gates: [gate('g1', 'entry', 'route-right', 'right'), gate('g2', 'right', 'right-end', 'end')],
       tasks: [task('left-task', 'left'), task('right-task', 'right'), task('end-task', 'end')],
     });
@@ -90,12 +91,51 @@ describe('WorkflowRunProjection', () => {
     expect(Object.keys(state.tasks).sort()).toEqual(['end-task', 'right-task']);
   });
 
+  it('projects the current Stage from stable identity when the compatibility index disagrees', () => {
+    const state = projectWorkflowRun(initialProjectionState, {
+      type: 'snapshot',
+      run: {
+        ...dummyRun,
+        current_stage_id: 'stage-2',
+        current_stage_index: 0,
+      },
+      gates: [],
+      tasks: [],
+    });
+
+    expect(state.stages.map((stage) => [stage.id, stage.status])).toEqual([
+      ['stage-1', 'waiting'],
+      ['stage-2', 'active'],
+    ]);
+    expect(state.run).toMatchObject({ currentStageId: 'stage-2', currentStageIndex: 1 });
+    expect(state.selectedStageId).toBe('stage-2');
+  });
+
+  it('moves the inner task graph to the new current Stage after live routing', () => {
+    const initial = projectWorkflowRun(initialProjectionState, {
+      type: 'snapshot', run: dummyRun, gates: [], tasks: [],
+    });
+
+    const advanced = projectWorkflowRun(initial, {
+      type: 'run',
+      runId: dummyRun.id,
+      status: 'running',
+      currentStageId: 'stage-2',
+      currentStageIndex: 0,
+      error: null,
+    });
+
+    expect(advanced.run).toMatchObject({ currentStageId: 'stage-2', currentStageIndex: 1 });
+    expect(advanced.selectedStageId).toBe('stage-2');
+  });
+
   it('marks the explicit terminal Stage as passed when the run completes', () => {
     const state = projectWorkflowRun(initialProjectionState, {
       type: 'snapshot',
       run: {
         ...dummyRun,
         status: 'completed',
+        current_stage_id: 'stage-2',
         current_stage_index: 1,
         stages: JSON.stringify([
           { ...dummyStages[0], terminal: false, routes: [{ id: 'to-end', targetStageId: 'stage-2', condition: '' }] },

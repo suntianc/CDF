@@ -500,6 +500,7 @@ db.exec(`
     session_id TEXT NOT NULL,
     master_agent_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'running',
+    current_stage_id TEXT NOT NULL,
     current_stage_index INTEGER NOT NULL DEFAULT 0,
     total_stages INTEGER NOT NULL,
     stages TEXT NOT NULL,
@@ -552,6 +553,26 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run ON workflow_run_tasks(run_id);
   CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run_stage ON workflow_run_tasks(run_id, stage_id);
 `);
+
+safeMigrate(
+  'workflow_runs table (current_stage_id)',
+  `ALTER TABLE workflow_runs ADD COLUMN current_stage_id TEXT;`,
+);
+try {
+  const legacyRuns = db.prepare(`
+    SELECT id, current_stage_index, stages
+    FROM workflow_runs
+    WHERE current_stage_id IS NULL OR current_stage_id = ''
+  `).all() as Array<{ id: string; current_stage_index: number; stages: string }>;
+  const updateCurrentStageId = db.prepare('UPDATE workflow_runs SET current_stage_id = ? WHERE id = ?');
+  for (const run of legacyRuns) {
+    const stages = JSON.parse(run.stages) as Array<{ id?: string }>;
+    const stage = stages[Math.min(run.current_stage_index, Math.max(stages.length - 1, 0))];
+    if (stage?.id) updateCurrentStageId.run(stage.id, run.id);
+  }
+} catch (error) {
+  console.error('Failed to backfill workflow_runs.current_stage_id:', error);
+}
 
 safeMigrate(
   'workflow_run_tasks table (delegated_run_id)',

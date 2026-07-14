@@ -28,6 +28,7 @@ interface RunRow {
   session_id: string;
   master_agent_id: string;
   status: string;
+  current_stage_id: string | null;
   current_stage_index: number;
   total_stages: number;
   stages: string;
@@ -40,9 +41,14 @@ interface RunRow {
 }
 
 function toWorkflowRun(row: RunRow): WorkflowRun {
+  const stages = normalizeWorkflowStages(JSON.parse(row.stages) as WorkflowStage[]);
+  const currentStageId = row.current_stage_id ?? '';
+  const currentStageIndex = stages.findIndex((stage) => stage.id === currentStageId);
   return {
     ...row,
     status: row.status as WorkflowRunStatus,
+    current_stage_id: currentStageId,
+    current_stage_index: currentStageIndex,
   };
 }
 
@@ -81,10 +87,10 @@ export function createWorkflowRun(
   const now = Date.now();
   db.prepare(`
     INSERT INTO workflow_runs
-      (id, workflow_id, project_id, session_id, master_agent_id, status, current_stage_index,
+      (id, workflow_id, project_id, session_id, master_agent_id, status, current_stage_id, current_stage_index,
        total_stages, stages, skeleton_snapshot, started_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?, ?, ?, ?, ?)
-  `).run(id, workflowId, projectId, sessionId, masterAgentId, stages.length, JSON.stringify(stages), skeletonSnapshot, now, now, now);
+    VALUES (?, ?, ?, ?, ?, 'running', ?, 0, ?, ?, ?, ?, ?, ?)
+  `).run(id, workflowId, projectId, sessionId, masterAgentId, stages[0].id, stages.length, JSON.stringify(stages), skeletonSnapshot, now, now, now);
 
   return {
     id,
@@ -92,6 +98,7 @@ export function createWorkflowRun(
     project_id: projectId,
     session_id: sessionId,
     status: 'running',
+    current_stage_id: stages[0].id,
     current_stage_index: 0,
     total_stages: stages.length,
     master_agent_id: masterAgentId,
@@ -135,24 +142,23 @@ export function advanceStageCursor(runId: string, routeId?: string): WorkflowRun
   const run = getWorkflowRun(runId);
   if (!run) return undefined;
   const stages = normalizeWorkflowStages(JSON.parse(run.stages) as WorkflowStage[]);
-  const currentStage = stages[run.current_stage_index];
+  const currentStage = stages.find((stage) => stage.id === run.current_stage_id);
   if (!currentStage) return undefined;
   const route = selectWorkflowStageRoute(currentStage, routeId);
-  const nextIndex = route
-    ? stages.findIndex((stage) => stage.id === route.targetStageId)
-    : run.total_stages;
+  const nextStageId = route?.targetStageId ?? currentStage.id;
+  const nextIndex = stages.findIndex((stage) => stage.id === nextStageId);
   if (route && nextIndex < 0) throw new Error(`Route target Stage not found: ${route.targetStageId}`);
   const now = Date.now();
   const newStatus: WorkflowRunStatus = currentStage.terminal ? 'completed' : 'running';
   const isComplete = newStatus === 'completed' ? 1 : 0;
   db.prepare(`
-    UPDATE workflow_runs SET current_stage_index = ?, status = ?, updated_at = ?,
+    UPDATE workflow_runs SET current_stage_id = ?, current_stage_index = ?, status = ?, updated_at = ?,
       ended_at = CASE WHEN ? THEN ? ELSE NULL END
     WHERE id = ?
-  `).run(nextIndex, newStatus, now, isComplete, now, runId);
+  `).run(nextStageId, nextIndex, newStatus, now, isComplete, now, runId);
   db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?')
     .run(newStatus, run.session_id);
-  return { ...run, current_stage_index: nextIndex, status: newStatus, updated_at: now };
+  return { ...run, current_stage_id: nextStageId, current_stage_index: nextIndex, status: newStatus, updated_at: now };
 }
 
 export function abortWorkflowRun(runId: string): void {
@@ -160,14 +166,13 @@ export function abortWorkflowRun(runId: string): void {
 }
 
 export function getCurrentStage(run: WorkflowRun): WorkflowStage | null {
-  if (run.current_stage_index >= run.total_stages) return null;
   let stages: WorkflowStage[];
   try {
     stages = normalizeWorkflowStages(JSON.parse(run.stages as string));
   } catch {
     return null;
   }
-  return stages[run.current_stage_index] ?? null;
+  return stages.find((stage) => stage.id === run.current_stage_id) ?? null;
 }
 
 // ---- Stage Gates ----

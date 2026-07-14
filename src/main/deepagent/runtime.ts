@@ -866,11 +866,9 @@ export async function createDeepAgentRuntime(
   if (isWorkflowMasterAgent) {
     const runId = workflowRun!.id;
     const getRun = () => getWorkflowRun(runId);
-    const stages = JSON.parse(workflowRun!.stages) as Array<{ id: string }>;
-    const currentStageId = stages[workflowRun!.current_stage_index]?.id ?? '';
     masterAgentTools.push(createAdvanceStageTool({ runId, projectId, getRun }));
     masterAgentTools.push(createStageRouteBlockerTool({ runId, projectId, getRun }));
-    masterAgentTools.push(...createTaskGraphTools({ runId, currentStageId, getRun }));
+    masterAgentTools.push(...createTaskGraphTools({ runId, getRun }));
   }
 
   const interruptOn = resolveInterruptOn(currentApprovalMode, [...mcpApprovalToolNames]);
