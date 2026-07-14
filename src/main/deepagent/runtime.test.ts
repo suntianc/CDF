@@ -6,6 +6,8 @@ import type { ExecutionStep } from '../../shared/types';
 
 const {
   createDeepAgentMock,
+  beginRuntimeUseMock,
+  releaseRuntimeUseMock,
   acquireWorkingStateSaverMock,
   checkpointGetTupleMock,
   dbPrepareMock,
@@ -21,6 +23,8 @@ const {
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(() => ({ streamEvents: vi.fn() })),
   getRunBySessionIdMock: vi.fn(),
+  releaseRuntimeUseMock: vi.fn(),
+  beginRuntimeUseMock: vi.fn(),
   acquireWorkingStateSaverMock: vi.fn(),
   checkpointGetTupleMock: vi.fn(),
   dbPrepareMock: vi.fn(),
@@ -54,6 +58,7 @@ vi.mock('electron', () => ({
 
 vi.mock('./conversation-working-state', () => ({
   conversationWorkingStateLifecycle: {
+    beginRuntimeUse: beginRuntimeUseMock,
     acquireSaver: acquireWorkingStateSaverMock,
   },
 }));
@@ -195,6 +200,7 @@ describe('createDeepAgentRuntime', () => {
     fs.writeFileSync(path.join(tempProjectPath, 'AGENTS.md'), 'Must use Chinese.', 'utf-8');
 
     vi.clearAllMocks();
+    beginRuntimeUseMock.mockReturnValue(releaseRuntimeUseMock);
     storeGetMock.mockImplementation((key?: string) =>
       key === 'skillOverrides' ? {} : 'strict'
     );
@@ -238,8 +244,13 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should wire checkpointer, memory, virtual backend, and permissions into deepagents', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
+    const runtime = await createDeepAgentRuntime(
+      'project-1',
+      'session-1',
+      { id: 'message-1', content: '新问题' }
+    );
 
+    expect(beginRuntimeUseMock).toHaveBeenCalledOnce();
     expect(acquireWorkingStateSaverMock).toHaveBeenCalledOnce();
     expect(createDeepAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -284,6 +295,9 @@ describe('createDeepAgentRuntime', () => {
     expect(params.interruptOn.delete_file).toEqual({ allowedDecisions: ['approve', 'reject'] });
     expect(params.interruptOn.remove_file).toBeUndefined();
     expect(loadMcpToolsMock).toHaveBeenCalledWith('agent-1', [], []);
+    expect(releaseRuntimeUseMock).not.toHaveBeenCalled();
+    await runtime.cleanup();
+    expect(releaseRuntimeUseMock).toHaveBeenCalledOnce();
   });
 
   it('does not assemble an Agent runtime while Working State maintenance is locked', async () => {
@@ -291,7 +305,7 @@ describe('createDeepAgentRuntime', () => {
       new Error('Conversation Working State is temporarily unavailable during maintenance.'),
       { code: 'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED', recoverable: true }
     );
-    acquireWorkingStateSaverMock.mockImplementationOnce(() => {
+    beginRuntimeUseMock.mockImplementationOnce(() => {
       throw maintenanceError;
     });
 
@@ -300,6 +314,7 @@ describe('createDeepAgentRuntime', () => {
       'session-1',
       { id: 'message-1', content: '新问题' }
     )).rejects.toBe(maintenanceError);
+    expect(acquireWorkingStateSaverMock).not.toHaveBeenCalled();
     expect(createDeepAgentMock).not.toHaveBeenCalled();
   });
 

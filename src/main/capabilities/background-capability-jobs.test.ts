@@ -97,6 +97,44 @@ afterEach(async () => {
 });
 
 describe('BackgroundCapabilityJobService safety lifecycle', () => {
+  it('does not submit, resume, or resubmit work while Working State maintenance is locked', async () => {
+    const db = database();
+    const dir = await projectDir();
+    const queue = scheduler();
+    let maintenanceLocked = false;
+    const maintenanceError = Object.assign(new Error('maintenance'), {
+      code: 'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED',
+    });
+    const service = new BackgroundCapabilityJobService(db, {
+      resolveProject: () => ({ id: 'project-1', path: dir }),
+      resolveRoute: () => ({ enabled: true, fetch: vi.fn() }),
+      download: async () => ({ bytes: Buffer.from('video'), mimeType: 'video/mp4' }),
+      schedule: queue.schedule,
+      beginWorkingStateUse: () => {
+        if (maintenanceLocked) throw maintenanceError;
+        return () => undefined;
+      },
+    });
+    const submitted = await service.submitVideo({ prompt: 'guarded work' }, dir);
+    if (!submitted.ok) throw new Error('fixture submission failed');
+
+    maintenanceLocked = true;
+    await expect(service.submitVideo({ prompt: 'blocked work' }, dir)).rejects.toBe(maintenanceError);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM capability_jobs').get()).toEqual({ count: 1 });
+
+    db.prepare(`UPDATE capability_jobs
+      SET status = 'tracking_stopped', provider_task_id = 'provider-1'
+      WHERE id = ?`).run(submitted.jobId);
+    expect(() => service.resumeTracking('project-1', submitted.jobId)).toThrow(maintenanceError);
+    expect(service.get('project-1', submitted.jobId)).toMatchObject({ status: 'tracking_stopped' });
+
+    db.prepare(`UPDATE capability_jobs
+      SET status = 'submission_unknown', provider_task_id = NULL
+      WHERE id = ?`).run(submitted.jobId);
+    expect(() => service.resubmit('project-1', submitted.jobId)).toThrow(maintenanceError);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM capability_jobs').get()).toEqual({ count: 1 });
+  });
+
   it('does not create a Job after its source Conversation has been deleted', async () => {
     const db = database();
     db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL)');

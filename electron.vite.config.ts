@@ -22,6 +22,10 @@ export default defineConfig({
           'conversation-working-state-reconciliation-worker': resolve(
             __dirname,
             'src/main/deepagent/conversation-working-state-reconciliation-worker.ts'
+          ),
+          'conversation-working-state-compaction-worker': resolve(
+            __dirname,
+            'src/main/deepagent/conversation-working-state-compaction-worker.ts'
           )
         },
         external: ['canvas', '@napi-rs/canvas']

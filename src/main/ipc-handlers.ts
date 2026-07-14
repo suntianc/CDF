@@ -198,6 +198,9 @@ export function registerIpcHandlers() {
   typedHandle('conversation:get-active-run', (_event, sessionId) =>
     conversationRunStreams.getActive(sessionId)
   );
+  typedHandle('working-state:get-storage-status', () =>
+    conversationWorkingStateLifecycle.getStorageStatus()
+  );
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (existing) return;

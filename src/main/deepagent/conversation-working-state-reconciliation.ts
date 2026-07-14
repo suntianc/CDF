@@ -10,7 +10,10 @@ export interface ConversationWorkingStateReconciliationResult {
   deletedThreadCount: number;
 }
 
-function tableExists(db: Database.Database, tableName: string): boolean {
+export function conversationWorkingStateTableExists(
+  db: Database.Database,
+  tableName: string
+): boolean {
   return Boolean(db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1"
   ).get(tableName));
@@ -25,8 +28,8 @@ export function reconcileOrphanConversationWorkingState(
 
   const db = new Database(request.checkpointDatabasePath, { fileMustExist: true });
   try {
-    const hasCheckpoints = tableExists(db, 'checkpoints');
-    const hasWrites = tableExists(db, 'writes');
+    const hasCheckpoints = conversationWorkingStateTableExists(db, 'checkpoints');
+    const hasWrites = conversationWorkingStateTableExists(db, 'writes');
     if (!hasCheckpoints && !hasWrites) {
       return { deletedThreadCount: 0 };
     }

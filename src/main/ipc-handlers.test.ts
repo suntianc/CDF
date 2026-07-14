@@ -172,6 +172,28 @@ describe('IPC handlers', () => {
     expect(parallelTaskStepChannel('session-9')).toBe('agent:parallel-task-step-session-9');
   });
 
+  it('exposes only safe Conversation storage status through IPC', () => {
+    registerIpcHandlers();
+    const handler = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'working-state:get-storage-status'
+    )?.[1];
+    expect(handler).toBeTypeOf('function');
+
+    const result = handler({});
+
+    expect(Object.keys(result).sort()).toEqual([
+      'blockedReason',
+      'estimatedReclaimableBytes',
+      'failureReason',
+      'maintenancePhase',
+      'phase',
+      'physicalBytes',
+    ]);
+    expect(result.physicalBytes).toBeTypeOf('number');
+    expect(result.estimatedReclaimableBytes).toBeLessThanOrEqual(result.physicalBytes);
+    expect(JSON.stringify(result)).not.toMatch(/path|sql|table|checkpoint|thread|database/i);
+  });
+
   it('opens external http urls through the system browser shell', async () => {
     registerIpcHandlers();
     const openExternalHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'shell:openExternalUrl')?.[1];

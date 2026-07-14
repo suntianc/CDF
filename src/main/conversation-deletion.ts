@@ -33,7 +33,8 @@ export class ProjectDeleteError extends Error {
   }
 }
 
-type WorkingStateDeletion = Pick<ConversationWorkingStateLifecycle, 'deleteThread'>;
+type WorkingStateDeletion = Pick<ConversationWorkingStateLifecycle, 'deleteThread'>
+  & Partial<Pick<ConversationWorkingStateLifecycle, 'assertConversationDeletionAllowed'>>;
 type ConversationDeletionBlocker = 'active-agent-run' | 'active-capability-job';
 
 function tableExists(db: Database.Database, tableName: string): boolean {
@@ -127,6 +128,7 @@ export async function deleteConversation(
   sessionId: string,
   workingState: WorkingStateDeletion
 ): Promise<void> {
+  workingState.assertConversationDeletionAllowed?.();
   db.transaction(() => {
     assertConversationCanBeDeleted(db, sessionId);
     db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
@@ -146,6 +148,7 @@ export async function deleteProject(
       'The default Project cannot be deleted.'
     );
   }
+  workingState.assertConversationDeletionAllowed?.();
 
   const sessionIds = db.transaction(() => {
     const sessions = db.prepare('SELECT id FROM sessions WHERE project_id = ?')

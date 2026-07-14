@@ -63,6 +63,7 @@ import type {
   CapabilityJobSnapshot,
 } from './capability-jobs';
 import type { SkillOverrideState } from './skill-overrides';
+import type { ConversationWorkingStateStorageStatus } from './conversation-working-state';
 import type {
   AISubscriptionCapabilityRoute,
   AISubscriptionEntry,
@@ -126,6 +127,10 @@ export interface IpcInvokeContract {
   'conversation:get-active-run': {
     args: [sessionId: string];
     result: ConversationRunStreamSnapshot | null;
+  };
+  'working-state:get-storage-status': {
+    args: [];
+    result: ConversationWorkingStateStorageStatus;
   };
   // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
   'db:getAgents': { args: [projectId: string]; result: Agent[] };
@@ -351,6 +356,7 @@ export const IPC_INVOKE_CHANNELS = [
   'capability-jobs:list',
   'capability-jobs:command',
   'conversation:get-active-run',
+  'working-state:get-storage-status',
   'db:getAgents',
   'db:saveAgent',
   'db:deleteAgent',

@@ -126,6 +126,7 @@ export interface CapabilityJobServiceDeps extends VideoInputSnapshotDeps {
   schedule?: (task: () => void) => void;
   submissionTimeoutMs?: number;
   removeInputSnapshot?: (projectPath: string, jobId: string) => Promise<void>;
+  beginWorkingStateUse?: () => () => void;
 }
 
 const ACTIVE_SLOT_STATUSES: CapabilityJobStatus[] = [
@@ -202,7 +203,29 @@ export class BackgroundCapabilityJobService {
     initializeCapabilityJobSchema(db);
   }
 
+  private withWorkingStateUse<T>(operation: () => T): T {
+    const releaseWorkingState = this.deps.beginWorkingStateUse?.() ?? (() => undefined);
+    try {
+      return operation();
+    } finally {
+      releaseWorkingState();
+    }
+  }
+
   async submitVideo(
+    input: BackgroundGenerateVideoInput,
+    projectPath?: string,
+    sourceSessionId?: string
+  ): Promise<CapabilityJobSubmissionResult> {
+    const releaseWorkingState = this.deps.beginWorkingStateUse?.() ?? (() => undefined);
+    try {
+      return await this.submitVideoWithWorkingStateUse(input, projectPath, sourceSessionId);
+    } finally {
+      releaseWorkingState();
+    }
+  }
+
+  private async submitVideoWithWorkingStateUse(
     input: BackgroundGenerateVideoInput,
     projectPath?: string,
     sourceSessionId?: string
@@ -376,40 +399,44 @@ export class BackgroundCapabilityJobService {
     return { ok: true, job: this.toSnapshot(this.getRow(jobId)!) };
   }
   resumeTracking(projectId: string, jobId: string): CapabilityJobCommandResult {
-    const row = this.findProjectRow(projectId, jobId);
-    if (!row || !['tracking_stopped', 'blocked'].includes(row.status) || !row.provider_task_id) {
-      return { ok: false, error: 'Only a stopped or blocked submitted Job can resume tracking', code: 'INVALID_STATE' };
-    }
-    this.updateState(jobId, 'submitted', null, null);
-    this.scheduleJob(jobId);
-    return { ok: true, job: this.toSnapshot(this.getRow(jobId)!) };
+    return this.withWorkingStateUse(() => {
+      const row = this.findProjectRow(projectId, jobId);
+      if (!row || !['tracking_stopped', 'blocked'].includes(row.status) || !row.provider_task_id) {
+        return { ok: false, error: 'Only a stopped or blocked submitted Job can resume tracking', code: 'INVALID_STATE' };
+      }
+      this.updateState(jobId, 'submitted', null, null);
+      this.scheduleJob(jobId);
+      return { ok: true, job: this.toSnapshot(this.getRow(jobId)!) };
+    });
   }
 
   resubmit(projectId: string, jobId: string): CapabilityJobCommandResult {
-    const source = this.findProjectRow(projectId, jobId);
-    if (!source || source.status !== 'submission_unknown') {
-      return { ok: false, error: 'Only an unknown submission can be explicitly resubmitted', code: 'INVALID_STATE' };
-    }
-    if (source.details_pruned) {
-      return {
-        ok: false,
-        error: 'The retained input snapshot was cleaned up; provide the first-frame image again',
-        code: 'INPUT_SNAPSHOT_REQUIRED',
-      };
-    }
-    const id = crypto.randomUUID();
-    const now = (this.deps.now ?? Date.now)();
-    this.db.prepare(`INSERT INTO capability_jobs
-      (id, project_id, project_path, type, status, input, provider, connection_id,
-       provider_task_id, source_session_id, related_job_id, artifacts, error,
-       status_message, submission_attempted, created_at, updated_at)
-      VALUES (?, ?, ?, 'video.generate', 'queued', ?, ?, ?, NULL, ?, ?, '[]', NULL,
-       'explicit_resubmission_risk', 0, ?, ?)`)
-      .run(id, source.project_id, source.project_path, source.input, source.provider,
-        source.connection_id, source.source_session_id, source.id, now, now);
-    this.emit(id);
-    this.schedulePump(source.connection_id);
-    return { ok: true, job: this.toSnapshot(this.getRow(id)!) };
+    return this.withWorkingStateUse(() => {
+      const source = this.findProjectRow(projectId, jobId);
+      if (!source || source.status !== 'submission_unknown') {
+        return { ok: false, error: 'Only an unknown submission can be explicitly resubmitted', code: 'INVALID_STATE' };
+      }
+      if (source.details_pruned) {
+        return {
+          ok: false,
+          error: 'The retained input snapshot was cleaned up; provide the first-frame image again',
+          code: 'INPUT_SNAPSHOT_REQUIRED',
+        };
+      }
+      const id = crypto.randomUUID();
+      const now = (this.deps.now ?? Date.now)();
+      this.db.prepare(`INSERT INTO capability_jobs
+        (id, project_id, project_path, type, status, input, provider, connection_id,
+         provider_task_id, source_session_id, related_job_id, artifacts, error,
+         status_message, submission_attempted, created_at, updated_at)
+        VALUES (?, ?, ?, 'video.generate', 'queued', ?, ?, ?, NULL, ?, ?, '[]', NULL,
+         'explicit_resubmission_risk', 0, ?, ?)`)
+        .run(id, source.project_id, source.project_path, source.input, source.provider,
+          source.connection_id, source.source_session_id, source.id, now, now);
+      this.emit(id);
+      this.schedulePump(source.connection_id);
+      return { ok: true, job: this.toSnapshot(this.getRow(id)!) };
+    });
   }
 
   resumePending(): void {

@@ -33,6 +33,9 @@ const api = {
     get: (key: string) => typedInvoke('store:get', key),
     set: (key: string, value: unknown) => typedInvoke('store:set', key, value),
   },
+  workingState: {
+    getStorageStatus: () => typedInvoke('working-state:get-storage-status'),
+  },
   aiSubscriptions: {
     getEntries: () => typedInvoke('aiSubscriptions:getEntries'),
     getActiveLogins: () => typedInvoke('aiSubscriptions:getActiveLogins'),

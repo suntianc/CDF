@@ -10,6 +10,7 @@ import {
   createConversationWorkingStateLifecycle,
   type ConversationWorkingStateLifecycle,
 } from './conversation-working-state';
+import type { ConversationWorkingStateCompactionRunnerContract } from './conversation-working-state-compaction-runner';
 
 function checkpoint(id: string, value: string): Checkpoint {
   return {
@@ -127,8 +128,10 @@ describe('ConversationWorkingStateLifecycle', () => {
       runner
     );
 
-    expect(lifecycle.getStorageStatus()).toEqual({
+    expect(lifecycle.getStorageStatus()).toMatchObject({
       phase: 'analyzing',
+      maintenancePhase: 'reconciling',
+      blockedReason: null,
       failureReason: null,
     });
     expect(() => lifecycle.acquireSaver()).toThrowError(
@@ -141,8 +144,10 @@ describe('ConversationWorkingStateLifecycle', () => {
 
     resolveReconciliation({ deletedThreadCount: 2 });
     await expect(reconciliation).resolves.toEqual({ ok: true, deletedThreadCount: 2 });
-    expect(lifecycle.getStorageStatus()).toEqual({
+    expect(lifecycle.getStorageStatus()).toMatchObject({
       phase: 'normal',
+      maintenancePhase: null,
+      blockedReason: null,
       failureReason: null,
     });
     expect(lifecycle.acquireSaver()).toBeDefined();
@@ -160,11 +165,186 @@ describe('ConversationWorkingStateLifecycle', () => {
       failureReason: STARTUP_RECONCILIATION_FAILED,
       error: failure,
     });
-    expect(lifecycle.getStorageStatus()).toEqual({
+    expect(lifecycle.getStorageStatus()).toMatchObject({
       phase: 'failed',
+      maintenancePhase: null,
+      blockedReason: null,
       failureReason: STARTUP_RECONCILIATION_FAILED,
     });
     expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('rejects compaction while a runtime is initializing before its run record exists', async () => {
+    const releaseRuntime = lifecycle.beginRuntimeUse();
+    const runner: ConversationWorkingStateCompactionRunnerContract = { run: vi.fn() };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => [],
+      runner
+    )).resolves.toEqual({ ok: false, blockedReason: 'ACTIVE_AGENT_RUN' });
+
+    expect(runner.run).not.toHaveBeenCalled();
+    releaseRuntime();
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('rejects compaction while a Background Capability Job is being created', async () => {
+    const releaseJob = lifecycle.beginCapabilityJobUse();
+    const runner: ConversationWorkingStateCompactionRunnerContract = { run: vi.fn() };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => [],
+      runner
+    )).resolves.toEqual({ ok: false, blockedReason: 'ACTIVE_CAPABILITY_JOB' });
+
+    expect(runner.run).not.toHaveBeenCalled();
+    releaseJob();
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('rejects compaction without closing or mutating an acquired saver while work is active', async () => {
+    const saver = lifecycle.acquireSaver();
+    await saver.put(
+      { configurable: { thread_id: 'conversation-1', checkpoint_ns: '' } },
+      checkpoint('checkpoint-active', 'retained'),
+      metadata
+    );
+    const runner: ConversationWorkingStateCompactionRunnerContract = { run: vi.fn() };
+
+    await expect(lifecycle.compact(
+      () => 'ACTIVE_DELEGATED_AGENT_RUN',
+      () => ['conversation-1'],
+      runner
+    )).resolves.toEqual({ ok: false, blockedReason: 'ACTIVE_DELEGATED_AGENT_RUN' });
+
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(lifecycle.acquireSaver()).toBe(saver);
+    await expect(saver.getTuple({
+      configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
+    })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-active' } });
+    expect(lifecycle.getStorageStatus()).toMatchObject({
+      phase: 'normal',
+      blockedReason: 'ACTIVE_DELEGATED_AGENT_RUN',
+      failureReason: null,
+    });
+  });
+
+  it('closes coherently, reports real phases, and lazily reopens after compaction', async () => {
+    const saver = lifecycle.acquireSaver();
+    await saver.put(
+      { configurable: { thread_id: 'conversation-1', checkpoint_ns: '' } },
+      checkpoint('checkpoint-before-compaction', 'retained'),
+      metadata
+    );
+    const physicalBytesBefore = lifecycle.getStorageStatus().physicalBytes;
+    let saverDuringRun: ReturnType<ConversationWorkingStateLifecycle['acquireSaver']> | undefined;
+    const runner: ConversationWorkingStateCompactionRunnerContract = {
+      run: vi.fn(async (request, onPhase) => {
+        expect(request.liveThreadIds).toEqual(['conversation-1']);
+        const walPath = `${request.checkpointDatabasePath}-wal`;
+        expect(fs.existsSync(walPath) ? fs.statSync(walPath).size : 0).toBe(0);
+        expect(() => lifecycle.acquireSaver()).toThrowError(
+          expect.objectContaining({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED })
+        );
+        await expect(lifecycle.deleteThread('conversation-1')).rejects.toMatchObject({
+          code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED,
+        });
+        expect(() => lifecycle.assertConversationDeletionAllowed()).toThrowError(
+          expect.objectContaining({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED })
+        );
+        onPhase?.('rebuilding');
+        const movedPath = `${request.checkpointDatabasePath}.worker-owned`;
+        fs.renameSync(request.checkpointDatabasePath, movedPath);
+        expect(lifecycle.getStorageStatus()).toMatchObject({
+          phase: 'optimizing',
+          maintenancePhase: 'rebuilding',
+          physicalBytes: physicalBytesBefore,
+        });
+        fs.renameSync(movedPath, request.checkpointDatabasePath);
+        saverDuringRun = saver;
+        return { physicalBytesBefore: 4096, physicalBytesAfter: 2048 };
+      }),
+    };
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => ['conversation-1'],
+      runner
+    )).resolves.toEqual({ ok: true, physicalBytesBefore: 4096, physicalBytesAfter: 2048 });
+
+    const reopened = lifecycle.acquireSaver();
+    expect(reopened).not.toBe(saverDuringRun);
+    await expect(reopened.getTuple({
+      configurable: { thread_id: 'conversation-1', checkpoint_ns: '' },
+    })).resolves.toMatchObject({ checkpoint: { id: 'checkpoint-before-compaction' } });
+    expect(lifecycle.getStorageStatus()).toMatchObject({
+      phase: 'normal',
+      maintenancePhase: null,
+      blockedReason: null,
+      failureReason: null,
+    });
+  });
+
+  it('keeps the maintenance lock owned by the first concurrent compaction', async () => {
+    let finishCompaction!: () => void;
+    const runner: ConversationWorkingStateCompactionRunnerContract = {
+      run: vi.fn(() => new Promise<{ physicalBytesBefore: number; physicalBytesAfter: number }>((resolve) => {
+        finishCompaction = () => resolve({ physicalBytesBefore: 0, physicalBytesAfter: 0 });
+      })),
+    };
+    const first = lifecycle.compact(() => null, () => [], runner);
+    await vi.waitFor(() => expect(runner.run).toHaveBeenCalledOnce());
+
+    await expect(lifecycle.compact(() => null, () => [], runner)).rejects.toMatchObject({
+      code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED,
+    });
+    expect(() => lifecycle.acquireSaver()).toThrowError(
+      expect.objectContaining({ code: CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED })
+    );
+
+    finishCompaction();
+    await expect(first).resolves.toEqual({
+      ok: true,
+      physicalBytesBefore: 0,
+      physicalBytesAfter: 0,
+    });
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('records a stable compaction failure and always releases the maintenance lock', async () => {
+    const error = Object.assign(new Error('disk full'), { code: 'INSUFFICIENT_DISK_SPACE' });
+
+    await expect(lifecycle.compact(
+      () => null,
+      () => [],
+      { run: vi.fn(async () => { throw error; }) }
+    )).resolves.toEqual({
+      ok: false,
+      failureReason: 'INSUFFICIENT_DISK_SPACE',
+      error,
+    });
+
+    expect(lifecycle.getStorageStatus()).toMatchObject({
+      phase: 'failed',
+      maintenancePhase: null,
+      failureReason: 'INSUFFICIENT_DISK_SPACE',
+    });
+    expect(lifecycle.acquireSaver()).toBeDefined();
+  });
+
+  it('reports a stable inspection failure without exposing the underlying file error', () => {
+    fs.writeFileSync(path.join(tempDir, 'deepagents-checkpoints.db'), 'not sqlite');
+
+    expect(lifecycle.getStorageStatus()).toEqual({
+      phase: 'failed',
+      maintenancePhase: null,
+      physicalBytes: 10,
+      estimatedReclaimableBytes: 0,
+      blockedReason: null,
+      failureReason: 'STORAGE_INSPECTION_FAILED',
+    });
   });
 
   it('lazily reopens the saver without losing the checkpoint chain', async () => {

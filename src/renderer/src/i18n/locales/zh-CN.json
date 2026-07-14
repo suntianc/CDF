@@ -382,9 +382,31 @@
       "label": "文件自动保存",
       "desc": "编辑文件后自动保存更改，无需手动按 Cmd/Ctrl+S"
     },
-    "more": {
-      "title": "更多高级设置",
-      "placeholderDesc": "后续更新中，这里将逐步添加：全局快捷键配置、网络代理设置、日志保存级别、本地缓存数据一键导出与清理等通用面板选项。"
+    "workingState": {
+      "title": "会话存储",
+      "currentUsage": "当前占用",
+      "estimatedReclaimable": "预计可释放",
+      "status": "状态",
+      "refresh": "刷新存储状态",
+      "loading": "正在加载存储状态",
+      "unavailable": "无法获取存储状态",
+      "phase": {
+        "normal": "正常",
+        "analyzing": "正在分析",
+        "optimizing": "正在优化"
+      },
+      "blocked": {
+        "ACTIVE_AGENT_RUN": "等待当前任务结束",
+        "ACTIVE_DELEGATED_AGENT_RUN": "等待委派任务结束",
+        "ACTIVE_CAPABILITY_JOB": "等待后台任务结束"
+      },
+      "failure": {
+        "STARTUP_RECONCILIATION_FAILED": "启动存储检查失败",
+        "STORAGE_INSPECTION_FAILED": "存储检查失败",
+        "INSUFFICIENT_DISK_SPACE": "可用空间不足",
+        "INTEGRITY_CHECK_FAILED": "存储验证失败",
+        "COMPACTION_FAILED": "存储优化失败"
+      }
     },
     "model": {
       "providersList": "模型供应商列表 ({{count}})",

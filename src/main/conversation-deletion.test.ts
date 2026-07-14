@@ -103,6 +103,24 @@ function createDatabase(options: { withCapabilityJobs?: boolean; withDelegatedRu
 }
 
 describe('deleteConversation', () => {
+  it('does not delete business or Working State records during compaction', async () => {
+    const { db, deleteAttempts } = createDatabase();
+    const maintenanceError = Object.assign(new Error('maintenance'), {
+      code: 'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED',
+    });
+    const deleteThread = vi.fn(async () => undefined);
+
+    await expect(deleteConversation(db, 'conversation-1', {
+      deleteThread,
+      assertConversationDeletionAllowed: () => { throw maintenanceError; },
+    })).rejects.toBe(maintenanceError);
+
+    expect(deleteAttempts()).toBe(0);
+    expect(db.prepare("SELECT id FROM sessions WHERE id = 'conversation-1'").get())
+      .toEqual({ id: 'conversation-1' });
+    expect(deleteThread).not.toHaveBeenCalled();
+  });
+
   it('deletes the Conversation and its Working State after the business commit', async () => {
     const { db } = createDatabase();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-conversation-delete-'));

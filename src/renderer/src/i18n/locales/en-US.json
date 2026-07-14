@@ -382,9 +382,31 @@
       "label": "Auto Save Files",
       "desc": "Automatically save file changes without pressing Cmd/Ctrl+S"
     },
-    "more": {
-      "title": "More advanced settings",
-      "placeholderDesc": "Coming soon: global shortcut configuration, network proxy settings, log save level, local cache export & cleanup, and other general panel options."
+    "workingState": {
+      "title": "Conversation storage",
+      "currentUsage": "Current usage",
+      "estimatedReclaimable": "Estimated reclaimable",
+      "status": "Status",
+      "refresh": "Refresh storage status",
+      "loading": "Loading storage status",
+      "unavailable": "Storage status unavailable",
+      "phase": {
+        "normal": "Ready",
+        "analyzing": "Analyzing",
+        "optimizing": "Optimizing"
+      },
+      "blocked": {
+        "ACTIVE_AGENT_RUN": "Waiting for active work",
+        "ACTIVE_DELEGATED_AGENT_RUN": "Waiting for delegated work",
+        "ACTIVE_CAPABILITY_JOB": "Waiting for background work"
+      },
+      "failure": {
+        "STARTUP_RECONCILIATION_FAILED": "Startup storage check failed",
+        "STORAGE_INSPECTION_FAILED": "Storage check failed",
+        "INSUFFICIENT_DISK_SPACE": "Not enough free space",
+        "INTEGRITY_CHECK_FAILED": "Storage validation failed",
+        "COMPACTION_FAILED": "Storage optimization failed"
+      }
     },
     "model": {
       "providersList": "Model providers list ({{count}})",

@@ -493,8 +493,8 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         payload.agentId,
         payload.overrides
       );
-      if (!payload.resume) resumeWorkflowRunFromInput(payload.sessionId);
       cleanup = runtime.cleanup;
+      if (!payload.resume) resumeWorkflowRunFromInput(payload.sessionId);
       activeRuntimes.set(requestId, runtime);
 
     const runId = createRun(payload.sessionId, runtime.agentId, requestId);

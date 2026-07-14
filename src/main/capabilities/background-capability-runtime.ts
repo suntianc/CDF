@@ -6,6 +6,7 @@ import { createOAuthAuthenticatedFetch } from '../ai-subscription-runtime';
 import { getAISubscriptionEntries } from '../ai-subscription-store';
 import db from '../database';
 import log from '../logger';
+import { conversationWorkingStateLifecycle } from '../deepagent/conversation-working-state';
 import {
   BackgroundCapabilityJobService,
   createMiniMaxAuthenticatedFetch,
@@ -181,6 +182,7 @@ function getBackgroundCapabilityJobService(): BackgroundCapabilityJobService {
     },
     recordTerminal: (job) => getContinuationCoordinator().enqueue(job),
     emit: (event) => emitCapabilityJob(event.projectId, event.job.id),
+    beginWorkingStateUse: () => conversationWorkingStateLifecycle.beginCapabilityJobUse(),
   });
   return service;
 }

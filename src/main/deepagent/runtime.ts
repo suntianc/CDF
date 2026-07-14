@@ -604,6 +604,32 @@ export async function createDeepAgentRuntime(
   overrides?: RuntimeModelOverrides,
   subagentIds?: string[]  // D-17: agent IDs to configure as subagents
 ) {
+  const releaseWorkingState = conversationWorkingStateLifecycle.beginRuntimeUse();
+  try {
+    return await buildDeepAgentRuntime(
+      projectId,
+      sessionId,
+      currentMessage,
+      agentId,
+      overrides,
+      subagentIds,
+      releaseWorkingState,
+    );
+  } catch (error) {
+    releaseWorkingState();
+    throw error;
+  }
+}
+
+async function buildDeepAgentRuntime(
+  projectId: string,
+  sessionId: string,
+  currentMessage: RuntimeInputMessage,
+  agentId: string | null | undefined,
+  overrides: RuntimeModelOverrides | undefined,
+  subagentIds: string[] | undefined,
+  releaseWorkingState: () => void,
+) {
   const project = getProject(projectId);
   const agentRow = getRuntimeAgent(projectId, agentId);
   const backend = new CompositeBackend(new StateBackend(), {
@@ -919,6 +945,7 @@ export async function createDeepAgentRuntime(
     cancelDelegatedRuns: delegatedRunCoordinator.cancelParent.bind(delegatedRunCoordinator),
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
+      releaseWorkingState();
     },
   };
 }
