@@ -329,7 +329,9 @@ describe('Conversation Working State compaction engine', () => {
     child.stdout.on('data', (chunk) => {
       childOutput += chunk.toString();
     });
-    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    const closed = new Promise<NodeJS.Signals | null>((resolve) => {
+      child.once('close', (_code, signal) => resolve(signal));
+    });
     await new Promise<void>((resolve, reject) => {
       const poll = setInterval(() => {
         if (childOutput.includes('completed')) {
@@ -361,7 +363,23 @@ describe('Conversation Working State compaction engine', () => {
         reject(error);
       });
     });
-    await closed;
+    expect(await closed).toBe('SIGKILL');
+    let temporaryContainsCompleteRebuild = false;
+    try {
+      const interrupted = new Database(temporaryPath, { readonly: true, fileMustExist: true });
+      try {
+        const paddingCount = interrupted
+          .prepare('SELECT COUNT(*) AS count FROM rebuild_padding')
+          .get() as { count: number };
+        temporaryContainsCompleteRebuild = interrupted.pragma('integrity_check', { simple: true }) === 'ok'
+          && paddingCount.count === 96;
+      } finally {
+        interrupted.close();
+      }
+    } catch {
+      // A partial SQLite file is the expected evidence of interruption during VACUUM INTO.
+    }
+    expect(temporaryContainsCompleteRebuild).toBe(false);
 
     expect(recoverInterruptedConversationWorkingStateCompaction(databasePath)).toBe(false);
 
