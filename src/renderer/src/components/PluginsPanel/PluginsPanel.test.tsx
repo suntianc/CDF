@@ -45,6 +45,9 @@ describe('PluginsPanel Skills tab', () => {
       electronAPI: {
         skills: { getGlobalSceneExposure, setGlobalSceneExposure },
         db: {
+          getGlobalSkills: vi.fn(async () => useSkillStore.getState().skills.filter(
+            (skill) => skill.sourceKind === 'built-in' || skill.sourceKind === 'user',
+          )),
           selectDirectory: vi.fn(async () => null),
           importSkillDirectory: vi.fn(async () => undefined),
         },

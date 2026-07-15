@@ -74,6 +74,9 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   }, [skillDropdownOpen]);
 
   const skillContainerRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const initialFocusRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
   const isMasterAgent = editingAgent?.role === 'master' || editingAgent?.slug === 'master-agent';
   const isProtectedAgent = editingAgent?.is_protected === true || isMasterAgent || editingAgent?.slug === 'general-purpose';
@@ -87,6 +90,39 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    initialFocusRef.current?.focus();
+    return () => {
+      returnFocusRef.current?.focus();
+    };
+  }, [isOpen]);
+
+  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusable?.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   // Initialize/Reset form states when agentId changes
   useEffect(() => {
@@ -259,12 +295,12 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
     return (
       <div className="modal-overlay visible z-50">
-        <div className="modal animate-fade-in w-[95%] max-w-[760px] flex flex-col p-0">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="agent-edit-dialog-title" onKeyDown={handleDialogKeyDown} className="modal animate-fade-in w-[95%] max-w-[760px] flex flex-col p-0">
           <div className="flex justify-between items-center px-6 py-4 border-b border-[var(--color-border)] shrink-0">
-            <span className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
+            <h2 id="agent-edit-dialog-title" className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
               <Bot className="w-5 h-5 text-[var(--color-accent)]" />
               <span>{t('agent.editTitle', { name: editingAgent.name })}</span>
-            </span>
+            </h2>
             <button
               onClick={onClose}
               className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-[background-color,color] duration-150 cursor-pointer"
@@ -289,6 +325,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
             <div className="form-group flex flex-col min-h-[280px]">
               <label className="form-label">{t('agent.systemPromptLabel')}</label>
               <textarea
+                ref={initialFocusRef}
                 className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
                 value={formSystemPrompt}
                 onChange={(e) => setFormSystemPrompt(e.target.value)}

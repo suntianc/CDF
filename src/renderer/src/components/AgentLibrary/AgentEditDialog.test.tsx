@@ -236,6 +236,39 @@ describe('AgentEditDialog', () => {
     expect(resetMasterAgentPrompt).toHaveBeenCalledWith('project-1');
   });
 
+  it('makes the Master prompt modal an accessible, keyboard-trapped dialog and restores trigger focus', () => {
+    const onClose = vi.fn();
+    useAgentStore.setState({
+      agents: [{
+        id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent',
+        role: 'master', is_protected: true, system_prompt: 'General complete prompt', is_default: 1,
+        created_at: 0, updated_at: 0,
+      }],
+    });
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const { unmount } = render(
+      <AgentEditDialog isOpen agentId="master-1" onClose={onClose} showToast={vi.fn()} />,
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByPlaceholderText(/Enter detailed system prompt/i));
+
+    screen.getByRole('button', { name: /Close modal/i }).focus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Save/i }));
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
   it('shows the protected General-purpose identity and inherited model selection', () => {
     useAgentStore.setState({
       agents: [{

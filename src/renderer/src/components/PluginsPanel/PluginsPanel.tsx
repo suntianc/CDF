@@ -103,16 +103,24 @@ export function PluginsPanel() {
 // ==================== SKILLS TAB ====================
 function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type']) => void }) {
   const { t } = useTranslation();
-  const { skills, fetchSkills, deleteSkill } = useSkillStore();
+  const { deleteSkill } = useSkillStore();
   const { currentProjectId } = useProjectStore();
 
+  const [skills, setSkills] = useState<ReturnType<typeof useSkillStore.getState>['skills']>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [sceneExposures, setSceneExposures] = useState<Record<string, SceneSkillExposure>>({});
 
   useEffect(() => {
-    if (!currentProjectId) return;
-    fetchSkills(currentProjectId);
-  }, [currentProjectId, fetchSkills]);
+    let cancelled = false;
+    window.electronAPI.db.getGlobalSkills()
+      .then((globalSkills) => {
+        if (!cancelled) setSkills(globalSkills);
+      })
+      .catch(() => {
+        if (!cancelled) setSkills([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +146,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
       const dirPath = await window.electronAPI.db.selectDirectory();
       if (!dirPath) return;
       await window.electronAPI.db.importSkillDirectory(dirPath);
-      if (currentProjectId) await fetchSkills(currentProjectId);
+      setSkills(await window.electronAPI.db.getGlobalSkills());
       showToast(t('plugins.skillImportSuccess'), 'success');
     } catch (error: unknown) {
       showToast(getUnknownErrorMessage(error) || t('plugins.skillImportError'), 'error');
@@ -149,6 +157,7 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
     if (confirm(t('plugins.skillDeleteConfirm', { name }))) {
       try {
         await deleteSkill(currentProjectId || 'default-project', id);
+        setSkills(await window.electronAPI.db.getGlobalSkills());
         showToast(t('plugins.skillDeleted', { name }), 'success');
       } catch (err) {
         showToast(t('plugins.skillDeleteError'), 'error');

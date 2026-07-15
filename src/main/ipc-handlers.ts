@@ -21,6 +21,7 @@ import { ensureFileWatcher, watchDirectory, unwatchDirectory } from './services/
 import {
   listPhysicalSkills,
   listResolvedSkillViews,
+  listGlobalSkillViews,
   savePhysicalSkill,
   deletePhysicalSkill,
   importPhysicalSkillDirectory,
@@ -695,7 +696,7 @@ export function registerIpcHandlers() {
   typedHandle('db:getAgents', (_, projectId) => {
     ensureMasterAgent(db, projectId);
     ensureGeneralPurposeAgent(db, projectId);
-    const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
+    const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
     return agents.map(a => {
       const mcpExclusions = db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(a.id) as any[];
       const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
@@ -711,7 +712,7 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('db:saveAgent', (_, agent) => {
-    const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerExclusionIds, skillNames } = agent;
+    const { id, project_id, name, description, provider_id, system_prompt, config, mcpServerExclusionIds, skillNames } = agent;
     const current = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as any;
     if (current && isMasterAgent(current)) {
       const allowedFields = new Set(['id', 'project_id', 'system_prompt']);
@@ -743,9 +744,6 @@ export function registerIpcHandlers() {
     const configStr = config ? JSON.stringify(config) : null;
 
     const runTx = db.transaction(() => {
-      if (is_default) {
-        db.prepare('UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ?').run(now, project_id);
-      }
       const existing = db.prepare('SELECT id, slug, name FROM agents WHERE id = ?').get(id) as
         | { id: string; slug: string | null; name: string }
         | undefined;
@@ -767,12 +765,12 @@ export function registerIpcHandlers() {
         db.prepare(`
           UPDATE agents SET project_id = ?, name = ?, slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
           WHERE id = ?
-        `).run(project_id, name, nextSlug, description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, id);
+        `).run(project_id, name, nextSlug, description || null, provider_id || null, system_prompt || null, configStr, 0, now, id);
       } else {
         db.prepare(`
           INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, project_id, name, ensureUniqueSlug(project_id, generateSlug(name) || 'agent', now), description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, now);
+        `).run(id, project_id, name, ensureUniqueSlug(project_id, generateSlug(name) || 'agent', now), description || null, provider_id || null, system_prompt || null, configStr, 0, now, now);
       }
 
       db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(id);
@@ -811,7 +809,7 @@ export function registerIpcHandlers() {
       provider_id, 
       system_prompt, 
       config,
-      is_default: is_default ? 1 : 0,
+      is_default: 0,
       mcpServerExclusionIds: mcpServerExclusionIds || [],
       skillNames: skillNames || []
     };
@@ -847,6 +845,12 @@ export function registerIpcHandlers() {
     }
     // 主进程内部视图类型（PhysicalSkillView）宽于共享 Skill（string vs 字面量联合）
     return listResolvedSkillViews(project.path) as Skill[];
+  });
+
+  typedHandle('db:getGlobalSkills', () => {
+    // Product settings bypass Project resolution, so a Project Skill with the
+    // same name can never shadow a Built-in or user-global Skill.
+    return listGlobalSkillViews() as Skill[];
   });
 
   typedHandle('db:saveSkill', (_, projectId, skill) => {

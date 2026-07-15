@@ -92,6 +92,7 @@ const api = {
     deleteAgent: (id: string) => typedInvoke('db:deleteAgent', id),
     // Phase 3: Skills
     getSkills: (projectId: string) => typedInvoke('db:getSkills', projectId),
+    getGlobalSkills: () => typedInvoke('db:getGlobalSkills'),
     saveSkill: (projectId: string, skill: SkillSaveInput) => typedInvoke('db:saveSkill', projectId, skill),
     deleteSkill: (projectId: string, id: string) => typedInvoke('db:deleteSkill', projectId, id),
     importSkillDirectory: (sourceDir: string) => typedInvoke('db:importSkillDirectory', sourceDir),

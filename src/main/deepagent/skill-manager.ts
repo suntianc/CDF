@@ -471,6 +471,19 @@ function buildResolvedSkillView(skill: ResolvedSkillCatalogEntry): PhysicalSkill
   };
 }
 
+/** Product-level catalog: Built-in and user-global Skills only. */
+export function listGlobalSkillViews(): PhysicalSkillView[] {
+  const plan = resolveSkillSourcePlan('', {
+    builtInSkillDirs: getBuiltInSkillDirs(),
+    userSkillsDir: getScopePath('', 'global'),
+  });
+  const catalog = resolveSkillCatalog({
+    ...plan,
+    sources: plan.sources.filter((source) => source.kind === 'built-in' || source.kind === 'user'),
+  });
+  return catalog.skills.map(buildResolvedSkillView);
+}
+
 export function listResolvedSkillViews(
   projectPath: string,
   options: ListResolvedSkillViewsOptions = {}

@@ -71,7 +71,6 @@ function serializeAgent(row: AgentRow) {
     system_prompt: row.system_prompt,
     config: parseConfig(row.config),
     role: getProjectAgentRole(row),
-    is_default: row.is_default === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -115,7 +114,7 @@ export function createAgentTools(
       async () => {
         const rows = db
           .prepare(
-            'SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC',
+            'SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC',
           )
           .all(projectId) as AgentRow[];
         return JSON.stringify(
@@ -132,7 +131,7 @@ export function createAgentTools(
       {
         name: 'list_agents',
         description:
-          '列出当前项目下可被 Master Agent 调用的子 agent,不包含内部 Master Agent。返回每个 agent 的 id、name、description、provider_id、system_prompt、config、mcpServerExclusionIds、skillNames、is_default 等完整信息。',
+          '列出当前项目下可被 Master Agent 调用的子 agent,不包含内部 Master Agent。返回每个 agent 的 id、name、description、provider_id、system_prompt、config、mcpServerExclusionIds、skillNames 等完整信息。',
         schema: z.object({}),
       },
     ),
@@ -146,7 +145,6 @@ export function createAgentTools(
         system_prompt?: string;
         mcpServerExclusionIds?: string[];
         skillNames?: string[];
-        is_default?: boolean;
         config?: Record<string, unknown>;
       }) => {
         if (!input.name || !AGENT_NAME_REGEX.test(input.name.trim())) {
@@ -203,11 +201,6 @@ export function createAgentTools(
         const configStr = input.config ? JSON.stringify(input.config) : null;
 
         const runTx = db.transaction(() => {
-          if (input.is_default) {
-            db.prepare(
-              'UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ?',
-            ).run(now, projectId);
-          }
           // P2 #14 + P2 #16 + maintainer 2026-06-09: persist a unique
           // slug on INSERT so `task(name: <effective_slug>)` is
           // immediately addressable. Use the canonical
@@ -230,7 +223,7 @@ export function createAgentTools(
             effectiveProviderId,
             input.system_prompt ?? null,
             configStr,
-            input.is_default ? 1 : 0,
+            0,
             now,
             now,
           );
@@ -270,32 +263,6 @@ export function createAgentTools(
           });
         }
 
-        // 自审 P2 候选 #1:create_agent 不传 is_default 时若项目当前无 default,
-        // 默默留下 "项目无 default agent" 的污染路径 — 下次 chat omit agentId
-        // 会触发 ensureDefaultAgent (runtime.ts:119) 默默插 "Master Agent" 行。
-        // 同 P2 #11/#12 的 invariant 漏洞,只是发生在 create_agent 路径。
-        // 修法:在 create_agent 后查项目 default,若无则把刚建的 agent 顶上去。
-        // 显式传 is_default: false 的不在此列 — 用户明确说"不设默认",尊重。
-        //
-        // Codex P2 (PR #5 round 3, id=3382053065): \`!input.is_default\`
-        // accidentally treated explicit \`false\` the same as omission
-        // because \`!false === true\`. After the UI's \`db:deleteAgent\`
-        // removes the only default agent, the next create_agent with
-        // \`is_default: false\` would silently promote the new row to
-        // default, overriding the user's explicit "not default" choice.
-        // Use \`=== undefined\` so explicit \`false\` is respected.
-        if (input.is_default === undefined) {
-          const anyDefault = db
-            .prepare('SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1')
-            .get(projectId) as { one: number } | undefined;
-          if (!anyDefault) {
-            db.prepare('UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?').run(
-              Date.now(),
-              id,
-            );
-          }
-        }
-
         const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow;
         return JSON.stringify({
           ...serializeAgent(row),
@@ -314,7 +281,6 @@ export function createAgentTools(
         name: 'create_agent',
         description:
           '在当前项目下创建一个新 agent。可选排除特定 MCP server (mcpServerExclusionIds)、预加载 Skill (skillNames)、关联 provider。' +
-          'name 必须是英文/数字/空格/连字符/下划线。is_default 只能同时有一个 agent 拥有,设置后其他 agent 自动取消默认。' +
           '返回创建成功的 agent 完整信息(含生成的 id、effective_slug)。' +
           '⚠️ **新 agent 在当前 chat turn 内不可用于 task() 委托** — runtime 在 createDeepAgentRuntime 启动时 ' +
           '已快照 subagents 列表(runtime.ts:547-599),本 turn 内 task(name: ...) 找不到刚 insert 的 subagent。' +
@@ -333,10 +299,6 @@ export function createAgentTools(
             .optional()
             .describe('要对该 Agent 隐藏的 MCP server ID 列表(可选)'),
           skillNames: z.array(z.string()).optional().describe('预加载的 Skill 引用列表(可选)'),
-          is_default: z
-            .boolean()
-            .optional()
-            .describe('是否设为项目默认 agent(同时只能有一个)'),
           config: z
             .record(z.string(), z.unknown())
             .optional()
@@ -355,7 +317,6 @@ export function createAgentTools(
         system_prompt?: string;
         mcpServerExclusionIds?: string[];
         skillNames?: string[];
-        is_default?: boolean;
         config?: Record<string, unknown>;
       }) => {
         if (!input.id) {
@@ -374,7 +335,6 @@ export function createAgentTools(
             || input.provider_id !== undefined
             || input.mcpServerExclusionIds !== undefined
             || input.skillNames !== undefined
-            || input.is_default !== undefined
             || input.config !== undefined;
           if (hasForbiddenChange || typeof input.system_prompt !== 'string') {
             return JSON.stringify({
@@ -461,38 +421,10 @@ export function createAgentTools(
           system_prompt:
             input.system_prompt !== undefined ? input.system_prompt : existing.system_prompt,
           config: input.config !== undefined ? JSON.stringify(input.config) : existing.config,
-          is_default: input.is_default !== undefined ? (input.is_default ? 1 : 0) : existing.is_default,
         };
         const slugChanged = next.slug !== existing.slug;
 
-        // Codex P2 #11: 拒绝把项目唯一 default agent 改为非 default。
-        // 否则下次 chat omit agentId 时,ensureDefaultAgent (runtime.ts:119) 找不到
-        // 任何 default,会调 createDefaultAgent 插入一个新 "Master Agent",
-        // 默默改了 default 还污染 agent 库。UI 的 db:saveAgent 路径(ipc-handlers.ts:432)
-        // 也只 reset 其他 default(当设为 true 时),不防最后 default 被 unset。
-        if (next.is_default === 0 && existing.is_default === 1) {
-          const otherDefaults = db
-            .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?')
-            .get(projectId, input.id) as { id: string } | undefined;
-          if (!otherDefaults) {
-            return JSON.stringify({
-              error:
-                `Cannot unset the project's only default agent (id=${input.id}). ` +
-                `The project would have no default agent, and the next chat that omits an ` +
-                `explicit agent id would auto-create a new "Master Agent" row, silently ` +
-                `changing the default and cluttering the library. Either pass is_default: true ` +
-                `to keep this agent as default, or first create / promote another agent as default ` +
-                `(use list_agents + update_agent on the other with is_default: true).`,
-            });
-          }
-        }
-
         const runTx = db.transaction(() => {
-          if (next.is_default === 1) {
-            db.prepare(
-              'UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ? AND id != ?',
-            ).run(now, projectId, input.id);
-          }
           db.prepare(
             `UPDATE agents SET
               name = ?, slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
@@ -504,7 +436,7 @@ export function createAgentTools(
             next.provider_id,
             next.system_prompt,
             next.config,
-            next.is_default,
+            0,
             now,
             input.id,
           );
@@ -583,7 +515,6 @@ export function createAgentTools(
           system_prompt: z.string().optional().describe('新系统提示词'),
           mcpServerExclusionIds: z.array(z.string()).optional().describe('新的 MCP server 排除 ID 列表(内部去重)'),
           skillNames: z.array(z.string()).optional().describe('新的 Skill Preload 引用列表(内部去重)'),
-          is_default: z.boolean().optional().describe('是否设为默认'),
           config: z.record(z.string(), z.unknown()).optional().describe('新 config 对象'),
         }),
       },
@@ -609,8 +540,8 @@ export function createAgentTools(
           });
         }
         const existing = db
-          .prepare('SELECT id, name, is_default FROM agents WHERE id = ? AND project_id = ?')
-          .get(id, projectId) as { id: string; name: string; is_default: number } | undefined;
+          .prepare('SELECT id, name FROM agents WHERE id = ? AND project_id = ?')
+          .get(id, projectId) as { id: string; name: string } | undefined;
         if (!existing) {
           return JSON.stringify({ error: `Agent not found: ${id}` });
         }
@@ -647,31 +578,6 @@ export function createAgentTools(
               `then retry the deletion. Deleting now would cascade-delete the in-flight agent_runs row, ` +
               `breaking its tool-call log writes and final updateRun.`,
           });
-        }
-
-        // Codex P2 #12: 同 P2 #11 的 invariant 护栏 — 项目必须至少有 1 个 default agent。
-        // delete_agent 的 active-agent guard 只保护 running 的 agent,in-flight query
-        // 只保护 active runs,但项目 invariant("至少 1 个 default")是被另外两个
-        // 护栏间接覆盖不到的不变量。删唯一 default 同样会触发 ensureDefaultAgent
-        // 自动插 Master Agent 的污染路径。
-        //
-        // 注:本会话 P2 #11 给 update_agent 加了同款护栏但漏了 delete_agent —
-        // codex 用 P2 #12 揭示这个疏漏。教训见 codex-review-checklist §20 强化:
-        // 加 invariant 护栏时,**审计所有 destructive 操作**,不只是当前在写的那个。
-        if (existing.is_default === 1) {
-          const otherDefaults = db
-            .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?')
-            .get(projectId, id) as { id: string } | undefined;
-          if (!otherDefaults) {
-            return JSON.stringify({
-              error:
-                `Cannot delete the project's only default agent (id=${id}). ` +
-                `The project would have no default agent, and the next chat that omits an ` +
-                `explicit agent id would auto-create a new "Master Agent" row, silently ` +
-                `changing the default and cluttering the library. First use update_agent to ` +
-                `promote another agent as default (set its is_default: true), then retry.`,
-            });
-          }
         }
 
         // 与现有 db:deleteAgent IPC (ipc-handlers.ts:486-488) 行为一致:

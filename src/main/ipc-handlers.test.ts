@@ -16,6 +16,7 @@ const {
   ensureProjectWatcherMock,
   resolveAgentSkillConfigOptionsMock,
   listResolvedSkillViewsMock,
+  listGlobalSkillViewsMock,
   savePhysicalSkillMock,
   importPhysicalSkillDirectoryMock,
   initializeScenePresetMock,
@@ -44,6 +45,7 @@ const {
   ensureProjectWatcherMock: vi.fn(),
   resolveAgentSkillConfigOptionsMock: vi.fn(() => ({ options: undefined as Record<string, unknown> | undefined, warnings: [] as string[] })),
   listResolvedSkillViewsMock: vi.fn(() => [] as Array<Record<string, unknown>>),
+  listGlobalSkillViewsMock: vi.fn(() => [] as Array<Record<string, unknown>>),
   savePhysicalSkillMock: vi.fn(),
   importPhysicalSkillDirectoryMock: vi.fn(),
   initializeScenePresetMock: vi.fn(),
@@ -138,6 +140,7 @@ vi.mock('./commands/chokidar-watcher', () => ({
 vi.mock('./deepagent/skill-manager', () => ({
   listPhysicalSkills: vi.fn(() => []),
   listResolvedSkillViews: listResolvedSkillViewsMock,
+  listGlobalSkillViews: listGlobalSkillViewsMock,
   resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
   savePhysicalSkill: savePhysicalSkillMock,
   importPhysicalSkillDirectory: importPhysicalSkillDirectoryMock,
@@ -173,6 +176,7 @@ describe('IPC handlers', () => {
     ensureProjectWatcherMock.mockClear();
     resolveAgentSkillConfigOptionsMock.mockReturnValue({ options: undefined, warnings: [] });
     listResolvedSkillViewsMock.mockReturnValue([]);
+    listGlobalSkillViewsMock.mockReturnValue([]);
     captureConversationSystemContextSnapshotMock.mockClear();
     savePhysicalSkillMock.mockReset();
     importPhysicalSkillDirectoryMock.mockReset();
@@ -201,6 +205,18 @@ describe('IPC handlers', () => {
     const registered = [...new Set(ipcHandleMock.mock.calls.map(([channel]) => channel))].sort();
     const declared = [...IPC_INVOKE_CHANNELS].sort();
     expect(registered).toEqual(declared);
+  });
+
+  it('lists Built-in and user-global Skills without Project resolution', () => {
+    const globalSkills = [{ id: 'built-in:review', sourceKind: 'built-in' }];
+    listGlobalSkillViewsMock.mockReturnValue(globalSkills);
+    registerIpcHandlers();
+    const handler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:getGlobalSkills')?.[1];
+
+    expect(handler).toBeTypeOf('function');
+    expect(handler!({})).toEqual(globalSkills);
+    expect(listGlobalSkillViewsMock).toHaveBeenCalledWith();
+    expect(listResolvedSkillViewsMock).not.toHaveBeenCalled();
   });
 
   it('builds dynamic event channel names through the shared factories', () => {

@@ -267,12 +267,12 @@ function makePrepared(state: typeof dbState) {
     };
 
     const all = (...params: any[]) => {
-      // SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC
-      if (s === 'SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC') {
+      // SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC
+      if (s === 'SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC') {
         const [pid] = params;
         return Array.from(dbState.agents.values())
           .filter((a) => a.project_id === pid)
-          .sort((a, b) => b.is_default - a.is_default || b.updated_at - a.updated_at);
+          .sort((a, b) => b.updated_at - a.updated_at);
       }
       // SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?
       if (s === 'SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?') {
@@ -391,11 +391,9 @@ describe('createAgentTools', () => {
 
       const result = await invoke('list_agents', {});
       expect(result).toHaveLength(2);
-      // default first
-      expect(result[0].name).toBe('Alpha');
-      expect(result[0].mcpServerExclusionIds).toEqual(['m1', 'm2']);
-      expect(result[1].name).toBe('Beta');
-      expect(result[1].skillNames).toEqual(['global:foo']);
+      expect(result.find((agent: { name: string; mcpServerExclusionIds?: string[] }) => agent.name === 'Alpha')?.mcpServerExclusionIds).toEqual(['m1', 'm2']);
+      expect(result.find((agent: { name: string; skillNames?: string[] }) => agent.name === 'Beta')?.skillNames).toEqual(['global:foo']);
+      expect(result.every((agent: Record<string, unknown>) => !('is_default' in agent))).toBe(true);
     });
 
     it('does not expose the internal Master Agent as a delegatable agent', async () => {
@@ -410,21 +408,19 @@ describe('createAgentTools', () => {
   });
 
   describe('create_agent', () => {
-    it('creates an agent with required name only (auto-defaults when project has none)', async () => {
+    it('creates a Custom Agent with is_default fixed to 0', async () => {
       // Pre-seed a provider so the fallback path can succeed.
       seedProvider('p-default');
       const result = await invoke('create_agent', { name: 'reviewer' });
       expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(result.name).toBe('reviewer');
       expect(result.project_id).toBe(PROJECT_ID);
-      // 自审 P2 候选 #1: project had no default, so the new agent is
-      // auto-promoted to default (preserves the ≥1 default invariant).
-      expect(result.is_default).toBe(true);
+      expect(result).not.toHaveProperty('is_default');
       // provider_id is auto-set via fallback (P2 #3 fix)
       expect(result.provider_id).toBe('p-default');
       // Verify persisted
       expect(dbState.agents.get(result.id)?.name).toBe('reviewer');
-      expect(dbState.agents.get(result.id)?.is_default).toBe(1);
+      expect(dbState.agents.get(result.id)?.is_default).toBe(0);
     });
 
     it('rejects when no provider configured and no provider_id given (P2 #3)', async () => {
@@ -475,8 +471,8 @@ describe('createAgentTools', () => {
       seedProvider('p-default');
       // No agents in the project yet → no default
       const result = await invoke('create_agent', { name: 'new-default' });
-      expect(result.is_default).toBe(true);
-      expect(dbState.agents.get(result.id)!.is_default).toBe(1);
+      expect(result).not.toHaveProperty('is_default');
+      expect(dbState.agents.get(result.id)!.is_default).toBe(0);
     });
 
     it('does NOT auto-promote when project already has a default (自审 P2 候选 #1)', async () => {
@@ -490,9 +486,8 @@ describe('createAgentTools', () => {
         is_default: true,
       });
       const result = await invoke('create_agent', { name: 'new-non-default' });
-      expect(result.is_default).toBe(false);
-      // Existing default preserved
-      expect(dbState.agents.get(existing.id)!.is_default).toBe(1);
+      expect(result).not.toHaveProperty('is_default');
+      expect(dbState.agents.get(existing.id)!.is_default).toBe(0);
     });
 
     it('respects explicit is_default: false even when project has no default (自审 P2 候选 #1 + Codex P2 id=3382053065)', async () => {
@@ -519,7 +514,7 @@ describe('createAgentTools', () => {
       });
       // Explicit false is respected: agent created with is_default=0,
       // NOT silently promoted.
-      expect(result.is_default).toBe(false);
+      expect(result).not.toHaveProperty('is_default');
       expect(dbState.agents.get(result.id)!.is_default).toBe(0);
       // No other agent in the project was promoted either.
       const anyDefault = Array.from(dbState.agents.values()).some(
@@ -647,53 +642,15 @@ describe('createAgentTools', () => {
       expect(result.skillNames).toEqual(['global:foo', 'project:bar', 'project-additional:docs:review']);
     });
 
-    it('first agent becomes default; setting is_default on second resets first', async () => {
+    it('does not accept or expose is_default for Custom Agents', async () => {
       seedProvider('p-default');
-      const a = await invoke('create_agent', { name: 'A', is_default: true });
-      const b = await invoke('create_agent', { name: 'B' });
-      expect(a.is_default).toBe(true);
-      expect(b.is_default).toBe(false);
-
-      const updated = await invoke('update_agent', { id: b.id, is_default: true });
-      expect(updated.is_default).toBe(true);
-      // A's default flag should be cleared
-      expect(dbState.agents.get(a.id)!.is_default).toBe(0);
+      const agent = await invoke('create_agent', { name: 'A', is_default: true });
+      const updated = await invoke('update_agent', { id: agent.id, is_default: true });
+      expect(agent).not.toHaveProperty('is_default');
+      expect(updated).not.toHaveProperty('is_default');
+      expect(dbState.agents.get(agent.id)!.is_default).toBe(0);
     });
 
-    it('rejects unsetting the only default agent (P2 #11)', async () => {
-      // Codex P2 #11: if the project's only default agent is demoted to
-      // is_default=false, the next chat that omits agentId reaches
-      // ensureDefaultAgent (runtime.ts:119) with no default to find and
-      // auto-creates a new "Master Agent" row. That silently changes the
-      // default and clutters the library. The tool must preserve a
-      // project default by rejecting the demotion.
-      seedProvider('p-default');
-      const sole = await invoke('create_agent', { name: 'sole-default', is_default: true });
-      expect(sole.is_default).toBe(true);
-
-      const result = await invoke('update_agent', { id: sole.id, is_default: false });
-
-      expect(result.error).toMatch(/only default agent/);
-      expect(result.error).toMatch(/next chat that omits/);
-      // Sole agent's default flag NOT cleared
-      expect(dbState.agents.get(sole.id)!.is_default).toBe(1);
-    });
-
-    it('allows unsetting default when other agents are also default (P2 #11)', async () => {
-      // Sanity check: the guard only fires when this agent is the LAST
-      // default. If the project has another default already, demoting
-      // this one is fine.
-      seedProvider('p-default');
-      const a = await invoke('create_agent', { name: 'a', is_default: true });
-      const b = await invoke('create_agent', { name: 'b', is_default: true });
-      expect(a.is_default).toBe(true);
-      expect(b.is_default).toBe(true);
-
-      const updated = await invoke('update_agent', { id: a.id, is_default: false });
-      expect(updated.is_default).toBe(false);
-      // B is still default
-      expect(dbState.agents.get(b.id)!.is_default).toBe(1);
-    });
   });
 
   describe('update_agent', () => {
@@ -882,18 +839,11 @@ describe('createAgentTools', () => {
       expect(dbState.agentRuns.has('run-paused')).toBe(true);
     });
 
-    it('rejects deletion of the only default agent (P2 #12)', async () => {
-      // Codex P2 #12: same invariant as P2 #11, but on delete_agent.
-      // The P2 #11 fix added the guard only to update_agent; delete_agent
-      // was missed and has the same bug. Deleting the sole default agent
-      // also leaves the project without a default, triggering
-      // ensureDefaultAgent's auto-create 'Master Agent' path.
+    it('deletes a Custom Agent even when a legacy row still has is_default set', async () => {
       const sole = seedAgent({ is_default: 1 });
       const result = await invoke('delete_agent', { id: sole.id });
-      expect(result.error).toMatch(/only default agent/);
-      expect(result.error).toMatch(/auto-create a new/);
-      // Agent row NOT deleted
-      expect(dbState.agents.has(sole.id)).toBe(true);
+      expect(result.deleted).toBe(true);
+      expect(dbState.agents.has(sole.id)).toBe(false);
     });
 
     it('allows deletion of default agent when other defaults exist (P2 #12)', async () => {

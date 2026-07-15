@@ -10,6 +10,7 @@ import {
 import {
   GENERAL_PURPOSE_AGENT_SLUG,
   ensureGeneralPurposeAgent,
+  ensureProjectMasterAgents,
 } from './project-agent-service';
 
 const dbPath = path.join(app.getPath('userData'), 'cdf.db');
@@ -316,19 +317,19 @@ try {
   console.error('Failed to initialize default project:', error);
 }
 
-// Every initialized Project owns one CDF-managed delegation target. It has no
-// provider by default because each invocation inherits the invoking Agent's
-// provider/model selection.
+// Every initialized Project eagerly receives one protected Master root. This
+// repairs duplicate legacy Masters before creating the partial unique index.
 try {
+  ensureProjectMasterAgents(db);
   const projects = db.prepare('SELECT id FROM projects').all() as Array<{ id: string }>;
-  const ensureAll = db.transaction(() => {
+  const ensureGeneralPurpose = db.transaction(() => {
     for (const project of projects) ensureGeneralPurposeAgent(db, project.id);
   });
-  ensureAll();
+  ensureGeneralPurpose();
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_general_purpose_project
     ON agents(project_id) WHERE slug = '${GENERAL_PURPOSE_AGENT_SLUG}'`);
 } catch (error) {
-  console.error('Failed to initialize protected General-purpose Agents:', error);
+  console.error('Failed to initialize protected Project Agents:', error);
 }
 
 // Insert default LLM providers if none exist

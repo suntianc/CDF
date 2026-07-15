@@ -9,6 +9,7 @@ import {
   assertProjectAgentCanBeSaved,
   ensureGeneralPurposeAgent,
   ensureMasterAgent,
+  ensureProjectMasterAgents,
   resetMasterAgentPrompt,
 } from './project-agent-service';
 
@@ -81,6 +82,25 @@ describe('Project Agent service', () => {
       slug: MASTER_AGENT_SLUG,
       is_default: 1,
     }]);
+  });
+
+  it('eagerly repairs duplicate Masters for every Project and enforces the unique Master index', () => {
+    db.prepare("INSERT INTO projects (id, scene) VALUES ('project-2', 'research')").run();
+    db.prepare(`INSERT INTO agents (id, project_id, name, slug, is_default, created_at, updated_at)
+      VALUES ('master-1', 'project-1', 'Master Agent', 'master-agent', 1, 1, 1),
+             ('duplicate-master', 'project-1', 'Master Agent', 'master-agent', 1, 2, 2),
+             ('custom-default', 'project-2', 'Custom', 'custom', 1, 1, 1)`).run();
+
+    ensureProjectMasterAgents(db, { createId: () => 'master-2', now: () => 10 });
+
+    expect(db.prepare("SELECT id, is_default FROM agents WHERE project_id = ? AND slug = 'master-agent'").all('project-1'))
+      .toEqual([{ id: 'master-1', is_default: 1 }]);
+    expect(db.prepare("SELECT id, is_default FROM agents WHERE project_id = ? AND slug = 'master-agent'").all('project-2'))
+      .toEqual([{ id: 'master-2', is_default: 1 }]);
+    expect(db.prepare('SELECT is_default FROM agents WHERE id = ?').get('duplicate-master')).toEqual({ is_default: 0 });
+    expect(db.prepare('SELECT is_default FROM agents WHERE id = ?').get('custom-default')).toEqual({ is_default: 0 });
+    expect(() => db.prepare(`INSERT INTO agents (id, project_id, name, slug, is_default, created_at, updated_at)
+      VALUES ('another-master', 'project-1', 'Master Agent', 'master-agent', 1, 3, 3)`).run()).toThrow();
   });
 
   it('initializes each Master with its Scene Default Prompt and resets without overwriting custom content', () => {

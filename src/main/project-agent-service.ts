@@ -31,6 +31,7 @@ interface ProjectAgentIdentityRow {
   name: string;
   slug: string | null;
   system_prompt?: string | null;
+  is_default?: number;
 }
 
 export type ProjectAgentRole = 'master' | 'general-purpose' | 'custom';
@@ -66,19 +67,24 @@ export function ensureMasterAgent(
   options: ProjectAgentOptions = {},
 ): ProjectAgentIdentityRow {
   const existing = db.prepare(
-    'SELECT id, project_id, name, slug, system_prompt FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
+    'SELECT id, project_id, name, slug, system_prompt, is_default FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
   ).get(projectId, MASTER_AGENT_SLUG) as ProjectAgentIdentityRow | undefined;
   const defaultPrompt = getSceneDefaultPrompt(getProjectScene(db, projectId));
   if (existing) {
     // #171 created the same temporary prompt for every Scene. Upgrade only that
     // known product value; any different value is user-authored and must remain intact.
+    const now = (options.now ?? Date.now)();
     if (existing.system_prompt === LEGACY_MASTER_DEFAULT_PROMPT) {
-      db.prepare('UPDATE agents SET system_prompt = ?, updated_at = ? WHERE id = ?').run(
+      db.prepare('UPDATE agents SET system_prompt = ?, is_default = 1, updated_at = ? WHERE id = ?').run(
         defaultPrompt,
-        (options.now ?? Date.now)(),
+        now,
         existing.id,
       );
-      return { ...existing, system_prompt: defaultPrompt };
+      return { ...existing, system_prompt: defaultPrompt, is_default: 1 };
+    }
+    if (existing.is_default !== 1) {
+      db.prepare('UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?').run(now, existing.id);
+      return { ...existing, is_default: 1 };
     }
     return existing;
   }
@@ -108,6 +114,34 @@ export function ensureMasterAgent(
     slug: MASTER_AGENT_SLUG,
     system_prompt: defaultPrompt,
   };
+}
+
+export function ensureProjectMasterAgents(
+  db: Database.Database,
+  options: ProjectAgentOptions = {},
+): void {
+  const projects = db.prepare('SELECT id FROM projects').all() as Array<{ id: string }>;
+  db.transaction(() => {
+    for (const project of projects) {
+      const masters = db.prepare(
+        'SELECT id FROM agents WHERE project_id = ? AND slug = ? ORDER BY created_at ASC, id ASC',
+      ).all(project.id, MASTER_AGENT_SLUG) as Array<{ id: string }>;
+      for (const duplicate of masters.slice(1)) {
+        db.prepare('UPDATE agents SET slug = ?, is_default = 0, updated_at = ? WHERE id = ?').run(
+          `legacy-master-${duplicate.id}`,
+          (options.now ?? Date.now)(),
+          duplicate.id,
+        );
+      }
+      const master = ensureMasterAgent(db, project.id, options);
+      db.prepare('UPDATE agents SET is_default = 0 WHERE project_id = ? AND id != ?').run(
+        project.id,
+        master.id,
+      );
+    }
+  })();
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_master_project
+    ON agents(project_id) WHERE slug = '${MASTER_AGENT_SLUG}'`);
 }
 
 export function resetMasterAgentPrompt(

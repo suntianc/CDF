@@ -260,22 +260,16 @@ interface CdfSkillsAssemblyResult {
  *
  * @param projectPath - 项目根目录
  * @param skillNames - Agent 的 Skill 引用 ID 列表（调用方自行获取 getAgentSkillNames）
- * @param config - Agent 行 config 字段（JSON 或 null/undefined）
  * @param pathContext - 路径提及上下文（调用方自行提取）
  * @returns 权限、skillsRuntime、拼接警告
  */
 export function buildCdfSkillsRuntimeAssembly(
   projectPath: string,
   skillNames: string[],
-  config: string | null | undefined,
   pathContext: string[],
   sceneId: ProjectScene = 'general',
   skillSnapshot?: readonly ConversationSkillSnapshotEntry[] | null,
 ): CdfSkillsAssemblyResult {
-  // Legacy agent config remains readable by old rows, but no longer affects
-  // visibility. Only Scene Skill Set (or the immutable Conversation snapshot)
-  // can determine which Skills are available for preload or discovery.
-  void config;
   const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
     builtInSkillDirs: getBuiltInSkillDirs(),
     userSkillsDir: getScopePath(projectPath, 'global'),
@@ -315,7 +309,7 @@ export interface DeepAgentAssemblyResult {
  *  - Skills 全装配（预加载 → 覆盖 → buildCdfSkillsRuntime）
  *  - 系统提示词拼接（Agent system_prompt + 项目上下文 + Skills prompt + 媒体能力 prompt）
  *
- * @param agentRow - Agent 数据库行（需要 id、provider_id、system_prompt、config）
+ * @param agentRow - Agent 数据库行（需要 id、provider_id、system_prompt）
  * @param fallbackProviderId - 当 agentRow.provider_id 无值时回落至的 provider ID
  * @param project - 项目 { name, path }
  * @param skillNames - Agent 的 Skill 引用 ID 列表
@@ -327,7 +321,6 @@ export async function assembleDeepAgentRuntime(
     id: string;
     provider_id?: string | null;
     system_prompt?: string | null;
-    config?: string | null;
   },
   fallbackProviderId: string | null | undefined,
   project: { name: string; path: string; scene?: ProjectScene },
@@ -349,7 +342,6 @@ export async function assembleDeepAgentRuntime(
   const { permissions, skillsRuntime, warnings: assemblyWarnings } = buildCdfSkillsRuntimeAssembly(
     project.path,
     skillNames,
-    agentRow.config,
     pathContext,
     project.scene ?? 'general',
     skillSnapshot,

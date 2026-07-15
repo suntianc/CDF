@@ -121,7 +121,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
   }, [viewingParallelWorker, parallelBatches]);
 
   const defaultAgent = useMemo(() => (
-    agents.find((agent) => agent.project_id === currentProjectId && agent.is_default === 1) ?? null
+    agents.find((agent) => agent.project_id === currentProjectId && agent.slug === 'master-agent') ?? null
   ), [agents, currentProjectId]);
 
   const activeSessionAgent = useMemo(() => (

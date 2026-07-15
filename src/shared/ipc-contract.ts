@@ -146,6 +146,7 @@ export interface IpcInvokeContract {
   'db:resetMasterAgentPrompt': { args: [projectId: string]; result: AgentSaveResult };
   'db:deleteAgent': { args: [id: string]; result: void };
   'db:getSkills': { args: [projectId: string]; result: Skill[] };
+  'db:getGlobalSkills': { args: []; result: Skill[] };
   'db:saveSkill': { args: [projectId: string, skill: SkillSaveInput]; result: Skill };
   'db:deleteSkill': { args: [projectId: string, id: string]; result: void };
   'db:importSkillDirectory': { args: [sourceDir: string]; result: Skill };
@@ -372,6 +373,7 @@ export const IPC_INVOKE_CHANNELS = [
   'db:resetMasterAgentPrompt',
   'db:deleteAgent',
   'db:getSkills',
+  'db:getGlobalSkills',
   'db:saveSkill',
   'db:deleteSkill',
   'db:importSkillDirectory',

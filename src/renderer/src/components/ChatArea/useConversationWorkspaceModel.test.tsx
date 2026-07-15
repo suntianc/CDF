@@ -74,7 +74,7 @@ describe('useConversationWorkspaceModel', () => {
     useLLMStore.setState({ providers: [], activeProvider: null });
   });
 
-  it('uses the active Conversation Agent before the project default Agent for the master provider', () => {
+  it('uses the active Conversation Agent before the Project Master for the master provider', () => {
     const defaultProvider = provider({ id: 'provider-default', name: 'Default Provider', default_model: 'default-model' });
     const sessionProvider = provider({ id: 'provider-session', name: 'Session Provider', default_model: 'session-model' });
     const defaultAgent = agent({
@@ -82,6 +82,7 @@ describe('useConversationWorkspaceModel', () => {
       project_id: 'project-1',
       name: 'Default Agent',
       provider_id: defaultProvider.id,
+      slug: 'master-agent',
       is_default: 1,
     });
     const sessionAgent = agent({
@@ -117,7 +118,7 @@ describe('useConversationWorkspaceModel', () => {
     expect(result.current.workspace.currentProjectRoot).toBe('/tmp/project-one');
   });
 
-  it('uses the project default Agent for the master provider before a Conversation is active', () => {
+  it('uses the Project Master for the master provider before a Conversation is active', () => {
     const defaultProvider = provider({ id: 'provider-default', name: 'Default Provider', default_model: 'default-model' });
     const otherProvider = provider({ id: 'provider-other', name: 'Other Provider', default_model: 'other-model' });
     const defaultAgent = agent({
@@ -125,6 +126,7 @@ describe('useConversationWorkspaceModel', () => {
       project_id: 'project-1',
       name: 'Default Agent',
       provider_id: defaultProvider.id,
+      slug: 'master-agent',
       is_default: 1,
     });
     const otherAgent = agent({

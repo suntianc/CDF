@@ -390,7 +390,7 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
   });
 
   it('returns permissions and skillsRuntime', () => {
-    const result = buildCdfSkillsRuntimeAssembly(projectPath, ['project:test-skill'], null, [
+    const result = buildCdfSkillsRuntimeAssembly(projectPath, ['project:test-skill'], [
       'apps/web/src/App.tsx',
     ]);
     expect(result.permissions).toBeDefined();
@@ -410,7 +410,7 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
       ? { 'built-in:paper-search': { general: false, research: true } }
       : {});
 
-    buildCdfSkillsRuntimeAssembly(projectPath, [], null, [], 'research');
+    buildCdfSkillsRuntimeAssembly(projectPath, [], [], 'research');
 
     const options = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as unknown as {
       sceneId: string;
@@ -420,7 +420,7 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     expect(options.isGlobalSkillExposed({ sourceKind: 'built-in', name: 'paper-search' })).toBe(true);
     expect(options.isGlobalSkillExposed({ sourceKind: 'user', name: 'personal-review' })).toBe(true);
 
-    buildCdfSkillsRuntimeAssembly(projectPath, [], null, [], 'general');
+    buildCdfSkillsRuntimeAssembly(projectPath, [], [], 'general');
     const generalOptions = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as unknown as typeof options;
     expect(generalOptions.isGlobalSkillExposed({ sourceKind: 'built-in', name: 'paper-search' })).toBe(false);
   });
@@ -434,7 +434,6 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     const result = buildCdfSkillsRuntimeAssembly(
       projectPath,
       ['project:missing-skill'],
-      null,
       [],
     );
     expect(result.warnings).toContain('Skill not found: missing-skill');
