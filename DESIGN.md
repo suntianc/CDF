@@ -586,9 +586,9 @@ Research Scene 继续使用当前真实子视图：Conversation、Paper Library�
 Paper Library 是研究资料目录，不使用 Dashboard 卡片：
 
 - 顶部一行：标题/结果数、Search、Refresh。
-- 第二行：View mode 和筛选器。
+- 第二行：筛选器。
 - Filter chips 超出时横向滚动，不换成多行标签墙。
-- Flat 使用文献列表；Grouped 使用 tag section + 列表。
+- 文献列表始终保持平铺，并按当前 timestamp-desc 返回顺序显示。
 - 文献项优先显示 title、authors、journal/year、DOI 和 tags；abstract 默认两行并可展开。
 - Journal metrics 是次级元数据，不用彩色 KPI Badge。
 - Refresh Loading 保留当前数据，按钮内显示状态。

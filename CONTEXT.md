@@ -12,9 +12,125 @@ _Avoid_: chat page, SaaS dashboard
 The user-visible exchange in a session, including user prompts, Agent responses, tool activity, approvals, and process status.
 _Avoid_: chat log, message list
 
+**Conversation Working State**:
+The resumable, non-user-facing context that preserves Agent progress across turns for the lifetime of a Conversation and is deleted with that Conversation.
+_Avoid_: checkpoint thread, Agent Run state, long-term memory
+
+**Conversation Prompt Snapshot**:
+The immutable Master Agent Prompt captured when a Conversation is created. Later edits or resets affect only new Conversations, preserving behavior and prompt-cache stability within the existing Conversation.
+_Avoid_: live Master prompt, Project prompt setting, per-run prompt refresh
+
+**Conversation Skill Snapshot**:
+The immutable set of Skill identities and discovery metadata exposed when a Conversation is created. Later Scene Skill Exposure changes affect only new Conversations, preserving the existing Conversation's system-context shape and prompt-cache stability.
+_Avoid_: live Skill catalog, Project-wide visibility, copied Skill package
+
+**Agent**:
+A Project-scoped, reusable identity and configuration for model-guided work, including its role and capability preferences. An Agent is not a running process and does not own mutable execution state.
+_Avoid_: runtime, worker, Agent Run
+
 **Agent Run**:
-One execution initiated by a Conversation instruction, ending in completion, failure, or explicit termination; waiting for approval remains in progress. A Conversation may host many sequential Agent Runs but at most one in progress, and cannot be deleted while one is in progress.
+One execution initiated by a Conversation instruction, ending in completion, failure, interruption by loss of its live execution context, or explicit termination; waiting for approval remains in progress. A Conversation may host many sequential Agent Runs but at most one in progress, and cannot be deleted while one is in progress.
 _Avoid_: running Conversation, generation, Workflow Run
+
+**Agent Run Termination**:
+The sole user-directed stop operation, preventing future work and propagating best-effort cancellation to every Delegated Agent Run and unresolved approval owned by the parent Agent Run. It does not roll back completed side effects and cannot guarantee interruption of an external action already in progress.
+_Avoid_: rollback, transactional cancellation, child stop
+
+**Agent Run Approval Block**:
+The aggregate state in which every unfinished branch of an Agent Run is waiting for a Tool Approval Decision and no work can otherwise progress. Individual approvals surface immediately even while the parent Agent Run remains running.
+_Avoid_: pending approval count, hidden approval
+
+**Delegated Agent Run**:
+A child execution initiated by an Agent Run against a target Agent to perform scoped work, with a stable identity and isolated mutable execution state independent of how it was launched. Its identity and outcome remain part of Conversation history even though live continuation is process-bound; single and parallel delegation are launch forms of the same concept.
+_Avoid_: subagent, task subagent, parallel worker
+
+**Delegated Run Status**:
+The lifecycle state of a Delegated Agent Run: queued, running, waiting for approval, completed, failed, cancelled by termination of its parent Agent Run, or interrupted by loss of its live execution context. A Delegated Agent Run cannot be cancelled independently.
+_Avoid_: generic stopped status, worker status, child stop
+
+**Delegation Concurrency Window**:
+The four Delegated Agent Runs a parent Agent Run may keep active at once, including runs waiting for approval. Additional delegated runs remain queued until an active run reaches a terminal state.
+_Avoid_: unlimited delegation, model-call concurrency only
+
+**Default General-purpose Agent**:
+The always-available, system-reserved Agent identity used as a delegation target when no specialized Agent is required. It remains available alongside user-created Agents, cannot be removed or renamed, and may be launched through either single or parallel delegation; it is not itself a Delegated Agent Run.
+_Avoid_: general-purpose subagent, default worker, fallback-only Agent
+
+**Master Agent**:
+The persistent, protected Agent identity that leads every Conversation and Workflow Run in a Project. Its fixed identity does not vary by Scene: Agent management permits editing or resetting only its complete prompt, while every other Master Agent configuration field is read-only and deletion is forbidden; user-created Agents remain fully configurable but cannot replace it as the root execution identity.
+_Avoid_: optional default Agent, Scene-specific Agent identity, runtime projection, Research Agent, Delegated Agent
+
+**Custom Agent**:
+A user-created, fully configurable Agent identity used only as a delegation target for the Master Agent. When invoked it produces a Delegated Agent Run; it never becomes the root Agent of a Conversation or Workflow Run.
+_Avoid_: root Agent, Workflow master, Delegated Agent Run, direct Conversation Agent
+
+**Scene Default Prompt**:
+The current product-authored complete system prompt supplied to a Master Agent for one Project Scene. General and Research have distinct defaults; reset restores the latest default for the Project's immutable Scene.
+_Avoid_: hidden base layer, mandatory prompt prefix, original Project prompt
+
+**Master Agent Prompt**:
+The complete, user-editable system prompt stored for one Project's Master Agent. It begins from that Project Scene's default but may replace any part of it and is not automatically merged with product changes.
+_Avoid_: additive instructions, prompt overlay, immutable Scene prompt
+
+**Global Skill**:
+A CDF Built-in Skill or user-global Skill managed outside any one Project and made available across Projects through product-level configuration. Global Skills require Scene Skill Exposure because they are not inherently scoped to one Project Scene; dormant Enterprise sources are outside the first delivery.
+_Avoid_: Project Skill, globally enabled Skill, built-in-only Skill
+
+**Project Skill**:
+A Skill discovered from a Project's own files, including its primary, nested, and Project-configured additional Skill directories, and therefore already scoped to that Project and its immutable Scene. It is neither listed nor configured in product-level Skill UI.
+_Avoid_: Global Skill, Scene-disabled Skill, product-managed Skill
+
+**Scene Skill Exposure**:
+A user-configurable switch on each Global Skill for every supported Scene, controlling whether that Skill is exposed in Projects of that Scene. CDF supplies planned defaults for Built-in Skills, user-global Skills default to all Scenes, and the switch set expands as Scenes are added; it never applies to Project Skills or binds Agents to Scenes.
+_Avoid_: Agent Scene binding, Project Skill setting, installation state, tool permission
+
+**Scene Skill Set**:
+The Skills available within a Project: every Project Skill plus the Global Skills whose Scene Skill Exposure is enabled for the Project's Scene. Skill-authored invocation metadata still applies, but there are no user, Project, or Agent visibility overrides.
+_Avoid_: Agent Skill list, installed Skills, tool grant, built-in-only list
+
+**Delegated Approval Wait**:
+The state in which one Delegated Agent Run pauses without timeout for a tool decision while sibling Delegated Agent Runs may continue. Its parent delegation remains in progress; unlike a Stage Gate, it does not pause the whole Workflow Run.
+_Avoid_: global approval pause, Stage Gate, approval timeout
+
+**Conversation Approval Set**:
+The unresolved tool decisions belonging to one active Agent Run and its Delegated Agent Runs, ordered for presentation but independently resolvable. It is not a FIFO queue and may contain approvals from several delegated executions.
+_Avoid_: approval queue, pending approval
+
+**Approval History**:
+The read-only record of resolved or invalidated Tool Approval Decisions, their owning Agent Runs, action summaries, timestamps, and resulting execution outcomes. Decisions leave the Conversation Approval Set after resolution or execution interruption but remain explainable in their Delegated Agent Run history.
+_Avoid_: pending approval archive, actionable history
+
+**Tool Approval Decision**:
+A user's approve or reject response to one gated tool action. An approved action becomes independently eligible to execute, while rejection returns a standard rejection observation without terminating its Agent Run or blocking approved sibling actions.
+_Avoid_: run rejection, task cancellation, batch approval, rejection feedback
+
+**Tool Action Batch**:
+The tool actions proposed by one Agent in a single reasoning turn. Actions that already have permission may execute immediately, gated actions resolve through that Agent Run's Active Tool Approval, and the next reasoning turn waits until every action in the batch has resolved.
+_Avoid_: approval batch, combined tool decision
+
+**Active Tool Approval**:
+The earliest unresolved gated action currently presented for one Agent Run. Each Delegated Agent Run has at most one Active Tool Approval and advances through its actions in proposal order, while approvals belonging to different delegated executions remain independently resolvable.
+_Avoid_: global approval dialog, batch approval card
+
+**Delegated Permission Context**:
+The approval policy of a Delegated Agent Run, inherited unchanged from its parent Agent Run's Conversation Approval Mode. Agent configuration may narrow tool visibility but cannot alter approval behavior.
+_Avoid_: worker approval mode, Agent permission override
+
+**Conversation Approval Mode**:
+The user-selected approval policy for an Agent Run and every Delegated Agent Run it starts: strict, Agent-decides, or bypass. It is the single approval-mode decision for the full execution tree.
+_Avoid_: per-Agent approval mode, worker mode
+
+**Agent Tool Scope**:
+The subset of its parent Agent Run's available tools that a target Agent may use. With no explicit selection it inherits the full parent scope; an explicit selection narrows built-in tools individually and MCP capabilities by server, and can never introduce a capability unavailable to the parent.
+_Avoid_: tool grant, child-only tool, MCP addition, per-MCP-tool binding
+
+**Delegated Run Continuation**:
+The resumption of a paused Delegated Agent Run while its hosting application process remains alive. Restoring persisted Conversation or Agent context after a restart starts a new execution rather than reviving the prior execution or its pending approval.
+_Avoid_: task resurrection, process recovery
+
+**Delegated Failure Isolation**:
+The rule that failure of one Delegated Agent Run terminates only that execution while sibling delegated executions continue. The parent delegation aggregates all child outcomes unless the parent Agent Run itself is terminated.
+_Avoid_: fail-fast delegation batch, cascading child failure
 
 **Conversation Timeline Projection**:
 The user-visible ordering of Conversation events as a readable timeline of messages, tool activity, folded process, streaming state, and approvals.
@@ -96,16 +212,24 @@ _Avoid_: mode, template, theme, workspace type, sidebar layout
 The main working surface shown for the selected Project, determined by its Scene. The general Scene's workspace is the existing Conversation workspace; other Scenes add specialized panels around or alongside the Conversation.
 _Avoid_: main view, page, layout mode
 
+**Research Workflow**:
+The Research Scene progression from collecting papers into the Knowledge Base, through conducting and recording experiments, to authoring and finally reviewing a Manuscript. Computational experiments may be run within CDF, while observations from physical experiments enter through user-provided records.
+_Avoid_: chat workflow, Workflow Skeleton, literature review only
+
 **Skill**:
 A progressive-disclosure capability package that teaches an Agent a specialized workflow, domain practice, or operating discipline. Visible Skills are discoverable by default; an Agent's Skill selection emphasizes or preloads a Skill rather than defining the full access boundary.
 _Avoid_: plugin, tool, command
+
+**Built-in Skill**:
+A Skill distributed and maintained as part of CDF, with behavior, security, and upgrades owned by CDF even when adapted from a third-party source. Adapted Skills retain their upstream provenance and required license notices but do not depend on runtime installation from upstream.
+_Avoid_: bundled third-party dependency, runtime-installed Skill, copied upstream Skill
 
 **Skill Preload**:
 An Agent-level emphasis that loads a selected Skill's full instructions at Agent startup. It does not grant or deny access to the Skill.
 _Avoid_: binding, whitelist, permission
 
 **MCP Server Exclusion**:
-An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. Distinct from Scene Skill Exposure — MCP tools have no progressive disclosure, so they have no equivalent Scene switch.
+An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. MCP tools have no progressive disclosure or partial-visibility states.
 _Avoid_: MCP binding, MCP whitelist, MCP mount, agent MCP selection
 
 **Connected Account**:
@@ -151,6 +275,18 @@ _Avoid_: Connected Accounts page, OAuth settings page, provider capability check
 **Paper Library**:
 A Scene-specific panel that manages collected academic papers — OKF metadata files and locally stored PDFs, with full text reached on demand through Structured Paper Parses.
 _Avoid_: reference manager, paper database, Zotero, vector index
+
+**Local Review Corpus**:
+The Paper Entries in the current Project whose authorized PDFs have already been collected locally and are therefore eligible as reference evidence during Manuscript review. It excludes live web results and model-recalled literature.
+_Avoid_: online search results, global literature corpus, model knowledge
+
+**Review Evidence Funnel**:
+The offline path from metadata and abstract triage over the Local Review Corpus to on-demand parse reuse and selective reading of relevant source sections. It does not build or query a full-text retrieval index.
+_Avoid_: reading every paper, vector search, online literature search
+
+**Review Evidence Set**:
+The exact local evidence used by one Review Simulation: its Manuscript Snapshot, the Paper Entries and source sections actually consulted, and any experiment records explicitly supplied by the user. Evidence not present in this set is not represented as verified.
+_Avoid_: entire Knowledge Base, model knowledge, implied experiment access
 
 **Structured Paper Parse**:
 A Markdown representation of an academic PDF optimized for Agent retrieval and citation grounding, preserving semantic structure and source location over visual fidelity.
@@ -284,6 +420,90 @@ _Avoid_: discovery skill, paper search, reference manager
 A built-in strategy-only Skill that guides an Agent from Paper Entries to full text: metadata and abstract triage, on-demand parsing through the PDF Parsing Skill with artifact reuse, full-text reading, and citing with Paper Source Location. It introduces no index and no background pipeline.
 _Avoid_: RAG system, semantic search, vector retrieval, paper importer
 
+**Manuscript**:
+A user-authored academic draft presented to CDF for analysis or evaluation. It is the work being reviewed, whereas Paper Entries are reference sources that may support the review.
+_Avoid_: Paper Entry, collected paper, reference paper
+
+**Manuscript Snapshot**:
+The exact version of a Manuscript examined by one Skill invocation, identified by the explicit input-file manifest and content hashes captured for that invocation. It is an identity record, not a copied document or persistent Manuscript entity.
+_Avoid_: latest draft, file path alone, manuscript copy
+
+**Manuscript Source Location**:
+A traceable location within a Manuscript Snapshot: file path, line range, and section for text sources, or page and section for PDF sources. A finding about an omission instead records the manuscript scope checked rather than claiming support from one passage.
+_Avoid_: Paper Source Location, citation string, vague paragraph reference
+
+**Manuscript Review Skill**:
+A built-in Skill for examining a Manuscript Snapshot through one of two explicit modes: Manuscript Summary or Review Simulation.
+_Avoid_: Paper Analysis Skill, paper audit, Stage review
+
+**Manuscript Summary**:
+A source-grounded description of what a Manuscript claims, does, finds, and acknowledges as limitations, without judging publication suitability.
+_Avoid_: quick review, acceptance assessment, abstract rewrite
+
+**Bundled Venue Guidance**:
+The venue-category expectations adapted into CDF from the selected upstream review resources and versioned with the Manuscript Review Skill. It is offline guidance rather than a live or authoritative statement of a specific journal's current policy.
+_Avoid_: official journal policy, live reviewer rubric, venue database
+
+**Review Context**:
+The Conversation-scoped target venue explicitly stated by the user for Review Simulation, reused until the user changes it and discarded with the Conversation. It is guidance, not a Project default or a mandatory setup step.
+_Avoid_: Project venue, remembered preference, forced review wizard
+
+**Review Standard**:
+The evaluation baseline used by a Review Simulation: Bundled Venue Guidance selected from the Review Context when applicable, otherwise the Manuscript Review Skill's generic cross-disciplinary criteria.
+_Avoid_: guaranteed venue policy, publication threshold, reviewer preference
+
+**Review Dimension**:
+One of the five user-visible perspectives in a Review Simulation: contribution, methodological rigor, experimental evidence, writing and presentation, or related work and citations.
+_Avoid_: score category, review stage, checklist item
+
+**Cross-cutting Review Check**:
+A concern applied wherever relevant across Review Dimensions, including reproducibility, transparency, ethics, reporting standards, figure integrity, and whether conclusions exceed the evidence.
+_Avoid_: sixth Review Dimension, separate review mode, venue score
+
+**Simulated Editorial Recommendation**:
+The Review Simulation's `accept`, `minor revisions`, `major revisions`, or `reject` severity summary under its stated Review Standard, determined by the most consequential revision required rather than a count or numerical score. It communicates revision scale and is neither a publication prediction nor a real editorial decision.
+_Avoid_: acceptance probability, actual decision, authoritative verdict
+
+**Review Simulation**:
+An Agent-generated evaluation of a Manuscript from a reviewer perspective, using a stated Review Standard and Simulated Editorial Recommendation without representing itself as genuine peer review by independent domain experts.
+_Avoid_: Peer Review, deep summary, paper score, Stage Gate review
+
+**Report Language**:
+The language used for Agent-authored explanations in Manuscript Review Reports and Style Revision Reports, taken from an explicit user preference when present and otherwise from the system environment. Source quotations and English Revision Proposals retain the Manuscript language.
+_Avoid_: automatic Manuscript translation, Conversation-language guess, fixed English report
+
+**Manuscript Review Report**:
+A durable Markdown artifact produced for one Manuscript Snapshot, recording the Review Standard, Review Evidence Set, source-grounded findings, revision guidance, and any Simulated Editorial Recommendation without overwriting earlier reports.
+_Avoid_: Conversation response, live review state, edited Manuscript
+
+**Academic Style Revision Skill**:
+A built-in Skill that proposes style-only revisions for an English-language, user-authored Manuscript or selected passage to reduce formulaic expression and improve academic readability while preserving claims, terminology, evidence, and citations. It neither detects AI authorship nor promises to evade AI detectors, and it never modifies its source text directly.
+_Avoid_: humanizer, AI detector, detector bypass, translation, content rewriting
+
+**Style Signal**:
+A heuristic indication that English academic prose may be formulaic, vague, repetitive, or mechanically structured. A signal is neither evidence of AI authorship nor an automatic requirement to rewrite the passage.
+_Avoid_: AI detection result, violation, rewrite trigger, score
+
+**Protected Manuscript Element**:
+Any factual or syntactic element a style-only revision must preserve exactly or semantically, including quantities, units, formulas, technical identifiers, citations, experimental conditions, uncertainty, negation, and claim strength. When preservation cannot be assured, the passage remains unchanged and is flagged for the user.
+_Avoid_: optional wording, stylistic preference, content to embellish
+
+**Full Manuscript Coverage**:
+The report status earned only when every expected section in a Manuscript Snapshot has been processed, including section-level inspection and a cross-section consistency pass. Unreadable, failed, skipped, or truncated sections prevent this status and must be disclosed.
+_Avoid_: file opened, partial review, silent truncation
+
+**Revision Scope**:
+The explicitly selected portion of a Manuscript Snapshot inspected by the Academic Style Revision Skill, either the full Manuscript or specified passages. Full scope means every passage is checked, not that every passage is rewritten.
+_Avoid_: rewrite volume, implicit latest draft, automatic replacement range
+
+**Revision Proposal**:
+A source-located explanation and candidate rewrite offered by the Academic Style Revision Skill for optional author adoption. It is advisory text, not an approved replacement or final Manuscript content.
+_Avoid_: final copy, automatic edit, authorial decision
+
+**Style Revision Report**:
+A durable Markdown artifact that presents source-located original passages beside Revision Proposals and their rationale, allowing the user to choose what to apply without changing the Manuscript.
+_Avoid_: rewritten Manuscript, automatic patch, detector report
+
 **Writing Project**:
 A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.
 _Avoid_: document editor, word processor
@@ -305,12 +525,36 @@ An Agent Tool for lightweight URL content retrieval when a browser environment i
 _Avoid_: browser tool, rendered page crawler
 
 **Workflow Skeleton**:
-A user-authored sequence of Stages with Stage Gates that constrains a Workflow Run. It is frozen as a snapshot when a run starts; edits affect only future runs.
+A user-authored set of Stages with one entry, explicit terminal Stages, exclusive acyclic Stage Routes, and optional Stage Gates that constrain a Workflow Run. It is frozen as a snapshot when a run starts; edits affect only future runs.
 _Avoid_: flowchart, node graph, DAG editor
 
 **Stage**:
-One unit of a Workflow Skeleton: a name, a task description, acceptance criteria, and a gate toggle. Control flow beyond stage order — iteration, review depth, per-item processing — belongs in the task description as natural language, not in stage structure.
+One unit of a Workflow Skeleton: a name, a task description, acceptance criteria, and a gate toggle. Iteration, review depth, and per-item processing remain natural-language task semantics rather than new Stage kinds.
 _Avoid_: node, step, node kind
+
+**Stage Route**:
+A user-authored allowed transition from one Stage to another, carrying a natural-language condition within an acyclic route structure. It constrains where the Master Agent may advance without requiring the main process to interpret the condition.
+_Avoid_: executable condition, workflow edge, branch node, Stage loop
+
+**Stage Route Selection**:
+The Master Agent's exclusive choice of one allowed Stage Route at a Stage boundary, supported by the Stage Report and a rationale. The main process validates route membership, while an enabled Stage Gate lets the user accept or reject the report and selection together; parallel work remains inside the Run Task Graph rather than activating several Stages.
+_Avoid_: condition evaluation, automatic branch expression, parallel Stage activation
+
+**Stage Route Blocker**:
+The condition in which the Master Agent cannot responsibly select an allowed Stage Route. The current Stage stays active while the Agent explains the missing information in the Conversation and waits for user input, without exposing route internals or inventing a fallback route.
+_Avoid_: default route, route chooser, routing error
+
+**Terminal Stage**:
+A Stage explicitly marked to complete the Workflow Run after its report and optional human approval. It has no Stage Routes and is distinct from an accidentally incomplete Stage with no configured next step.
+_Avoid_: missing route, implicit endpoint
+
+**Workflow Input Wait**:
+The non-terminal state of a Workflow Run paused for ordinary user information rather than a Stage Gate decision. The user's next Conversation instruction continues the current Stage.
+_Avoid_: waiting gate, failed Workflow Run
+
+**Stage Rework**:
+The continuation of the current Stage after its Stage Gate rejects a submitted Stage Report. Rework keeps the Stage active until a later report is approved and does not traverse a Stage Route or create a workflow loop.
+_Avoid_: Stage loop, route rollback, new Stage visit
 
 **Stage Gate**:
 The human approval boundary at the end of a Stage: the run pauses on the Stage Report and the user approves, sends it back with feedback, or aborts the run. A closed gate still records its Stage Report and passes automatically. While a gate is pending, the run is fully paused — no pre-running the next Stage.
@@ -321,8 +565,8 @@ The structured completion report a Workflow Run's master Agent submits at a Stag
 _Avoid_: chat summary, stage log
 
 **Workflow Run**:
-One execution of a Workflow Skeleton, hosted as a Conversation session and driven end-to-end by a single master Agent that delegates Stage work to subagents. It reuses Conversation infrastructure — resume, stream projection, approvals — rather than a separate execution engine.
-_Avoid_: workflow execution, node run
+One execution of a Workflow Skeleton, hosted as a Conversation and driven end-to-end by the Project's Master Agent, which delegates Stage work to other Agents. It reuses Conversation infrastructure — resume, stream projection, approvals — rather than a separate execution engine or user-selectable root Agent.
+_Avoid_: workflow execution, node run, custom Workflow master
 
 **Run Task Graph**:
 The dependency graph of tasks the master Agent explicitly creates and updates during a Workflow Run, persisted as first-class main-process data and including planned-but-unstarted tasks. Task state advances through its link to delegated subagent work.
