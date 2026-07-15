@@ -55,6 +55,28 @@ describe('skill-manager', () => {
     ]);
   });
 
+  it('replaces stale files when materializing static Built-in Skill packages', () => {
+    const builtInRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT as string;
+    const packages = [
+      ['manuscript-review', 'PROVENANCE.md'],
+      ['academic-style-revision', 'references/style-signals.md'],
+    ] as const;
+
+    for (const [name, expectedResource] of packages) {
+      const skillDir = path.join(builtInRoot, name);
+      fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'scripts', 'stale.js'), 'unsafe stale script', 'utf-8');
+      fs.writeFileSync(path.join(skillDir, 'stale-resource.md'), 'stale resource', 'utf-8');
+
+      getBuiltInSkillRegistrations().find((registration) => registration.name === name)?.materialize();
+
+      expect(fs.existsSync(path.join(skillDir, 'scripts'))).toBe(false);
+      expect(fs.existsSync(path.join(skillDir, 'stale-resource.md'))).toBe(false);
+      expect(fs.existsSync(path.join(skillDir, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(skillDir, expectedResource))).toBe(true);
+    }
+  });
+
   it('should resolve .cdf skill scope paths', () => {
     expect(getScopePath(tempProjectPath, 'global')).toBe(path.join(os.homedir(), '.cdf', 'skills'));
     expect(getScopePath(tempProjectPath, 'project')).toBe(path.join(tempProjectPath, '.cdf', 'skills'));

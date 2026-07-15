@@ -179,11 +179,19 @@ function ensureBuiltInPaperReadingSkill(): string {
   return skillDir;
 }
 
-function ensureBuiltInManuscriptReviewSkill(): string {
-  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'manuscript-review');
+interface StaticBuiltInSkillPackage {
+  name: string;
+  markdown: string;
+  resources: readonly { relativePath: string; content: string }[];
+}
+
+/** Rebuilds a static package from its declared files so no stale executable remains discoverable. */
+function materializeStaticBuiltInSkillPackage(skillPackage: StaticBuiltInSkillPackage): string {
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), skillPackage.name);
+  fs.rmSync(skillDir, { recursive: true, force: true });
   ensureDir(skillDir);
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getManuscriptReviewSkillMarkdown(), 'utf-8');
-  for (const resource of getManuscriptReviewSkillResources()) {
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillPackage.markdown, 'utf-8');
+  for (const resource of skillPackage.resources) {
     const resourcePath = path.join(skillDir, resource.relativePath);
     ensureDir(path.dirname(resourcePath));
     fs.writeFileSync(resourcePath, resource.content, 'utf-8');
@@ -191,16 +199,20 @@ function ensureBuiltInManuscriptReviewSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInManuscriptReviewSkill(): string {
+  return materializeStaticBuiltInSkillPackage({
+    name: 'manuscript-review',
+    markdown: getManuscriptReviewSkillMarkdown(),
+    resources: getManuscriptReviewSkillResources(),
+  });
+}
+
 function ensureBuiltInAcademicStyleRevisionSkill(): string {
-  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'academic-style-revision');
-  ensureDir(skillDir);
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getAcademicStyleRevisionSkillMarkdown(), 'utf-8');
-  for (const resource of getAcademicStyleRevisionSkillResources()) {
-    const resourcePath = path.join(skillDir, resource.relativePath);
-    ensureDir(path.dirname(resourcePath));
-    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
-  }
-  return skillDir;
+  return materializeStaticBuiltInSkillPackage({
+    name: 'academic-style-revision',
+    markdown: getAcademicStyleRevisionSkillMarkdown(),
+    resources: getAcademicStyleRevisionSkillResources(),
+  });
 }
 
 function ensureBuiltInPaperSearchSkill(): string {

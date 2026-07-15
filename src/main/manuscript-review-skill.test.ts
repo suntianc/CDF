@@ -36,7 +36,8 @@ describe('Manuscript Review Skill', () => {
     expect(markdown).toContain('normalized manifest');
     expect(markdown).toContain('content hash');
     expect(markdown).toContain('generic cross-disciplinary criteria');
-    expect(markdown).toContain('Conversation Review Context');
+    expect(markdown).toContain('Review Context');
+    expect(markdown).not.toContain('Conversation Review Context');
     expect(markdown).toContain('contribution');
     expect(markdown).toContain('methodological rigor');
     expect(markdown).toContain('experimental evidence');
@@ -81,6 +82,10 @@ describe('Manuscript Review Skill', () => {
     expect(markdown).toContain('failed, skipped, unsupported, unreadable, or truncated');
     expect(markdown).toContain('safely append that one rule');
     expect(markdown).toContain('A Manuscript Summary report must not contain a Simulated Editorial Recommendation');
+    expect(markdown).toContain('A Manuscript Summary is based only on the Manuscript Snapshot');
+    expect(markdown).toContain('actual inspected Manuscript files, sections, pages, and line ranges');
+    expect(markdown).toContain('For Review Simulation only');
+    expect(markdown).toContain('Review Evidence Set for a Review Simulation');
     expect(venueGuidance?.content).toContain('Version:');
     expect(venueGuidance?.content).toMatch(/conference/i);
     expect(venueGuidance?.content).toMatch(/journal/i);

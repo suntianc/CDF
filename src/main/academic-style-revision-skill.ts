@@ -67,7 +67,7 @@ export function getAcademicStyleRevisionSkillMarkdown(): string {
     'Generate a new Markdown Style Revision Report for every invocation. Write under `.cdf/style-revisions/<human-readable-manuscript>/` and name it with a human-readable manuscript name, current timestamp, scope, and short Snapshot hash. On a filename collision, append a safe increasing suffix; never overwrite a historical report.',
     'Before writing, preserve all existing Project-local ignore content. If `.gitignore` does not already ignore `.cdf/style-revisions/`, safely append that one rule; never delete, replace, or reorganize user ignore rules.',
     'Use an explicit user report-language preference when supplied; otherwise use the system environment language. Keep quoted original text and candidate English revisions in English regardless of report language.',
-    'The report must record: the normalized manifest, hashes, actual checked scope, language boundary outcomes, coverage and cross-section synthesis, all failed/skipped/unsupported/unreadable/truncated material, all Revision Proposals, all suppressed candidates with their fidelity-gate reasons, untrusted-evidence handling, and the no-detection/no-automatic-apply boundary.',
+    'The report must record: the normalized manifest, hashes, actual checked scope, language boundary outcomes, coverage and cross-section synthesis, all failed/skipped/unsupported/unreadable/truncated material, all Revision Proposals, and every suppressed proposal’s source location, exact original text, and suppression reason. For a suppressed proposal, never record or include the unsafe candidate revision. Also record untrusted-evidence handling and the no-detection/no-automatic-apply boundary.',
     '',
     '## Package Boundary',
     '',

@@ -2,8 +2,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
-import store from './store';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const mockedStore = vi.hoisted(() => {
+  const state = {
+    sceneSkillExposures: {} as Record<string, Record<string, boolean>>,
+  };
+  return {
+    state,
+    store: {
+      get: vi.fn((key: string) => key === 'sceneSkillExposures' ? state.sceneSkillExposures : undefined),
+      set: vi.fn((key: string, value: Record<string, Record<string, boolean>>) => {
+        if (key === 'sceneSkillExposures') state.sceneSkillExposures = value;
+      }),
+    },
+  };
+});
+
+vi.mock('./store', () => ({ default: mockedStore.store }));
+vi.mock('./deepagent/shared-infra', () => ({
+  getProvider: vi.fn(),
+  normalizeProviderId: vi.fn((providerId: string | null | undefined) => providerId ?? null),
+}));
 import {
   GENERAL_SCENE_DEFAULT_PROMPT,
   RESEARCH_SCENE_DEFAULT_PROMPT,
@@ -13,10 +33,20 @@ import {
   captureConversationSystemContextSnapshot,
   getOrCaptureConversationSystemContextSnapshot,
 } from './conversation-system-context-snapshot';
+import { buildCdfSkillsRuntimeAssembly } from './deepagent/runtime-assembly';
 
 const cleanupPaths: string[] = [];
 let previousBuiltInSkillsRoot: string | undefined;
-let previousSceneSkillExposures: Record<string, Record<string, boolean>> | undefined;
+
+function writeProjectSkill(projectPath: string, description: string): void {
+  const skillDir = path.join(projectPath, '.cdf', 'skills', 'project-research-notes');
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, 'SKILL.md'),
+    `---\nname: project-research-notes\ndescription: ${description}\n---\n\n# Project Research Notes\n`,
+    'utf-8',
+  );
+}
 
 afterEach(() => {
   if (previousBuiltInSkillsRoot === undefined) {
@@ -24,11 +54,9 @@ afterEach(() => {
   } else {
     process.env.CDF_BUILT_IN_SKILLS_ROOT = previousBuiltInSkillsRoot;
   }
-  if (previousSceneSkillExposures !== undefined) {
-    store.set('sceneSkillExposures', previousSceneSkillExposures);
-  }
   previousBuiltInSkillsRoot = undefined;
-  previousSceneSkillExposures = undefined;
+  mockedStore.state.sceneSkillExposures = {};
+  vi.clearAllMocks();
   for (const target of cleanupPaths.splice(0)) {
     fs.rmSync(target, { recursive: true, force: true });
   }
@@ -41,9 +69,8 @@ describe('Research Scene integration', () => {
     const builtInSkillsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-research-built-ins-'));
     cleanupPaths.push(projectPath, databasePath, builtInSkillsRoot);
     previousBuiltInSkillsRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT;
-    previousSceneSkillExposures = store.get('sceneSkillExposures');
     process.env.CDF_BUILT_IN_SKILLS_ROOT = builtInSkillsRoot;
-    store.set('sceneSkillExposures', {});
+    mockedStore.state.sceneSkillExposures = {};
 
     const db = new Database(databasePath);
     db.exec(`
@@ -67,7 +94,11 @@ describe('Research Scene integration', () => {
         skill_snapshot TEXT
       );
       INSERT INTO projects (id, scene) VALUES ('research-project', 'research'), ('general-project', 'general');
-      INSERT INTO sessions (id, prompt_snapshot, skill_snapshot) VALUES ('research-conversation', NULL, NULL), ('next-research-conversation', NULL, NULL);
+      INSERT INTO sessions (id, prompt_snapshot, skill_snapshot) VALUES
+        ('research-conversation', NULL, NULL),
+        ('next-research-conversation', NULL, NULL),
+        ('project-skill-v1-conversation', NULL, NULL),
+        ('project-skill-v2-conversation', NULL, NULL);
     `);
 
     const master = ensureMasterAgent(db, 'research-project', {
@@ -82,7 +113,10 @@ describe('Research Scene integration', () => {
     });
 
     expect(researchConversation.promptSnapshot).toBe(RESEARCH_SCENE_DEFAULT_PROMPT);
-    expect(researchConversation.promptSnapshot).toContain('paper-search');
+    expect(researchConversation.promptSnapshot).toContain('when literature discovery is needed, use paper-search');
+    expect(researchConversation.promptSnapshot).toContain('network or paper-search configuration is unavailable');
+    expect(researchConversation.promptSnapshot).toContain('local Knowledge Base or Local Review Corpus');
+    expect(researchConversation.promptSnapshot).toContain('disclose that limitation');
     expect(researchConversation.promptSnapshot).toContain('paper-collection');
     expect(researchConversation.promptSnapshot).toContain('Knowledge Base');
     expect(researchConversation.promptSnapshot).toContain('paper-reading');
@@ -100,6 +134,18 @@ describe('Research Scene integration', () => {
     expect(researchConversation.promptSnapshot).toContain('Structured Paper Parse');
     expect(researchConversation.promptSnapshot).toContain('untrusted evidence');
     expect(researchConversation.promptSnapshot).toMatch(/embedded commands/i);
+
+    const assembledResearchRuntime = buildCdfSkillsRuntimeAssembly(projectPath, [], [], 'research').skillsRuntime;
+    const researchWorkflowSkillNames = [
+      'paper-search',
+      'paper-collection',
+      'paper-reading',
+      'manuscript-review',
+      'academic-style-revision',
+    ];
+    expect(assembledResearchRuntime.skills
+      .filter((skill) => researchWorkflowSkillNames.includes(skill.name))
+      .map((skill) => skill.name).sort()).toEqual([...researchWorkflowSkillNames].sort());
 
     const researchSkills = researchConversation.skillSnapshot.filter((skill) => skill.sourceKind === 'built-in');
     expect(researchSkills.map((skill) => skill.name)).toEqual(expect.arrayContaining([
@@ -156,9 +202,34 @@ describe('Research Scene integration', () => {
     expect(fs.readFileSync(path.join(academicStyleRevisionDir, 'PROVENANCE.md'), 'utf-8')).toContain('MIT');
     expect(fs.readFileSync(path.join(academicStyleRevisionDir, 'LICENSES', 'blader-humanizer-MIT.txt'), 'utf-8')).toContain('MIT License');
 
-    store.set('sceneSkillExposures', {
-      'built-in:manuscript-review': { research: false },
+    writeProjectSkill(projectPath, 'Project Skill v1');
+    const projectSkillV1Conversation = getOrCaptureConversationSystemContextSnapshot(db, {
+      sessionId: 'project-skill-v1-conversation',
+      projectPath,
+      sceneId: 'research',
+      promptSnapshot: 'Project Skill v1 Master prompt',
     });
+    writeProjectSkill(projectPath, 'Project Skill v2');
+    const projectSkillV2Conversation = getOrCaptureConversationSystemContextSnapshot(db, {
+      sessionId: 'project-skill-v2-conversation',
+      projectPath,
+      sceneId: 'research',
+      promptSnapshot: 'Project Skill v2 Master prompt',
+    });
+    const frozenProjectSkillV1Conversation = getOrCaptureConversationSystemContextSnapshot(db, {
+      sessionId: 'project-skill-v1-conversation',
+      projectPath,
+      sceneId: 'research',
+      promptSnapshot: 'Changed Project Skill Master prompt',
+    });
+
+    expect(projectSkillV1Conversation.skillSnapshot.find((skill) => skill.name === 'project-research-notes')?.description).toBe('Project Skill v1');
+    expect(projectSkillV2Conversation.skillSnapshot.find((skill) => skill.name === 'project-research-notes')?.description).toBe('Project Skill v2');
+    expect(frozenProjectSkillV1Conversation).toEqual(projectSkillV1Conversation);
+
+    mockedStore.state.sceneSkillExposures = {
+      'built-in:manuscript-review': { research: false },
+    };
     const laterConversation = getOrCaptureConversationSystemContextSnapshot(db, {
       sessionId: 'next-research-conversation',
       projectPath,
