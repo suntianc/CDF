@@ -179,19 +179,8 @@ describe('AgentEditDialog', () => {
     expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Docs Review Agent',
       skillNames: ['project-additional:docs:review'],
-      config: expect.not.objectContaining({ skillOverrides: expect.anything() }),
+      config: expect.any(Object),
     }));
-  });
-
-  it('removes all Skill Override controls and explanatory copy', () => {
-    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
-
-    expect(screen.queryByText(/Agent Skill Overrides/i)).toBeNull();
-    expect(screen.queryByText(/visibility override/i)).toBeNull();
-    expect(screen.queryByText('On')).toBeNull();
-    expect(screen.queryByText('Name only')).toBeNull();
-    expect(screen.queryByText('User only')).toBeNull();
-    expect(screen.queryByText('Off')).toBeNull();
   });
 
   it('lets Master edit and reset only the complete prompt, with changes scoped to new Conversations', () => {

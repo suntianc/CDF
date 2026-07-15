@@ -79,7 +79,6 @@ const skillCmd: SlashCommand = {
   skillSourceKind: 'project-additional',
   sourcePath: '/repo/apps/web/.cdf/skills',
   skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
-  skillVisibility: 'on',
   modelDiscovery: 'full',
   userInvocable: true,
 };
@@ -468,7 +467,6 @@ describe('dispatcher.dispatch', () => {
             sourceKind: 'project-additional',
             sourceLabel: 'Project Skill: apps/web',
             skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
-            visibility: 'on',
             modelDiscovery: 'full',
             userInvocable: true,
           }),

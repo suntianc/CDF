@@ -105,7 +105,7 @@ An Agent-level emphasis that loads a selected Skill's full instructions at Agent
 _Avoid_: binding, whitelist, permission
 
 **MCP Server Exclusion**:
-An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. Distinct from Skill Override — MCP tools have no progressive disclosure, so there are no partial-visibility states.
+An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. Distinct from Scene Skill Exposure — MCP tools have no progressive disclosure, so they have no equivalent Scene switch.
 _Avoid_: MCP binding, MCP whitelist, MCP mount, agent MCP selection
 
 **Connected Account**:

@@ -42,28 +42,6 @@ describe('command-registry', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('passes Skill catalog options to the Skill collector', async () => {
-    setupAllSucceed();
-
-    await collectAllCommands('/tmp/proj', 'agent-1', {
-      userOverrides: {
-        review: 'off',
-      },
-      agentOverrides: {
-        'docs:review': 'user-invocable-only',
-      },
-    });
-
-    expect(collectSkillCommandsMock).toHaveBeenCalledWith('/tmp/proj', {
-      userOverrides: {
-        review: 'off',
-      },
-      agentOverrides: {
-        'docs:review': 'user-invocable-only',
-      },
-    });
-  });
-
   it('does not throw when one collector rejects (P6.1 — failure isolation)', async () => {
     collectSystemCommandsMock.mockReturnValue([{ name: 'goal', description: '', source: 'system', target: 'goal', sourceLabel: 'system', badge: '[system]' }]);
     collectMcpCommandsMock.mockRejectedValue(new Error('mcp server down'));

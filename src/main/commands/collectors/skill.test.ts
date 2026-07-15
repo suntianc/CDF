@@ -24,6 +24,16 @@ describe('collectSkillCommands', () => {
     resolveSkillCatalogMock.mockReturnValue({ skills: [], warnings: [] });
   });
 
+  it('resolves the live catalog from Built-in and Global sources when no snapshot exists', async () => {
+    await expect(collectSkillCommands('/tmp/project')).resolves.toEqual([]);
+
+    expect(resolveSkillSourcePlanMock).toHaveBeenCalledWith('/tmp/project', {
+      builtInSkillDirs: ['/tmp/built-in/knowledge-base'],
+      userSkillsDir: '/tmp/global-skills',
+      includeNestedProjectSkills: undefined,
+    });
+  });
+
   it('uses the frozen Conversation Skill Snapshot without resolving a live catalog', async () => {
     const commands = await collectSkillCommands('/tmp/project', { catalog: [{
       name: 'review',
@@ -52,6 +62,22 @@ describe('collectSkillCommands', () => {
       name: 'simplify', skillName: 'simplify', skillSourceKind: 'project',
       source: 'skill:project', target: 'project:simplify', sourceLabel: 'Project Skill',
       modelDiscovery: 'full', userInvocable: true, argumentHint: '<file>',
+    });
+  });
+
+  it('maps a Global Skill to a global attributable command', async () => {
+    resolveSkillCatalogMock.mockReturnValue({ skills: [{
+      name: 'explore', description: 'Explore the repository', sourceKind: 'user',
+      sourcePath: '/tmp/global-skills', skillPath: '/tmp/global-skills/explore/SKILL.md',
+      modelDiscovery: 'full', userInvocable: true,
+    }], warnings: [] });
+
+    const commands = await collectSkillCommands('/tmp/project');
+
+    expect(commands[0]).toMatchObject({
+      name: 'explore', skillSourceKind: 'user', source: 'skill:global',
+      target: 'global:explore', sourceLabel: 'Global Skill',
+      skillPath: '/tmp/global-skills/explore/SKILL.md',
     });
   });
 

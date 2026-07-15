@@ -818,6 +818,7 @@ export function registerIpcHandlers() {
     const master = resetMasterAgentPrompt(db, projectId);
     return {
       ...master,
+      slug: master.slug ?? undefined,
       role: 'master' as const,
       is_protected: true,
       is_default: 1,

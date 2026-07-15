@@ -17,7 +17,6 @@ const {
   getBuiltInSkillRegistrationsMock,
   resolveAgentSkillsConfigMock,
   resolveConversationSkillSnapshotConfigMock,
-  resolveAgentSkillConfigOptionsMock,
   buildCdfSkillsRuntimeMock,
   loadMcpToolsMock,
   registerHarnessProfileMock,
@@ -30,7 +29,7 @@ const {
   acquireWorkingStateSaverMock: vi.fn(),
   checkpointGetTupleMock: vi.fn(),
   dbPrepareMock: vi.fn(),
-  storeGetMock: vi.fn((key?: string): unknown => key === 'skillOverrides' ? {} : 'strict'),
+  storeGetMock: vi.fn((): unknown => 'strict'),
   getScopePathMock: vi.fn((_projectPath: string, scope: string) =>
     scope === 'global' ? path.join(os.tmpdir(), 'cdf-runtime-test-global-skills') : path.join(_projectPath, '.cdf', 'skills')
   ),
@@ -42,10 +41,6 @@ const {
   resolveAgentSkillsConfigMock: vi.fn(() => ({
     skillsSources: ['/.cdf/skills'],
     permissions: [{ operations: ['read', 'write'], paths: ['/*', '/**/*'] }],
-  })),
-  resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({
-    options: undefined,
-    warnings: [],
   })),
   buildCdfSkillsRuntimeMock: vi.fn(() => ({
     skills: [],
@@ -120,7 +115,6 @@ vi.mock('./skill-manager', () => ({
   getScopePath: getScopePathMock,
   resolveAgentSkillsConfig: resolveAgentSkillsConfigMock,
   resolveConversationSkillSnapshotConfig: resolveConversationSkillSnapshotConfigMock,
-  resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
 }));
 
 vi.mock('./skills-runtime/cdf-skills-runtime', () => ({
@@ -215,13 +209,7 @@ describe('createDeepAgentRuntime', () => {
 
     vi.clearAllMocks();
     beginRuntimeUseMock.mockReturnValue(releaseRuntimeUseMock);
-    storeGetMock.mockImplementation((key?: string) =>
-      key === 'skillOverrides' ? {} : 'strict'
-    );
-    resolveAgentSkillConfigOptionsMock.mockReturnValue({
-      options: undefined,
-      warnings: [],
-    });
+    storeGetMock.mockReturnValue('strict');
     getRunBySessionIdMock.mockReturnValue(undefined);
     const checkpointer = { getTuple: checkpointGetTupleMock };
     acquireWorkingStateSaverMock.mockReturnValue(checkpointer);
@@ -344,8 +332,6 @@ describe('createDeepAgentRuntime', () => {
       sourceKind: 'project',
       sourcePath: path.join(tempProjectPath, '.cdf', 'skills'),
       skillPath: path.join(tempProjectPath, '.cdf', 'skills', 'captured-review', 'SKILL.md'),
-      visibility: 'on',
-      visibilitySource: 'default',
       modelDiscovery: 'full',
       userInvocable: true,
     }];
@@ -425,7 +411,6 @@ describe('createDeepAgentRuntime', () => {
 
   it('resolves MiniMax Token Plan through Anthropic/Claude-compatible MiniMax runtime', async () => {
     storeGetMock.mockImplementation((key?: string) => {
-      if (key === 'skillOverrides') return {};
       if (key === 'aiSubscriptions') return { entries: { 'minimax-token-plan': { status: 'connected' } } };
       if (key === 'aiSubscriptionSecrets') return { 'minimax-token-plan': 'sk-minimax' };
       return 'strict';
@@ -487,7 +472,6 @@ describe('createDeepAgentRuntime', () => {
     ],
   ])('returns a recoverable error for %s AI subscription model selections', async (_caseName, persistedState, model) => {
     storeGetMock.mockImplementation((key?: string) => {
-      if (key === 'skillOverrides') return {};
       if (key === 'aiSubscriptions') return persistedState;
       if (key === 'aiSubscriptionSecrets') return { 'minimax-token-plan': 'sk-minimax' };
       return 'strict';
@@ -548,54 +532,6 @@ describe('createDeepAgentRuntime', () => {
 
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
       pathContext: ['apps/web/src/App.tsx'],
-    }));
-  });
-
-  it('ignores user and Agent Skill Overrides during runtime assembly', async () => {
-    const agentWithOverrides = {
-      ...agent,
-      config: JSON.stringify({
-        skillOverrides: {
-          'agent-hidden': 'off',
-        },
-      }),
-    };
-    resolveAgentSkillConfigOptionsMock.mockReturnValueOnce({
-      options: {
-        userOverrides: {
-          'user-hidden': 'off',
-        },
-        agentOverrides: {
-          'agent-hidden': 'off',
-        },
-      },
-      warnings: [],
-    });
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      get: (arg?: string) => {
-        if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('FROM llm_providers WHERE id')) {
-          if (arg === 'provider-1') return provider;
-          return undefined;
-        }
-        return undefined;
-      },
-      all: (arg?: string) => {
-        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agentWithOverrides];
-        if (sql.includes('FROM agent_skills')) return [{ skill_name: 'project:test-skill' }];
-        if (sql.includes('FROM messages')) return [];
-        if (sql.includes('FROM mcp_servers')) return [];
-        return [];
-      },
-      run: vi.fn(),
-    }));
-
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
-
-    expect(resolveAgentSkillConfigOptionsMock).not.toHaveBeenCalled();
-    expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
-    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
-      preloadSkillNames: ['test-skill'],
     }));
   });
 
@@ -1075,7 +1011,7 @@ describe('createDeepAgentRuntime', () => {
     });
 
     it('always intercepts advance_stage even when the approval mode is bypass', async () => {
-      storeGetMock.mockImplementation((key?: string) => (key === 'skillOverrides' ? {} : 'bypass'));
+      storeGetMock.mockReturnValue('bypass');
       getRunBySessionIdMock.mockReturnValue(workflowRun);
 
       await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });

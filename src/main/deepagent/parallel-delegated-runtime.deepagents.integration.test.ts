@@ -214,7 +214,7 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../database', () => ({ default: testDb }));
 vi.mock('../store', () => ({
-  default: { get: vi.fn((key?: string) => key === 'skillOverrides' ? {} : 'strict') },
+  default: { get: vi.fn(() => 'strict') },
 }));
 vi.mock('../logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@langchain/langgraph-checkpoint-sqlite', () => ({
@@ -284,12 +284,21 @@ function setupDatabase(): void {
     DROP TABLE IF EXISTS delegated_agent_runs;
     DROP TABLE IF EXISTS agent_tool_calls;
     DROP TABLE IF EXISTS messages;
+    DROP TABLE IF EXISTS sessions;
     DROP TABLE IF EXISTS agent_runs;
     DROP TABLE IF EXISTS agents;
     DROP TABLE IF EXISTS llm_providers;
     DROP TABLE IF EXISTS projects;
-    CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL);
+    CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, scene TEXT NOT NULL DEFAULT 'general');
     CREATE TABLE llm_providers (id TEXT PRIMARY KEY);
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      agent_id TEXT,
+      prompt_snapshot TEXT,
+      skill_snapshot TEXT
+    );
     CREATE TABLE agents (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -306,7 +315,11 @@ function setupDatabase(): void {
     CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
     CREATE TABLE agent_tool_calls (id TEXT PRIMARY KEY, approval_status TEXT);
     CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, created_at INTEGER);
-    INSERT INTO projects VALUES ('project-1', 'Project', '/tmp');
+    INSERT INTO projects VALUES ('project-1', 'Project', '/tmp', 'general');
+    INSERT INTO sessions VALUES
+      ('session-1', 'project-1', 'Session 1', 'master', NULL, NULL),
+      ('session-2', 'project-1', 'Session 2', 'master-two', NULL, NULL),
+      ('session-3', 'project-1', 'Session 3', 'master-single', NULL, NULL);
     INSERT INTO llm_providers VALUES ('provider-1');
     INSERT INTO agents VALUES
       ('master', 'project-1', 'Master', 'master', '', 'provider-1', '', NULL, 1, 1, 1),

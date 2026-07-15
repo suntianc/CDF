@@ -521,7 +521,7 @@ export async function aggregateCurrentSessionContext(
 
   // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown.
   // Consume the same resolved CDF Skills runtime as Chat / worker / workflow
-  // paths so override visibility and preload semantics are accounted once.
+  // paths so Scene exposure and preload semantics are accounted once.
   let skills = 0;
   let projectPath: string | undefined;
   let skillsPerSkill: SkillDetail[] = [];
@@ -567,6 +567,8 @@ export async function aggregateCurrentSessionContext(
           name: getSkillDisplayName(skill),
           scope: getSkillScope(skill),
           tokens: safeMath(chars),
+          sourceLabel: getSkillSourceLabel(skill),
+          preloaded,
         });
       }
       skills = safeMath(skillsChars);

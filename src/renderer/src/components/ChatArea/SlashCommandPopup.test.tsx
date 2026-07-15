@@ -660,7 +660,6 @@ describe('Phase 6 source badges + warnings', () => {
       skillSourceKind: 'project-additional',
       sourcePath: '/repo/apps/web/.cdf/skills',
       skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
-      skillVisibility: 'on',
       modelDiscovery: 'full',
       userInvocable: true,
     }]} />);
@@ -705,7 +704,6 @@ describe('Phase 6 source badges + warnings', () => {
       skillSourceKind: 'project-nested',
       sourcePath: '/repo/apps/web/.cdf/skills',
       skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
-      skillVisibility: 'on',
       modelDiscovery: 'full',
       userInvocable: true,
     }]} />);
@@ -732,7 +730,6 @@ describe('Phase 6 source badges + warnings', () => {
         skillSourceKind: 'project',
         sourcePath: '/repo/.cdf/skills',
         skillPath: '/repo/.cdf/skills/deploy/SKILL.md',
-        skillVisibility: 'on',
         modelDiscovery: 'full',
         userInvocable: true,
       },
@@ -748,7 +745,6 @@ describe('Phase 6 source badges + warnings', () => {
         skillSourceKind: 'project-nested',
         sourcePath: '/repo/apps/web/.cdf/skills',
         skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
-        skillVisibility: 'on',
         modelDiscovery: 'full',
         userInvocable: true,
       },

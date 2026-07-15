@@ -47,7 +47,7 @@ describe('buildCdfSkillsRuntime', () => {
         name: 'secret-review',
         qualifiedName: 'secret-review',
         sourceLabel: 'Project Skill',
-        visibility: 'on',
+        modelDiscovery: 'full',
       }),
       expect.objectContaining({ phase: 'preload', qualifiedName: 'secret-review' }),
     ]));
@@ -63,8 +63,6 @@ describe('buildCdfSkillsRuntime', () => {
       sourceKind: 'project' as const,
       sourcePath: path.dirname(skillPath),
       skillPath,
-      visibility: 'on' as const,
-      visibilitySource: 'default' as const,
       modelDiscovery: 'full' as const,
       userInvocable: true,
     }];
@@ -107,7 +105,6 @@ describe('buildCdfSkillsRuntime', () => {
     const runtime = buildCdfSkillsRuntime(tempProjectPath, {
       builtInSkillDirs: [builtInSkillDir],
       userSkillsDir,
-      userOverrides: { 'personal-review': 'off' },
       sceneId: 'general',
       isGlobalSkillExposed: ({ sourceKind, name }) => !(
         (sourceKind === 'built-in' && name === 'paper-search')
@@ -125,7 +122,7 @@ describe('buildCdfSkillsRuntime', () => {
     expect(runtime.prompt).not.toContain('Disabled Global shared workflow');
     expect(runtime.skills.find((skill) => skill.name === 'personal-review')).toMatchObject({
       modelDiscovery: 'full',
-      visibilitySource: 'default',
+      sourceKind: 'user',
     });
   });
 

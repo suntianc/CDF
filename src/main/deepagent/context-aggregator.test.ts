@@ -333,7 +333,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(malformedRow).toBeUndefined();
   });
 
-  it('uses the Conversation Skill Snapshot without legacy Project override visibility', async () => {
+  it('counts every discoverable Project Skill and adds preloaded instructions', async () => {
     const writeSkill = (name: string, description: string, body = '') => {
       const skillDir = path.join(tempProjectPath, '.cdf', 'skills', name);
       fs.mkdirSync(skillDir, { recursive: true });
@@ -343,25 +343,9 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
         'utf-8'
       );
     };
-    writeSkill('visible-skill', 'Visible description');
-    writeSkill('name-skill', 'Hidden name-only description');
-    writeSkill('manual-skill', 'Manual description');
-    writeSkill('off-skill', 'Off description');
+    writeSkill('review-skill', 'Review description');
+    writeSkill('deploy-skill', 'Deploy description');
     writeSkill('preloaded-skill', 'Preloaded description', 'P'.repeat(1000));
-    fs.mkdirSync(path.join(tempProjectPath, '.cdf'), { recursive: true });
-    fs.writeFileSync(
-      path.join(tempProjectPath, '.cdf', 'skills.config.json'),
-      JSON.stringify({
-        version: 1,
-        overrides: {
-          'name-skill': 'name-only',
-          'manual-skill': 'user-invocable-only',
-          'off-skill': 'off',
-        },
-        additionalSkillDirectories: [],
-      }),
-      'utf-8'
-    );
     installFakeDb({
       agentRow: { id: 'agent-1', system_prompt: '', provider_id: 'provider-1', model_name: 'test', context_limit: 200_000 },
       projectsRow: { name: 'CDF', path: tempProjectPath },
@@ -371,12 +355,13 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     const result = await aggregateCurrentSessionContext('session-1');
     const byName = new Map(result.breakdown.skillsPerSkill.map((row) => [row.name, row]));
 
-    expect(byName.get('visible-skill')).toMatchObject({ visibility: 'on', preloaded: false });
-    expect(byName.get('name-skill')).toMatchObject({ visibility: 'on', preloaded: false });
-    expect(byName.get('manual-skill')).toMatchObject({ visibility: 'on', preloaded: false });
-    expect(byName.get('off-skill')).toMatchObject({ visibility: 'on', preloaded: false });
-    expect(byName.get('preloaded-skill')).toMatchObject({ visibility: 'on', preloaded: true });
-    expect(byName.get('preloaded-skill')!.tokens).toBeGreaterThan(byName.get('visible-skill')!.tokens);
+    expect(byName.get('review-skill')).toMatchObject({
+      sourceLabel: 'Project Skill',
+      preloaded: false,
+    });
+    expect(byName.get('deploy-skill')).toMatchObject({ preloaded: false });
+    expect(byName.get('preloaded-skill')).toMatchObject({ preloaded: true });
+    expect(byName.get('preloaded-skill')!.tokens).toBeGreaterThan(byName.get('review-skill')!.tokens);
   });
 
   it('freeSpace = max(0, contextLimit - total - autocompactBuffer)', async () => {

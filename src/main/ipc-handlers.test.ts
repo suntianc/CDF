@@ -836,9 +836,12 @@ describe('IPC handlers', () => {
     }
   });
 
-  it('uses the Scene Skill Set for commands:list without resolving legacy Overrides', async () => {
+  it('uses the Scene Skill Set for commands:list', async () => {
     const sceneSkillSet = [{ name: 'review', userInvocable: true }];
-    captureConversationSystemContextSnapshotMock.mockReturnValueOnce({ skillSnapshot: sceneSkillSet });
+    captureConversationSystemContextSnapshotMock.mockReturnValueOnce({
+      promptSnapshot: '',
+      skillSnapshot: sceneSkillSet,
+    });
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: vi.fn(() => sql.includes('FROM projects') ? { path: '/tmp/project', scene: 'research' } : null),
       all: vi.fn(() => []),

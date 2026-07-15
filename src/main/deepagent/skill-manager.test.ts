@@ -11,7 +11,6 @@ import {
   listResolvedSkillViews,
   materializePaperSearchRuntime,
   materializePdfParsingSkillRuntime,
-  resolveAgentSkillConfigOptions,
   resolveAgentSkillsConfig,
   savePhysicalSkill,
 } from './skill-manager';
@@ -309,34 +308,6 @@ describe('skill-manager', () => {
     ).toBe(skillBody);
   });
 
-  it('resolves user and agent skill override options from local store and agent config', () => {
-    const agentConfig = JSON.stringify({
-      skillOverrides: {
-        'agent-hidden': 'off',
-      },
-    });
-
-    const result = resolveAgentSkillConfigOptions(agentConfig, (key) => {
-      if (key === 'skillOverrides') {
-        return {
-          'user-hidden': 'user-invocable-only',
-          broken: 'never',
-        };
-      }
-      return undefined;
-    });
-
-    expect(result.options).toEqual({
-      userOverrides: {
-        'user-hidden': 'user-invocable-only',
-      },
-      agentOverrides: {
-        'agent-hidden': 'off',
-      },
-    });
-    expect(result.warnings.join('\n')).toContain('broken');
-  });
-
   it('should include project skills in the runtime source plan', () => {
     fs.mkdirSync(path.join(tempProjectPath, '.cdf', 'skills'), { recursive: true });
 
@@ -515,28 +486,6 @@ describe('skill-manager', () => {
     expect(config.skillsSources).toContain(skillsDir);
   });
 
-  it('resolveAgentSkillsConfig: legacy user overrides do not filter model sources', () => {
-    const globalSkillsDir = getScopePath(tempProjectPath, 'global');
-    fs.mkdirSync(path.join(globalSkillsDir, 'global-visible'), { recursive: true });
-    fs.mkdirSync(path.join(globalSkillsDir, 'global-hidden'), { recursive: true });
-    fs.writeFileSync(
-      path.join(globalSkillsDir, 'global-visible', 'SKILL.md'),
-      '---\nname: global-visible\ndescription: Visible global skill\n---\n'
-    );
-    fs.writeFileSync(
-      path.join(globalSkillsDir, 'global-hidden', 'SKILL.md'),
-      '---\nname: global-hidden\ndescription: Hidden global skill\n---\n'
-    );
-
-    const config = resolveAgentSkillsConfig(tempProjectPath, [], {
-      userOverrides: {
-        'global-hidden': 'off',
-      },
-    });
-
-    expect(config.skillsSources).toContain(globalSkillsDir);
-  });
-
   it('resolveAgentSkillsConfig: skills with disable-model-invocation absent or false are kept (D-10 default)', () => {
     const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     fs.mkdirSync(path.join(skillsDir, 'no-frontmatter-skill'), { recursive: true });
@@ -615,7 +564,6 @@ describe('skill-manager', () => {
       path.join(tempProjectPath, '.cdf', 'skills.config.json'),
       JSON.stringify({
         version: 1,
-        overrides: {},
         additionalSkillDirectories: ['docs/skills'],
       }),
       'utf-8'
@@ -643,7 +591,8 @@ describe('skill-manager', () => {
         qualifiedName: 'review',
         sourceKind: 'project',
         sourceLabel: 'Project Skill',
-        skillVisibility: 'on',
+        modelDiscovery: 'full',
+        userInvocable: true,
       }),
       expect.objectContaining({
         id: 'project-additional:docs:review',
@@ -651,7 +600,8 @@ describe('skill-manager', () => {
         qualifiedName: 'docs:review',
         sourceKind: 'project-additional',
         sourceLabel: 'Project Skill: docs',
-        skillVisibility: 'on',
+        modelDiscovery: 'full',
+        userInvocable: true,
       }),
     ]);
   });

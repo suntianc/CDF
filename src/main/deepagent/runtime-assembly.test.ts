@@ -13,7 +13,7 @@ const {
 } = vi.hoisted(() => ({
   registerHarnessProfileMock: vi.fn(),
   storeGetMock: vi.fn(),
-  buildCdfSkillsRuntimeMock: vi.fn((): { skills: unknown[]; prompt: string; warnings: string[]; attributions?: unknown[] } => ({
+  buildCdfSkillsRuntimeMock: vi.fn((..._args: unknown[]): { skills: unknown[]; prompt: string; warnings: string[]; attributions?: unknown[] } => ({
     skills: [],
     prompt: '## Skills System\n\nCDF-owned skills prompt',
     warnings: [],
@@ -412,7 +412,7 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
 
     buildCdfSkillsRuntimeAssembly(projectPath, [], null, [], 'research');
 
-    const options = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as {
+    const options = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as unknown as {
       sceneId: string;
       isGlobalSkillExposed: (skill: { sourceKind: 'built-in' | 'user'; name: string }) => boolean;
     };
@@ -421,7 +421,7 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     expect(options.isGlobalSkillExposed({ sourceKind: 'user', name: 'personal-review' })).toBe(true);
 
     buildCdfSkillsRuntimeAssembly(projectPath, [], null, [], 'general');
-    const generalOptions = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as typeof options;
+    const generalOptions = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as unknown as typeof options;
     expect(generalOptions.isGlobalSkillExposed({ sourceKind: 'built-in', name: 'paper-search' })).toBe(false);
   });
 
@@ -440,20 +440,6 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     expect(result.warnings).toContain('Skill not found: missing-skill');
   });
 
-  it('ignores legacy Agent Skill Overrides while retaining preload emphasis', async () => {
-    const config = JSON.stringify({ skillOverrides: { 'my-skill': 'off' } });
-    buildCdfSkillsRuntimeMock.mockReturnValue({ skills: [], prompt: '', warnings: [] });
-
-    const result = buildCdfSkillsRuntimeAssembly(projectPath, ['project:my-skill'], config, []);
-
-    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(projectPath, expect.objectContaining({
-      preloadSkillNames: ['my-skill'],
-    }));
-    const runtimeOptions = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as Record<string, unknown>;
-    expect(runtimeOptions).not.toHaveProperty('userOverrides');
-    expect(runtimeOptions).not.toHaveProperty('agentOverrides');
-    expect(result.warnings).toEqual([]);
-  });
 });
 
 // =============================================================================

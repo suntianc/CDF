@@ -61,7 +61,7 @@ describe('ResearchSettings Paper Search CLI config', () => {
   it('renders every Paper Search CLI config key in the research settings page', async () => {
     render(<ResearchSettings />);
 
-    expect(await screen.findByText(/Research Config|科研配置/)).toBeTruthy();
+    expect(await screen.findByText('0/13')).toBeTruthy();
     for (const key of PAPER_SEARCH_CONFIG_KEYS) {
       expect(screen.getByTestId(`paper-search-config-${key}`)).toBeTruthy();
     }
@@ -161,7 +161,7 @@ describe('ResearchSettings Paper Search CLI config', () => {
   it('does not render runtime or network config keys', async () => {
     render(<ResearchSettings />);
 
-    await screen.findByText(/Research Config|科研配置/);
+    await screen.findByText('0/13');
     expect(screen.queryByTestId('paper-search-config-LOG_LEVEL')).toBeNull();
     expect(screen.queryByTestId('paper-search-config-DEFAULT_DOWNLOAD_PATH')).toBeNull();
     expect(screen.queryByTestId('paper-search-config-RATE_LIMIT_BURST')).toBeNull();

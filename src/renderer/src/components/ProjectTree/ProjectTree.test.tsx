@@ -117,7 +117,7 @@ describe('ProjectTree Scene project creation', () => {
     expect(useProjectStore.getState().currentProjectId).toBe('project-research');
   });
 
-  it('uses a blue flask icon for research projects', async () => {
+  it('uses a blue academic icon for research projects', async () => {
     dbApi.getProjects.mockResolvedValue([
       {
         id: 'default-project',
@@ -161,7 +161,7 @@ describe('ProjectTree Scene project creation', () => {
     const svg = sceneIcon.querySelector('svg');
 
     expect(sceneIcon.tagName).toBe('SPAN');
-    expect(svg?.getAttribute('class')).toContain('lucide-flask-conical');
+    expect(svg?.getAttribute('class')).toContain('lucide-graduation-cap');
     expect(svg?.getAttribute('class')).toContain('w-4 h-4');
     expect(svg?.getAttribute('class')).toContain('text-[color-mix(in_srgb,var(--color-info)_72%,white)]');
     expect(svg?.getAttribute('class')).not.toContain('text-[var(--color-accent)]');

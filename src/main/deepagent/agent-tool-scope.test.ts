@@ -43,7 +43,6 @@ describe('Agent Tool Scope', () => {
     const result = selectDelegatedToolScope({
       agentConfig: {
         toolScope: { mode: 'narrow', builtInTools: [], mcpServerIds: [] },
-        skillOverrides: { review: 'on' },
       },
       parentBuiltInToolNames: ['bash'],
       childBuiltInTools: [tool('bash')],
