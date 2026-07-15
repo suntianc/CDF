@@ -48,7 +48,7 @@ export function getManuscriptReviewSkillMarkdown(): string {
     '4. writing and presentation; and',
     '5. related work and citations.',
     '',
-    'Apply cross-cutting checks wherever relevant: reproducibility, transparency, ethics, reporting standards, figure and table completeness, and whether conclusions exceed the evidence.',
+    'Apply cross-cutting checks wherever relevant: reproducibility, transparency, ethics, reporting standards, figure and table completeness, figure integrity (including duplicated, spliced, internally inconsistent, or manipulated panels), and whether conclusions exceed the evidence.',
     'Use `references/reporting_standards.md` and `references/common_issues.md` as static prompts for appropriate checks, not as automatic proof that a Manuscript violates a standard.',
     '',
     'Choose exactly one Simulated Editorial Recommendation: `accept`, `minor revisions`, `major revisions`, or `reject`. Determine it from the most consequential required revision, not a count or numerical score.',

@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  getBuiltInSkillDirs,
   getBuiltInSkillRegistrations,
   getScopePath,
   importPhysicalSkillDirectory,
@@ -55,7 +56,7 @@ describe('skill-manager', () => {
     ]);
   });
 
-  it('replaces stale files when materializing static Built-in Skill packages', () => {
+  it('exposes immutable static Built-in packages instead of stale legacy directories', () => {
     const builtInRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT as string;
     const packages = [
       ['manuscript-review', 'PROVENANCE.md'],
@@ -63,17 +64,22 @@ describe('skill-manager', () => {
     ] as const;
 
     for (const [name, expectedResource] of packages) {
-      const skillDir = path.join(builtInRoot, name);
-      fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'scripts', 'stale.js'), 'unsafe stale script', 'utf-8');
-      fs.writeFileSync(path.join(skillDir, 'stale-resource.md'), 'stale resource', 'utf-8');
+      const legacyDir = path.join(builtInRoot, name);
+      fs.mkdirSync(path.join(legacyDir, 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(legacyDir, 'scripts', 'stale.js'), 'unsafe stale script', 'utf-8');
+      fs.writeFileSync(path.join(legacyDir, 'stale-resource.md'), 'stale resource', 'utf-8');
 
-      getBuiltInSkillRegistrations().find((registration) => registration.name === name)?.materialize();
+      const skillDir = getBuiltInSkillRegistrations()
+        .find((registration) => registration.name === name)?.materialize();
 
-      expect(fs.existsSync(path.join(skillDir, 'scripts'))).toBe(false);
-      expect(fs.existsSync(path.join(skillDir, 'stale-resource.md'))).toBe(false);
-      expect(fs.existsSync(path.join(skillDir, 'SKILL.md'))).toBe(true);
-      expect(fs.existsSync(path.join(skillDir, expectedResource))).toBe(true);
+      expect(skillDir).toBeTruthy();
+      expect(path.dirname(path.dirname(skillDir as string))).toBe(legacyDir);
+      expect(skillDir).not.toBe(legacyDir);
+      expect(fs.existsSync(path.join(skillDir as string, 'scripts'))).toBe(false);
+      expect(fs.existsSync(path.join(skillDir as string, 'stale-resource.md'))).toBe(false);
+      expect(fs.existsSync(path.join(skillDir as string, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(skillDir as string, expectedResource))).toBe(true);
+      expect(getBuiltInSkillDirs()).toContain(skillDir);
     }
   });
 

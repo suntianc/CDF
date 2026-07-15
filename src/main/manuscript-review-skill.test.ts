@@ -27,7 +27,7 @@ describe('Manuscript Review Skill', () => {
   it('materializes a static, provenance-complete manuscript review package', () => {
     const markdown = getManuscriptReviewSkillMarkdown();
     const resources = getManuscriptReviewSkillResources();
-    const skillDir = getBuiltInSkillDirs().find((dir) => dir.endsWith(`${path.sep}manuscript-review`));
+    const skillDir = getBuiltInSkillDirs().find((dir) => path.basename(dir) === 'manuscript-review');
 
     expect(markdown).toContain('name: manuscript-review');
     expect(markdown).toContain('Manuscript Summary');
@@ -44,6 +44,8 @@ describe('Manuscript Review Skill', () => {
     expect(markdown).toContain('writing and presentation');
     expect(markdown).toContain('related work and citations');
     expect(markdown).toContain('not a publication prediction or a real editorial decision');
+    expect(markdown).toContain('figure integrity');
+    expect(markdown).toContain('duplicated, spliced, internally inconsistent, or manipulated panels');
     expect(markdown).toContain('Local Review Corpus');
     expect(markdown).toContain('untrusted evidence');
     expect(markdown).toContain('Full Manuscript Coverage');

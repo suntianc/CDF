@@ -227,6 +227,25 @@ describe('Research Scene integration', () => {
     expect(projectSkillV2Conversation.skillSnapshot.find((skill) => skill.name === 'project-research-notes')?.description).toBe('Project Skill v2');
     expect(frozenProjectSkillV1Conversation).toEqual(projectSkillV1Conversation);
 
+    const projectSkillV1Runtime = buildCdfSkillsRuntimeAssembly(
+      projectPath,
+      [],
+      [],
+      'research',
+      projectSkillV1Conversation.skillSnapshot,
+    ).skillsRuntime;
+    const projectSkillV2Runtime = buildCdfSkillsRuntimeAssembly(
+      projectPath,
+      [],
+      [],
+      'research',
+      projectSkillV2Conversation.skillSnapshot,
+    ).skillsRuntime;
+    expect(projectSkillV1Runtime.skills.find((skill) => skill.name === 'project-research-notes')?.description)
+      .toBe('Project Skill v1');
+    expect(projectSkillV2Runtime.skills.find((skill) => skill.name === 'project-research-notes')?.description)
+      .toBe('Project Skill v2');
+
     mockedStore.state.sceneSkillExposures = {
       'built-in:manuscript-review': { research: false },
     };
@@ -245,6 +264,23 @@ describe('Research Scene integration', () => {
 
     expect(laterConversation.skillSnapshot.map((skill) => skill.name)).not.toContain('manuscript-review');
     expect(frozenConversation).toEqual(researchConversation);
+
+    const frozenRuntime = buildCdfSkillsRuntimeAssembly(
+      projectPath,
+      [],
+      [],
+      'research',
+      frozenConversation.skillSnapshot,
+    ).skillsRuntime;
+    const laterRuntime = buildCdfSkillsRuntimeAssembly(
+      projectPath,
+      [],
+      [],
+      'research',
+      laterConversation.skillSnapshot,
+    ).skillsRuntime;
+    expect(frozenRuntime.skills.map((skill) => skill.name)).toContain('manuscript-review');
+    expect(laterRuntime.skills.map((skill) => skill.name)).not.toContain('manuscript-review');
     db.close();
   });
 });

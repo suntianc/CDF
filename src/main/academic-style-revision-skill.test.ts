@@ -30,7 +30,7 @@ describe('Academic Style Revision Skill', () => {
   it('materializes a static, provenance-complete academic style revision package', () => {
     const markdown = getAcademicStyleRevisionSkillMarkdown();
     const resources = getAcademicStyleRevisionSkillResources();
-    const skillDir = getBuiltInSkillDirs().find((dir) => dir.endsWith(`${path.sep}academic-style-revision`));
+    const skillDir = getBuiltInSkillDirs().find((dir) => path.basename(dir) === 'academic-style-revision');
 
     expect(markdown).toContain('name: academic-style-revision');
     expect(markdown).toContain('Full Manuscript Scope');

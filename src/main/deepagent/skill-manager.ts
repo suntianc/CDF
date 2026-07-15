@@ -22,6 +22,7 @@ import {
   type SkillSourcePlanOptions,
 } from './skills-runtime/skill-sources';
 import { parseSkillMetadata, validateSkillName } from './skills-runtime/skill-metadata';
+import { materializeStaticSkillPackage } from './static-skill-package';
 import type { SceneId } from '../../shared/scenes';
 import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import { classifySkillSourceKind } from '../../shared/skills';
@@ -179,52 +180,8 @@ function ensureBuiltInPaperReadingSkill(): string {
   return skillDir;
 }
 
-interface StaticBuiltInSkillPackage {
-  name: string;
-  markdown: string;
-  resources: readonly { relativePath: string; content: string }[];
-}
-
-function removeUndeclaredSkillFiles(rootDir: string, declaredPaths: ReadonlySet<string>, currentDir = rootDir): void {
-  if (!fs.existsSync(currentDir)) return;
-  for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-    const entryPath = path.join(currentDir, entry.name);
-    const relativePath = path.relative(rootDir, entryPath);
-    if (entry.isDirectory()) {
-      const containsDeclaredPath = [...declaredPaths].some((declaredPath) => (
-        declaredPath.startsWith(`${relativePath}${path.sep}`)
-      ));
-      if (containsDeclaredPath) {
-        removeUndeclaredSkillFiles(rootDir, declaredPaths, entryPath);
-      } else {
-        fs.rmSync(entryPath, { recursive: true, force: true });
-      }
-    } else if (!declaredPaths.has(relativePath)) {
-      fs.rmSync(entryPath, { force: true });
-    }
-  }
-}
-
-/** Rebuilds a static package from its declared files so no stale executable remains discoverable. */
-function materializeStaticBuiltInSkillPackage(skillPackage: StaticBuiltInSkillPackage): string {
-  const skillDir = path.join(resolveBuiltInSkillsRoot(), skillPackage.name);
-  ensureDir(skillDir);
-  const declaredPaths = new Set([
-    'SKILL.md',
-    ...skillPackage.resources.map((resource) => path.normalize(resource.relativePath)),
-  ]);
-  removeUndeclaredSkillFiles(skillDir, declaredPaths);
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillPackage.markdown, 'utf-8');
-  for (const resource of skillPackage.resources) {
-    const resourcePath = path.join(skillDir, resource.relativePath);
-    ensureDir(path.dirname(resourcePath));
-    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
-  }
-  return skillDir;
-}
-
 function ensureBuiltInManuscriptReviewSkill(): string {
-  return materializeStaticBuiltInSkillPackage({
+  return materializeStaticSkillPackage(resolveBuiltInSkillsRoot(), {
     name: 'manuscript-review',
     markdown: getManuscriptReviewSkillMarkdown(),
     resources: getManuscriptReviewSkillResources(),
@@ -232,7 +189,7 @@ function ensureBuiltInManuscriptReviewSkill(): string {
 }
 
 function ensureBuiltInAcademicStyleRevisionSkill(): string {
-  return materializeStaticBuiltInSkillPackage({
+  return materializeStaticSkillPackage(resolveBuiltInSkillsRoot(), {
     name: 'academic-style-revision',
     markdown: getAcademicStyleRevisionSkillMarkdown(),
     resources: getAcademicStyleRevisionSkillResources(),
