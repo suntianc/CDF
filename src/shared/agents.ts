@@ -67,7 +67,6 @@ export interface AgentSaveInput {
   provider_id?: string | null;
   system_prompt?: string | null;
   config?: Record<string, unknown> | null;
-  is_default?: number | boolean;
   mcpServerExclusionIds?: string[];
   skillNames?: string[];
 }

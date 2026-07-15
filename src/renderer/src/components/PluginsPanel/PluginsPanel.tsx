@@ -258,11 +258,14 @@ function SkillsTab({ showToast }: { showToast: (msg: string, type?: Toast['type'
                       type="button"
                       role="switch"
                       aria-checked={exposed}
-                      aria-label={t('plugins.skillSceneExposureControlLabel', { name: displayName, scene: scene.label })}
+                      aria-label={t('plugins.skillSceneExposureControlLabel', {
+                        name: displayName,
+                        scene: t(`projectTree.scene.${scene.id}`, { defaultValue: scene.label }),
+                      })}
                       onClick={() => handleSceneExposureChange(sourceKind, skill.name, scene.id, !exposed)}
                       className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-[11px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
                     >
-                      <span>{scene.label}</span>
+                      <span>{t(`projectTree.scene.${scene.id}`, { defaultValue: scene.label })}</span>
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${exposed
                         ? 'bg-[var(--color-success-dim)] text-[var(--color-success)]'
                         : 'bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)]'}`}

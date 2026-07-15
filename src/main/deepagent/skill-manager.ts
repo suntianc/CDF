@@ -316,21 +316,6 @@ function validateSkillInput(skill: PhysicalSkillInput): void {
   }
 }
 
-function parseAgentConfig(config: string | null | undefined): Record<string, unknown> {
-  if (!config) return {};
-  try {
-    const parsed = JSON.parse(config) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      __config_parse_error__: message,
-    };
-  }
-}
-
 function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillName: string): PhysicalSkillView {
   const skillDir = getSkillDir(projectPath, scope, skillName);
   const stat = fs.statSync(skillDir);
@@ -494,8 +479,9 @@ export function listResolvedSkillViews(
       ? getScopePath(projectPath, 'global')
       : options.userSkillsDir,
     enterpriseSkillDirs: options.enterpriseSkillDirs,
+    includeNestedProjectSkills: options.includeNestedProjectSkills,
   });
-  const catalog = resolveSkillCatalog(plan);
+  const catalog = resolveSkillCatalog(plan, options);
 
   return catalog.skills.map(buildResolvedSkillView);
 }

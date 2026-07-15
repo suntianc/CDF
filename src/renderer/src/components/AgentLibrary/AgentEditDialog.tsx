@@ -75,7 +75,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   const skillContainerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const initialFocusRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const initialFocusRef = useRef<HTMLTextAreaElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
   const isMasterAgent = editingAgent?.role === 'master' || editingAgent?.slug === 'master-agent';
@@ -194,7 +194,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
     const id = agentId || window.crypto.randomUUID();
     const existingAgent = agentId ? agents.find((item) => item.id === agentId) : null;
-    const defaultExists = agents.some((item) => item.project_id === (currentProjectId || 'default-project') && item.is_default === 1);
     const nextConfig: Record<string, unknown> = {
       ...(existingAgent?.config ?? {}),
       permissionsPreset: 'project-safe',
@@ -220,7 +219,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       config: nextConfig,
       mcpServerExclusionIds: formMcpExclusionIds,
       skillNames: formSkillIds,
-      is_default: existingAgent?.is_default ?? (defaultExists ? 0 : 1),
     };
 
     try {

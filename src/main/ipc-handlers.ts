@@ -30,6 +30,7 @@ import {
 import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/skills';
 import { isRegisteredSceneId } from '../shared/scenes';
 import { createSceneSkillExposureService } from './scene-skill-exposure';
+import { createGlobalSkillSceneExposureFilter } from './global-skill-scene-exposure';
 import { normalizeWorkflowStages, validateWorkflowStages } from '../shared/workflow-routing';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import type {
@@ -839,12 +840,19 @@ export function registerIpcHandlers() {
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
 
   typedHandle('db:getSkills', (_, projectId) => {
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as
+      | { path: string; scene?: ProjectScene }
+      | undefined;
     if (!project) {
       return [];
     }
-    // 主进程内部视图类型（PhysicalSkillView）宽于共享 Skill（string vs 字面量联合）
-    return listResolvedSkillViews(project.path) as Skill[];
+    const isGlobalSkillExposed = createGlobalSkillSceneExposureFilter(project.scene ?? 'general');
+    return listResolvedSkillViews(project.path, {
+      includeNestedProjectSkills: true,
+      includeSkill: (source, name) => (
+        source.kind !== 'built-in' && source.kind !== 'user'
+      ) || isGlobalSkillExposed({ sourceKind: source.kind, name }),
+    }) as Skill[];
   });
 
   typedHandle('db:getGlobalSkills', () => {
