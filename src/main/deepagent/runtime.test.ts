@@ -21,9 +21,11 @@ const {
   loadMcpToolsMock,
   registerHarnessProfileMock,
   getRunBySessionIdMock,
+  createAgentCatalogMock,
 } = vi.hoisted(() => ({
   createDeepAgentMock: vi.fn(() => ({ streamEvents: vi.fn() })),
   getRunBySessionIdMock: vi.fn(),
+  createAgentCatalogMock: vi.fn(),
   releaseRuntimeUseMock: vi.fn(),
   beginRuntimeUseMock: vi.fn(),
   acquireWorkingStateSaverMock: vi.fn(),
@@ -84,6 +86,10 @@ vi.mock('../database', () => ({
   default: {
     prepare: dbPrepareMock,
   },
+}));
+
+vi.mock('../agent-catalog', () => ({
+  createAgentCatalog: createAgentCatalogMock,
 }));
 
 vi.mock('../store', () => ({
@@ -165,13 +171,12 @@ describe('createDeepAgentRuntime', () => {
   const tempProjectPath = path.join(os.tmpdir(), `cdf-runtime-test-${Math.random().toString(36).slice(2)}`);
   const agent = {
     id: 'agent-1',
-    project_id: 'project-1',
+    role: 'master' as const,
     name: 'Master Agent',
     slug: 'master-agent',
     provider_id: 'provider-1',
     system_prompt: 'System prompt',
     config: null,
-    is_default: 1,
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -188,11 +193,12 @@ describe('createDeepAgentRuntime', () => {
     slug: 'custom-agent',
     provider_id: 'provider-2',
     system_prompt: 'Agent 2 prompt',
-    is_default: 0,
+    role: 'custom' as const,
   };
   const generalPurposeAgent = {
     ...agent,
     id: 'agent-3',
+    role: 'general-purpose' as const,
     slug: 'general-purpose',
     name: 'General-purpose',
   };
@@ -211,18 +217,17 @@ describe('createDeepAgentRuntime', () => {
     beginRuntimeUseMock.mockReturnValue(releaseRuntimeUseMock);
     storeGetMock.mockReturnValue('strict');
     getRunBySessionIdMock.mockReturnValue(undefined);
+    createAgentCatalogMock.mockImplementation(() => ({
+      resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+      listDelegationTargets: () => [],
+      get: (id: string) => [agent, agent2, generalPurposeAgent].find((candidate) => candidate.id === id) ?? null,
+    }));
     const checkpointer = { getTuple: checkpointGetTupleMock };
     acquireWorkingStateSaverMock.mockReturnValue(checkpointer);
     checkpointGetTupleMock.mockResolvedValue(undefined);
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes("FROM agents WHERE project_id = ? AND slug = ?")) return agent;
-        if (sql.includes('FROM agents WHERE id')) {
-          if (arg === 'agent-2') return agent2;
-          if (arg === 'agent-3') return generalPurposeAgent;
-          return undefined;
-        }
         if (sql.includes('FROM llm_providers WHERE id')) {
           if (arg === 'provider-1') return provider;
           if (arg === 'provider-2') return provider2;
@@ -231,7 +236,6 @@ describe('createDeepAgentRuntime', () => {
         return undefined;
       },
       all: (arg?: string) => {
-        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
         if (sql.includes('FROM agent_skills')) return [{ skill_name: arg === 'agent-2' ? 'project:sub-skill' : 'project:test-skill' }];
         if (sql.includes('FROM messages')) {
           return [
@@ -340,13 +344,10 @@ describe('createDeepAgentRuntime', () => {
       get: (arg?: string) => {
         if (sql.includes('SELECT skill_snapshot FROM sessions')) return { skill_snapshot: JSON.stringify(snapshot) };
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath, scene: 'general' };
-        if (sql.includes('slug = ?')) return agent;
-        if (sql.includes('FROM agents WHERE id')) return undefined;
         if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-1' ? provider : undefined;
         return undefined;
       },
       all: (arg?: string) => {
-        if (sql.includes('is_default = 1')) return [agent];
         if (sql.includes('FROM agent_skills')) return [{ skill_name: 'project:test-skill' }];
         if (sql.includes('FROM mcp_servers')) return [];
         return [];
@@ -502,8 +503,6 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('slug = ?')) return agent;
-        if (sql.includes('FROM agents WHERE id')) return arg === 'agent-2' ? agent2 : undefined;
         if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-1' ? provider : undefined;
         return undefined;
       },
@@ -557,27 +556,20 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('slug = ?')) return agent;
-        if (sql.includes('FROM agents WHERE id')) {
-          if (arg === 'agent-2') return { ...agent2, slug: 'code-agent' };
-          if (arg === 'agent-1') return agent;
-          return undefined;
-        }
         if (sql.includes('FROM llm_providers')) {
           if (arg === 'provider-1') return provider;
           if (arg === 'provider-2') return provider2;
-          return undefined;
         }
         return undefined;
       },
-      all: (arg?: string) => {
-        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
-        if (sql.includes('FROM agent_skills')) return [];
-        if (sql.includes('FROM messages')) return [];
-        if (sql.includes('FROM mcp_servers')) return [];
-        return [];
-      },
+      all: () => [],
       run: vi.fn(),
+    }));
+
+    createAgentCatalogMock.mockImplementation(() => ({
+      resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+      listDelegationTargets: () => [],
+      get: (id: string) => id === 'agent-2' ? { ...agent2, slug: 'code-agent' } : id === agent.id ? agent : null,
     }));
 
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, 'agent-1', undefined, ['agent-2']);
@@ -598,26 +590,15 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('slug = ?')) return agent;
-        if (sql.includes('FROM agents WHERE id')) {
-          if (arg === 'agent-2') return { ...agent2, slug: 'code-agent' };
-          if (arg === 'agent-1') return agent;
-          return undefined;
-        }
         if (sql.includes('FROM llm_providers')) {
           if (arg === 'provider-1') return provider;
           if (arg === 'provider-2') return provider2;
-          return undefined;
         }
         return undefined;
       },
-      all: (arg?: string) => {
-        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
-        if (sql.includes('FROM agent_skills')) return arg === 'agent-2' ? [{ skill_name: 'project:sub-skill' }] : [];
-        if (sql.includes('FROM messages')) return [];
-        if (sql.includes('FROM mcp_servers')) return [];
-        return [];
-      },
+      all: (arg?: string) => sql.includes('FROM agent_skills') && arg === 'agent-2'
+        ? [{ skill_name: 'project:sub-skill' }]
+        : [],
       run: vi.fn(),
     }));
 
@@ -635,12 +616,6 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('slug = ?')) return agent;
-        if (sql.includes('FROM agents WHERE id')) {
-          if (arg === 'agent-2') return { ...agent2, slug: 'minimax-agent' };
-          if (arg === 'agent-1') return agent;
-          return undefined;
-        }
         if (sql.includes('FROM llm_providers')) {
           if (arg === 'provider-1') return provider;
           if (arg === 'provider-2') {
@@ -651,18 +626,19 @@ describe('createDeepAgentRuntime', () => {
               default_model: 'MiniMax-M2.7-highspeed',
             };
           }
-          return undefined;
         }
         return undefined;
       },
-      all: (arg?: string) => {
-        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
-        if (sql.includes('FROM agent_skills')) return [];
-        if (sql.includes('FROM messages')) return [];
-        if (sql.includes('FROM mcp_servers')) return [];
-        return [];
-      },
+      all: () => [],
       run: vi.fn(),
+    }));
+
+    createAgentCatalogMock.mockImplementation(() => ({
+      resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+      listDelegationTargets: () => [],
+      get: (id: string) => id === 'agent-2'
+        ? { ...agent2, slug: 'minimax-agent' }
+        : id === agent.id ? agent : null,
     }));
 
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
@@ -946,27 +922,20 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
-        if (sql.includes('slug = ?')) return agent;
-        if (sql.includes('FROM agents WHERE id')) {
-          if (arg === 'agent-2') return { ...agent2, slug: null, name: 'Code Agent' };  // slug is null
-          if (arg === 'agent-1') return agent;
-          return undefined;
-        }
         if (sql.includes('FROM llm_providers')) {
           if (arg === 'provider-1') return provider;
           if (arg === 'provider-2') return provider2;
-          return undefined;
         }
         return undefined;
       },
-      all: (arg?: string) => {
-        if (sql.includes('FROM agents') && sql.includes('is_default = 1')) return [agent];
-        if (sql.includes('FROM agent_skills')) return [];
-        if (sql.includes('FROM messages')) return [];
-        if (sql.includes('FROM mcp_servers')) return [];
-        return [];
-      },
+      all: () => [],
       run: vi.fn(),
+    }));
+
+    createAgentCatalogMock.mockImplementation(() => ({
+      resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+      listDelegationTargets: () => [],
+      get: (id: string) => id === 'agent-2' ? { ...agent2, slug: '', name: 'Code Agent' } : id === agent.id ? agent : null,
     }));
 
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);

@@ -1,932 +1,198 @@
-// Tests for createAgentTools — the 4 Master Agent tools that expose agent
-// CRUD to the chat conversation.
-//
-// We mock `../database` with a tiny in-memory SQL engine (better-sqlite3 is
-// loaded by the actual `db` import; for unit tests we provide a minimal
-// prepare/run/get/all shim that satisfies our queries).
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentCatalog, CatalogAgent } from '../agent-catalog';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// --------------------- Build a mock better-sqlite3 ---------------------
-// We avoid a real SQLite file by replacing the `db` module with a hand-rolled
-// in-memory store that responds to the same query patterns the tools use
-// (prepare, run, get, all, transaction).
-
-interface AgentRow {
-  id: string;
-  project_id: string;
-  name: string;
-  slug: string | null;
-  description: string | null;
-  provider_id: string | null;
-  system_prompt: string | null;
-  config: string | null;
-  is_default: number;
-  created_at: number;
-  updated_at: number;
-}
-
-const dbState = {
-  agents: new Map<string, AgentRow>(),
-  agentMcpExclusions: new Map<string, string[]>(),
-  agentSkills: new Map<string, string[]>(),
-  providers: new Map<string, { id: string; is_active?: number; updated_at?: number }>(),
-  mcpServers: new Map<string, { id: string; project_id: string }>(),
-  // 仅跟踪 agent_runs 的 agent_id 引用 + status(P2 #9 检查需要)
-  // sessions 靠 FK ON DELETE SET NULL 自动 orphan,messages 无 agent_id 列
-  agentRuns: new Map<string, { id: string; agent_id: string | null; status?: string }>(),
-};
-
-function resetState() {
-  dbState.agents.clear();
-  dbState.agentMcpExclusions.clear();
-  dbState.agentSkills.clear();
-  dbState.providers.clear();
-  dbState.mcpServers.clear();
-  dbState.agentRuns.clear();
-}
-
-function makePrepared(state: typeof dbState) {
-  // Handler signature: (sql) → object with .run, .get, .all
-  return (sql: string) => {
-    const s = sql.replace(/\s+/g, ' ').trim();
-    const run = (...params: any[]) => {
-      // INSERT agents
-      let m = s.match(/^INSERT INTO agents \((.+)\) VALUES \((.+)\)$/i);
-      if (m) {
-        const [
-          id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at,
-        ] = params;
-        dbState.agents.set(id, {
-          id, project_id, name, slug: slug ?? null,
-          description: description ?? null,
-          provider_id: provider_id ?? null,
-          system_prompt: system_prompt ?? null,
-          config: config ?? null,
-          is_default: is_default ? 1 : 0,
-          created_at, updated_at,
-        });
-        return { changes: 1 };
-      }
-      // UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?
-      // (SPECIFIC match — must precede the generic SET regex below,
-      // which would mis-handle the literal '1' value)
-      if (s === 'UPDATE agents SET is_default = 1, updated_at = ? WHERE id = ?') {
-        const [now, id] = params;
-        const existing = dbState.agents.get(id as string);
-        if (existing) {
-          existing.is_default = 1;
-          existing.updated_at = now as number;
-        }
-        return { changes: 1 };
-      }
-      // UPDATE agents SET ... WHERE id = ?  (generic catch-all)
-      m = s.match(/^UPDATE agents SET (.+) WHERE id = \?$/i);
-      if (m) {
-        const id = params[params.length - 1];
-        const existing = dbState.agents.get(id);
-        if (!existing) return { changes: 0 };
-        const sets = m[1].split(',').map((x) => x.trim());
-        for (let i = 0; i < sets.length; i++) {
-          const [col] = sets[i].split('=').map((x) => x.trim());
-          (existing as unknown as Record<string, unknown>)[col] = params[i];
-        }
-        existing.updated_at = params[params.length - 2] as number;
-        return { changes: 1 };
-      }
-      // UPDATE agents SET is_default = 0 ... (project-wide default reset)
-      m = s.match(/^UPDATE agents SET is_default = 0, updated_at = \? WHERE project_id = \?$/i);
-      if (m) {
-        const [now, projectId] = params;
-        for (const a of dbState.agents.values()) {
-          if (a.project_id === projectId) {
-            a.is_default = 0;
-            a.updated_at = now as number;
-          }
-        }
-        return { changes: dbState.agents.size };
-      }
-      m = s.match(/^UPDATE agents SET is_default = 0, updated_at = \? WHERE project_id = \? AND id != \?$/i);
-      if (m) {
-        const [now, projectId, exceptId] = params;
-        for (const a of dbState.agents.values()) {
-          if (a.project_id === projectId && a.id !== exceptId) {
-            a.is_default = 0;
-            a.updated_at = now as number;
-          }
-        }
-        return { changes: dbState.agents.size };
-      }
-      // DELETE FROM agent_mcp_exclusions WHERE agent_id = ?
-      if (s === 'DELETE FROM agent_mcp_exclusions WHERE agent_id = ?') {
-        const [id] = params;
-        dbState.agentMcpExclusions.delete(id as string);
-        return { changes: 1 };
-      }
-      // DELETE FROM agent_skills WHERE agent_id = ?
-      if (s === 'DELETE FROM agent_skills WHERE agent_id = ?') {
-        const [id] = params;
-        dbState.agentSkills.delete(id as string);
-        return { changes: 1 };
-      }
-      // DELETE FROM agents WHERE id = ? (also simulate FK CASCADE on the
-      // joined tables — matches production SQLite behavior)
-      if (s === 'DELETE FROM agents WHERE id = ?') {
-        const [id] = params;
-        dbState.agents.delete(id as string);
-        dbState.agentMcpExclusions.delete(id as string);
-        dbState.agentSkills.delete(id as string);
-        // agent_runs.agent_id is NOT NULL in production schema, so CASCADE
-        // here means delete the rows (not nullify).
-        for (const run of dbState.agentRuns.values()) {
-          if (run.agent_id === id) {
-            dbState.agentRuns.delete(run.id);
-          }
-        }
-        return { changes: 1 };
-      }
-      // INSERT INTO agent_mcp_exclusions
-      if (s === 'INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)') {
-        const [aid, mid] = params;
-        if (!dbState.agentMcpExclusions.has(aid as string)) dbState.agentMcpExclusions.set(aid as string, []);
-        dbState.agentMcpExclusions.get(aid as string)!.push(mid as string);
-        return { changes: 1 };
-      }
-      // INSERT INTO agent_skills
-      if (s === 'INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)') {
-        const [aid, name] = params;
-        if (!dbState.agentSkills.has(aid as string)) dbState.agentSkills.set(aid as string, []);
-        dbState.agentSkills.get(aid as string)!.push(name as string);
-        return { changes: 1 };
-      }
-      // UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?
-      if (s === 'UPDATE agent_runs SET agent_id = NULL WHERE agent_id = ?') {
-        const [id] = params;
-        for (const run of dbState.agentRuns.values()) {
-          if (run.agent_id === id) run.agent_id = null;
-        }
-        return { changes: dbState.agentRuns.size };
-      }
-      return { changes: 0 };
-    };
-
-    const get = (...params: any[]) => {
-      // SELECT id FROM llm_providers WHERE id = ?
-      if (s === 'SELECT id FROM llm_providers WHERE id = ?') {
-        const [id] = params;
-        return dbState.providers.get(id as string);
-      }
-      // SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1
-      // (matches runtime.ts:78-89 getFallbackProviderId active-first branch)
-      if (s === 'SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1') {
-        const active = [...dbState.providers.values()].filter((p) => (p as any).is_active === 1);
-        if (active.length === 0) return undefined;
-        return active.sort((a, b) => ((b as any).updated_at ?? 0) - ((a as any).updated_at ?? 0))[0];
-      }
-      // SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1
-      // (matches runtime.ts fallback when no active provider)
-      if (s === 'SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1') {
-        const all = [...dbState.providers.values()];
-        if (all.length === 0) return undefined;
-        return all.sort((a, b) => ((b as any).updated_at ?? 0) - ((a as any).updated_at ?? 0))[0];
-      }
-      // SELECT id FROM mcp_servers WHERE id = ?
-      if (s === 'SELECT id FROM mcp_servers WHERE id = ?') {
-        const [id] = params;
-        return dbState.mcpServers.get(id as string);
-      }
-      // SELECT * FROM agents WHERE id = ?
-      if (s === 'SELECT * FROM agents WHERE id = ?') {
-        const [id] = params;
-        return dbState.agents.get(id as string);
-      }
-      // SELECT * FROM agents WHERE id = ? AND project_id = ?
-      if (s === 'SELECT * FROM agents WHERE id = ? AND project_id = ?') {
-        const [id, pid] = params;
-        const r = dbState.agents.get(id as string);
-        if (r && r.project_id === pid) return r;
-        return undefined;
-      }
-      // SELECT id, name FROM agents WHERE id = ? AND project_id = ?
-      if (s === 'SELECT id, name FROM agents WHERE id = ? AND project_id = ?') {
-        const [id, pid] = params;
-        const r = dbState.agents.get(id as string);
-        if (r && r.project_id === pid) return { id: r.id, name: r.name };
-        return undefined;
-      }
-      // SELECT id, name, is_default FROM agents WHERE id = ? AND project_id = ?
-      if (s === 'SELECT id, name, is_default FROM agents WHERE id = ? AND project_id = ?') {
-        const [id, pid] = params;
-        const r = dbState.agents.get(id as string);
-        if (r && r.project_id === pid) {
-          return { id: r.id, name: r.name, is_default: r.is_default };
-        }
-        return undefined;
-      }
-      // SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?
-      // (P2 #11 / P2 #12: "any other default agent?" check)
-      if (s === 'SELECT id FROM agents WHERE project_id = ? AND is_default = 1 AND id != ?') {
-        const [pid, exceptId] = params;
-        for (const a of dbState.agents.values()) {
-          if (a.project_id === pid && a.is_default === 1 && a.id !== exceptId) {
-            return { id: a.id };
-          }
-        }
-        return undefined;
-      }
-      // SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1
-      // (自审 P2 候选 #1: create_agent checks "project has any default?")
-      if (s === 'SELECT 1 AS one FROM agents WHERE project_id = ? AND is_default = 1 LIMIT 1') {
-        const [pid] = params;
-        for (const a of dbState.agents.values()) {
-          if (a.project_id === pid && a.is_default === 1) {
-            return { one: 1 };
-          }
-        }
-        return undefined;
-      }
-      // SELECT id, session_id, status FROM agent_runs
-      //   WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1
-      if (
-        s ===
-        "SELECT id, session_id, status FROM agent_runs " +
-          "WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1"
-      ) {
-        const [aid] = params;
-        for (const run of dbState.agentRuns.values()) {
-          if (
-            run.agent_id === aid &&
-            (run.status === 'running' || run.status === 'waiting_approval')
-          ) {
-            return run;
-          }
-        }
-        return undefined;
-      }
-      return undefined;
-    };
-
-    const all = (...params: any[]) => {
-      // SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC
-      if (s === 'SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC') {
-        const [pid] = params;
-        return Array.from(dbState.agents.values())
-          .filter((a) => a.project_id === pid)
-          .sort((a, b) => b.updated_at - a.updated_at);
-      }
-      // SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?
-      if (s === 'SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?') {
-        const [aid] = params;
-        return (dbState.agentMcpExclusions.get(aid as string) ?? []).map((id) => ({ mcp_server_id: id }));
-      }
-      // SELECT skill_name FROM agent_skills WHERE agent_id = ?
-      if (s === 'SELECT skill_name FROM agent_skills WHERE agent_id = ?') {
-        const [aid] = params;
-        return (dbState.agentSkills.get(aid as string) ?? []).map((name) => ({ skill_name: name }));
-      }
-      // SELECT id, slug, name FROM agents WHERE project_id = ? AND
-      //   (slug = ? OR slug LIKE ? OR slug IS NULL OR slug = ?)
-      // (P2 #16: create_agent slug-uniqueness check via ensureUniqueSlug.
-      // The IS NULL / = '' branches project legacy rows' effective
-      // slugs into the taken set so a NULL-slug row cannot be shadowed
-      // by a same-name insert — PR #5 maintainer feedback 2026-06-09.)
-      if (
-        s ===
-        'SELECT id, slug, name FROM agents WHERE project_id = ? AND (slug = ? OR slug LIKE ? OR slug IS NULL OR slug = ?)'
-      ) {
-        const [pid, base, likePattern] = params as [string, string, string];
-        const likePrefix = likePattern.replace(/%$/, '');
-        return Array.from(dbState.agents.values())
-          .filter(
-            (a) =>
-              a.project_id === pid &&
-              (a.slug === base ||
-                (a.slug && a.slug.startsWith(likePrefix)) ||
-                a.slug === null ||
-                a.slug === ''),
-          )
-          .map((a) => ({ id: a.id, slug: a.slug, name: a.name }));
-      }
-      return [];
-    };
-
-    return { run, get, all };
-  };
-}
+const mocks = vi.hoisted(() => ({
+  providers: new Map<string, { id: string; is_active: number; updated_at: number }>(),
+  inFlightAgentIds: new Set<string>(),
+  catalog: null as unknown as AgentCatalog,
+  createAgentCatalog: vi.fn(),
+  transaction: vi.fn(),
+}));
 
 vi.mock('../database', () => ({
   default: {
-    prepare: vi.fn(),
-    transaction: (fn: (...args: any[]) => any) => (...args: any[]) => fn(...args),
+    prepare: vi.fn((sql: string) => ({
+      get: (id?: string) => {
+        if (sql === 'SELECT id FROM llm_providers WHERE id = ?') return id ? mocks.providers.get(id) : undefined;
+        if (sql === 'SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1') {
+          return [...mocks.providers.values()]
+            .filter((provider) => provider.is_active === 1)
+            .sort((a, b) => b.updated_at - a.updated_at)[0];
+        }
+        if (sql === 'SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1') {
+          return [...mocks.providers.values()].sort((a, b) => b.updated_at - a.updated_at)[0];
+        }
+        if (sql.includes('FROM agent_runs')) return id && mocks.inFlightAgentIds.has(id) ? { id: 'run-1' } : undefined;
+        return undefined;
+      },
+      all: () => [],
+      run: () => ({ changes: 1 }),
+    })),
+    transaction: mocks.transaction,
   },
 }));
 
-import db from '../database';
+vi.mock('../agent-catalog', () => ({
+  createAgentCatalog: mocks.createAgentCatalog,
+}));
+
 import { createAgentTools } from './agent-tools';
 
-// --------------------- Test helpers ---------------------
-
-const PROJECT_ID = 'project-test-1';
-
-function seedProvider(id = 'provider-1') {
-  dbState.providers.set(id, { id });
+function agent(overrides: Partial<CatalogAgent> = {}): CatalogAgent {
+  return {
+    id: 'custom-1',
+    role: 'custom',
+    name: 'Reviewer',
+    slug: 'reviewer',
+    description: null,
+    provider_id: 'provider-1',
+    system_prompt: null,
+    config: null,
+    created_at: 1,
+    updated_at: 1,
+    ...overrides,
+  };
 }
 
-function seedAgent(overrides: Partial<AgentRow> = {}): AgentRow {
-  const id = overrides.id ?? `agent-${dbState.agents.size + 1}`;
-  const row: AgentRow = {
-    id,
-    project_id: overrides.project_id ?? PROJECT_ID,
-    name: overrides.name ?? 'Test Agent',
-    slug: overrides.slug ?? null,
-    description: overrides.description ?? null,
-    provider_id: overrides.provider_id ?? null,
-    system_prompt: overrides.system_prompt ?? null,
-    config: overrides.config ?? null,
-    is_default: overrides.is_default ?? 0,
-    created_at: overrides.created_at ?? Date.now(),
-    updated_at: overrides.updated_at ?? Date.now(),
-  };
-  dbState.agents.set(id, row);
-  return row;
+function catalog(overrides: Partial<AgentCatalog> = {}): AgentCatalog {
+  return {
+    list: vi.fn(),
+    get: vi.fn(),
+    resolveMaster: vi.fn(),
+    listDelegationTargets: vi.fn(),
+    createCustom: vi.fn(),
+    updateGeneralPurpose: vi.fn(),
+    updateCustom: vi.fn(),
+    deleteCustom: vi.fn(),
+    getMasterPrompt: vi.fn(),
+    getSceneDefaultPrompt: vi.fn(),
+    saveMasterPrompts: vi.fn(),
+    saveMasterPrompt: vi.fn(),
+    resetMasterPrompt: vi.fn(),
+    ...overrides,
+  } as AgentCatalog;
 }
 
 function findTool(name: string, options: { activeAgentId?: string | null } = {}) {
-  const tools = createAgentTools(PROJECT_ID, options);
-  const t = tools.find((x) => x.name === name);
-  if (!t) throw new Error(`Tool not found: ${name}`);
-  return t;
+  const result = createAgentTools('project-is-ignored', options).find((candidate) => candidate.name === name);
+  if (!result) throw new Error(`Tool not found: ${name}`);
+  return result;
 }
 
-async function invoke(name: string, input: any, options: { activeAgentId?: string | null } = {}) {
-  const t: any = findTool(name, options);
-  const raw = await t.invoke(input);
-  return JSON.parse(raw);
+async function invoke(name: string, input: unknown, options: { activeAgentId?: string | null } = {}) {
+  const tool = findTool(name, options) as { invoke(input: unknown): Promise<string> };
+  return JSON.parse(await tool.invoke(input));
 }
-
-// --------------------- Tests ---------------------
 
 describe('createAgentTools', () => {
   beforeEach(() => {
-    resetState();
-    // Wire the mocked db.prepare to our state machine
-    (db.prepare as any).mockImplementation((sql: string) => makePrepared(dbState)(sql));
+    mocks.providers.clear();
+    mocks.inFlightAgentIds.clear();
+    mocks.transaction.mockImplementation((callback: () => unknown) => callback);
+    mocks.catalog = catalog();
+    mocks.createAgentCatalog.mockReset().mockReturnValue(mocks.catalog);
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
+  it('lists the global Catalog delegation targets and retains their delegation keys', async () => {
+    const generalPurpose = agent({ id: 'system-general-purpose-agent', role: 'general-purpose', name: 'General-purpose', slug: 'general-purpose' });
+    const custom = agent();
+    vi.mocked(mocks.catalog.listDelegationTargets).mockReturnValue([generalPurpose, custom]);
+
+    const result = await invoke('list_agents', {});
+
+    expect(result).toMatchObject([
+      { id: generalPurpose.id, role: 'general-purpose', effective_slug: 'general-purpose' },
+      { id: custom.id, role: 'custom', effective_slug: 'reviewer' },
+    ]);
+    expect(mocks.createAgentCatalog).toHaveBeenCalledWith(expect.anything(), { initializeSchema: false });
   });
 
-  describe('list_agents', () => {
-    it('returns empty array when no agents exist', async () => {
-      const result = await invoke('list_agents', {});
-      expect(result).toEqual([]);
-    });
+  it('creates only through the Catalog and prefers the newest active provider', async () => {
+    mocks.providers.set('inactive-new', { id: 'inactive-new', is_active: 0, updated_at: 30 });
+    mocks.providers.set('active-old', { id: 'active-old', is_active: 1, updated_at: 10 });
+    mocks.providers.set('active-new', { id: 'active-new', is_active: 1, updated_at: 20 });
+    vi.mocked(mocks.catalog.createCustom).mockReturnValue(agent({ provider_id: 'active-new' }));
 
-    it('returns all agents in current project, with MCP Server Exclusion ids + skillNames', async () => {
-      const a = seedAgent({ name: 'Alpha', is_default: 1 });
-      const b = seedAgent({ name: 'Beta' });
-      dbState.agentMcpExclusions.set(a.id, ['m1', 'm2']);
-      dbState.agentSkills.set(b.id, ['global:foo']);
+    const result = await invoke('create_agent', { name: 'Reviewer' });
 
-      const result = await invoke('list_agents', {});
-      expect(result).toHaveLength(2);
-      expect(result.find((agent: { name: string; mcpServerExclusionIds?: string[] }) => agent.name === 'Alpha')?.mcpServerExclusionIds).toEqual(['m1', 'm2']);
-      expect(result.find((agent: { name: string; skillNames?: string[] }) => agent.name === 'Beta')?.skillNames).toEqual(['global:foo']);
-      expect(result.every((agent: Record<string, unknown>) => !('is_default' in agent))).toBe(true);
-    });
-
-    it('does not expose the internal Master Agent as a delegatable agent', async () => {
-      seedAgent({ name: 'Master Agent', slug: 'master-agent', is_default: 1 });
-      seedAgent({ name: 'Reviewer', slug: 'reviewer' });
-
-      const result = await invoke('list_agents', {});
-
-      expect(result).toHaveLength(1);
-      expect(result[0].name).toBe('Reviewer');
-    });
+    expect(result.provider_id).toBe('active-new');
+    expect(mocks.catalog.createCustom).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Reviewer',
+      provider_id: 'active-new',
+    }));
+    expect(mocks.transaction).toHaveBeenCalled();
   });
 
-  describe('create_agent', () => {
-    it('creates a Custom Agent with is_default fixed to 0', async () => {
-      // Pre-seed a provider so the fallback path can succeed.
-      seedProvider('p-default');
-      const result = await invoke('create_agent', { name: 'reviewer' });
-      expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
-      expect(result.name).toBe('reviewer');
-      expect(result.project_id).toBe(PROJECT_ID);
-      expect(result).not.toHaveProperty('is_default');
-      // provider_id is auto-set via fallback (P2 #3 fix)
-      expect(result.provider_id).toBe('p-default');
-      // Verify persisted
-      expect(dbState.agents.get(result.id)?.name).toBe('reviewer');
-      expect(dbState.agents.get(result.id)?.is_default).toBe(0);
-    });
+  it('falls back to the most recently updated provider when none is active', async () => {
+    mocks.providers.set('old', { id: 'old', is_active: 0, updated_at: 1 });
+    mocks.providers.set('recent', { id: 'recent', is_active: 0, updated_at: 2 });
+    vi.mocked(mocks.catalog.createCustom).mockReturnValue(agent({ provider_id: 'recent' }));
 
-    it('rejects when no provider configured and no provider_id given (P2 #3)', async () => {
-      const result = await invoke('create_agent', { name: 'orphan' });
-      expect(result.error).toMatch(/No LLM provider configured/);
-      expect(dbState.agents.size).toBe(0);
-    });
+    await invoke('create_agent', { name: 'Reviewer' });
 
-    it('falls back to active provider when provider_id omitted (P2 #3 + P2 #6)', async () => {
-      // Codex P2 #6: lexicographic ORDER BY id picks `default-anthropic` (inactive)
-      // over the real active provider, leaving the agent unable to run.
-      // Fix: prefer providers with is_active = 1, fall back to most-recently-updated.
-      const now = Date.now();
-      dbState.providers.set('p-inactive', { id: 'p-inactive', is_active: 0, updated_at: now - 1000 });
-      dbState.providers.set('p-active-old', { id: 'p-active-old', is_active: 1, updated_at: now - 500 });
-      dbState.providers.set('p-active-new', { id: 'p-active-new', is_active: 1, updated_at: now });
-      const result = await invoke('create_agent', { name: 'fallback' });
-      expect(result.provider_id).toBe('p-active-new');
-    });
-
-    it('falls back to most-recently-updated provider when no active provider (P2 #6)', async () => {
-      const now = Date.now();
-      dbState.providers.set('p-stale', { id: 'p-stale', is_active: 0, updated_at: now - 1000 });
-      dbState.providers.set('p-recent', { id: 'p-recent', is_active: 0, updated_at: now });
-      const result = await invoke('create_agent', { name: 'fallback' });
-      expect(result.provider_id).toBe('p-recent');
-    });
-
-    it('rejects names with non-English characters', async () => {
-      const result = await invoke('create_agent', { name: '中文名' });
-      expect(result.error).toMatch(/English letters/);
-      expect(dbState.agents.size).toBe(0);
-    });
-
-    it('rejects empty / whitespace-only names', async () => {
-      const result = await invoke('create_agent', { name: '   ' });
-      expect(result.error).toMatch(/English letters/);
-    });
-
-    it('auto-promotes new agent to default when project has none (自审 P2 候选 #1)', async () => {
-      // Without this guard, if the project has no default agent
-      // (e.g. after the user deleted the previous default), creating
-      // an agent without is_default would leave the project with no
-      // default. The next chat omitting agentId would trigger
-      // ensureDefaultAgent to auto-create a 'Master Agent' row,
-      // silently changing the default and cluttering the library
-      // (same downstream effect as P2 #11 / P2 #12).
-      seedProvider('p-default');
-      // No agents in the project yet → no default
-      const result = await invoke('create_agent', { name: 'new-default' });
-      expect(result).not.toHaveProperty('is_default');
-      expect(dbState.agents.get(result.id)!.is_default).toBe(0);
-    });
-
-    it('does NOT auto-promote when project already has a default (自审 P2 候选 #1)', async () => {
-      // Sanity check: the auto-promotion only fires when the project
-      // currently has no default. If a default already exists, the
-      // new agent should be created as non-default (unless explicit
-      // is_default: true is passed).
-      seedProvider('p-default');
-      const existing = await invoke('create_agent', {
-        name: 'existing-default',
-        is_default: true,
-      });
-      const result = await invoke('create_agent', { name: 'new-non-default' });
-      expect(result).not.toHaveProperty('is_default');
-      expect(dbState.agents.get(existing.id)!.is_default).toBe(0);
-    });
-
-    it('respects explicit is_default: false even when project has no default (自审 P2 候选 #1 + Codex P2 id=3382053065)', async () => {
-      // Edge case: user explicitly says "do NOT make this default".
-      // The auto-promotion is only for *omitted* is_default, NOT for
-      // explicit `false`. The old `if (!input.is_default)` accidentally
-      // treated both the same because `!false === true`; Codex P2
-      // id=3382053065 caught this. After the UI's db:deleteAgent
-      // removes the only default agent, a create_agent call with
-      // is_default: false must stay at false and not silently re-promote
-      // (the user's explicit "not default" choice wins).
-      //
-      // Trade-off (documented): if the project genuinely has no default
-      // AND the user explicitly opts out, the project stays without a
-      // default. The next chat that omits agentId will fall through
-      // ensureDefaultAgent (runtime.ts:132) and auto-insert a new
-      // "Master Agent" row. That trade-off was already discussed in the
-      // original P2 #11/#12 review thread — explicit choice overrides
-      // silent auto-promotion.
-      seedProvider('p-default');
-      const result = await invoke('create_agent', {
-        name: 'explicit-false',
-        is_default: false,
-      });
-      // Explicit false is respected: agent created with is_default=0,
-      // NOT silently promoted.
-      expect(result).not.toHaveProperty('is_default');
-      expect(dbState.agents.get(result.id)!.is_default).toBe(0);
-      // No other agent in the project was promoted either.
-      const anyDefault = Array.from(dbState.agents.values()).some(
-        (a) => a.project_id === 'project-test-1' && a.is_default === 1,
-      );
-      expect(anyDefault).toBe(false);
-    });
-
-    it('returns slug + effective_slug in tool results (P2 #14)', async () => {
-      // Codex P2 #14: when the master delegates work to a newly
-      // created subagent via `task(name: ...)`, the actual task key
-      // is the agent's slug (or a slugified version of name), NOT
-      // the raw display name. Without returning slug from the tool,
-      // the master has to guess what key to pass.
-      seedProvider('p-default');
-      const result = await invoke('create_agent', { name: 'Code Reviewer' });
-      // effective_slug is the resolved task key the master should use
-      expect(result.effective_slug).toBe('code-reviewer');
-      // raw slug is also persisted in DB
-      expect(result.slug).toBe('code-reviewer');
-      expect(dbState.agents.get(result.id)?.slug).toBe('code-reviewer');
-    });
-
-    it('appends -2 when slug collides with an existing agent (P2 #16)', async () => {
-      // Codex P2 #16: two agents whose names slugify to the same key
-      // (e.g. "Code Reviewer" + "Code-Reviewer" + "code  reviewer")
-      // would otherwise share the same `effective_slug`. The runtime
-      // registers subagents under `agentRow.slug || generateSlug(...)`
-      // (runtime.ts:571) — so the master has no distinct
-      // `task(name: ...)` target for the second one, and delegation
-      // becomes ambiguous / unreachable. Fix: de-dupe within the
-      // project by appending -2, -3, ... to the slug.
-      seedProvider('p-default');
-      const first = await invoke('create_agent', { name: 'Code Reviewer' });
-      expect(first.effective_slug).toBe('code-reviewer');
-
-      const second = await invoke('create_agent', { name: 'Code-Reviewer' });
-      expect(second.effective_slug).toBe('code-reviewer-2');
-      // Slug persisted in DB too (P2 #14 invariant)
-      expect(second.slug).toBe('code-reviewer-2');
-      expect(dbState.agents.get(second.id)?.slug).toBe('code-reviewer-2');
-
-      // Both rows are present, neither lost
-      expect(dbState.agents.get(first.id)?.slug).toBe('code-reviewer');
-      expect(dbState.agents.get(second.id)?.slug).toBe('code-reviewer-2');
-    });
-
-    it('three-way collision produces -2 and -3 suffixes (P2 #16)', async () => {
-      seedProvider('p-default');
-      const a = await invoke('create_agent', { name: 'Reviewer' });
-      const b = await invoke('create_agent', { name: 'Reviewer' });
-      const c = await invoke('create_agent', { name: 'Reviewer' });
-      expect(a.effective_slug).toBe('reviewer');
-      expect(b.effective_slug).toBe('reviewer-2');
-      expect(c.effective_slug).toBe('reviewer-3');
-    });
-
-    it('slug uniqueness is scoped to the project (P2 #16)', async () => {
-      // Slugs are task keys for `task(name:)`, and the runtime
-      // registers subagents scoped to the current project. So the
-      // uniqueness check is project-scoped, not global. A
-      // "Code Reviewer" in project A doesn't block the same name in
-      // project B.
-      seedProvider('p-default');
-      const a = await invoke('create_agent', { name: 'Code Reviewer' });
-      // Seed a different project with the same agent name directly
-      // (bypasses create_agent so we can prove independence).
-      seedAgent({ id: 'other-project-agent', project_id: 'other-project', name: 'Code Reviewer', slug: 'code-reviewer' });
-      // Now create a second in the *current* project — should still
-      // get -2 because the current project has the slug.
-      const b = await invoke('create_agent', { name: 'Code Reviewer' });
-      expect(a.effective_slug).toBe('code-reviewer');
-      expect(b.effective_slug).toBe('code-reviewer-2');
-    });
-
-    it('returns a defer-delegation note in tool results (P2 #15)', async () => {
-      // Codex P2 #15: the runtime's subagents list is snapshotted in
-      // createDeepAgentRuntime before any tool call (runtime.ts:547-599).
-      // A create_agent in the same turn writes a new row, but the live
-      // runtime's `subagents` array doesn't see it, so `task(name: ...)`
-      // against the returned effective_slug fails until the next turn /
-      // new chat session. Fix: surface this in the JSON return so the
-      // master knows the agent is "created but not yet routable".
-      seedProvider('p-default');
-      const result = await invoke('create_agent', { name: 'Defer Me' });
-      expect(result.note).toBeDefined();
-      expect(result.note).toMatch(/createDeepAgentRuntime/);
-      expect(result.note).toMatch(/task\(name/);
-      expect(result.note).toMatch(/下个 turn|next turn/);
-    });
-
-    it('accepts valid special characters in name (space, hyphen, underscore)', async () => {
-      seedProvider('p-default');
-      const result = await invoke('create_agent', { name: 'Code Reviewer-v2_final' });
-      expect(result.id).toBeDefined();
-    });
-
-    it('validates provider_id and rejects unknown', async () => {
-      const result = await invoke('create_agent', {
-        name: 'no-provider',
-        provider_id: 'nonexistent',
-      });
-      expect(result.error).toMatch(/Provider not found/);
-    });
-
-    it('accepts valid provider_id', async () => {
-      seedProvider('p-1');
-      const result = await invoke('create_agent', {
-        name: 'with-provider',
-        provider_id: 'p-1',
-      });
-      expect(result.provider_id).toBe('p-1');
-    });
-
-    it('stores MCP Server Exclusions and preserves Skill Preload references', async () => {
-      seedProvider('p-default');
-      dbState.mcpServers.set('m1', { id: 'm1', project_id: PROJECT_ID });
-      const result = await invoke('create_agent', {
-        name: 'attached',
-        mcpServerExclusionIds: ['m1', 'nonexistent'],
-        skillNames: ['global:foo', 'project:bar', 'project-additional:docs:review'],
-      });
-      // only m1 exists, so only m1 is excluded
-      expect(result.mcpServerExclusionIds).toEqual(['m1']);
-      expect(result.skillNames).toEqual(['global:foo', 'project:bar', 'project-additional:docs:review']);
-    });
-
-    it('does not accept or expose is_default for Custom Agents', async () => {
-      seedProvider('p-default');
-      const agent = await invoke('create_agent', { name: 'A', is_default: true });
-      const updated = await invoke('update_agent', { id: agent.id, is_default: true });
-      expect(agent).not.toHaveProperty('is_default');
-      expect(updated).not.toHaveProperty('is_default');
-      expect(dbState.agents.get(agent.id)!.is_default).toBe(0);
-    });
-
+    expect(mocks.catalog.createCustom).toHaveBeenCalledWith(expect.objectContaining({ provider_id: 'recent' }));
   });
 
-  describe('update_agent', () => {
-    it('updates only provided fields', async () => {
-      const a = seedAgent({ name: 'old', description: 'old desc' });
-      const result = await invoke('update_agent', {
-        id: a.id,
-        name: 'new name',
-      });
-      expect(result.name).toBe('new name');
-      // description preserved
-      expect(result.description).toBe('old desc');
-    });
-
-    it('returns error for non-existent agent', async () => {
-      const result = await invoke('update_agent', { id: 'nope', name: 'x' });
-      expect(result.error).toMatch(/Agent not found/);
-    });
-
-    it('rejects invalid name on update', async () => {
-      const a = seedAgent({});
-      const result = await invoke('update_agent', { id: a.id, name: '中文' });
-      expect(result.error).toMatch(/English letters/);
-    });
-
-    it('replaces MCP Server Exclusions wholesale when provided', async () => {
-      const a = seedAgent({});
-      dbState.agentMcpExclusions.set(a.id, ['m1', 'm2']);
-      dbState.mcpServers.set('m3', { id: 'm3', project_id: PROJECT_ID });
-      const result = await invoke('update_agent', { id: a.id, mcpServerExclusionIds: ['m3'] });
-      expect(result.mcpServerExclusionIds).toEqual(['m3']);
-    });
-
-    it('preserves MCP Server Exclusions when not provided', async () => {
-      const a = seedAgent({});
-      dbState.agentMcpExclusions.set(a.id, ['m1']);
-      const result = await invoke('update_agent', { id: a.id, name: 'x' });
-      expect(result.mcpServerExclusionIds).toEqual(['m1']);
-    });
-
-    it('rejects provider_id: null because runtime assembly requires a provider', async () => {
-      // update_agent must not silently persist provider_id=NULL. The unified
-      // runtime assembly requires a resolvable provider. To preserve the
-      // current provider, callers omit the field.
-      const a = seedAgent({ provider_id: 'p-existing' });
-      const result = await invoke('update_agent', { id: a.id, provider_id: null });
-      expect(result.error).toMatch(/Cannot clear provider_id/);
-      expect(result.error).toMatch(/runtime assembly/i);
-      // Existing provider NOT cleared
-      expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
-    });
-
-    it('rejects provider_id: "" because runtime assembly requires a provider', async () => {
-      const a = seedAgent({ provider_id: 'p-existing' });
-      const result = await invoke('update_agent', { id: a.id, provider_id: '' });
-      expect(result.error).toMatch(/Cannot clear provider_id/);
-      expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
-    });
-
-    it('omitting provider_id keeps the existing provider (P2 #3 residual)', async () => {
-      // Sanity check: the new guard fires only on EXPLICIT null/''.
-      // Omitting the field (undefined) leaves the existing value alone.
-      const a = seedAgent({ provider_id: 'p-existing' });
-      const result = await invoke('update_agent', { id: a.id, name: 'rename' });
-      expect(result.name).toBe('rename');
-      expect(dbState.agents.get(a.id)!.provider_id).toBe('p-existing');
-    });
-
-    it('returns a defer-delegation note (P2 #15)', async () => {
-      // Codex P2 #15: createDeepAgentRuntime snapshots subagents at startup
-      // (runtime.ts:547-599), so a create_agent / update_agent in the same
-      // turn cannot be reached by `task(name: ...)`. Document this in the
-      // tool description AND in the JSON return so the model knows to
-      // either wait for the next turn or start a new chat session.
-      const a = seedAgent({});
-      const result = await invoke('update_agent', { id: a.id, name: 'renamed' });
-      expect(result.note).toMatch(/turn/);
-      expect(result.note).toMatch(/subagents/);
-    });
+  it('returns actionable errors for missing or unknown create providers without writing a Catalog Agent', async () => {
+    expect((await invoke('create_agent', { name: 'Reviewer' })).error).toMatch(/No LLM provider is configured/);
+    expect((await invoke('create_agent', { name: 'Reviewer', provider_id: 'missing' })).error).toBe('Provider not found: missing');
+    expect(mocks.catalog.createCustom).not.toHaveBeenCalled();
   });
 
-  describe('delete_agent', () => {
-    it('rejects deleting the currently running agent (P1 #7)', async () => {
-      const a = seedAgent({});
-      const result = await invoke('delete_agent', { id: a.id }, { activeAgentId: a.id });
-      expect(result.error).toMatch(/currently running this chat session/);
-      expect(result.error).toMatch(/Switch to a different agent/);
-      // Agent row NOT deleted
-      expect(dbState.agents.has(a.id)).toBe(true);
+  it('surfaces Catalog identity conflicts instead of generating a suffixed delegation key', async () => {
+    mocks.providers.set('provider-1', { id: 'provider-1', is_active: 1, updated_at: 1 });
+    vi.mocked(mocks.catalog.createCustom).mockImplementation(() => {
+      throw new Error('Agent delegation key conflicts with an existing Agent');
     });
 
-    it('allows deleting a different agent even when activeAgentId is set', async () => {
-      const active = seedAgent({ id: 'active-agent' });
-      const other = seedAgent({ id: 'other-agent' });
-      const result = await invoke(
-        'delete_agent',
-        { id: other.id },
-        { activeAgentId: active.id },
-      );
-      expect(result.deleted).toBe(true);
-      // Active agent untouched
-      expect(dbState.agents.has(active.id)).toBe(true);
-    });
+    const result = await invoke('create_agent', { name: 'Reviewer' });
 
-    it('mimics runtime P1 #8 fix: getRuntimeAgent resolves default agent and guard fires', async () => {
-      // The runtime at runtime.ts:497 passes `agentRow.id` (the resolved
-      // agent id from getRuntimeAgent), not the raw `agentId` parameter.
-      // getRuntimeAgent falls back to ensureDefaultAgent when agentId is
-      // null/missing/stale, so the in-flight chat's actual agent is
-      // whatever default agent the project has. This test simulates
-      // that exact path: caller omits agentId → factory gets default id →
-      // delete of default agent is rejected.
-      const defaultAgent = seedAgent({ id: 'project-default-agent' });
-      const result = await invoke(
-        'delete_agent',
-        { id: defaultAgent.id },
-        // No agentId from caller; factory receives the resolved default id.
-        { activeAgentId: defaultAgent.id },
-      );
-      expect(result.error).toMatch(/currently running this chat session/);
-      expect(dbState.agents.has(defaultAgent.id)).toBe(true);
-    });
-
-    it('rejects deletion when another session has a running agent_runs row (P2 #9)', async () => {
-      // Codex P2 #9: defense in depth. Even if the *current* runtime's
-      // activeAgentId doesn't match the target, another concurrent
-      // session's runtime may be streaming with this agent. The
-      // agent_runs row that runLLMChat inserts with status='running'
-      // is the proof of that in-flight work. Deleting would CASCADE
-      // it and break the other session's tool-call log writes +
-      // final updateRun.
-      const a = seedAgent({});
-      // Pre-seed a running run from a *different* session
-      dbState.agentRuns.set('run-other-session', {
-        id: 'run-other-session',
-        agent_id: a.id,
-        status: 'running',
-      });
-      // No activeAgentId from this caller (different runtime, different session)
-
-      const result = await invoke('delete_agent', { id: a.id });
-
-      expect(result.error).toMatch(/in-flight run with this agent/);
-      expect(result.error).toMatch(/status='running'/);
-      // Agent row NOT deleted
-      expect(dbState.agents.has(a.id)).toBe(true);
-      // Other session's run row preserved
-      expect(dbState.agentRuns.has('run-other-session')).toBe(true);
-    });
-
-    it('allows deletion when agent_runs has only completed/failed/aborted rows (P2 #9)', async () => {
-      // Sanity check: if all agent_runs for this agent are in a terminal
-      // state (status NOT 'running' or 'waiting_approval'), the cross-runtime
-      // guard does NOT fire and the normal CASCADE delete proceeds.
-      const a = seedAgent({});
-      dbState.agentRuns.set('run-done', { id: 'run-done', agent_id: a.id, status: 'completed' });
-      dbState.agentRuns.set('run-failed', { id: 'run-failed', agent_id: a.id, status: 'failed' });
-      dbState.agentRuns.set('run-aborted', { id: 'run-aborted', agent_id: a.id, status: 'aborted' });
-
-      const result = await invoke('delete_agent', { id: a.id });
-
-      expect(result.deleted).toBe(true);
-    });
-
-    it('rejects deletion when another session is waiting for approval (P2 #10)', async () => {
-      // Codex P2 #10: llm.ts:764 calls updateRun(runId, 'waiting_approval')
-      // when a tool execution needs human approval. The agent_runs row is
-      // still in-flight (the chat will resume after approval), so deleting
-      // the agent during the approval window breaks the resume path:
-      // approving/rejecting later updates a missing run_id row, silently
-      // losing history. The P2 #9 fix only checked 'running' and missed
-      // this state; expand to include 'waiting_approval'.
-      const a = seedAgent({});
-      dbState.agentRuns.set('run-paused', {
-        id: 'run-paused',
-        agent_id: a.id,
-        status: 'waiting_approval',
-      });
-
-      const result = await invoke('delete_agent', { id: a.id });
-
-      expect(result.error).toMatch(/in-flight run with this agent/);
-      expect(result.error).toMatch(/waiting_approval/);
-      expect(dbState.agents.has(a.id)).toBe(true);
-      // Paused run row preserved
-      expect(dbState.agentRuns.has('run-paused')).toBe(true);
-    });
-
-    it('deletes a Custom Agent even when a legacy row still has is_default set', async () => {
-      const sole = seedAgent({ is_default: 1 });
-      const result = await invoke('delete_agent', { id: sole.id });
-      expect(result.deleted).toBe(true);
-      expect(dbState.agents.has(sole.id)).toBe(false);
-    });
-
-    it('allows deletion of default agent when other defaults exist (P2 #12)', async () => {
-      const a = seedAgent({ is_default: 1 });
-      const b = seedAgent({ is_default: 1 });
-      const result = await invoke('delete_agent', { id: a.id });
-      expect(result.deleted).toBe(true);
-      // b is still default
-      expect(dbState.agents.get(b.id)!.is_default).toBe(1);
-    });
-
-    it('allows deletion of a non-default agent even when it is the only one (P2 #12)', async () => {
-      // Sanity check: the guard only fires when the target IS default.
-      // Deleting a non-default agent doesn't violate the "≥1 default" invariant.
-      const a = seedAgent({ is_default: 0 });
-      const result = await invoke('delete_agent', { id: a.id });
-      expect(result.deleted).toBe(true);
-    });
-
-    it('deletes agent and cascades mcp/skill rows', async () => {
-      const a = seedAgent({});
-      dbState.agentMcpExclusions.set(a.id, ['m1']);
-      dbState.agentSkills.set(a.id, ['global:foo']);
-      const result = await invoke('delete_agent', { id: a.id });
-      expect(result.deleted).toBe(true);
-      expect(result.id).toBe(a.id);
-      expect(dbState.agents.has(a.id)).toBe(false);
-      expect(dbState.agentMcpExclusions.has(a.id)).toBe(false);
-      expect(dbState.agentSkills.has(a.id)).toBe(false);
-    });
-
-    it('returns error for non-existent agent', async () => {
-      const result = await invoke('delete_agent', { id: 'nope' });
-      expect(result.error).toMatch(/Agent not found/);
-    });
-
-    it('returns error for missing id', async () => {
-      const result = await invoke('delete_agent', { id: '' });
-      expect(result.error).toMatch(/id is required/);
-    });
-
-    it('matches existing db:deleteAgent IPC behavior (single DELETE FROM agents)', async () => {
-      // Verifies the tool uses a single DELETE rather than manually managing
-      // per-table cleanup. FK CASCADE handles the rest. The earlier "deletes
-      // agent and cascades mcp/skill rows" test above verifies the observable
-      // effect on the joined tables.
-      //
-      // This test guards against a regression where someone re-introduces
-      // a per-table DELETE chain (e.g., the old agent_runs SET NULL attempt
-      // that crashed because agent_runs.agent_id is NOT NULL).
-      const a = seedAgent({});
-      dbState.agentMcpExclusions.set(a.id, ['m1']);
-      dbState.agentSkills.set(a.id, ['global:foo']);
-
-      const result = await invoke('delete_agent', { id: a.id });
-
-      expect(result.deleted).toBe(true);
-      expect(dbState.agents.has(a.id)).toBe(false);
-      // Note: the tool description is honest that agent_runs also CASCADE-deletes.
-      // (Retaining run history would require a schema change to make
-      // agent_runs.agent_id nullable — out of scope for this PR.)
-    });
+    expect(result.error).toBe('Agent delegation key conflicts with an existing Agent');
   });
 
-  describe('project isolation', () => {
-    it('list_agents only returns agents in the injected project', async () => {
-      seedAgent({ project_id: PROJECT_ID, name: 'mine' });
-      seedAgent({ project_id: 'other-project', name: 'theirs' });
-      const result = await invoke('list_agents', {});
-      expect(result).toHaveLength(1);
-      expect(result[0].name).toBe('mine');
-    });
+  it('rejects system Agents before update and only passes Custom updates through the Catalog', async () => {
+    vi.mocked(mocks.catalog.get)
+      .mockReturnValueOnce(agent({ id: 'system-master-agent', role: 'master', name: 'Master Agent' }))
+      .mockReturnValueOnce(agent({ id: 'system-general-purpose-agent', role: 'general-purpose', name: 'General-purpose' }))
+      .mockReturnValueOnce(agent());
+    vi.mocked(mocks.catalog.updateCustom).mockReturnValue(agent({ name: 'Renamed' }));
 
-    it('update_agent refuses to touch agent from other project', async () => {
-      const other = seedAgent({ project_id: 'other-project', name: 'theirs' });
-      const result = await invoke('update_agent', { id: other.id, name: 'hacked' });
-      expect(result.error).toMatch(/Agent not found/);
-    });
+    expect((await invoke('update_agent', { id: 'system-master-agent', name: 'Changed' })).error).toMatch(/protected/);
+    expect((await invoke('update_agent', { id: 'system-general-purpose-agent', name: 'Changed' })).error).toMatch(/protected/);
+    const updated = await invoke('update_agent', { id: 'custom-1', name: 'Renamed' });
 
-    it('delete_agent refuses to touch agent from other project', async () => {
-      const other = seedAgent({ project_id: 'other-project', name: 'theirs' });
-      const result = await invoke('delete_agent', { id: other.id });
-      expect(result.error).toMatch(/Agent not found/);
-    });
+    expect(updated.name).toBe('Renamed');
+    expect(mocks.catalog.updateGeneralPurpose).not.toHaveBeenCalled();
+    expect(mocks.catalog.updateCustom).toHaveBeenCalledWith('custom-1', expect.objectContaining({ name: 'Renamed' }));
+  });
+
+  it('keeps an omitted update provider, but rejects clearing or replacing it with an unknown provider', async () => {
+    vi.mocked(mocks.catalog.get).mockReturnValue(agent());
+    vi.mocked(mocks.catalog.updateCustom).mockReturnValue(agent({ name: 'Renamed' }));
+
+    await invoke('update_agent', { id: 'custom-1', name: 'Renamed' });
+    expect(mocks.catalog.updateCustom).toHaveBeenCalledTimes(1);
+    expect((await invoke('update_agent', { id: 'custom-1', provider_id: null })).error).toMatch(/Cannot clear provider_id/);
+    expect((await invoke('update_agent', { id: 'custom-1', provider_id: 'missing' })).error).toBe('Provider not found: missing');
+    expect(mocks.catalog.updateCustom).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks deletion of the active or in-flight Custom Agent before calling the Catalog', async () => {
+    vi.mocked(mocks.catalog.get).mockReturnValue(agent());
+
+    expect((await invoke('delete_agent', { id: 'custom-1' }, { activeAgentId: 'custom-1' })).error).toMatch(/currently running/);
+    mocks.inFlightAgentIds.add('custom-1');
+    expect((await invoke('delete_agent', { id: 'custom-1' })).error).toMatch(/in-flight run/);
+    expect(mocks.catalog.deleteCustom).not.toHaveBeenCalled();
+  });
+
+  it('requires a delete id and delegates permitted deletion to the Catalog', async () => {
+    vi.mocked(mocks.catalog.get).mockReturnValue(agent());
+
+    expect((await invoke('delete_agent', { id: '' })).error).toBe('Agent id is required.');
+    const result = await invoke('delete_agent', { id: 'custom-1' });
+
+    expect(result).toEqual({ deleted: true, id: 'custom-1', name: 'Reviewer' });
+    expect(mocks.catalog.deleteCustom).toHaveBeenCalledWith('custom-1');
   });
 });

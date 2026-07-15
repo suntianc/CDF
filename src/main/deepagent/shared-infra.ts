@@ -24,6 +24,7 @@ import { createGenerateVideoJobTool } from '../capabilities/generate-video-job-t
 import { createSynthesizeSpeechTool } from '../capabilities/synthesize-speech';
 import { createGenerateMusicTool } from '../capabilities/generate-music';
 import { createManageBackgroundJobsTool } from '../capabilities/manage-background-jobs-tool';
+import { createAgentCatalog } from '../agent-catalog';
 
 // Re-export loadMcpTools for consumers that only need shared-infra
 export { loadMcpTools };
@@ -32,14 +33,13 @@ export { loadMcpTools };
 
 export interface AgentRow {
   id: string;
-  project_id: string;
   name: string;
+  role?: import('../../shared/agents').AgentRole;
   slug?: string | null;
   description?: string | null;
   provider_id?: string | null;
   system_prompt?: string | null;
-  config?: string | null;
-  is_default?: number;
+  config?: string | Record<string, unknown> | null;
   created_at?: number;
   updated_at?: number;
 }
@@ -60,7 +60,7 @@ export interface ProviderRow {
  * 按 ID 查询 Agent，未找到时抛出错误
  */
 export function getAgentRow(agentId: string): AgentRow {
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined;
+  const agent = createAgentCatalog(db, { initializeSchema: false }).get(agentId);
   if (!agent) throw new Error(`Agent not found: ${agentId}`);
   return agent;
 }

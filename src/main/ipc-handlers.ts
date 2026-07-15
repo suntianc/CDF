@@ -44,8 +44,6 @@ import type {
   Session,
   Skill,
 } from '../shared/types';
-import { generateSlug } from './deepagent/agent-slug';
-import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
 import { registerWorkflowRunIpcHandlers } from './workflow-run';
 import { collectAllCommands } from './commands/command-registry';
 import { listProjectCommands } from './commands/project-commands';
@@ -88,15 +86,7 @@ import {
   getConversationWorkingStateStorageStatus,
 } from './deepagent/conversation-working-state-maintenance';
 import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
-import {
-  assertProjectAgentCanBeDeleted,
-  assertProjectAgentCanBeSaved,
-  ensureGeneralPurposeAgent,
-  ensureMasterAgent,
-  getProjectAgentRole,
-  resetMasterAgentPrompt,
-  isMasterAgent,
-} from './project-agent-service';
+import { createAgentCatalog, type CatalogAgent } from './agent-catalog';
 
 function resolveSceneSkillExposureInput(skill: GlobalSkillReference): SceneSkillExposureInput {
   if (!skill || (skill.sourceKind !== 'built-in' && skill.sourceKind !== 'user')
@@ -391,8 +381,6 @@ export function registerIpcHandlers() {
       db.prepare(
         'INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(id, name, projectPath, projectScene, now, now);
-      ensureMasterAgent(db, id);
-      ensureGeneralPurposeAgent(db, id);
     })();
     initializeScenePreset({ projectId: id, projectPath, scene: projectScene });
     const isGit = projectPath ? fs.existsSync(path.join(projectPath, '.git')) : false;
@@ -425,16 +413,16 @@ export function registerIpcHandlers() {
     const now = Date.now();
     ensureProjectForSession(projectId);
     // 普通 Conversation 的根始终是受保护的 Master；caller 提供的 Agent 只可作为委派目标。
-    const master = ensureMasterAgent(db, projectId);
-    const finalAgentId = master.id;
     const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as
       | { path: string; scene: ProjectScene }
       | undefined;
     if (!project) throw new Error(`Project with ID ${projectId} not found.`);
+    const master = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene);
+    const finalAgentId = master.agent.id;
     const systemContext = captureConversationSystemContextSnapshot({
       projectPath: project.path,
       sceneId: project.scene,
-      promptSnapshot: master.system_prompt ?? '',
+      promptSnapshot: master.system_prompt,
     });
     const skillSnapshot = JSON.stringify(systemContext.skillSnapshot);
     db.transaction(() => {
@@ -694,148 +682,93 @@ export function registerIpcHandlers() {
 
   // ===== Phase 3: Agent Library IPC Handlers =====
 
+  const toAgentTransport = (agent: CatalogAgent, projectId: string) => ({
+    ...agent,
+    description: agent.description ?? undefined,
+    provider_id: agent.provider_id ?? undefined,
+    system_prompt: agent.system_prompt ?? undefined,
+    config: agent.config ?? undefined,
+    project_id: projectId, // #184 still transports this field; Catalog does not persist it.
+    is_default: agent.role === 'master' ? 1 : 0,
+    is_protected: agent.role !== 'custom',
+    mcpServerExclusionIds: (db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(agent.id) as Array<{ mcp_server_id: string }>).map((row) => row.mcp_server_id),
+    skillNames: (db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agent.id) as Array<{ skill_name: string }>).map((row) => row.skill_name),
+  });
+
   typedHandle('db:getAgents', (_, projectId) => {
-    ensureMasterAgent(db, projectId);
-    ensureGeneralPurposeAgent(db, projectId);
-    const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
-    return agents.map(a => {
-      const mcpExclusions = db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(a.id) as any[];
-      const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
-      return {
-        ...a,
-        role: getProjectAgentRole(a),
-        is_protected: isMasterAgent(a) || getProjectAgentRole(a) === 'general-purpose',
-        config: a.config ? JSON.parse(a.config) : null,
-        mcpServerExclusionIds: mcpExclusions.map(s => s.mcp_server_id),
-        skillNames: skills.map(s => s.skill_name),
-      };
-    });
+    const catalog = createAgentCatalog(db, { initializeSchema: false });
+    const project = db.prepare('SELECT scene FROM projects WHERE id = ?').get(projectId) as
+      | { scene?: string | null }
+      | undefined;
+    const scene = project?.scene ?? 'general';
+    return catalog.list().map((agent) => toAgentTransport(
+      agent.role === 'master'
+        ? { ...agent, system_prompt: catalog.getMasterPrompt(scene) }
+        : agent,
+      projectId,
+    ));
   });
 
   typedHandle('db:saveAgent', (_, agent) => {
-    const { id, project_id, name, description, provider_id, system_prompt, config, mcpServerExclusionIds, skillNames } = agent;
-    const current = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as any;
-    if (current && isMasterAgent(current)) {
-      const allowedFields = new Set(['id', 'project_id', 'system_prompt']);
-      if (Object.keys(agent).some((key) => !allowedFields.has(key))) {
-        throw new Error('Master Agent is protected: only its complete system prompt can be changed.');
-      }
-      if (project_id !== current.project_id || typeof system_prompt !== 'string') {
-        throw new Error('Master Agent is protected: only its complete system prompt can be changed.');
-      }
-      const now = Date.now();
-      db.prepare('UPDATE agents SET system_prompt = ?, updated_at = ? WHERE id = ?').run(system_prompt, now, id);
-      return {
-        ...current,
-        system_prompt,
-        updated_at: now,
-        role: 'master' as const,
-        is_protected: true,
-        mcpServerExclusionIds: [],
-        skillNames: [],
-      };
-    }
-
-    const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
-    if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
-      throw new Error('Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.');
-    }
-    assertProjectAgentCanBeSaved(db, { id, projectId: project_id, name });
-    const now = Date.now();
-    const configStr = config ? JSON.stringify(config) : null;
-
-    const runTx = db.transaction(() => {
-      const existing = db.prepare('SELECT id, slug, name FROM agents WHERE id = ?').get(id) as
-        | { id: string; slug: string | null; name: string }
-        | undefined;
-      if (existing) {
-        // Slug must be project-unique (PR #5 P2): the new agent-tools
-        // path goes through ensureUniqueSlug, but this UI save path
-        // previously wrote generateSlug(name) directly. Two same-named
-        // agents in a project would then collide on effective_slug at
-        // runtime.ts:584 (`agentRow.slug || generateSlug(name)`),
-        // making `task(name: ...)` ambiguous. Self-collision carve-out:
-        // if the new baseSlug matches our own current effective slug,
-        // keep existing.slug unchanged (avoids spurious -2 on a
-        // no-op rename — e.g. "Code Reviewer" → "Code-Reviewer").
-        const baseSlug = generateSlug(name) || 'agent';
-        const nextSlug =
-          resolveAgentSlug({ slug: existing.slug, name: existing.name }) === baseSlug
-            ? existing.slug
-            : ensureUniqueSlug(project_id, baseSlug, now);
-        db.prepare(`
-          UPDATE agents SET project_id = ?, name = ?, slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
-          WHERE id = ?
-        `).run(project_id, name, nextSlug, description || null, provider_id || null, system_prompt || null, configStr, 0, now, id);
+    const catalog = createAgentCatalog(db, { initializeSchema: false });
+    const current = catalog.get(agent.id);
+    const project = db.prepare('SELECT scene FROM projects WHERE id = ?').get(agent.project_id) as { scene?: string | null } | undefined;
+    if (!project) throw new Error(`Project with ID ${agent.project_id} not found.`);
+    const saved = db.transaction(() => {
+      let next: CatalogAgent;
+      if (current?.role === 'master') {
+        const changesProtectedField = (
+          (agent.name !== undefined && agent.name !== current.name)
+          || (agent.description !== undefined && agent.description !== current.description)
+          || (agent.provider_id !== undefined && agent.provider_id !== current.provider_id)
+          || (agent.config !== undefined && JSON.stringify(agent.config) !== JSON.stringify(current.config))
+          || agent.mcpServerExclusionIds !== undefined
+          || agent.skillNames !== undefined
+        );
+        if (typeof agent.system_prompt !== 'string' || changesProtectedField) {
+          throw new Error('Master Agent is protected: only its complete system prompt can be changed.');
+        }
+        catalog.saveMasterPrompt(project.scene ?? 'general', agent.system_prompt);
+        next = { ...catalog.resolveMaster(project.scene ?? 'general').agent, system_prompt: agent.system_prompt };
+      } else if (current?.role === 'general-purpose') {
+        if (agent.name !== undefined && agent.name !== current.name) {
+          throw new Error('General-purpose Agent is protected and cannot be renamed.');
+        }
+        next = catalog.updateGeneralPurpose({ description: agent.description, provider_id: agent.provider_id, system_prompt: agent.system_prompt, config: agent.config });
+      } else if (current) {
+        next = catalog.updateCustom(agent.id, { name: agent.name, description: agent.description, provider_id: agent.provider_id, system_prompt: agent.system_prompt, config: agent.config });
       } else {
-        db.prepare(`
-          INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, project_id, name, ensureUniqueSlug(project_id, generateSlug(name) || 'agent', now), description || null, provider_id || null, system_prompt || null, configStr, 0, now, now);
+        if (!agent.name) throw new Error('Agent name is required.');
+        next = createAgentCatalog(db, { createId: () => agent.id, initializeSchema: false }).createCustom({ name: agent.name, description: agent.description, provider_id: agent.provider_id, system_prompt: agent.system_prompt, config: agent.config });
       }
-
-      db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(id);
-      if (Array.isArray(mcpServerExclusionIds)) {
-        const uniqueMcpIds = Array.from(new Set(mcpServerExclusionIds));
-        const insertMcp = db.prepare('INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)');
-        for (const mcpId of uniqueMcpIds) {
-          insertMcp.run(id, mcpId);
-        }
+      if (Array.isArray(agent.mcpServerExclusionIds)) {
+        db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(next.id);
+        const insert = db.prepare('INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)');
+        for (const mcpId of new Set(agent.mcpServerExclusionIds)) insert.run(next.id, mcpId);
       }
-
-      db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
-      if (Array.isArray(skillNames)) {
-        const uniqueSkillNames = Array.from(new Set(skillNames));
-        const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
-        for (const skillId of uniqueSkillNames) {
-          const normalizedSkillId = String(skillId).trim();
-          if (normalizedSkillId) insertSkill.run(id, normalizedSkillId);
-        }
+      if (Array.isArray(agent.skillNames)) {
+        db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(next.id);
+        const insert = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
+        for (const skillName of new Set(agent.skillNames.map((name: string) => name.trim()).filter(Boolean))) insert.run(next.id, skillName);
       }
-    });
-
-    runTx();
-
-    const saved = db.prepare('SELECT slug FROM agents WHERE id = ?').get(id) as
-      | { slug?: string | null }
-      | undefined;
-    return {
-      id, 
-      project_id,
-      name,
-      slug: saved?.slug ?? undefined,
-      role: getProjectAgentRole(saved ?? {}),
-      is_protected: isMasterAgent(saved ?? {}) || getProjectAgentRole(saved ?? {}) === 'general-purpose',
-      description, 
-      provider_id, 
-      system_prompt, 
-      config,
-      is_default: 0,
-      mcpServerExclusionIds: mcpServerExclusionIds || [],
-      skillNames: skillNames || []
-    };
+      return next;
+    })();
+    return toAgentTransport(saved, agent.project_id);
   });
 
   typedHandle('db:resetMasterAgentPrompt', (_, projectId) => {
-    const master = resetMasterAgentPrompt(db, projectId);
-    return {
-      ...master,
-      slug: master.slug ?? undefined,
-      role: 'master' as const,
-      is_protected: true,
-      is_default: 1,
-      mcpServerExclusionIds: [],
-      skillNames: [],
-    };
+    const project = db.prepare('SELECT scene FROM projects WHERE id = ?').get(projectId) as { scene?: string | null } | undefined;
+    if (!project) throw new Error(`Project with ID ${projectId} not found.`);
+    const catalog = createAgentCatalog(db, { initializeSchema: false });
+    const scene = project.scene ?? 'general';
+    const systemPrompt = catalog.resetMasterPrompt(scene);
+    return toAgentTransport(
+      { ...catalog.resolveMaster(scene).agent, system_prompt: systemPrompt },
+      projectId,
+    );
   });
 
-  typedCrud({
-    channel: 'db:deleteAgent',
-    remove: (id) => {
-      assertProjectAgentCanBeDeleted(db, id);
-      db.prepare('DELETE FROM agents WHERE id = ?').run(id);
-    },
-  });
+  typedCrud({ channel: 'db:deleteAgent', remove: (id) => createAgentCatalog(db, { initializeSchema: false }).deleteCustom(id) });
 
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
 
@@ -1311,7 +1244,7 @@ export function registerIpcHandlers() {
           sessionId,
           projectPath: project.path,
           sceneId: project.scene ?? 'general',
-          promptSnapshot: ensureMasterAgent(db, projectId).system_prompt ?? '',
+          promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
         }).skillSnapshot
         : captureConversationSystemContextSnapshot({
           projectPath: project.path,
@@ -1417,7 +1350,7 @@ export function registerIpcHandlers() {
           sessionId,
           projectPath: project.path,
           sceneId: project.scene ?? 'general',
-          promptSnapshot: ensureMasterAgent(db, projectId).system_prompt ?? '',
+          promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
         }).skillSnapshot
         : null;
       if (!fs.existsSync(resolved)) {

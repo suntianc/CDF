@@ -39,6 +39,7 @@ import {
   type DelegatedRuntimeAdapter,
 } from './delegated-agent-run-coordinator';
 import { createParallelTaskTool } from './parallel-task-tool';
+import { createAgentCatalog } from '../agent-catalog';
 
 const success: DelegatedTaskResult = {
   status: 'success',
@@ -52,18 +53,19 @@ describe('parallel_tasks + Delegated Run Coordinator integration', () => {
     testDb.exec(`
       DROP TABLE IF EXISTS delegated_agent_runs;
       DROP TABLE IF EXISTS agent_runs;
+      DROP TABLE IF EXISTS master_agent_prompts;
       DROP TABLE IF EXISTS agents;
-      CREATE TABLE agents (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT,
-        description TEXT
-      );
+      DROP TABLE IF EXISTS llm_providers;
+      CREATE TABLE llm_providers (id TEXT PRIMARY KEY);
       CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
     `);
-    testDb.prepare(`INSERT INTO agents (id, project_id, name, slug, description)
-      VALUES ('agent-1', 'project-1', 'Worker Agent', 'worker', 'Does work')`).run();
+    createAgentCatalog(testDb, {
+      createId: () => 'agent-1',
+      now: () => 100,
+    }).createCustom({
+      name: 'Worker Agent',
+      description: 'Does work',
+    });
     testDb.prepare("INSERT INTO agent_runs (id) VALUES ('run-parent')").run();
     initializeDelegatedAgentRunSchema(testDb);
   });

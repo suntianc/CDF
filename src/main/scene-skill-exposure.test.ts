@@ -18,11 +18,12 @@ function createMemoryStorage(initial: Record<string, unknown> = {}): SceneSkillE
 }
 
 describe('Scene Skill Exposure product API', () => {
-  it('publishes the current Scene registry with stable display metadata', () => {
-    expect(SCENE_REGISTRY).toEqual([
-      { id: 'general', label: 'General' },
-      { id: 'research', label: 'Research' },
+  it('publishes the current Scene registry with stable display metadata and Master defaults', () => {
+    expect(SCENE_REGISTRY).toMatchObject([
+      { id: 'general', label: 'General', defaultMasterPrompt: expect.any(String) },
+      { id: 'research', label: 'Research', defaultMasterPrompt: expect.any(String) },
     ]);
+    expect(SCENE_REGISTRY.every((scene) => scene.defaultMasterPrompt.length > 0)).toBe(true);
   });
 
   it('resolves Built-in defaults, persists user changes, and reads them back', () => {

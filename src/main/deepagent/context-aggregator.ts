@@ -24,7 +24,7 @@ import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
-import { ensureMasterAgent } from '../project-agent-service';
+import { createAgentCatalog } from '../agent-catalog';
 
 export interface MCPToolDetail {
   tool: string;
@@ -456,13 +456,13 @@ export async function aggregateCurrentSessionContext(
     const session = db.prepare('SELECT project_id, prompt_snapshot FROM sessions WHERE id = ?')
       .get(sessionId) as { project_id: string; prompt_snapshot?: string | null } | undefined;
     if (session) {
-      const master = ensureMasterAgent(db, session.project_id);
-      const masterRow = db.prepare('SELECT provider_id, config FROM agents WHERE id = ?')
-        .get(master.id) as { provider_id?: string | null; config?: string | null } | undefined;
-      const configuredProvider = masterRow?.provider_id
+      const projectScene = db.prepare('SELECT scene FROM projects WHERE id = ?').get(session.project_id) as { scene?: string | null } | undefined;
+      const resolvedMaster = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(projectScene?.scene ?? 'general');
+      const master = resolvedMaster.agent;
+      const configuredProvider = master.provider_id
         ? db.prepare(
           'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers WHERE id = ? AND is_active = 1',
-        ).get(masterRow.provider_id) as { context_limit?: number; model_name?: string; provider_name?: string } | undefined
+        ).get(master.provider_id) as { context_limit?: number; model_name?: string; provider_name?: string } | undefined
         : undefined;
       const activeProvider = db.prepare(
         'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1',
@@ -478,7 +478,7 @@ export async function aggregateCurrentSessionContext(
       }
       modelName = overriddenModelName || provider?.model_name || '';
       agentIdForContext = master.id;
-      agentSystemPrompt = session.prompt_snapshot ?? master.system_prompt ?? null;
+      agentSystemPrompt = session.prompt_snapshot ?? resolvedMaster.system_prompt;
     }
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
@@ -546,7 +546,7 @@ export async function aggregateCurrentSessionContext(
         sessionId,
         projectPath,
         sceneId: project.scene ?? 'general',
-        promptSnapshot: ensureMasterAgent(db, project.project_id).system_prompt ?? '',
+        promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
       }).skillSnapshot;
       const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
         catalog: skillSnapshot as ResolvedSkillCatalogEntry[],

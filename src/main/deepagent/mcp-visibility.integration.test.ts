@@ -16,6 +16,7 @@ vi.mock('electron', () => ({
 }));
 
 import db from '../database';
+import { createAgentCatalog } from '../agent-catalog';
 import { getAgentMcpServers } from './shared-infra';
 
 const PROJECT_ID = 'project-mcp-visibility';
@@ -23,7 +24,6 @@ const PROJECT_ID = 'project-mcp-visibility';
 const TABLES_IN_DELETE_ORDER = [
   'agent_mcp_exclusions',
   'mcp_servers',
-  'agents',
   'projects',
 ];
 
@@ -32,19 +32,18 @@ function freshDb() {
   for (const table of TABLES_IN_DELETE_ORDER) {
     db.exec(`DELETE FROM ${table}`);
   }
+  db.exec("DELETE FROM agents WHERE role = 'custom'");
 
   db.prepare(
     `INSERT INTO projects (id, name, path, created_at, updated_at)
      VALUES (?, ?, ?, 0, 0)`,
   ).run(PROJECT_ID, 'MCP Visibility Project', TMP_DIR);
 
-  for (const id of ['agent-a', 'agent-b']) {
-    db.prepare(
-      `INSERT INTO agents
-         (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, 0, 0)`,
-    ).run(id, PROJECT_ID, id, id);
-  }
+  const ids = ['agent-a', 'agent-b'];
+  let index = 0;
+  const catalog = createAgentCatalog(db, { createId: () => ids[index++]! });
+  catalog.createCustom({ name: 'agent-a' });
+  catalog.createCustom({ name: 'agent-b' });
 }
 
 function insertMcpServer(id: string, isConnected: boolean) {

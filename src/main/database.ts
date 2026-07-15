@@ -2,16 +2,11 @@ import Database from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { generateSlug } from './deepagent/agent-slug';
+import { createAgentCatalog } from './agent-catalog';
 import {
   DelegatedAgentRunRepository,
   initializeDelegatedAgentRunSchema,
 } from './deepagent/delegated-agent-run-repository';
-import {
-  GENERAL_PURPOSE_AGENT_SLUG,
-  ensureGeneralPurposeAgent,
-  ensureProjectMasterAgents,
-} from './project-agent-service';
 
 const dbPath = path.join(app.getPath('userData'), 'cdf.db');
 const db = new Database(dbPath);
@@ -86,6 +81,10 @@ db.exec(`
   );
 `);
 
+// Agent Catalog owns the sole global Agent definitions table. Its schema is
+// deliberately not migrated from the retired project-owned agents model.
+export const agentCatalog = createAgentCatalog(db);
+
 // Safe migration helper - ignores 'duplicate column name' errors
 const safeMigrate = (description: string, sql: string) => {
   try {
@@ -155,22 +154,6 @@ try {
 
 // Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
 db.exec(`
-  CREATE TABLE IF NOT EXISTS agents (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    slug TEXT,
-    description TEXT,
-    provider_id TEXT,
-    system_prompt TEXT,
-    config TEXT,
-    is_default INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE SET NULL
-  );
-
   CREATE TABLE IF NOT EXISTS mcp_servers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -249,50 +232,6 @@ db.prepare(`UPDATE agent_runs
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_one_active_session
   ON agent_runs(session_id) WHERE status IN ('running', 'waiting_approval')`);
 
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN project_id TEXT;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate agents table (project_id):', error);
-  }
-}
-
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate agents table (is_default):', error);
-  }
-}
-
-try {
-  db.prepare(`UPDATE agents SET project_id = ? WHERE project_id IS NULL OR project_id = ''`).run('default-project');
-} catch (error) {
-  console.error('Failed to backfill agents.project_id:', error);
-}
-
-// D-03: Add slug column for stable task(name) key
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN slug TEXT`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate agents table (slug):', error);
-  }
-}
-
-// D-03: Backfill existing agents' slug from name
-// (generateSlug itself lives in deepagent/agent-slug.ts — the canonical
-// helper. This import is here to avoid duplicating the regex chain.)
-try {
-  const agentsWithoutSlug = db.prepare("SELECT id, name FROM agents WHERE slug IS NULL OR slug = ''").all() as Array<{ id: string; name: string }>;
-  for (const agent of agentsWithoutSlug) {
-    const slug = generateSlug(agent.name);
-    db.prepare('UPDATE agents SET slug = ? WHERE id = ?').run(slug, agent.id);
-  }
-} catch (error) {
-  console.error('Failed to backfill agents.slug:', error);
-}
-
 // Insert default project if no projects exist
 try {
   const projectCount = db.prepare('SELECT COUNT(*) as count FROM projects').get() as { count: number };
@@ -315,21 +254,6 @@ try {
   }
 } catch (error) {
   console.error('Failed to initialize default project:', error);
-}
-
-// Every initialized Project eagerly receives one protected Master root. This
-// repairs duplicate legacy Masters before creating the partial unique index.
-try {
-  ensureProjectMasterAgents(db);
-  const projects = db.prepare('SELECT id FROM projects').all() as Array<{ id: string }>;
-  const ensureGeneralPurpose = db.transaction(() => {
-    for (const project of projects) ensureGeneralPurposeAgent(db, project.id);
-  });
-  ensureGeneralPurpose();
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_general_purpose_project
-    ON agents(project_id) WHERE slug = '${GENERAL_PURPOSE_AGENT_SLUG}'`);
-} catch (error) {
-  console.error('Failed to initialize protected Project Agents:', error);
 }
 
 // Insert default LLM providers if none exist

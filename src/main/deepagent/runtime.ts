@@ -45,7 +45,7 @@ import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle } from './conversation-working-state';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
-import { ensureMasterAgent, isMasterAgent, MASTER_AGENT_SLUG } from '../project-agent-service';
+import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -69,18 +69,7 @@ interface SubagentStepContext {
 
 export const subagentStepStorage = new AsyncLocalStorage<SubagentStepContext>();
 
-interface RuntimeAgentRow {
-  id: string;
-  project_id: string;
-  name: string;
-  slug?: string | null;  // D-03: task(name) stable key
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: string | null;
-  created_at: number;
-  updated_at: number;
-}
+type RuntimeAgentRow = CatalogAgent;
 
 interface RuntimeProjectRow {
   id: string;
@@ -127,17 +116,9 @@ function providerExists(providerId: string): boolean {
 }
 
 function getRuntimeAgent(projectId: string): RuntimeAgentRow {
-  let agent = db.prepare(
-    'SELECT * FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
-  ).get(projectId, MASTER_AGENT_SLUG) as RuntimeAgentRow | undefined;
-  if (!agent) {
-    ensureMasterAgent(db, projectId);
-    agent = db.prepare(
-      'SELECT * FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
-    ).get(projectId, MASTER_AGENT_SLUG) as RuntimeAgentRow | undefined;
-  }
-  if (!agent) throw new Error(`Project Master Agent not found: ${projectId}`);
-
+  const project = getProject(projectId);
+  const resolved = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general');
+  const agent = { ...resolved.agent, system_prompt: resolved.system_prompt };
   const normalizedProviderId = normalizeProviderId(agent.provider_id);
   return normalizedProviderId && providerExists(normalizedProviderId)
     ? { ...agent, provider_id: normalizedProviderId }
@@ -637,9 +618,9 @@ async function buildDeepAgentRuntime(
   console.log(`[runtime] effectiveSubagentIds initial: ${JSON.stringify(effectiveSubagentIds)}, !effectiveSubagentIds=${!effectiveSubagentIds}`);
   if (!effectiveSubagentIds || effectiveSubagentIds.length === 0) {
     console.log(`[runtime] Entering auto-discover branch`);
-    const allAgents = db.prepare(
-      'SELECT id FROM agents WHERE project_id = ? AND id != ?'
-    ).all(projectId, agentRow.id) as { id: string }[];
+    const allAgents = createAgentCatalog(db, { initializeSchema: false }).listDelegationTargets()
+      .filter((candidate) => candidate.id !== agentRow.id)
+      .map((candidate) => ({ id: candidate.id }));
     console.log(`[runtime] Query returned ${allAgents.length} agents`);
     effectiveSubagentIds = allAgents.map(a => a.id);
     console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
@@ -651,8 +632,9 @@ async function buildDeepAgentRuntime(
 
   const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = {
     run: async (request) => {
-      const target = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?')
-        .get(request.targetAgentId, projectId) as RuntimeAgentRow | undefined;
+      const target = request.targetAgentId
+        ? createAgentCatalog(db, { initializeSchema: false }).get(request.targetAgentId)
+        : null;
       if (!target) {
         throw new Error(`Delegated target Agent not found: ${request.targetAgentSlug}`);
       }
@@ -797,7 +779,7 @@ async function buildDeepAgentRuntime(
         console.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
         continue;
       }
-      const targetAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(subId) as RuntimeAgentRow | undefined;
+      const targetAgent = createAgentCatalog(db, { initializeSchema: false }).get(subId);
       if (!targetAgent) continue;
 
       // CompiledSubAgent is only a routing adapter. It creates no model or graph
@@ -823,7 +805,7 @@ async function buildDeepAgentRuntime(
   const workflowRun = getRunBySessionId(sessionId);
   // Workflow root ownership follows the protected Project Master identity, not
   // a caller-controlled or legacy persisted workflow agent ID.
-  const isWorkflowMasterAgent = !!workflowRun && isMasterAgent(agentRow);
+  const isWorkflowMasterAgent = !!workflowRun && agentRow.role === 'master';
   if (isWorkflowMasterAgent) {
     const runId = workflowRun!.id;
     const getRun = () => getWorkflowRun(runId);

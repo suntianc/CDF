@@ -6,7 +6,8 @@ import { z } from 'zod';
 import db from '../database';
 import type { DelegatedAgentRunCoordinator } from './delegated-agent-run-coordinator';
 import { resolveAgentSlug } from './agent-slug';
-import type { AgentRow } from './shared-infra';
+import type { CatalogAgent } from '../agent-catalog';
+import { createAgentCatalog } from '../agent-catalog';
 import type {
   DelegatedAgentRun,
   DelegatedTaskResult,
@@ -49,7 +50,7 @@ interface ParallelTaskInput {
 interface PreparedParallelTask {
   index: number;
   task: ParallelTaskInput;
-  agent: AgentRow | null;
+  agent: CatalogAgent | null;
   runTaskId?: string;
 }
 
@@ -162,9 +163,8 @@ export function createParallelTaskTool(
         throw new Error('parallel_tasks requires parentAgentRunId');
       }
 
-      const allAgents = db
-        .prepare('SELECT * FROM agents WHERE project_id = ?')
-        .all(projectId) as AgentRow[];
+      void projectId; // Catalog delegation targets are global in #183.
+      const allAgents = createAgentCatalog(db, { initializeSchema: false }).listDelegationTargets();
       const workflowRunTaskIds = resolveWorkflowRunTaskIds(sessionId, tasks);
       const prepared: PreparedParallelTask[] = tasks.map((task, index) => ({
         index,

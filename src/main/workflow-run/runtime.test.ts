@@ -31,7 +31,7 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
 }));
 
-import db from '../database';
+import db, { agentCatalog } from '../database';
 import {
   startRun,
   getWorkflowRun,
@@ -44,7 +44,6 @@ import {
 } from './runtime';
 import { createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools, isAdvanceStageInterrupt } from './tools';
 import { createTask, getPendingTasks, getStageGate, getTask, listRunTasks, setTaskDependencies, updateTaskStatus, listStageGates, createStageGate, resolveStageGate } from './db';
-import { ensureMasterAgent } from '../project-agent-service';
 import type { WorkflowStageReport, WorkflowRun } from '../../shared/types';
 
 const PROJECT_ID = 'test-project-1';
@@ -57,7 +56,6 @@ const TABLES_IN_DELETE_ORDER = [
   'sessions',
   'agent_skills',
   'agent_mcp_exclusions',
-  'agents',
   'messages',
   'llm_providers',
   'projects',
@@ -98,18 +96,12 @@ function seedData(): void {
   db.prepare('INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(PROJECT_ID, 'Test', TMP_DIR, 'general', now, now);
 
-  const providerId = crypto.randomUUID();
-  db.prepare('INSERT INTO llm_providers (id, name, provider_type, api_url, default_model, context_limit, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)')
-    .run(providerId, 'Test OpenAI', 'openai', 'https://api.openai.com/v1', 'gpt-4o', 8192, now, now);
+  agentCatalog.saveMasterPrompt('general', 'Workflow test Master prompt');
+  const master = agentCatalog.resolveMaster('general');
+  lastMasterAgentId = master.agent.id;
+  lastMasterPrompt = master.system_prompt;
 
-  const legacySelectedAgentId = crypto.randomUUID();
-  db.prepare('INSERT INTO agents (id, project_id, name, provider_id, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)')
-    .run(legacySelectedAgentId, PROJECT_ID, 'Legacy selected Agent', providerId, now, now);
-  const master = ensureMasterAgent(db, PROJECT_ID);
-  lastMasterAgentId = master.id;
-  lastMasterPrompt = master.system_prompt ?? '';
-
-  // 创建一个两阶段 workflow；遗留列中存在的值不可控制根 Agent。
+  // 创建一个两阶段 workflow；根 Agent 始终由 Project Scene 的全局 Master 决定。
 
   const stages = [
     { id: 'stage-1', name: '需求分析', taskDescription: '分析需求文档', acceptanceCriteria: '需求清晰', gateEnabled: true },
@@ -118,7 +110,7 @@ function seedData(): void {
   const stagesJson = JSON.stringify(stages);
   const wfId = crypto.randomUUID();
   db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(wfId, PROJECT_ID, '测试工作流', stagesJson, legacySelectedAgentId, 'active', now, now);
+    .run(wfId, PROJECT_ID, '测试工作流', stagesJson, null, 'active', now, now);
   lastWorkflowId = wfId;
 }
 

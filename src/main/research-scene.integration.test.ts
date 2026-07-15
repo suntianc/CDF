@@ -24,11 +24,7 @@ vi.mock('./deepagent/shared-infra', () => ({
   getProvider: vi.fn(),
   normalizeProviderId: vi.fn((providerId: string | null | undefined) => providerId ?? null),
 }));
-import {
-  GENERAL_SCENE_DEFAULT_PROMPT,
-  RESEARCH_SCENE_DEFAULT_PROMPT,
-  ensureMasterAgent,
-} from './project-agent-service';
+import { createAgentCatalog } from './agent-catalog';
 import {
   captureConversationSystemContextSnapshot,
   getOrCaptureConversationSystemContextSnapshot,
@@ -75,19 +71,7 @@ describe('Research Scene integration', () => {
     const db = new Database(databasePath);
     db.exec(`
       CREATE TABLE projects (id TEXT PRIMARY KEY, scene TEXT NOT NULL);
-      CREATE TABLE agents (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT,
-        description TEXT,
-        provider_id TEXT,
-        system_prompt TEXT,
-        config TEXT,
-        is_default INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
+      CREATE TABLE llm_providers (id TEXT PRIMARY KEY);
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
         prompt_snapshot TEXT,
@@ -101,15 +85,15 @@ describe('Research Scene integration', () => {
         ('project-skill-v2-conversation', NULL, NULL);
     `);
 
-    const master = ensureMasterAgent(db, 'research-project', {
-      createId: () => 'research-master',
-      now: () => 1,
-    });
+    const catalog = createAgentCatalog(db, { now: () => 1 });
+    const master = catalog.resolveMaster('research');
+    const RESEARCH_SCENE_DEFAULT_PROMPT = catalog.getSceneDefaultPrompt('research');
+    const GENERAL_SCENE_DEFAULT_PROMPT = catalog.getSceneDefaultPrompt('general');
     const researchConversation = getOrCaptureConversationSystemContextSnapshot(db, {
       sessionId: 'research-conversation',
       projectPath,
       sceneId: 'research',
-      promptSnapshot: master.system_prompt ?? '',
+      promptSnapshot: master.system_prompt,
     });
 
     expect(researchConversation.promptSnapshot).toBe(RESEARCH_SCENE_DEFAULT_PROMPT);

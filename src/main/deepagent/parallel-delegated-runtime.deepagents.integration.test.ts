@@ -222,10 +222,10 @@ vi.mock('@langchain/langgraph-checkpoint-sqlite', () => ({
   SqliteSaver: { fromConnString: vi.fn(() => new MemorySaver()) },
 }));
 vi.mock('./runtime-assembly', () => ({
-  assembleDeepAgentRuntime: vi.fn(async (agent: { id: string }) => ({
+  assembleDeepAgentRuntime: vi.fn(async (agent: { id: string; role?: string }) => ({
     model: agent.id === 'worker'
       ? new ApprovalSeekingWorkerModel({})
-      : agent.id === 'general'
+      : agent.role === 'general-purpose'
         ? new CompletingWorkerModel({})
         : masterModelKind === 'two-general'
           ? new TwoTaskParallelMasterModel({})
@@ -276,6 +276,7 @@ vi.mock('../workflow-run/db', () => ({
 }));
 vi.mock('../workflow-run/notify', () => ({ pushProjectionEvent: vi.fn() }));
 
+import { createAgentCatalog, GENERAL_PURPOSE_AGENT_ID, MASTER_AGENT_ID } from '../agent-catalog';
 import { initializeDelegatedAgentRunSchema } from './delegated-agent-run-repository';
 import { createDeepAgentRuntime } from './runtime';
 
@@ -287,11 +288,16 @@ function setupDatabase(): void {
     DROP TABLE IF EXISTS messages;
     DROP TABLE IF EXISTS sessions;
     DROP TABLE IF EXISTS agent_runs;
+    DROP TABLE IF EXISTS master_agent_prompts;
     DROP TABLE IF EXISTS agents;
     DROP TABLE IF EXISTS llm_providers;
     DROP TABLE IF EXISTS projects;
     CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, scene TEXT NOT NULL DEFAULT 'general');
-    CREATE TABLE llm_providers (id TEXT PRIMARY KEY);
+    CREATE TABLE llm_providers (
+      id TEXT PRIMARY KEY,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT 0
+    );
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -300,36 +306,20 @@ function setupDatabase(): void {
       prompt_snapshot TEXT,
       skill_snapshot TEXT
     );
-    CREATE TABLE agents (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      slug TEXT,
-      description TEXT,
-      provider_id TEXT,
-      system_prompt TEXT,
-      config TEXT,
-      is_default INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
     CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
     CREATE TABLE agent_tool_calls (id TEXT PRIMARY KEY, approval_status TEXT);
     CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, created_at INTEGER);
     INSERT INTO projects VALUES ('project-1', 'Project', '/tmp', 'general');
-    INSERT INTO sessions VALUES
-      ('session-1', 'project-1', 'Session 1', 'master', NULL, NULL),
-      ('session-2', 'project-1', 'Session 2', 'master-two', NULL, NULL),
-      ('session-3', 'project-1', 'Session 3', 'master-single', NULL, NULL);
-    INSERT INTO llm_providers VALUES ('provider-1');
-    INSERT INTO agents VALUES
-      ('master', 'project-1', 'Master Agent', 'master-agent', '', 'provider-1', '', NULL, 1, 1, 1),
-      ('master-two', 'project-1', 'Master Two', 'master-two', '', 'provider-1', '', NULL, 0, 1, 1),
-      ('master-single', 'project-1', 'Master Single', 'master-single', '', 'provider-1', '', NULL, 0, 1, 1),
-      ('worker', 'project-1', 'Worker', 'worker', '', 'provider-1', '', NULL, 0, 1, 1),
-      ('general', 'project-1', 'General-purpose', 'general-purpose', '', NULL, '', NULL, 0, 1, 1);
+    INSERT INTO llm_providers VALUES ('provider-1', 1, 1);
     INSERT INTO agent_runs VALUES ('run-parent');
   `);
+  const catalog = createAgentCatalog(testDb, { createId: () => 'worker' });
+  catalog.createCustom({ name: 'Worker', provider_id: 'provider-1' });
+  testDb.prepare(`INSERT INTO sessions VALUES
+    (?, 'project-1', 'Session 1', ?, NULL, NULL),
+    (?, 'project-1', 'Session 2', ?, NULL, NULL),
+    (?, 'project-1', 'Session 3', ?, NULL, NULL)`)
+    .run('session-1', MASTER_AGENT_ID, 'session-2', MASTER_AGENT_ID, 'session-3', MASTER_AGENT_ID);
   initializeDelegatedAgentRunSchema(testDb);
 }
 
@@ -348,7 +338,7 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
       'project-1',
       'session-1',
       { id: 'message-1', content: 'delegate in parallel' },
-      'master',
+      MASTER_AGENT_ID,
       undefined,
       ['worker'],
     );
@@ -417,9 +407,9 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
       'project-1',
       'session-2',
       { id: 'message-2', content: 'delegate twice' },
-      'master-two',
+      MASTER_AGENT_ID,
       { modelSource: 'llm_provider', sourceId: 'provider-1', model: 'parent-model' },
-      ['general'],
+      [GENERAL_PURPOSE_AGENT_ID],
     );
 
     await runtime.agent.invoke(
@@ -443,9 +433,9 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
       'project-1',
       'session-3',
       { id: 'message-3', content: 'delegate once' },
-      'master-single',
+      MASTER_AGENT_ID,
       { modelSource: 'llm_provider', sourceId: 'provider-1', model: 'parent-model' },
-      ['general'],
+      [GENERAL_PURPOSE_AGENT_ID],
     );
 
     await runtime.agent.invoke(

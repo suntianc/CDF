@@ -15,7 +15,8 @@ const {
   getScopePathMock,
   getBuiltInSkillDirsMock,
   resolveAgentSkillConfigOptionsMock,
-  ensureMasterAgentMock,
+  createAgentCatalogMock,
+  resolveMasterMock,
   storeGetMock,
 } = vi.hoisted(() => {
   const path = require('path');
@@ -28,7 +29,8 @@ const {
     ),
     getBuiltInSkillDirsMock: vi.fn((): string[] => []),
     resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({ options: undefined, warnings: [] })),
-    ensureMasterAgentMock: vi.fn(() => ({ id: 'agent-1', system_prompt: '' })),
+    createAgentCatalogMock: vi.fn(),
+    resolveMasterMock: vi.fn(),
     storeGetMock: vi.fn(() => ({})),
   };
 });
@@ -46,8 +48,8 @@ vi.mock('./skill-manager', () => ({
   resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
 }));
 
-vi.mock('../project-agent-service', () => ({
-  ensureMasterAgent: ensureMasterAgentMock,
+vi.mock('../agent-catalog', () => ({
+  createAgentCatalog: createAgentCatalogMock,
 }));
 
 vi.mock('./mcp-connector', () => ({
@@ -76,10 +78,8 @@ interface FakeQueryPlan {
   // default row for any key not in sessionRows / sessionSingle
   defaultRows?: Record<string, unknown>[];
   defaultSingle?: Record<string, unknown>;
-  // 08.2 polish: dedicated row for the provider lookup
-  // (SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p).
-  // Used when the test wants to control modelName / system_prompt
-  // independently of the project lookup row.
+  // Catalog Master configuration plus provider lookup data. Used when a
+  // test needs to control modelName or the resolved Scene prompt.
   agentRow?: Record<string, unknown>;
   agentSkillRows?: Array<{ skill_name: string }>;
   // 08.2 polish: dedicated row for the project lookup
@@ -89,10 +89,23 @@ interface FakeQueryPlan {
 }
 
 function installFakeDb(plan: FakeQueryPlan): void {
-  ensureMasterAgentMock.mockReturnValue({
+  const masterAgent = {
     id: String(plan.agentRow?.id ?? 'agent-1'),
+    role: 'master' as const,
+    name: 'Master Agent',
+    slug: 'master-agent',
+    description: null,
+    provider_id: plan.agentRow?.provider_id as string | null | undefined ?? 'provider-1',
+    system_prompt: null,
+    config: plan.agentRow?.config as Record<string, unknown> | null | undefined ?? null,
+    created_at: 0,
+    updated_at: 0,
+  };
+  resolveMasterMock.mockReturnValue({
+    agent: masterAgent,
     system_prompt: String(plan.agentRow?.system_prompt ?? ''),
   });
+  createAgentCatalogMock.mockReturnValue({ resolveMaster: resolveMasterMock });
   // Each .prepare(sql) returns a prepared statement whose .get()/.all() reads
   // are routed by the SQL string. We only need to discriminate the few
   // distinct SELECT patterns the aggregator uses.
@@ -106,12 +119,9 @@ function installFakeDb(plan: FakeQueryPlan): void {
         all: () => [],
       };
     }
-    if (/SELECT provider_id, config FROM agents WHERE id/.test(sql)) {
+    if (/SELECT scene FROM projects WHERE id =/.test(sql)) {
       return {
-        get: () => ({
-          provider_id: plan.agentRow?.provider_id ?? 'provider-1',
-          config: plan.agentRow?.config ?? null,
-        }),
+        get: () => ({ scene: plan.projectsRow?.scene ?? 'general' }),
         all: () => [],
       };
     }
@@ -127,25 +137,6 @@ function installFakeDb(plan: FakeQueryPlan): void {
         all: () => [],
       };
     }
-    // Provider lookup (08.2 P4 NEW): SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p
-    // Must come FIRST because the agent-only SQL also contains "FROM agents a JOIN sessions s".
-    //
-    // Note: the actual SQL starts with `FROM agents a` (not `JOIN agents a`).
-    // The `JOIN llm_providers` token is the discriminator between this query
-    // and the agent-only lookup below.
-    if (/FROM agents a/.test(sql) && /JOIN llm_providers/.test(sql)) {
-      return {
-        get: (sessionId: string) => {
-          if (plan.agentRow !== undefined) return plan.agentRow;
-          if (plan.sessionSingle && sessionId in plan.sessionSingle) {
-            return plan.sessionSingle[sessionId];
-          }
-          if (plan.defaultSingle !== undefined) return plan.defaultSingle;
-          return undefined;
-        },
-        all: () => [],
-      };
-    }
     // Project lookup (skills + projectCommandBodies + systemPrompt context):
     // SELECT p.path FROM projects p JOIN sessions s
     if (/FROM projects p/.test(sql) || (/JOIN projects p/.test(sql) && /JOIN sessions s/.test(sql))) {
@@ -154,19 +145,6 @@ function installFakeDb(plan: FakeQueryPlan): void {
           if (plan.projectsRow !== undefined) {
             return { project_id: 'project-1', ...plan.projectsRow };
           }
-          if (plan.sessionSingle && sessionId in plan.sessionSingle) {
-            return plan.sessionSingle[sessionId];
-          }
-          if (plan.defaultSingle !== undefined) return plan.defaultSingle;
-          return undefined;
-        },
-        all: () => [],
-      };
-    }
-    // Agent-only lookup (MCP block): SELECT a.id FROM agents a JOIN sessions s
-    if (/FROM agents a/.test(sql) && /JOIN sessions s/.test(sql)) {
-      return {
-        get: (sessionId: string) => {
           if (plan.sessionSingle && sessionId in plan.sessionSingle) {
             return plan.sessionSingle[sessionId];
           }

@@ -28,7 +28,22 @@ const {
   compactWorkingStateMock,
   getWorkingStateStorageStatusMock,
   captureConversationSystemContextSnapshotMock,
-} = vi.hoisted(() => ({
+  createAgentCatalogMock,
+  agentCatalogMock,
+} = vi.hoisted(() => {
+  const agentCatalogMock = {
+    list: vi.fn(),
+    get: vi.fn(),
+    resolveMaster: vi.fn(),
+    createCustom: vi.fn(),
+    updateGeneralPurpose: vi.fn(),
+    updateCustom: vi.fn(),
+    deleteCustom: vi.fn(),
+    getMasterPrompt: vi.fn(),
+    saveMasterPrompt: vi.fn(),
+    resetMasterPrompt: vi.fn(),
+  };
+  return {
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
   fetchOllamaModelsMock: vi.fn(),
@@ -60,7 +75,10 @@ const {
     promptSnapshot: 'Captured Master prompt',
     skillSnapshot: listResolvedSkillViewsMock(),
   })),
-}));
+  createAgentCatalogMock: vi.fn(() => agentCatalogMock),
+  agentCatalogMock,
+  };
+});
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -98,6 +116,12 @@ vi.mock('./database', () => ({
     prepare: dbPrepareMock,
     transaction: vi.fn((fn) => fn),
   },
+}));
+
+vi.mock('./agent-catalog', () => ({
+  createAgentCatalog: createAgentCatalogMock,
+  MASTER_AGENT_ID: 'system-master-agent',
+  GENERAL_PURPOSE_AGENT_ID: 'system-general-purpose-agent',
 }));
 
 vi.mock('./conversation-deletion', () => ({
@@ -178,6 +202,17 @@ describe('IPC handlers', () => {
     listResolvedSkillViewsMock.mockReturnValue([]);
     listGlobalSkillViewsMock.mockReturnValue([]);
     captureConversationSystemContextSnapshotMock.mockClear();
+    createAgentCatalogMock.mockClear();
+    agentCatalogMock.list.mockReset();
+    agentCatalogMock.get.mockReset();
+    agentCatalogMock.resolveMaster.mockReset();
+    agentCatalogMock.createCustom.mockReset();
+    agentCatalogMock.updateGeneralPurpose.mockReset();
+    agentCatalogMock.updateCustom.mockReset();
+    agentCatalogMock.deleteCustom.mockReset();
+    agentCatalogMock.getMasterPrompt.mockReset();
+    agentCatalogMock.saveMasterPrompt.mockReset();
+    agentCatalogMock.resetMasterPrompt.mockReset();
     savePhysicalSkillMock.mockReset();
     importPhysicalSkillDirectoryMock.mockReset();
     initializeScenePresetMock.mockReset();
@@ -439,71 +474,71 @@ describe('IPC handlers', () => {
     expect(runLLMChatMock).toHaveBeenCalledWith('web-contents', 'request-1', { sessionId: 'session-1' });
   });
 
-  it('should throw an error in db:saveAgent if agent name contains non-English characters', async () => {
+  it('rejects non-English Custom names and saves valid Custom Agents through the Catalog seam', () => {
+    const created = {
+      id: 'agent-1', role: 'custom', name: 'Smart Agent 123-_', slug: 'smart-agent-123',
+      description: null, provider_id: null, system_prompt: null, config: null, created_at: 1, updated_at: 1,
+    };
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => sql.includes('SELECT scene FROM projects') ? { scene: 'general' } : undefined),
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    }));
+    agentCatalogMock.get.mockReturnValue(null);
+    agentCatalogMock.createCustom.mockImplementation(({ name }: { name: string }) => {
+      if (/[^\x00-\x7F]/.test(name)) throw new Error('Custom Agent name must produce a non-empty delegation key');
+      return created;
+    });
+
     registerIpcHandlers();
     const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
-    expect(saveAgentHandler).toBeTypeOf('function');
 
-    // Invalid names
-    expect(() => saveAgentHandler({}, { name: '智能代理', id: 'agent-1' })).toThrow(
-      'Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.'
+    expect(() => saveAgentHandler({}, { id: 'agent-1', project_id: 'proj-1', name: '智能代理' })).toThrow(
+      'Custom Agent name must produce a non-empty delegation key',
     );
-    expect(() => saveAgentHandler({}, { name: 'Agent 代理', id: 'agent-1' })).toThrow(
-      'Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.'
+    expect(() => saveAgentHandler({}, { id: 'agent-1', project_id: 'proj-1', name: 'Agent 代理' })).toThrow(
+      'Custom Agent name must produce a non-empty delegation key',
     );
 
-    // Valid names should not throw name validation error.
-    // include `all` because ensureUniqueSlug (now called by db:saveAgent
-    // for both INSERT and UPDATE branches, PR #5) does a
-    // `db.prepare(...).all(...)` for the project-scoped collision check.
-    dbPrepareMock.mockReturnValue({
-      get: vi.fn(() => null),
-      run: vi.fn(),
-      all: vi.fn(() => []),
+    expect(saveAgentHandler({}, { id: 'agent-1', project_id: 'proj-1', name: created.name }))
+      .toEqual(expect.objectContaining({ id: 'agent-1', role: 'custom', name: created.name }));
+    expect(agentCatalogMock.createCustom).toHaveBeenCalledWith({
+      name: created.name, description: undefined, provider_id: undefined, system_prompt: undefined, config: undefined,
     });
-    const result = saveAgentHandler({}, { 
-      id: 'agent-1', 
-      project_id: 'proj-1', 
-      name: 'Smart Agent 123-_', 
-      is_default: false 
+
+    agentCatalogMock.get.mockReturnValue(created);
+    agentCatalogMock.updateCustom.mockReturnValue({ ...created, name: 'Updated Agent' });
+    saveAgentHandler({}, { id: 'agent-1', project_id: 'proj-1', name: 'Updated Agent' });
+    expect(agentCatalogMock.updateCustom).toHaveBeenCalledWith('agent-1', {
+      name: 'Updated Agent', description: undefined, provider_id: undefined, system_prompt: undefined, config: undefined,
     });
-    expect(result.name).toBe('Smart Agent 123-_');
   });
 
-  it('persists project and qualified additional Skill preload references in db:saveAgent', () => {
+  it('persists qualified Skill preload references while Agent definitions use the Catalog seam', () => {
     const insertedSkillNames: string[] = [];
+    const created = {
+      id: 'agent-1', role: 'custom', name: 'Preload Agent', slug: 'preload-agent',
+      description: null, provider_id: null, system_prompt: null, config: null, created_at: 1, updated_at: 1,
+    };
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => null),
+      get: vi.fn(() => sql.includes('SELECT scene FROM projects') ? { scene: 'general' } : null),
       all: vi.fn(() => []),
       run: vi.fn((...args: unknown[]) => {
-        if (sql.includes('INSERT INTO agent_skills')) {
-          insertedSkillNames.push(String(args[1]));
-        }
+        if (sql.includes('INSERT INTO agent_skills')) insertedSkillNames.push(String(args[1]));
       }),
     }));
+    agentCatalogMock.get.mockReturnValue(null);
+    agentCatalogMock.createCustom.mockReturnValue(created);
 
     registerIpcHandlers();
     const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
-    expect(saveAgentHandler).toBeTypeOf('function');
-
     saveAgentHandler({}, {
-      id: 'agent-1',
-      project_id: 'proj-1',
-      name: 'Preload Agent',
-      is_default: false,
-      skillNames: [
-        'global:teach',
-        'project:review',
-        'project-additional:docs:review',
-        'project-additional:docs:review',
-      ],
+      id: 'agent-1', project_id: 'proj-1', name: 'Preload Agent',
+      skillNames: ['global:teach', 'project:review', 'project-additional:docs:review', 'project-additional:docs:review'],
     });
 
-    expect(insertedSkillNames).toEqual([
-      'global:teach',
-      'project:review',
-      'project-additional:docs:review',
-    ]);
+    expect(agentCatalogMock.createCustom).toHaveBeenCalledOnce();
+    expect(insertedSkillNames).toEqual(['global:teach', 'project:review', 'project-additional:docs:review']);
   });
 
   it('persists the selected Scene when creating a project', () => {
@@ -559,152 +594,131 @@ describe('IPC handlers', () => {
     });
   });
 
-  it('creates protected Master and General-purpose Agents together with a Project', () => {
-    const insertedAgents: unknown[][] = [];
+  it('does not create Agents with a new Project because the Catalog is global', () => {
+    const agentDefinitionWrites: unknown[][] = [];
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: vi.fn(),
       all: vi.fn(() => []),
       run: vi.fn((...args: unknown[]) => {
-        if (sql.includes('INSERT INTO agents')) insertedAgents.push(args);
+        if (sql.includes('agents')) agentDefinitionWrites.push(args);
       }),
     }));
 
     registerIpcHandlers();
     const createProjectHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createProject')?.[1];
-    const project = createProjectHandler({}, 'CDF', '/tmp/cdf', 'general');
+    createProjectHandler({}, 'CDF', '/tmp/cdf', 'general');
 
-    expect(insertedAgents).toHaveLength(2);
-    expect(insertedAgents).toEqual(expect.arrayContaining([
-      expect.arrayContaining([project.id, 'Master Agent', 'master-agent']),
-      expect.arrayContaining([project.id, 'General-purpose', 'general-purpose']),
-    ]));
+    expect(agentDefinitionWrites).toEqual([]);
+    expect(createAgentCatalogMock).not.toHaveBeenCalled();
   });
 
-  it('binds an ordinary Conversation to Master even when a Custom Agent ID is supplied', () => {
+  it('binds every ordinary Conversation to the global Master and captures its Project Scene prompt', () => {
     const sessionInsert = vi.fn();
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => {
-        if (sql.includes('SELECT path, scene FROM projects')) return { path: '/tmp/project', scene: 'general' };
-        if (sql.includes('SELECT id FROM projects')) return { id: 'project-1' };
-        if (sql.includes("slug = ?")) return { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent', system_prompt: 'Captured Master prompt' };
-        return undefined;
-      }),
+      get: vi.fn(() => sql.includes('SELECT path, scene FROM projects')
+        ? { path: '/tmp/project', scene: 'research' }
+        : sql.includes('SELECT id FROM projects') ? { id: 'project-1' } : undefined),
       all: vi.fn(() => []),
       run: vi.fn((...args: unknown[]) => {
         if (sql.includes('INSERT INTO sessions')) sessionInsert(...args);
       }),
     }));
+    agentCatalogMock.resolveMaster.mockReturnValue({
+      agent: { id: 'system-master-agent', role: 'master' },
+      system_prompt: 'Research Master prompt',
+    });
 
     registerIpcHandlers();
     const createSessionHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createSession')?.[1];
     const session = createSessionHandler({}, 'project-1', 'Conversation', undefined, undefined, 'custom-1');
 
-    expect(session.agent_id).toBe('master-1');
+    expect(session.agent_id).toBe('system-master-agent');
+    expect(agentCatalogMock.resolveMaster).toHaveBeenCalledWith('research');
+    expect(captureConversationSystemContextSnapshotMock).toHaveBeenCalledWith({
+      projectPath: '/tmp/project', sceneId: 'research', promptSnapshot: 'Research Master prompt',
+    });
     expect(sessionInsert).toHaveBeenCalledWith(
-      expect.any(String), 'project-1', 'Conversation', 'master-1', null, null, 'Captured Master prompt', '[]', expect.any(Number), expect.any(Number),
+      expect.any(String), 'project-1', 'Conversation', 'system-master-agent', null, null, 'Captured Master prompt', '[]', expect.any(Number), expect.any(Number),
     );
-    expect(session).toEqual(expect.objectContaining({ prompt_snapshot: 'Captured Master prompt' }));
   });
 
-  it('accepts a Master prompt-only save but rejects every other Master configuration change', () => {
-    const updates: unknown[][] = [];
+  it('saves only Master Scene prompts and protects its identity and other configuration', () => {
+    const master = {
+      id: 'system-master-agent', role: 'master', name: 'Master Agent', slug: 'master-agent',
+      description: 'Global Master Agent', provider_id: null, system_prompt: null, config: null, created_at: 1, updated_at: 1,
+    };
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => sql.includes('SELECT * FROM agents WHERE id = ?')
-        ? {
-            id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent',
-            description: 'Project Master Agent', provider_id: null, system_prompt: 'Old prompt', config: null, is_default: 1,
-          }
-        : sql.includes('SELECT slug FROM agents WHERE id = ?') ? { slug: 'master-agent' } : undefined),
+      get: vi.fn(() => sql.includes('SELECT scene FROM projects') ? { scene: 'research' } : undefined),
       all: vi.fn(() => []),
-      run: vi.fn((...args: unknown[]) => updates.push(args)),
+      run: vi.fn(),
     }));
+    agentCatalogMock.get.mockReturnValue(master);
+    agentCatalogMock.resolveMaster.mockReturnValue({ agent: master, system_prompt: 'New complete prompt' });
 
     registerIpcHandlers();
     const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
 
+    expect(saveAgentHandler({}, {
+      id: master.id, project_id: 'project-1', system_prompt: 'New complete prompt',
+    })).toEqual(expect.objectContaining({ id: master.id, system_prompt: 'New complete prompt' }));
+    expect(agentCatalogMock.saveMasterPrompt).toHaveBeenCalledWith('research', 'New complete prompt');
     expect(() => saveAgentHandler({}, {
-      id: 'master-1', project_id: 'project-1', system_prompt: 'New complete prompt',
-    })).not.toThrow();
-    expect(updates).toContainEqual(['New complete prompt', expect.any(Number), 'master-1']);
+      id: master.id, project_id: 'project-1', system_prompt: 'New complete prompt', description: 'Changed',
+    })).toThrow('only its complete system prompt can be changed');
     expect(() => saveAgentHandler({}, {
-      id: 'master-1', project_id: 'project-1', system_prompt: 'New complete prompt', description: 'Changed',
+      id: master.id, project_id: 'project-1', system_prompt: 'New complete prompt', name: 'Renamed Master',
     })).toThrow('only its complete system prompt can be changed');
   });
 
-  it('rejects deleting the protected Master Agent through IPC', () => {
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => sql.includes('SELECT slug FROM agents')
-        ? { slug: 'master-agent' }
-        : undefined),
-      all: vi.fn(() => []),
-      run: vi.fn(),
-    }));
-
+  it('rejects deleting the protected global Master through the Catalog seam', () => {
+    agentCatalogMock.deleteCustom.mockImplementation(() => {
+      throw new Error('Only Custom Agents can be deleted');
+    });
     registerIpcHandlers();
     const deleteAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:deleteAgent')?.[1];
 
-    expect(() => deleteAgentHandler({}, 'master-1')).toThrow(
-      'Master Agent is protected and cannot be deleted',
-    );
+    expect(() => deleteAgentHandler({}, 'system-master-agent')).toThrow('Only Custom Agents can be deleted');
+    expect(agentCatalogMock.deleteCustom).toHaveBeenCalledWith('system-master-agent');
   });
 
-  it('rejects renaming the protected Master Agent through IPC', () => {
+
+
+  it('accepts projectId for now but returns the same global Master, General-purpose, and Custom Catalog roles', () => {
+    const agents = [
+      { id: 'system-master-agent', role: 'master', name: 'Master Agent', slug: 'master-agent', description: null, provider_id: null, system_prompt: null, config: null, created_at: 1, updated_at: 1 },
+      { id: 'system-general-purpose-agent', role: 'general-purpose', name: 'General-purpose', slug: 'general-purpose', description: null, provider_id: null, system_prompt: 'Delegate', config: null, created_at: 1, updated_at: 1 },
+      { id: 'custom-1', role: 'custom', name: 'Reviewer', slug: 'reviewer', description: null, provider_id: null, system_prompt: null, config: null, created_at: 1, updated_at: 1 },
+    ];
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => sql.includes('SELECT id, project_id, name, slug FROM agents WHERE id = ?')
-        ? { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent' }
-        : undefined),
+      get: vi.fn(() => sql.includes('SELECT scene FROM projects') ? { scene: 'research' } : undefined),
       all: vi.fn(() => []),
       run: vi.fn(),
     }));
-
-    registerIpcHandlers();
-    const saveAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:saveAgent')?.[1];
-
-    expect(() => saveAgentHandler({}, {
-      id: 'master-1', project_id: 'project-1', name: 'Renamed Master', is_default: true,
-    })).toThrow('Master Agent is protected and cannot be renamed or moved');
-  });
-
-  it('returns Master, General-purpose, and Custom roles from db:getAgents', () => {
-    const agents = [
-      { id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent', is_default: 1 },
-      { id: 'general-1', project_id: 'project-1', name: 'General-purpose', slug: 'general-purpose', is_default: 0 },
-      { id: 'custom-1', project_id: 'project-1', name: 'Reviewer', slug: 'reviewer', is_default: 0 },
-    ];
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn((...args: unknown[]) => {
-        if (!sql.includes('slug = ?')) return undefined;
-        return agents.find((agent) => agent.slug === args[1]);
-      }),
-      all: vi.fn(() => sql.includes('SELECT * FROM agents') ? agents : []),
-      run: vi.fn(),
-    }));
+    agentCatalogMock.list.mockReturnValue(agents);
+    agentCatalogMock.getMasterPrompt.mockReturnValue('Research Master prompt');
 
     registerIpcHandlers();
     const getAgentsHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:getAgents')?.[1];
+    const forFirstProject = getAgentsHandler({}, 'project-1');
+    const forSecondProject = getAgentsHandler({}, 'project-2');
 
-    expect(getAgentsHandler({}, 'project-1')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'master-1', role: 'master', is_protected: true }),
-      expect.objectContaining({ id: 'general-1', role: 'general-purpose', is_protected: true }),
+    expect(forFirstProject).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'system-master-agent', role: 'master', is_protected: true, system_prompt: 'Research Master prompt' }),
+      expect.objectContaining({ id: 'system-general-purpose-agent', role: 'general-purpose', is_protected: true }),
       expect.objectContaining({ id: 'custom-1', role: 'custom', is_protected: false }),
     ]));
+    expect(forSecondProject.map((agent: { id: string }) => agent.id)).toEqual(forFirstProject.map((agent: { id: string }) => agent.id));
   });
 
-  it('rejects deleting the protected General-purpose Agent through IPC', () => {
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => sql.includes('SELECT slug FROM agents')
-        ? { slug: 'general-purpose' }
-        : undefined),
-      all: vi.fn(() => []),
-      run: vi.fn(),
-    }));
-
+  it('rejects deleting the protected global General-purpose Agent through the Catalog seam', () => {
+    agentCatalogMock.deleteCustom.mockImplementation(() => {
+      throw new Error('Only Custom Agents can be deleted');
+    });
     registerIpcHandlers();
     const deleteAgentHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:deleteAgent')?.[1];
 
-    expect(() => deleteAgentHandler({}, 'general-1')).toThrow(
-      'General-purpose Agent is protected and cannot be deleted',
-    );
+    expect(() => deleteAgentHandler({}, 'system-general-purpose-agent')).toThrow('Only Custom Agents can be deleted');
+    expect(agentCatalogMock.deleteCustom).toHaveBeenCalledWith('system-general-purpose-agent');
   });
 
   it('reads and writes Global Skill Scene Exposure through the product IPC API', () => {

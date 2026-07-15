@@ -6,7 +6,7 @@ import type {
 } from './delegated-agent-run-coordinator';
 
 const {
-  dbPrepareMock,
+  createAgentCatalogMock,
   getRunBySessionIdMock,
   getCurrentStageMock,
   createTaskMock,
@@ -16,7 +16,7 @@ const {
   pushProjectionEventMock,
   sendMock,
 } = vi.hoisted(() => ({
-  dbPrepareMock: vi.fn(),
+  createAgentCatalogMock: vi.fn(),
   getRunBySessionIdMock: vi.fn(),
   getCurrentStageMock: vi.fn(),
   createTaskMock: vi.fn(),
@@ -37,7 +37,11 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('../database', () => ({
-  default: { prepare: dbPrepareMock },
+  default: { prepare: vi.fn() },
+}));
+
+vi.mock('../agent-catalog', () => ({
+  createAgentCatalog: createAgentCatalogMock,
 }));
 
 vi.mock('../workflow-run/db', () => ({
@@ -99,17 +103,20 @@ describe('createParallelTaskTool', () => {
     getTaskMock.mockReturnValue(undefined);
     createTaskMock.mockReturnValue({ id: 'fallback-task' });
     updateTaskStatusMock.mockImplementation((id: string, status: string) => ({ id, status }));
-    dbPrepareMock.mockImplementation((sql: string) => ({
-      all: () => sql.includes('FROM agents WHERE project_id')
-        ? [{
-            id: 'agent-1',
-            project_id: 'project-1',
-            name: 'Worker Agent',
-            slug: 'worker',
-            description: 'Does work',
-          }]
-        : [],
-    }));
+    createAgentCatalogMock.mockReturnValue({
+      listDelegationTargets: () => [{
+        id: 'agent-1',
+        role: 'custom',
+        name: 'Worker Agent',
+        slug: 'worker',
+        description: 'Does work',
+        provider_id: null,
+        system_prompt: null,
+        config: null,
+        created_at: 0,
+        updated_at: 0,
+      }],
+    });
   });
 
   it('runs every valid item through the coordinator and aggregates isolated outcomes', async () => {
