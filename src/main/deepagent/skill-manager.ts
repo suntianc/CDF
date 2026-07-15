@@ -8,6 +8,7 @@ import { getCrawlerSkillMarkdown } from '../crawler-skill';
 import { getKnowledgeBaseSkillMarkdown } from '../knowledge-base-skill';
 import { getPaperCollectionSkillMarkdown, getPaperCollectionSkillResources } from '../paper-collection-skill';
 import { getPaperReadingSkillMarkdown, getPaperReadingSkillResources } from '../paper-reading-skill';
+import { getManuscriptReviewSkillMarkdown, getManuscriptReviewSkillResources } from '../manuscript-review-skill';
 import { getPaperSearchSkillMarkdown, getPaperSearchSkillResources } from '../paper-search-skill';
 import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
@@ -177,6 +178,18 @@ function ensureBuiltInPaperReadingSkill(): string {
   return skillDir;
 }
 
+function ensureBuiltInManuscriptReviewSkill(): string {
+  const skillDir = path.join(resolveBuiltInSkillsRoot(), 'manuscript-review');
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), getManuscriptReviewSkillMarkdown(), 'utf-8');
+  for (const resource of getManuscriptReviewSkillResources()) {
+    const resourcePath = path.join(skillDir, resource.relativePath);
+    ensureDir(path.dirname(resourcePath));
+    fs.writeFileSync(resourcePath, resource.content, 'utf-8');
+  }
+  return skillDir;
+}
+
 function ensureBuiltInPaperSearchSkill(): string {
   const skillDir = path.join(resolveBuiltInSkillsRoot(), 'paper-search');
   ensureDir(skillDir);
@@ -226,6 +239,11 @@ const BUILT_IN_SKILL_REGISTRATIONS: readonly BuiltInSkillRegistration[] = [
     name: 'paper-reading',
     defaultSceneIds: ['research'],
     materialize: ensureBuiltInPaperReadingSkill,
+  },
+  {
+    name: 'manuscript-review',
+    defaultSceneIds: ['research'],
+    materialize: ensureBuiltInManuscriptReviewSkill,
   },
 ];
 
