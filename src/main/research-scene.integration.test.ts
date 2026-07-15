@@ -1,0 +1,179 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Database from 'better-sqlite3';
+import { afterEach, describe, expect, it } from 'vitest';
+import store from './store';
+import {
+  GENERAL_SCENE_DEFAULT_PROMPT,
+  RESEARCH_SCENE_DEFAULT_PROMPT,
+  ensureMasterAgent,
+} from './project-agent-service';
+import {
+  captureConversationSystemContextSnapshot,
+  getOrCaptureConversationSystemContextSnapshot,
+} from './conversation-system-context-snapshot';
+
+const cleanupPaths: string[] = [];
+let previousBuiltInSkillsRoot: string | undefined;
+let previousSceneSkillExposures: Record<string, Record<string, boolean>> | undefined;
+
+afterEach(() => {
+  if (previousBuiltInSkillsRoot === undefined) {
+    delete process.env.CDF_BUILT_IN_SKILLS_ROOT;
+  } else {
+    process.env.CDF_BUILT_IN_SKILLS_ROOT = previousBuiltInSkillsRoot;
+  }
+  if (previousSceneSkillExposures !== undefined) {
+    store.set('sceneSkillExposures', previousSceneSkillExposures);
+  }
+  previousBuiltInSkillsRoot = undefined;
+  previousSceneSkillExposures = undefined;
+  for (const target of cleanupPaths.splice(0)) {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
+describe('Research Scene integration', () => {
+  it('connects the Research Master workflow, built-in Skills, and frozen Conversation catalog', () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-research-scene-'));
+    const databasePath = path.join(os.tmpdir(), `cdf-research-scene-${crypto.randomUUID()}.db`);
+    const builtInSkillsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-research-built-ins-'));
+    cleanupPaths.push(projectPath, databasePath, builtInSkillsRoot);
+    previousBuiltInSkillsRoot = process.env.CDF_BUILT_IN_SKILLS_ROOT;
+    previousSceneSkillExposures = store.get('sceneSkillExposures');
+    process.env.CDF_BUILT_IN_SKILLS_ROOT = builtInSkillsRoot;
+    store.set('sceneSkillExposures', {});
+
+    const db = new Database(databasePath);
+    db.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY, scene TEXT NOT NULL);
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT,
+        description TEXT,
+        provider_id TEXT,
+        system_prompt TEXT,
+        config TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        prompt_snapshot TEXT,
+        skill_snapshot TEXT
+      );
+      INSERT INTO projects (id, scene) VALUES ('research-project', 'research'), ('general-project', 'general');
+      INSERT INTO sessions (id, prompt_snapshot, skill_snapshot) VALUES ('research-conversation', NULL, NULL), ('next-research-conversation', NULL, NULL);
+    `);
+
+    const master = ensureMasterAgent(db, 'research-project', {
+      createId: () => 'research-master',
+      now: () => 1,
+    });
+    const researchConversation = getOrCaptureConversationSystemContextSnapshot(db, {
+      sessionId: 'research-conversation',
+      projectPath,
+      sceneId: 'research',
+      promptSnapshot: master.system_prompt ?? '',
+    });
+
+    expect(researchConversation.promptSnapshot).toBe(RESEARCH_SCENE_DEFAULT_PROMPT);
+    expect(researchConversation.promptSnapshot).toContain('paper-search');
+    expect(researchConversation.promptSnapshot).toContain('paper-collection');
+    expect(researchConversation.promptSnapshot).toContain('Knowledge Base');
+    expect(researchConversation.promptSnapshot).toContain('paper-reading');
+    expect(researchConversation.promptSnapshot).toContain('computational experiments');
+    expect(researchConversation.promptSnapshot).toContain('physical experiment');
+    expect(researchConversation.promptSnapshot).toContain('Manuscript');
+    expect(researchConversation.promptSnapshot).toContain('manuscript-review');
+    expect(researchConversation.promptSnapshot).toContain('Summary');
+    expect(researchConversation.promptSnapshot).toContain('Review Simulation');
+    expect(researchConversation.promptSnapshot).toContain('academic-style-revision');
+    expect(researchConversation.promptSnapshot).toContain('English');
+    expect(researchConversation.promptSnapshot).toContain('directly');
+    expect(researchConversation.promptSnapshot).toMatch(/do not delegate/i);
+    expect(researchConversation.promptSnapshot).toContain('Paper Entry');
+    expect(researchConversation.promptSnapshot).toContain('Structured Paper Parse');
+    expect(researchConversation.promptSnapshot).toContain('untrusted evidence');
+    expect(researchConversation.promptSnapshot).toMatch(/embedded commands/i);
+
+    const researchSkills = researchConversation.skillSnapshot.filter((skill) => skill.sourceKind === 'built-in');
+    expect(researchSkills.map((skill) => skill.name)).toEqual(expect.arrayContaining([
+      'paper-search',
+      'paper-collection',
+      'paper-reading',
+      'manuscript-review',
+      'academic-style-revision',
+    ]));
+    expect(researchSkills).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'manuscript-review',
+        qualifiedName: 'manuscript-review',
+        sourceKind: 'built-in',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      }),
+      expect.objectContaining({
+        name: 'academic-style-revision',
+        qualifiedName: 'academic-style-revision',
+        sourceKind: 'built-in',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      }),
+    ]));
+
+    const generalSkills = captureConversationSystemContextSnapshot({
+      projectPath,
+      sceneId: 'general',
+      promptSnapshot: GENERAL_SCENE_DEFAULT_PROMPT,
+    }).skillSnapshot;
+    expect(generalSkills.map((skill) => skill.name)).not.toContain('manuscript-review');
+    expect(generalSkills.map((skill) => skill.name)).not.toContain('academic-style-revision');
+
+    const manuscriptReview = researchSkills.find((skill) => skill.name === 'manuscript-review');
+    const academicStyleRevision = researchSkills.find((skill) => skill.name === 'academic-style-revision');
+    expect(manuscriptReview).toBeDefined();
+    expect(academicStyleRevision).toBeDefined();
+    const manuscriptReviewDir = path.dirname(manuscriptReview!.skillPath);
+    const academicStyleRevisionDir = path.dirname(academicStyleRevision!.skillPath);
+    const manuscriptReviewMarkdown = fs.readFileSync(manuscriptReview!.skillPath, 'utf-8');
+    const academicStyleRevisionMarkdown = fs.readFileSync(academicStyleRevision!.skillPath, 'utf-8');
+
+    expect(manuscriptReviewMarkdown).toContain('Manuscript Summary');
+    expect(manuscriptReviewMarkdown).toContain('Review Simulation');
+    expect(manuscriptReviewMarkdown).toContain('untrusted evidence');
+    expect(manuscriptReviewMarkdown).toContain('.cdf/manuscript-reviews/');
+    expect(fs.readFileSync(path.join(manuscriptReviewDir, 'PROVENANCE.md'), 'utf-8')).toContain('MIT');
+    expect(fs.readFileSync(path.join(manuscriptReviewDir, 'LICENSES', 'K-Dense-AI-scientific-agent-skills-MIT.txt'), 'utf-8')).toContain('MIT License');
+    expect(academicStyleRevisionMarkdown).toContain('only English');
+    expect(academicStyleRevisionMarkdown).toContain('Fidelity Gate');
+    expect(academicStyleRevisionMarkdown).toContain('untrusted evidence');
+    expect(academicStyleRevisionMarkdown).toContain('.cdf/style-revisions/');
+    expect(fs.readFileSync(path.join(academicStyleRevisionDir, 'PROVENANCE.md'), 'utf-8')).toContain('MIT');
+    expect(fs.readFileSync(path.join(academicStyleRevisionDir, 'LICENSES', 'blader-humanizer-MIT.txt'), 'utf-8')).toContain('MIT License');
+
+    store.set('sceneSkillExposures', {
+      'built-in:manuscript-review': { research: false },
+    });
+    const laterConversation = getOrCaptureConversationSystemContextSnapshot(db, {
+      sessionId: 'next-research-conversation',
+      projectPath,
+      sceneId: 'research',
+      promptSnapshot: 'Later Master prompt',
+    });
+    const frozenConversation = getOrCaptureConversationSystemContextSnapshot(db, {
+      sessionId: 'research-conversation',
+      projectPath,
+      sceneId: 'research',
+      promptSnapshot: 'Changed Master prompt',
+    });
+
+    expect(laterConversation.skillSnapshot.map((skill) => skill.name)).not.toContain('manuscript-review');
+    expect(frozenConversation).toEqual(researchConversation);
+    db.close();
+  });
+});
