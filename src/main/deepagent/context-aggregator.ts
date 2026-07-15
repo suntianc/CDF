@@ -23,7 +23,8 @@ import type { MCPServer } from '../../shared/types';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
-import { captureConversationSystemContextSnapshot, getConversationSkillSnapshot } from '../conversation-system-context-snapshot';
+import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
+import { ensureMasterAgent } from '../project-agent-service';
 
 export interface MCPToolDetail {
   tool: string;
@@ -528,11 +529,11 @@ export async function aggregateCurrentSessionContext(
   try {
     const project = db
       .prepare(
-        `SELECT p.path, p.scene FROM projects p
+        `SELECT p.id AS project_id, p.path, p.scene FROM projects p
          JOIN sessions s ON s.project_id = p.id
          WHERE s.id = ?`
       )
-      .get(sessionId) as { path: string; scene?: 'general' | 'research' } | undefined;
+      .get(sessionId) as { project_id: string; path: string; scene?: 'general' | 'research' } | undefined;
 
     if (project?.path) {
       projectPath = project.path;
@@ -543,12 +544,12 @@ export async function aggregateCurrentSessionContext(
           .all(agentIdForContext) as Array<{ skill_name: string }>;
         preloadSkillNames = skillReferencesToPreloadNames(rows.map((row) => row.skill_name));
       }
-      const skillSnapshot = getConversationSkillSnapshot(db, sessionId)
-        ?? captureConversationSystemContextSnapshot({
-          projectPath,
-          sceneId: project.scene ?? 'general',
-          promptSnapshot: '',
-        }).skillSnapshot;
+      const skillSnapshot = getOrCaptureConversationSystemContextSnapshot(db, {
+        sessionId,
+        projectPath,
+        sceneId: project.scene ?? 'general',
+        promptSnapshot: ensureMasterAgent(db, project.project_id).system_prompt ?? '',
+      }).skillSnapshot;
       const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
         catalog: skillSnapshot as ResolvedSkillCatalogEntry[],
         builtInSkillDirs: getBuiltInSkillDirs(),

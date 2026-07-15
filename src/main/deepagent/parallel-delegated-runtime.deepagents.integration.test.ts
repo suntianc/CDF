@@ -164,6 +164,7 @@ class SingleGeneralMasterModel extends BaseChatModel {
 }
 
 const generalPurposeModelInstances: CompletingWorkerModel[] = [];
+let masterModelKind: 'parallel' | 'two-general' | 'single-general' = 'parallel';
 
 class CompletingWorkerModel extends BaseChatModel {
   constructor(fields: Record<string, never>) {
@@ -226,11 +227,11 @@ vi.mock('./runtime-assembly', () => ({
       ? new ApprovalSeekingWorkerModel({})
       : agent.id === 'general'
         ? new CompletingWorkerModel({})
-        : agent.id === 'master-two'
+        : masterModelKind === 'two-general'
           ? new TwoTaskParallelMasterModel({})
-          : agent.id === 'master-single'
+          : masterModelKind === 'single-general'
             ? new SingleGeneralMasterModel({})
-          : new ParallelMasterModel({}),
+            : new ParallelMasterModel({}),
     provider: { id: 'provider-1' },
     permissions: undefined,
     skillsRuntime: { attributions: [] },
@@ -322,7 +323,7 @@ function setupDatabase(): void {
       ('session-3', 'project-1', 'Session 3', 'master-single', NULL, NULL);
     INSERT INTO llm_providers VALUES ('provider-1');
     INSERT INTO agents VALUES
-      ('master', 'project-1', 'Master', 'master', '', 'provider-1', '', NULL, 1, 1, 1),
+      ('master', 'project-1', 'Master Agent', 'master-agent', '', 'provider-1', '', NULL, 1, 1, 1),
       ('master-two', 'project-1', 'Master Two', 'master-two', '', 'provider-1', '', NULL, 0, 1, 1),
       ('master-single', 'project-1', 'Master Single', 'master-single', '', 'provider-1', '', NULL, 0, 1, 1),
       ('worker', 'project-1', 'Worker', 'worker', '', 'provider-1', '', NULL, 0, 1, 1),
@@ -335,6 +336,7 @@ function setupDatabase(): void {
 describe('parallel delegation + production isolated runtime + real deepagents', () => {
   beforeEach(() => {
     generalPurposeModelInstances.length = 0;
+    masterModelKind = 'parallel';
     writeFile.mockClear();
     readFile.mockClear();
     deleteFile.mockClear();
@@ -410,6 +412,7 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
   }, 30_000);
 
   it('runs the CDF-owned General-purpose Agent twice with isolated model instances', async () => {
+    masterModelKind = 'two-general';
     const runtime = await createDeepAgentRuntime(
       'project-1',
       'session-2',
@@ -435,6 +438,7 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
   }, 30_000);
 
   it('completes one single Delegated Agent Run through the CDF-owned General-purpose Agent', async () => {
+    masterModelKind = 'single-general';
     const runtime = await createDeepAgentRuntime(
       'project-1',
       'session-3',

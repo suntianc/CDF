@@ -173,6 +173,7 @@ function installFakeDb(plan: FakeQueryPlan): void {
         }
         return [];
       },
+      run: () => undefined,
     };
   });
 }

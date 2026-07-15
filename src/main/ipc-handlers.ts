@@ -69,7 +69,10 @@ import {
   unsetPaperSearchConfigValue,
 } from './paper-search-config';
 import { initializeScenePreset } from './scene-presets';
-import { captureConversationSystemContextSnapshot, getConversationSkillSnapshot } from './conversation-system-context-snapshot';
+import {
+  captureConversationSystemContextSnapshot,
+  getOrCaptureConversationSystemContextSnapshot,
+} from './conversation-system-context-snapshot';
 import type {
   AISubscriptionEntryId,
   CapabilityId,
@@ -1291,8 +1294,14 @@ export function registerIpcHandlers() {
         const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
         if (session?.project_id !== projectId) return { commands: [], conflicts: [], warnings: [] };
       }
-      const skillSnapshot = (sessionId ? getConversationSkillSnapshot(db, sessionId) : null)
-        ?? captureConversationSystemContextSnapshot({
+      const skillSnapshot = sessionId
+        ? getOrCaptureConversationSystemContextSnapshot(db, {
+          sessionId,
+          projectPath: project.path,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: ensureMasterAgent(db, projectId).system_prompt ?? '',
+        }).skillSnapshot
+        : captureConversationSystemContextSnapshot({
           projectPath: project.path,
           sceneId: project.scene ?? 'general',
           promptSnapshot: '',
@@ -1387,11 +1396,18 @@ export function registerIpcHandlers() {
       }
 
       const resolved = path.resolve(skillPath);
-      const skillSnapshot = sessionId ? getConversationSkillSnapshot(db, sessionId) : null;
       if (sessionId) {
         const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
         if (session?.project_id !== projectId) return { body: '', mtimeMs: 0, error: 'Conversation does not belong to this Project' };
       }
+      const skillSnapshot = sessionId
+        ? getOrCaptureConversationSystemContextSnapshot(db, {
+          sessionId,
+          projectPath: project.path,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: ensureMasterAgent(db, projectId).system_prompt ?? '',
+        }).skillSnapshot
+        : null;
       if (!fs.existsSync(resolved)) {
         return { body: '', mtimeMs: 0, error: 'Snapshotted Skill source is unavailable' };
       }

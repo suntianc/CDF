@@ -6,7 +6,6 @@
  */
 
 import { registerHarnessProfile, type FilesystemPermission } from 'deepagents';
-import store from '../store';
 import {
   getProvider,
   normalizeProviderId,
@@ -16,39 +15,15 @@ import { createLangChainModel, type RuntimeProviderModelConfig } from './llm-ada
 import { prepareAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
 import {
   getBuiltInSkillDirs,
-  getBuiltInSkillRegistrations,
   getScopePath,
   resolveConversationSkillSnapshotConfig,
 } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import type { ChatRuntimeOverrides, ProjectScene } from '../../shared/types';
-import { createSceneSkillExposureService } from '../scene-skill-exposure';
+import { createGlobalSkillSceneExposureFilter } from '../global-skill-scene-exposure';
 import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
-
-function createGlobalSkillSceneExposureFilter(sceneId: ProjectScene) {
-  const sceneSkillExposureService = createSceneSkillExposureService({
-    storage: {
-      get: (key) => store.get(key as 'sceneSkillExposures'),
-      set: (key, value) => store.set(key as 'sceneSkillExposures', value),
-    },
-  });
-  const builtInDefaults = new Map(
-    getBuiltInSkillRegistrations().map((registration) => [registration.name, registration.defaultSceneIds]),
-  );
-
-  return ({ sourceKind, name }: { sourceKind: 'built-in' | 'user'; name: string }) => {
-    const exposure = sourceKind === 'user'
-      ? sceneSkillExposureService.get({ sourceKind, name })
-      : sceneSkillExposureService.get({
-        sourceKind,
-        name,
-        defaultSceneIds: builtInDefaults.get(name) ?? [],
-      });
-    return exposure.exposures[sceneId] === true;
-  };
-}
 
 // =============================================================================
 // Provider 模型配置解析
@@ -308,6 +283,7 @@ export function buildCdfSkillsRuntimeAssembly(
     pathContext,
     sceneId,
     isGlobalSkillExposed: createGlobalSkillSceneExposureFilter(sceneId),
+    includeNestedProjectSkills: true,
     catalog: skillSnapshot ? skillSnapshot.map((skill) => ({ ...skill })) as ResolvedSkillCatalogEntry[] : undefined,
   });
   const { permissions } = resolveConversationSkillSnapshotConfig(

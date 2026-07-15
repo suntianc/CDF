@@ -217,6 +217,7 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes("FROM agents WHERE project_id = ? AND slug = ?")) return agent;
         if (sql.includes('FROM agents WHERE id')) {
           if (arg === 'agent-2') return agent2;
           if (arg === 'agent-3') return generalPurposeAgent;
@@ -339,6 +340,7 @@ describe('createDeepAgentRuntime', () => {
       get: (arg?: string) => {
         if (sql.includes('SELECT skill_snapshot FROM sessions')) return { skill_snapshot: JSON.stringify(snapshot) };
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath, scene: 'general' };
+        if (sql.includes('slug = ?')) return agent;
         if (sql.includes('FROM agents WHERE id')) return undefined;
         if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-1' ? provider : undefined;
         return undefined;
@@ -399,14 +401,15 @@ describe('createDeepAgentRuntime', () => {
     expect(runtime.inputMessages).toEqual([{ role: 'user', content: '新问题' }]);
   });
 
-  it('should use the requested agent and pass its skill selections as preload hints', async () => {
+  it('ignores a caller Custom Agent ID and assembles the root runtime as Master', async () => {
     const runtime = await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
 
-    expect(runtime.agentId).toBe('agent-2');
+    expect(runtime.agentId).toBe('agent-1');
     expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
-    expect(params.systemPrompt).toContain('Agent 2 prompt');
-    expect(params.subagents).toBeUndefined();
+    expect(params.systemPrompt).toContain('System prompt');
+    expect(params.systemPrompt).not.toContain('Agent 2 prompt');
+    expect(loadMcpToolsMock).toHaveBeenCalledWith('agent-1', [], []);
   });
 
   it('resolves MiniMax Token Plan through Anthropic/Claude-compatible MiniMax runtime', async () => {
@@ -495,17 +498,18 @@ describe('createDeepAgentRuntime', () => {
     });
   });
 
-  it('preserves qualified additional skill names when building preload hints', async () => {
+  it('preserves qualified Master Skill names when building preload hints', async () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('slug = ?')) return agent;
         if (sql.includes('FROM agents WHERE id')) return arg === 'agent-2' ? agent2 : undefined;
-        if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-2' ? provider2 : undefined;
+        if (sql.includes('FROM llm_providers WHERE id')) return arg === 'provider-1' ? provider : undefined;
         return undefined;
       },
       all: (arg?: string) => {
         if (sql.includes('FROM agent_skills')) {
-          return arg === 'agent-2' ? [{ skill_name: 'project-additional:docs:review' }] : [];
+          return [{ skill_name: 'project-additional:docs:review' }];
         }
         if (sql.includes('FROM messages')) return [];
         if (sql.includes('FROM mcp_servers')) return [];
@@ -553,6 +557,7 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('slug = ?')) return agent;
         if (sql.includes('FROM agents WHERE id')) {
           if (arg === 'agent-2') return { ...agent2, slug: 'code-agent' };
           if (arg === 'agent-1') return agent;
@@ -593,6 +598,7 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('slug = ?')) return agent;
         if (sql.includes('FROM agents WHERE id')) {
           if (arg === 'agent-2') return { ...agent2, slug: 'code-agent' };
           if (arg === 'agent-1') return agent;
@@ -629,6 +635,7 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('slug = ?')) return agent;
         if (sql.includes('FROM agents WHERE id')) {
           if (arg === 'agent-2') return { ...agent2, slug: 'minimax-agent' };
           if (arg === 'agent-1') return agent;
@@ -939,6 +946,7 @@ describe('createDeepAgentRuntime', () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
+        if (sql.includes('slug = ?')) return agent;
         if (sql.includes('FROM agents WHERE id')) {
           if (arg === 'agent-2') return { ...agent2, slug: null, name: 'Code Agent' };  // slug is null
           if (arg === 'agent-1') return agent;
@@ -1042,13 +1050,13 @@ describe('createDeepAgentRuntime', () => {
       expect(toolNames).toContain('advance_stage');
     });
 
-    it('does not inject workflow tools for a Custom Agent', async () => {
+    it('ignores a caller Custom Agent ID and injects workflow tools for Master', async () => {
       getRunBySessionIdMock.mockReturnValue(workflowRun);
 
       await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' }, 'agent-2');
 
       const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
-      expect(toolNames).not.toContain('advance_stage');
+      expect(toolNames).toContain('advance_stage');
     });
 
     it('keeps Custom and General-purpose Agents available for Master Stage delegation', async () => {

@@ -127,10 +127,10 @@ describe('PluginsPanel Skills tab', () => {
     });
   });
 
-  it('explains that Scene exposure affects discovery, not permissions, until new Conversation snapshots', async () => {
+  it('explains that Scene exposure applies to new Conversations, not existing snapshots', async () => {
     render(<PluginsPanel />);
 
-    expect(await screen.findByText(/new Conversation snapshots/i)).toBeTruthy();
+    expect(await screen.findByText(/existing Conversations keep their captured scope/i)).toBeTruthy();
     expect(screen.getByText(/discovery only/i)).toBeTruthy();
   });
 });

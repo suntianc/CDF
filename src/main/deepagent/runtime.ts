@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -45,9 +44,8 @@ import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
 import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle } from './conversation-working-state';
-import { getConversationPromptSnapshot } from '../conversation-prompt-snapshot';
-import { getConversationSkillSnapshot } from '../conversation-system-context-snapshot';
-import { isMasterAgent } from '../project-agent-service';
+import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
+import { ensureMasterAgent, isMasterAgent, MASTER_AGENT_SLUG } from '../project-agent-service';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -80,7 +78,6 @@ interface RuntimeAgentRow {
   provider_id?: string | null;
   system_prompt?: string | null;
   config?: string | null;
-  is_default: number;
   created_at: number;
   updated_at: number;
 }
@@ -125,95 +122,22 @@ function getProject(projectId: string): RuntimeProjectRow {
   return project;
 }
 
-function normalizeDefaultAgents(projectId: string): RuntimeAgentRow | null {
-  const defaults = db
-    .prepare('SELECT * FROM agents WHERE project_id = ? AND is_default = 1 ORDER BY updated_at DESC')
-    .all(projectId) as RuntimeAgentRow[];
-
-  if (defaults.length <= 1) return defaults[0] || null;
-
-  const [winner, ...duplicates] = defaults;
-  const unset = db.prepare('UPDATE agents SET is_default = 0, updated_at = ? WHERE id = ?');
-  const now = Date.now();
-  for (const duplicate of duplicates) {
-    unset.run(now, duplicate.id);
+function getRuntimeAgent(projectId: string): RuntimeAgentRow {
+  let agent = db.prepare(
+    'SELECT * FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
+  ).get(projectId, MASTER_AGENT_SLUG) as RuntimeAgentRow | undefined;
+  if (!agent) {
+    ensureMasterAgent(db, projectId);
+    agent = db.prepare(
+      'SELECT * FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
+    ).get(projectId, MASTER_AGENT_SLUG) as RuntimeAgentRow | undefined;
   }
-  return winner;
-}
+  if (!agent) throw new Error(`Project Master Agent not found: ${projectId}`);
 
-function providerExists(providerId: string): boolean {
-  return !!db.prepare('SELECT id FROM llm_providers WHERE id = ?').get(providerId);
-}
-
-function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
-  const normalized = normalizeDefaultAgents(projectId);
-  if (normalized) {
-    const normalizedProviderId = normalizeProviderId(normalized.provider_id);
-    // 验证 provider 仍然存在，否则 fallback
-    if (normalizedProviderId && providerExists(normalizedProviderId)) {
-      return {
-        ...normalized,
-        provider_id: normalizedProviderId,
-      };
-    }
-
-    const fallbackProviderId = getFallbackProviderId();
-    const now = Date.now();
-    db.prepare('UPDATE agents SET provider_id = ?, updated_at = ? WHERE id = ?').run(fallbackProviderId, now, normalized.id);
-    return {
-      ...normalized,
-      provider_id: fallbackProviderId,
-      updated_at: now,
-    };
-  }
-
-  const fallbackProviderId = getFallbackProviderId();
-
-  const now = Date.now();
-  const agent: RuntimeAgentRow = {
-    id: crypto.randomUUID(),
-    project_id: projectId,
-    name: 'Master Agent',
-    description: '项目默认 Agent',
-    provider_id: fallbackProviderId,
-    system_prompt: '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
-    config: null,
-    is_default: 1,
-    created_at: now,
-    updated_at: now,
-  };
-
-  db.prepare(`
-    INSERT INTO agents (id, project_id, name, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    agent.id,
-    agent.project_id,
-    agent.name,
-    agent.description,
-    agent.provider_id,
-    agent.system_prompt,
-    agent.config,
-    agent.is_default,
-    agent.created_at,
-    agent.updated_at
-  );
-
-  return agent;
-}
-
-function getRuntimeAgent(projectId: string, agentId?: string | null): RuntimeAgentRow {
-  if (agentId) {
-    const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as RuntimeAgentRow | undefined;
-    if (agent) {
-      const normalizedProviderId = normalizeProviderId(agent.provider_id);
-      if (normalizedProviderId && providerExists(normalizedProviderId)) {
-        return { ...agent, provider_id: normalizedProviderId };
-      }
-      return { ...agent, provider_id: getFallbackProviderId() };
-    }
-  }
-  return ensureDefaultAgent(projectId);
+  const normalizedProviderId = normalizeProviderId(agent.provider_id);
+  return normalizedProviderId
+    ? { ...agent, provider_id: normalizedProviderId }
+    : { ...agent, provider_id: getFallbackProviderId() };
 }
 
 
@@ -634,16 +558,20 @@ async function buildDeepAgentRuntime(
   subagentIds: string[] | undefined,
   releaseWorkingState: () => void,
 ) {
+  void agentId; // Root ownership is always the protected Project Master.
   const project = getProject(projectId);
-  const resolvedAgentRow = getRuntimeAgent(projectId, agentId);
-  const promptSnapshot = getConversationPromptSnapshot(db, sessionId);
-  const skillSnapshot = getConversationSkillSnapshot(db, sessionId);
+  const resolvedAgentRow = getRuntimeAgent(projectId);
+  const systemContext = getOrCaptureConversationSystemContextSnapshot(db, {
+    sessionId,
+    projectPath: project.path,
+    sceneId: project.scene ?? 'general',
+    promptSnapshot: resolvedAgentRow.system_prompt ?? '',
+  });
   // Root Conversations are bound to Master. Their durable snapshot, rather
   // than the current Master record, preserves the exact prompt across turns
   // and process restarts. Delegated Agents retain their own live prompts.
-  const agentRow = promptSnapshot === null || !isMasterAgent(resolvedAgentRow)
-    ? resolvedAgentRow
-    : { ...resolvedAgentRow, system_prompt: promptSnapshot };
+  const agentRow = { ...resolvedAgentRow, system_prompt: systemContext.promptSnapshot };
+  const skillSnapshot = systemContext.skillSnapshot;
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
@@ -971,7 +899,8 @@ export async function createRuntimeModel(
   agentId?: string | null,
   overrides?: RuntimeModelOverrides
 ) {
-  const agentRow = getRuntimeAgent(projectId, agentId);
+  void agentId;
+  const agentRow = getRuntimeAgent(projectId);
   const { config } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
   registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel, overrides);
   return createLangChainModel(config);

@@ -64,7 +64,7 @@
     "skillSourceProject": "Project Skill",
     "skillSourceBuiltIn": "Built-in Skill",
     "skillSourceGlobal": "Global Skill",
-    "skillSceneExposureDescription": "Scene switches control discovery only; they do not change installation or Tool permissions. Changes affect live Conversations now, while new Conversation snapshots will define their final scope in a later update.",
+    "skillSceneExposureDescription": "Scene switches control discovery only; they do not change installation or Tool permissions. Changes apply to new Conversations; existing Conversations keep their captured scope.",
     "skillSceneExposureControlLabel": "{{name}} exposure in {{scene}}",
     "skillSceneExposureSaveError": "Failed to save Scene exposure",
     "skillSourceUnknown": "Unknown source",
