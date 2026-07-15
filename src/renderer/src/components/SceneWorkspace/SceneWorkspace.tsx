@@ -7,7 +7,6 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 
 type ResearchPanel = 'conversation' | 'papers' | 'writing' | 'experiments';
-type PaperViewMode = 'flat' | 'grouped';
 
 interface SceneWorkspaceProps {
   scene: ProjectScene;
@@ -123,7 +122,6 @@ function PaperLibraryPanel() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedJournal, setSelectedJournal] = useState<string | null>(null);
   const [selectedCasTier, setSelectedCasTier] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<PaperViewMode>('flat');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -166,8 +164,6 @@ function PaperLibraryPanel() {
     )),
     [keyword, papers, selectedCasTier, selectedJournal, selectedTag],
   );
-  const groupedPapers = useMemo(() => groupPapersByTag(filteredPapers, t('sceneWorkspace.untaggedGroup')), [filteredPapers, t]);
-
   return (
     <div role="tabpanel" className="h-full overflow-auto bg-[var(--color-bg-app)] px-5 py-5">
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
@@ -199,23 +195,6 @@ function PaperLibraryPanel() {
               {t('sceneWorkspace.refreshPapers')}
             </button>
           </div>
-        </div>
-
-        <div className="inline-flex w-fit rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-0.5">
-          {(['flat', 'grouped'] as PaperViewMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setViewMode(mode)}
-              className={`rounded-[5px] px-2.5 py-1 text-[11px] transition-colors ${
-                viewMode === mode
-                  ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)]'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
-              }`}
-            >
-              {t(mode === 'flat' ? 'sceneWorkspace.flatView' : 'sceneWorkspace.groupByTagView')}
-            </button>
-          ))}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -256,22 +235,9 @@ function PaperLibraryPanel() {
 
         {!loading && filteredPapers.length === 0 ? <PaperLibraryEmptyState /> : null}
 
-        {viewMode === 'flat' ? (
-          <div className="flex flex-col gap-2">
-            {filteredPapers.map((paper) => <PaperCard key={paper.entry.relativePath} paper={paper} projectId={currentProjectId} />)}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {groupedPapers.map((group) => (
-              <section key={group.tag} className="flex flex-col gap-2">
-                <h2 className="text-xs font-semibold text-[var(--color-text-primary)]">{group.tag}</h2>
-                {group.papers.map((paper) => (
-                  <PaperCard key={`${group.tag}:${paper.entry.relativePath}`} paper={paper} projectId={currentProjectId} />
-                ))}
-              </section>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-col gap-2">
+          {filteredPapers.map((paper) => <PaperCard key={paper.entry.relativePath} paper={paper} projectId={currentProjectId} />)}
+        </div>
       </div>
     </div>
   );
@@ -553,34 +519,10 @@ function matchesPaperKeyword(paper: PaperLibraryItem, keyword: string): boolean 
     paper.source,
     paper.journal,
     paper.doi,
+    paper.entry.body,
     ...paper.authors,
     ...paper.tags,
   ].some((value) => value.toLowerCase().includes(needle));
-}
-
-function groupPapersByTag(papers: PaperLibraryItem[], untaggedLabel: string): Array<{ tag: string; papers: PaperLibraryItem[] }> {
-  const groups = new Map<string, PaperLibraryItem[]>();
-  const untagged: PaperLibraryItem[] = [];
-
-  papers.forEach((paper) => {
-    if (paper.tags.length === 0) {
-      untagged.push(paper);
-      return;
-    }
-    paper.tags.forEach((tag) => {
-      groups.set(tag, [...(groups.get(tag) ?? []), paper]);
-    });
-  });
-
-  const grouped = Array.from(groups.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([tag, groupPapers]) => ({ tag, papers: groupPapers }));
-
-  if (untagged.length > 0) {
-    grouped.push({ tag: untaggedLabel, papers: untagged });
-  }
-
-  return grouped;
 }
 
 function ResearchEmptyPanel({ panel }: { panel: Exclude<ResearchPanel, 'conversation'> }) {

@@ -235,7 +235,14 @@ function ProjectFolder({ project }: ProjectFolderProps) {
               
               <button
                 type="button"
-                onClick={(e) => handleDeleteSession(e, session.id)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteSession(e, session.id);
+                }}
                 className="opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded-[var(--radius-sm)] hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[opacity,background-color,color] shrink-0 ml-1.5 cursor-pointer"
                 title={t('projectTree.deleteSession')}
               >
@@ -439,7 +446,14 @@ export function ProjectTree() {
                 
                 <button
                   type="button"
-                  onClick={(e) => handleDeleteSession(e, session.id)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteSession(e, session.id);
+                  }}
                   className="opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-[var(--color-danger-dim)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-[background-color,color,opacity] duration-150 shrink-0 ml-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                   title={t('projectTree.deleteSession')}
                 >

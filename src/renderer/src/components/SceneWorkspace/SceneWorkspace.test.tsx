@@ -148,14 +148,14 @@ describe('SceneWorkspace Paper Library', () => {
     expect(screen.getByText('SCI, EI (2025)')).toBeTruthy();
   });
 
-  it('filters Paper Entries by keyword without matching the note body', async () => {
+  it('filters Paper Entries by keyword including the Knowledge Entry body', async () => {
     knowledgeListMock.mockResolvedValue([
       paperEntry(),
       paperEntry({
         relativePath: 'papers/retrieval-augmented-generation.md',
         title: 'Retrieval-Augmented Generation',
         tags: ['rag'],
-        body: 'transformer body note should not match keyword filtering',
+        body: 'The body contains the unique keyword bodyonlyquasar.',
         frontmatter: {
           type: 'Paper',
           title: 'Retrieval-Augmented Generation',
@@ -179,21 +179,7 @@ describe('SceneWorkspace Paper Library', () => {
     expect(screen.getByText('Retrieval-Augmented Generation')).toBeTruthy();
 
     fireEvent.change(screen.getByRole('searchbox', { name: /搜索论文|Search papers/ }), {
-      target: { value: 'arXiv' },
-    });
-
-    expect(screen.queryByText('Attention Is All You Need')).toBeNull();
-    expect(screen.getByText('Retrieval-Augmented Generation')).toBeTruthy();
-
-    fireEvent.change(screen.getByRole('searchbox', { name: /搜索论文|Search papers/ }), {
-      target: { value: 'transformer' },
-    });
-
-    expect(screen.getByText('Attention Is All You Need')).toBeTruthy();
-    expect(screen.queryByText('Retrieval-Augmented Generation')).toBeNull();
-
-    fireEvent.change(screen.getByRole('searchbox', { name: /搜索论文|Search papers/ }), {
-      target: { value: 'Journal of Retrieval' },
+      target: { value: 'bodyonlyquasar' },
     });
 
     expect(screen.queryByText('Attention Is All You Need')).toBeNull();
@@ -334,7 +320,7 @@ describe('SceneWorkspace Paper Library', () => {
     expect(screen.queryByText('Journal B Tier One')).toBeNull();
   });
 
-  it('groups filtered Paper Entries by tag and repeats multi-tag papers', async () => {
+  it('keeps Paper Entries flat without tag grouping and shows multi-tag papers once', async () => {
     knowledgeListMock.mockResolvedValue([
       paperEntry(),
       paperEntry({
@@ -359,12 +345,11 @@ describe('SceneWorkspace Paper Library', () => {
     fireEvent.click(screen.getByRole('tab', { name: /论文库|Paper Library/ }));
     expect(await screen.findByText('Attention Is All You Need')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /按标签分组|Group by tag/ }));
-
-    expect(screen.getByRole('heading', { name: 'transformer' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'nlp' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /未标记|Untagged/ })).toBeTruthy();
-    expect(screen.getAllByRole('heading', { name: 'Attention Is All You Need' })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /按标签分组|Group by tag/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /筛选标签 transformer|Filter tag transformer/ })).toBeTruthy();
+    expect(screen.getAllByText('transformer').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('nlp').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('heading', { name: 'Attention Is All You Need' })).toHaveLength(1);
     expect(screen.getByRole('heading', { name: 'A Survey Without Tags' })).toBeTruthy();
   });
 
