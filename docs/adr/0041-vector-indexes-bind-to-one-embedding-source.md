@@ -1,9 +1,0 @@
-# Vector Indexes bind to one Embedding Source and never switch implicitly
-
-## Status
-
-Superseded by ADR-0047.
-
-Issue #26 originally said "configure a cloud API and embedding switches to cloud automatically", but vectors from different models live in incompatible spaces (even dimensions differ), so silently mixing sources inside one index corrupts retrieval, and an index built by a cloud model cannot even be *queried* offline. We decided every Vector Index (at collection granularity) records the Embedding Source model that created it; "automatic best-source selection" happens only when a collection is first created; changing the Embedding Source afterwards requires an explicit, user-confirmed rebuild of affected collections. When a cloud-bound index is queried offline, the query fails with a clear error and Agents degrade to keyword search (`knowledge_search`) instead of pretending semantic search works.
-
-Consequences: the store API accepts text (not caller-supplied vectors), so the "query embeds with the index's own model" rule cannot be violated by construction; a cloud-configured user still pays an explicit, sized re-embedding step when upgrading an existing local index.

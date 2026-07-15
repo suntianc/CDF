@@ -1,3 +1,0 @@
-# Conversation Working State compaction is explicit
-
-CDF automatically removes orphaned Conversation Working State but does not automatically compact its SQLite storage. Physical space reclamation is a user-confirmed System Settings operation that requires all Agent Runs and non-terminal Background Capability Jobs to be idle, runs outside the Electron main thread, rebuilds into a temporary database with integrity validation before atomic replacement, and leaves the original database usable if rebuilding fails; the Settings surface shows current size, estimated reclaimable space, and operation status without exposing checkpoint internals.

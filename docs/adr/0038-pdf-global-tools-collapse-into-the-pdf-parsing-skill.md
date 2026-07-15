@@ -1,3 +1,0 @@
-# PDF global tools collapse into the PDF Parsing Skill
-
-Issue #62 will remove the PDF-specific global tool suite rather than merely hide it: `parse_pdf`, `pdf_parse_status`, and `pdf_parse_cancel` are deleted as global tools and not kept as compatibility shims. The deepagent tool wrapper should be deleted so the old names cannot be accidentally re-registered. The reusable parsing module, such as `src/main/pdf-parse.ts`, may remain as internal application code, but Agents reach PDF parsing only through the built-in PDF Parsing Skill and its packaged scripts/resources; recovery planning, preference updates, overlays, recovered-view generation, and diagnostics tracing all live there as well.

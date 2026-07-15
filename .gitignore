@@ -52,6 +52,9 @@ electron-log-*
 .impeccable/
 .impeccable-ref/
 
+# Local domain docs / research / spikes (not pushed to remote)
+docs/
+
 # TypeScript cache
 *.tsbuildinfo
 

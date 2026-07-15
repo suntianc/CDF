@@ -1,3 +1,0 @@
-# Conversation Working State follows the Conversation lifetime
-
-CDF retains a Conversation's complete Conversation Working State across Agent Runs for as long as that Conversation exists; Agent Run terminal states do not delete or prune it because a completed response may be a question that pauses unfinished todos and tool context for the user's next turn. Direct Conversation deletion and Project deletion are the ownership boundaries that remove the corresponding state, with background cleanup and startup orphan reconciliation providing eventual consistency across the separate business and checkpoint databases; abnormal checkpoint growth in a live Conversation must be fixed at its source rather than hidden by retention limits.

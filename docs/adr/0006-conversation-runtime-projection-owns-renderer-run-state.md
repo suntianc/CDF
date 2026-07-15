@@ -1,7 +1,0 @@
-# Conversation Runtime Projection owns renderer run state
-
-Renderer-side Agent run events will be interpreted by a `Conversation Runtime Projection` module. The projection owns visible runtime state transitions for an active Conversation, including streaming assistant segments, tool activity, pending approvals, delegated task state, parallel worker state, transient todos, completion, failure, and retry affordances.
-
-The projection may decide that effects are needed, such as saving a visible message, opening the Activity Panel, cleaning up stream resources, resolving or rejecting a stream promise, or surfacing a retryable error. Those effects are represented as data, not executed directly. `sessionStore` remains the adapter that subscribes to IPC, manages cross-session streaming cache, writes Zustand state, and executes effect intents through Electron APIs or local callbacks.
-
-We choose this over leaving stream event handling inside `sessionStore` because the current store mixes IPC subscription, cross-session lifecycle, projection rules, persistence timing, and UI recovery decisions in one path. We choose it over a pure state-only reducer because persistence timing and recovery affordances are part of the runtime projection contract; hiding those decisions in the adapter would keep the most failure-prone behavior outside the test seam. We choose it over a side-effecting runtime service because the renderer projection should remain deterministic and easy to test without Electron, Zustand, timers, or IPC mocks.
