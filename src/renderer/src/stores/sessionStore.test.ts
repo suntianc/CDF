@@ -486,7 +486,6 @@ describe('sessionStore sendMessage', () => {
             sourceKind: 'project-additional',
             sourceLabel: 'Project Skill: apps/web',
             skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
-            visibility: 'on',
             modelDiscovery: 'full',
             userInvocable: true,
           },

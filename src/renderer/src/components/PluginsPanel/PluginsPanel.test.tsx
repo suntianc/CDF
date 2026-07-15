@@ -4,16 +4,26 @@ import i18n from '../../i18n';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
+import type { GlobalSkillReference, SceneSkillExposure } from '../../../../shared/skills';
 import { PluginsPanel } from './PluginsPanel';
 
 describe('PluginsPanel Skills tab', () => {
-  const getGlobalSceneExposure = vi.fn(async () => ({
-    skill: { sourceKind: 'built-in' as const, name: 'knowledge-base' },
+  const getGlobalSceneExposure = vi.fn(async (
+    skill: GlobalSkillReference,
+  ): Promise<SceneSkillExposure> => ({
+    skill,
     exposures: { general: true, research: true },
   }));
-  const setGlobalSceneExposure = vi.fn(async () => ({
-    skill: { sourceKind: 'built-in' as const, name: 'knowledge-base' },
-    exposures: { general: true, research: false },
+  const setGlobalSceneExposure = vi.fn(async (
+    skill: GlobalSkillReference,
+    sceneId: string,
+    exposed: boolean,
+  ): Promise<SceneSkillExposure> => ({
+    skill,
+    exposures: {
+      general: sceneId === 'general' ? exposed : true,
+      research: sceneId === 'research' ? exposed : true,
+    },
   }));
 
   beforeEach(async () => {
