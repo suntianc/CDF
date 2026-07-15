@@ -22,10 +22,6 @@ function renderSkillLine(skill: ResolvedSkillCatalogEntry): string | null {
   if (skill.modelDiscovery === 'hidden') return null;
 
   const displayName = skill.qualifiedName ?? skill.name;
-  if (skill.modelDiscovery === 'name-only') {
-    return `- **${displayName}** (name-only)`;
-  }
-
   return [
     `- **${displayName}**: ${skill.description}`,
     `  -> Read \`${skill.skillPath}\` for full instructions`,
@@ -41,9 +37,7 @@ function renderPreloadedSkills(
 
   const sections: string[] = [];
   for (const skill of skills) {
-    // Preload only applies to fully model-discoverable `on` Skills. Injecting
-    // a `name-only` Skill body here would silently undo its visibility downgrade.
-    if (skill.visibility !== 'on' || skill.modelDiscovery !== 'full') continue;
+    if (skill.modelDiscovery !== 'full') continue;
     const displayName = skill.qualifiedName ?? skill.name;
     if (!preloadNames.has(skill.name) && !preloadNames.has(displayName)) continue;
     sections.push([

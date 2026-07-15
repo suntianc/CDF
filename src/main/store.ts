@@ -1,7 +1,6 @@
 import Store from 'electron-store';
 import type { ApprovalMode } from '../shared/types';
 import type { PersistedAISubscriptionState } from '../shared/ai-subscriptions';
-import type { SkillOverrideState } from '../shared/skill-overrides';
 
 type SceneSkillExposureStore = Record<string, Record<string, boolean>>;
 
@@ -20,7 +19,6 @@ interface StoreSchema {
   // Phase 14: 全局审批模式默认值
   approvalMode: ApprovalMode;
   autoSave: boolean;
-  skillOverrides: Record<string, SkillOverrideState>;
   sceneSkillExposures: SceneSkillExposureStore;
   aiSubscriptions: PersistedAISubscriptionState;
 }
@@ -35,7 +33,6 @@ const store = new Store<StoreSchema>({
     language: 'zh-CN',
     approvalMode: 'strict',
     autoSave: false,
-    skillOverrides: {},
     sceneSkillExposures: {},
     aiSubscriptions: {},
   },
@@ -57,13 +54,6 @@ const store = new Store<StoreSchema>({
     language: { type: 'string', enum: ['zh-CN', 'en-US'] },
     approvalMode: { type: 'string', enum: ['strict', 'agent_decides', 'bypass'] },
     autoSave: { type: 'boolean' },
-    skillOverrides: {
-      type: 'object',
-      additionalProperties: {
-        type: 'string',
-        enum: ['on', 'name-only', 'user-invocable-only', 'off'],
-      },
-    },
     sceneSkillExposures: {
       type: 'object',
       additionalProperties: {

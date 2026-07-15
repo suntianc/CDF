@@ -1,8 +1,4 @@
-import type {
-  SkillEffectiveVisibility,
-  SkillModelDiscovery,
-  SkillVisibilitySource,
-} from './skill-overrides';
+export type SkillModelDiscovery = 'full' | 'hidden';
 
 export type SkillSourceKind =
   | 'built-in'
@@ -38,8 +34,6 @@ export interface ConversationSkillSnapshotEntry {
   sourceKind: SkillSourceKind;
   sourcePath: string;
   skillPath: string;
-  visibility: SkillEffectiveVisibility;
-  visibilitySource: SkillVisibilitySource;
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
 }
@@ -87,8 +81,6 @@ export interface Skill {
   sourceLabel?: string;
   sourcePath?: string;
   skillPath?: string;
-  skillVisibility?: SkillEffectiveVisibility;
-  visibilitySource?: SkillVisibilitySource;
   modelDiscovery?: SkillModelDiscovery;
   userInvocable?: boolean;
   editable?: boolean;
@@ -120,7 +112,6 @@ export interface SkillAttribution {
   sourceKind: SkillCommandSourceKind;
   sourceLabel: string;
   skillPath: string;
-  visibility: SkillEffectiveVisibility;
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
 }

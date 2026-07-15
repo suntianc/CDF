@@ -104,35 +104,6 @@ describe('collectSkillCommands integration', () => {
     });
   });
 
-  it('lists user-invocable-only Skills and omits off Skills', async () => {
-    const projectSkillsDir = path.join(tempProjectPath, '.cdf', 'skills');
-    writeSkill(projectSkillsDir, 'manual-review', 'Manual review only');
-    writeSkill(projectSkillsDir, 'disabled-review', 'Disabled review');
-    fs.writeFileSync(
-      path.join(tempProjectPath, '.cdf', 'skills.config.json'),
-      JSON.stringify({
-        version: 1,
-        overrides: {
-          'manual-review': 'user-invocable-only',
-          'disabled-review': 'off',
-        },
-        additionalSkillDirectories: [],
-      }),
-      'utf-8'
-    );
-
-    const commands = await collectSkillCommands(tempProjectPath);
-    const manual = commands.find((command) => command.name === 'manual-review');
-
-    expect(manual).toMatchObject({
-      name: 'manual-review',
-      skillVisibility: 'user-invocable-only',
-      modelDiscovery: 'hidden',
-      userInvocable: true,
-    });
-    expect(commands.some((command) => command.name === 'disabled-review')).toBe(false);
-  });
-
   it('lists additional-directory same-name Skills side by side with qualified names', async () => {
     const projectSkillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     const webSkillsDir = path.join(tempProjectPath, 'apps', 'web', '.cdf', 'skills');
@@ -142,7 +113,6 @@ describe('collectSkillCommands integration', () => {
       path.join(tempProjectPath, '.cdf', 'skills.config.json'),
       JSON.stringify({
         version: 1,
-        overrides: {},
         additionalSkillDirectories: ['apps/web/.cdf/skills'],
       }),
       'utf-8'

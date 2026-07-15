@@ -1,5 +1,4 @@
-import type { SkillEffectiveVisibility, SkillModelDiscovery } from './skill-overrides';
-import type { SkillCommandSourceKind } from './skills';
+import type { SkillCommandSourceKind, SkillModelDiscovery } from './skills';
 
 /** D-06 priority order. Declaration order is informational only — actual
  *  priority numbers live in renderer useCommandRegistry.ts. */
@@ -34,9 +33,7 @@ export interface SlashCommand {
   sourcePath?: string;
   /** Absolute path to the Skill's SKILL.md. Present for Skill commands. */
   skillPath?: string;
-  /** Effective Skill Override state. Present for Skill commands. */
-  skillVisibility?: SkillEffectiveVisibility;
-  /** Effective model-discovery exposure. Present for Skill commands. */
+  /** Skill-authored model-discovery exposure. Present for Skill commands. */
   modelDiscovery?: SkillModelDiscovery;
   /** Whether this Skill can be explicitly invoked by the user. Present for Skill commands. */
   userInvocable?: boolean;

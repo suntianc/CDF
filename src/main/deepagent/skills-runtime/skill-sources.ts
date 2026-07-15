@@ -3,17 +3,10 @@ import path from 'path';
 import { parseSkillMetadata } from './skill-metadata';
 import type { SkillSourceKind } from '../../../shared/skills';
 export type { SkillSourceKind } from '../../../shared/skills';
-import type {
-  SkillEffectiveVisibility,
-  SkillModelDiscovery,
-  SkillOverrideState,
-  SkillVisibilitySource,
-} from '../../../shared/skill-overrides';
-import { resolveSkillVisibility } from './skill-visibility';
+import type { SkillModelDiscovery } from '../../../shared/skills';
 
 export interface ProjectSkillConfig {
   version: 1;
-  overrides: Record<string, SkillOverrideState>;
   additionalSkillDirectories: string[];
 }
 
@@ -41,8 +34,6 @@ export interface ResolvedSkillCatalogEntry {
   sourceKind: SkillSourceKind;
   sourcePath: string;
   skillPath: string;
-  visibility: SkillEffectiveVisibility;
-  visibilitySource: SkillVisibilitySource;
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
   shadowedSkills?: ShadowedSkillCatalogEntry[];
@@ -60,8 +51,6 @@ export interface ShadowedSkillCatalogEntry {
   sourceKind: SkillSourceKind;
   sourcePath: string;
   skillPath: string;
-  visibility: SkillEffectiveVisibility;
-  visibilitySource: SkillVisibilitySource;
   modelDiscovery: SkillModelDiscovery;
   userInvocable: boolean;
 }
@@ -85,8 +74,6 @@ export interface SkillSourcePlanOptions {
 }
 
 export interface SkillCatalogOptions {
-  userOverrides?: Record<string, SkillOverrideState>;
-  agentOverrides?: Record<string, SkillOverrideState>;
   /** Filters a source entry before same-name resolution so excluded Globals cannot shadow Project Skills. */
   includeSkill?: (source: SkillSourceEntry, skillName: string) => boolean;
   pathContext?: string[];
@@ -96,7 +83,6 @@ export interface SkillCatalogOptions {
 
 const DEFAULT_PROJECT_SKILL_CONFIG: ProjectSkillConfig = {
   version: 1,
-  overrides: {},
   additionalSkillDirectories: [],
 };
 const NESTED_PROJECT_SKILL_SCAN_IGNORED_DIRS = new Set([
@@ -129,7 +115,6 @@ export function invalidateSkillSourceCaches(projectPath?: string): void {
 function defaultProjectSkillConfig(): ProjectSkillConfig {
   return {
     version: DEFAULT_PROJECT_SKILL_CONFIG.version,
-    overrides: {},
     additionalSkillDirectories: [],
   };
 }
@@ -187,24 +172,6 @@ function writeProjectSkillConfig(projectPath: string, config: ProjectSkillConfig
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
   invalidateSkillSourceCaches(projectPath);
-}
-
-export function updateProjectSkillOverride(
-  projectPath: string,
-  skillName: string,
-  visibility: SkillOverrideState
-): ProjectSkillConfig {
-  const { config } = readProjectSkillConfig(projectPath);
-  const nextConfig: ProjectSkillConfig = {
-    version: 1,
-    overrides: { ...config.overrides },
-    additionalSkillDirectories: [...config.additionalSkillDirectories],
-  };
-
-  nextConfig.overrides[skillName] = visibility;
-
-  writeProjectSkillConfig(projectPath, nextConfig);
-  return nextConfig;
 }
 
 function isInsideProject(projectPath: string, candidatePath: string): boolean {
@@ -288,8 +255,6 @@ function toShadowedSkill(skill: ResolvedSkillCatalogEntry): ShadowedSkillCatalog
     sourceKind: skill.sourceKind,
     sourcePath: skill.sourcePath,
     skillPath: skill.skillPath,
-    visibility: skill.visibility,
-    visibilitySource: skill.visibilitySource,
     modelDiscovery: skill.modelDiscovery,
     userInvocable: skill.userInvocable,
   };
@@ -418,14 +383,9 @@ export function resolveSkillCatalog(
     const qualifiedName = source.qualifier
       ? `${source.qualifier}:${parsed.metadata.name}`
       : parsed.metadata.name;
-    const visibility = resolveSkillVisibility({
-      name: parsed.metadata.name,
-      qualifiedName,
-      frontmatter: {
-        disableModelInvocation: parsed.metadata.disableModelInvocation,
-        userInvocable: parsed.metadata.userInvocable,
-      },
-    });
+    const modelDiscovery: SkillModelDiscovery = parsed.metadata.disableModelInvocation
+      ? 'hidden'
+      : 'full';
     const mergeKey = source.qualifier ? qualifiedName : parsed.metadata.name;
     const existing = merged.get(mergeKey);
     const entry: ResolvedSkillCatalogEntry = {
@@ -440,10 +400,8 @@ export function resolveSkillCatalog(
       sourceKind: source.kind,
       sourcePath: source.path,
       skillPath,
-      visibility: visibility.visibility,
-      visibilitySource: visibility.visibilitySource,
-      modelDiscovery: visibility.modelDiscovery,
-      userInvocable: visibility.userInvocable,
+      modelDiscovery,
+      userInvocable: parsed.metadata.userInvocable !== false,
       shadowedSkills: existing
         ? [...(existing.shadowedSkills ?? []), toShadowedSkill(existing)]
         : undefined,

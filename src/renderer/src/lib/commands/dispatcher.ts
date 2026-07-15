@@ -188,7 +188,6 @@ function createExplicitSkillAttribution(command: SlashCommand): SkillAttribution
     sourceKind,
     sourceLabel: command.sourceLabel,
     skillPath: command.skillPath,
-    visibility: command.skillVisibility ?? 'on',
     modelDiscovery: command.modelDiscovery ?? 'full',
     userInvocable: command.userInvocable ?? true,
   };

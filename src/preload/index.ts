@@ -24,7 +24,6 @@ import type {
   StageGateResolution,
   WorkflowRunProjectionEvent,
 } from '../shared/types';
-import type { SkillOverrideState } from '../shared/skill-overrides';
 import type { GlobalSkillReference } from '../shared/skills';
 import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
 import type { CapabilityJobAction } from '../shared/capability-jobs';
@@ -93,9 +92,6 @@ const api = {
     deleteAgent: (id: string) => typedInvoke('db:deleteAgent', id),
     // Phase 3: Skills
     getSkills: (projectId: string) => typedInvoke('db:getSkills', projectId),
-    getProjectSkillOverrides: (projectId: string) => typedInvoke('db:getProjectSkillOverrides', projectId),
-    setProjectSkillOverride: (projectId: string, skillName: string, visibility: SkillOverrideState) =>
-      typedInvoke('db:setProjectSkillOverride', projectId, skillName, visibility),
     saveSkill: (projectId: string, skill: SkillSaveInput) => typedInvoke('db:saveSkill', projectId, skill),
     deleteSkill: (projectId: string, id: string) => typedInvoke('db:deleteSkill', projectId, id),
     importSkillDirectory: (sourceDir: string) => typedInvoke('db:importSkillDirectory', sourceDir),

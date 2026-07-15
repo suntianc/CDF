@@ -67,7 +67,6 @@ import type {
   CapabilityJobEvent,
   CapabilityJobSnapshot,
 } from './capability-jobs';
-import type { SkillOverrideState } from './skill-overrides';
 import type { ConversationWorkingStateStorageStatus } from './conversation-working-state';
 import type {
   AISubscriptionCapabilityRoute,
@@ -147,14 +146,6 @@ export interface IpcInvokeContract {
   'db:resetMasterAgentPrompt': { args: [projectId: string]; result: AgentSaveResult };
   'db:deleteAgent': { args: [id: string]; result: void };
   'db:getSkills': { args: [projectId: string]; result: Skill[] };
-  'db:getProjectSkillOverrides': {
-    args: [projectId: string];
-    result: Record<string, SkillOverrideState>;
-  };
-  'db:setProjectSkillOverride': {
-    args: [projectId: string, skillName: string, visibility: SkillOverrideState];
-    result: Record<string, SkillOverrideState>;
-  };
   'db:saveSkill': { args: [projectId: string, skill: SkillSaveInput]; result: Skill };
   'db:deleteSkill': { args: [projectId: string, id: string]; result: void };
   'db:importSkillDirectory': { args: [sourceDir: string]; result: Skill };
@@ -381,8 +372,6 @@ export const IPC_INVOKE_CHANNELS = [
   'db:resetMasterAgentPrompt',
   'db:deleteAgent',
   'db:getSkills',
-  'db:getProjectSkillOverrides',
-  'db:setProjectSkillOverride',
   'db:saveSkill',
   'db:deleteSkill',
   'db:importSkillDirectory',

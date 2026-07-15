@@ -74,7 +74,6 @@ function skillToAttribution(skill: ResolvedSkillCatalogEntry, phase: SkillAttrib
     sourceKind: skill.sourceKind,
     sourceLabel: getSkillSourceLabel(skill),
     skillPath: skill.skillPath,
-    visibility: skill.visibility,
     modelDiscovery: skill.modelDiscovery,
     userInvocable: skill.userInvocable,
   };
@@ -90,7 +89,6 @@ function buildSkillAttributions(
       attributions.push(skillToAttribution(skill, 'model-discovery'));
     }
     if (
-      skill.visibility === 'on' &&
       skill.modelDiscovery === 'full' &&
       isPreloadedSkill(skill, preloadSkillNames)
     ) {

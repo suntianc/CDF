@@ -58,8 +58,6 @@ function snapshotSkill(skill: ResolvedSkillCatalogEntry): ConversationSkillSnaps
     sourceKind: skill.sourceKind,
     sourcePath: skill.sourcePath,
     skillPath: skill.skillPath,
-    visibility: skill.visibility,
-    visibilitySource: skill.visibilitySource,
     modelDiscovery: skill.modelDiscovery,
     userInvocable: skill.userInvocable,
   };

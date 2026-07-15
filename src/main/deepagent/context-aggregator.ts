@@ -175,17 +175,14 @@ function estimateResolvedSkillContextChars(
   const displayName = getSkillDisplayName(skill);
   let chars = 0;
 
-  if (skill.modelDiscovery === 'name-only') {
-    chars += `- **${displayName}** (name-only)`.length;
-  } else if (skill.modelDiscovery === 'full') {
+  if (skill.modelDiscovery === 'full') {
     chars += [
       `- **${displayName}**: ${skill.description}`,
       `  -> Read \`${skill.skillPath}\` for full instructions`,
     ].join('\n').length;
   }
 
-  const preloaded = skill.visibility === 'on' &&
-    skill.modelDiscovery === 'full' &&
+  const preloaded = skill.modelDiscovery === 'full' &&
     isPreloadedSkill(skill, preloadSkillNames);
   if (preloaded) {
     try {
@@ -570,9 +567,6 @@ export async function aggregateCurrentSessionContext(
           name: getSkillDisplayName(skill),
           scope: getSkillScope(skill),
           tokens: safeMath(chars),
-          visibility: skill.visibility,
-          sourceLabel: getSkillSourceLabel(skill),
-          preloaded,
         });
       }
       skills = safeMath(skillsChars);

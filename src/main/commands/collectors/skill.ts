@@ -46,7 +46,6 @@ function skillToCommand(skill: ResolvedSkillCatalogEntry | ConversationSkillSnap
     skillSourceKind: skill.sourceKind as SkillCommandSourceKind,
     sourcePath: skill.sourcePath,
     skillPath: skill.skillPath,
-    skillVisibility: skill.visibility,
     modelDiscovery: skill.modelDiscovery,
     userInvocable: skill.userInvocable,
     argumentHint: skill.argumentHint,

@@ -1,20 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  getBuiltInSkillDirsMock,
-  getScopePathMock,
-  resolveSkillSourcePlanMock,
-  resolveSkillCatalogMock,
-} = vi.hoisted(() => ({
+const { getBuiltInSkillDirsMock, getScopePathMock, resolveSkillSourcePlanMock, resolveSkillCatalogMock } = vi.hoisted(() => ({
   getBuiltInSkillDirsMock: vi.fn(() => ['/tmp/built-in/knowledge-base']),
-  getScopePathMock: vi.fn((_projectPath: string, scope: string) =>
-    scope === 'global' ? '/tmp/global-skills' : `${_projectPath}/.cdf/skills`
-  ),
-  resolveSkillSourcePlanMock: vi.fn(() => ({
-    config: { version: 1, overrides: {}, additionalSkillDirectories: [] },
-    sources: [],
-    warnings: [],
-  })),
+  getScopePathMock: vi.fn(() => '/tmp/global-skills'),
+  resolveSkillSourcePlanMock: vi.fn(() => ({ config: { version: 1, additionalSkillDirectories: [] }, sources: [], warnings: [] })),
   resolveSkillCatalogMock: vi.fn((): any => ({ skills: [], warnings: [] })),
 }));
 
@@ -22,7 +11,6 @@ vi.mock('../../deepagent/skill-manager', () => ({
   getBuiltInSkillDirs: getBuiltInSkillDirsMock,
   getScopePath: getScopePathMock,
 }));
-
 vi.mock('../../deepagent/skills-runtime/skill-sources', () => ({
   resolveSkillSourcePlan: resolveSkillSourcePlanMock,
   resolveSkillCatalog: resolveSkillCatalogMock,
@@ -30,174 +18,50 @@ vi.mock('../../deepagent/skills-runtime/skill-sources', () => ({
 
 import { collectSkillCommands } from './skill';
 
-describe('collectors/skill', () => {
+describe('collectSkillCommands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getBuiltInSkillDirsMock.mockReturnValue(['/tmp/built-in/knowledge-base']);
-    getScopePathMock.mockImplementation((_projectPath: string, scope: string) =>
-      scope === 'global' ? '/tmp/global-skills' : `${_projectPath}/.cdf/skills`
-    );
-    resolveSkillSourcePlanMock.mockReturnValue({
-      config: { version: 1, overrides: {}, additionalSkillDirectories: [] },
-      sources: [],
-      warnings: [],
-    });
     resolveSkillCatalogMock.mockReturnValue({ skills: [], warnings: [] });
   });
 
-  it('returns [] when no user-invocable skills exist', async () => {
-    const result = await collectSkillCommands('/tmp/proj');
+  it('uses the frozen Conversation Skill Snapshot without resolving a live catalog', async () => {
+    const commands = await collectSkillCommands('/tmp/project', { catalog: [{
+      name: 'review',
+      description: 'Captured review workflow',
+      sourceKind: 'project',
+      sourcePath: '/tmp/project/.cdf/skills',
+      skillPath: '/tmp/project/.cdf/skills/review/SKILL.md',
+      modelDiscovery: 'full',
+      userInvocable: true,
+    }] });
 
-    expect(result).toEqual([]);
-    expect(resolveSkillSourcePlanMock).toHaveBeenCalledWith('/tmp/proj', {
-      builtInSkillDirs: ['/tmp/built-in/knowledge-base'],
-      userSkillsDir: '/tmp/global-skills',
-    });
-  });
-
-  it('lists only the supplied Conversation Skill Snapshot without resolving the live catalog', async () => {
-    const result = await collectSkillCommands('/tmp/proj', {
-      catalog: [{
-        name: 'captured-skill',
-        qualifiedName: 'captured-skill',
-        description: 'Captured',
-        sourceKind: 'project',
-        sourcePath: '/tmp/proj/.cdf/skills',
-        skillPath: '/tmp/proj/.cdf/skills/captured-skill/SKILL.md',
-        visibility: 'on',
-        visibilitySource: 'default',
-        modelDiscovery: 'full',
-        userInvocable: true,
-      }],
-    });
-
-    expect(result).toEqual([expect.objectContaining({ name: 'captured-skill' })]);
+    expect(commands).toEqual([expect.objectContaining({ name: 'review', target: 'project:review' })]);
     expect(resolveSkillSourcePlanMock).not.toHaveBeenCalled();
-    expect(resolveSkillCatalogMock).not.toHaveBeenCalled();
   });
 
-  it('passes User and Agent Skill Overrides into catalog resolution', async () => {
-    await collectSkillCommands('/tmp/proj', {
-      userOverrides: {
-        review: 'off',
-      },
-      agentOverrides: {
-        'docs:review': 'user-invocable-only',
-      },
-    });
+  it('maps a Project Skill to an attributable command', async () => {
+    resolveSkillCatalogMock.mockReturnValue({ skills: [{
+      name: 'simplify', description: 'Simplify code', sourceKind: 'project',
+      sourcePath: '/tmp/project/.cdf/skills', skillPath: '/tmp/project/.cdf/skills/simplify/SKILL.md',
+      modelDiscovery: 'full', userInvocable: true, argumentHint: '<file>',
+    }], warnings: [] });
 
-    expect(resolveSkillCatalogMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      {
-        userOverrides: {
-          review: 'off',
-        },
-        agentOverrides: {
-          'docs:review': 'user-invocable-only',
-        },
-      }
-    );
-  });
+    const commands = await collectSkillCommands('/tmp/project');
 
-  it('maps project catalog entries to attributable Skill commands', async () => {
-    resolveSkillCatalogMock.mockReturnValueOnce({
-      skills: [
-        {
-          name: 'simplify',
-          description: 'simplify code',
-          sourceKind: 'project',
-          sourcePath: '/tmp/proj/.cdf/skills',
-          skillPath: '/tmp/proj/.cdf/skills/simplify/SKILL.md',
-          visibility: 'on',
-          visibilitySource: 'default',
-          modelDiscovery: 'full',
-          userInvocable: true,
-          argumentHint: '<file>',
-          allowedTools: ['read_file', 'grep'],
-          whenToUse: 'Use for focused simplification',
-          arguments: ['file'],
-        },
-      ],
-      warnings: [],
-    });
-
-    const result = await collectSkillCommands('/tmp/proj');
-
-    expect(result).toEqual([
-      {
-        name: 'simplify',
-        qualifiedName: 'simplify',
-        skillName: 'simplify',
-        skillSourceKind: 'project',
-        sourcePath: '/tmp/proj/.cdf/skills',
-        skillPath: '/tmp/proj/.cdf/skills/simplify/SKILL.md',
-        skillVisibility: 'on',
-        modelDiscovery: 'full',
-        userInvocable: true,
-        argumentHint: '<file>',
-        description: 'simplify code',
-        source: 'skill:project',
-        target: 'project:simplify',
-        sourceLabel: 'Project Skill',
-        badge: '[skill:project]',
-        frontmatter: {
-          allowedTools: ['read_file', 'grep'],
-          whenToUse: 'Use for focused simplification',
-          arguments: ['file'],
-        },
-      },
-    ]);
-  });
-
-  it('maps global catalog entries to global Skill command labels', async () => {
-    resolveSkillCatalogMock.mockReturnValueOnce({
-      skills: [
-        {
-          name: 'explore',
-          description: 'explore repo',
-          sourceKind: 'user',
-          sourcePath: '/tmp/global-skills',
-          skillPath: '/tmp/global-skills/explore/SKILL.md',
-          visibility: 'on',
-          visibilitySource: 'default',
-          modelDiscovery: 'full',
-          userInvocable: true,
-        },
-      ],
-      warnings: [],
-    });
-
-    const result = await collectSkillCommands('/tmp/proj');
-
-    expect(result[0]).toMatchObject({
-      name: 'explore',
-      source: 'skill:global',
-      target: 'global:explore',
-      sourceLabel: 'Global Skill',
-      badge: '[skill:global]',
+    expect(commands[0]).toMatchObject({
+      name: 'simplify', skillName: 'simplify', skillSourceKind: 'project',
+      source: 'skill:project', target: 'project:simplify', sourceLabel: 'Project Skill',
+      modelDiscovery: 'full', userInvocable: true, argumentHint: '<file>',
     });
   });
 
-  it('omits catalog entries that are not user-invocable', async () => {
-    resolveSkillCatalogMock.mockReturnValueOnce({
-      skills: [
-        {
-          name: 'disabled',
-          description: 'off',
-          sourceKind: 'project',
-          sourcePath: '/tmp/proj/.cdf/skills',
-          skillPath: '/tmp/proj/.cdf/skills/disabled/SKILL.md',
-          visibility: 'off',
-          visibilitySource: 'project',
-          modelDiscovery: 'hidden',
-          userInvocable: false,
-        },
-      ],
-      warnings: [],
-    });
+  it('omits Skills whose author disables explicit invocation', async () => {
+    resolveSkillCatalogMock.mockReturnValue({ skills: [{
+      name: 'internal', description: 'Internal workflow', sourceKind: 'project',
+      sourcePath: '/tmp/project/.cdf/skills', skillPath: '/tmp/project/.cdf/skills/internal/SKILL.md',
+      modelDiscovery: 'full', userInvocable: false,
+    }], warnings: [] });
 
-    const result = await collectSkillCommands('/tmp/proj');
-
-    expect(result).toEqual([]);
+    await expect(collectSkillCommands('/tmp/project')).resolves.toEqual([]);
   });
 });

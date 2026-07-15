@@ -20,12 +20,6 @@ import {
   type SkillSourcePlanOptions,
 } from './skills-runtime/skill-sources';
 import { parseSkillMetadata, validateSkillName } from './skills-runtime/skill-metadata';
-import {
-  readAgentSkillOverrides,
-  readUserSkillOverrides,
-  resolveSkillVisibility,
-} from './skills-runtime/skill-visibility';
-import type { SkillEffectiveVisibility, SkillOverrideState } from '../../shared/skill-overrides';
 import type { SceneId } from '../../shared/scenes';
 import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import { classifySkillSourceKind } from '../../shared/skills';
@@ -49,8 +43,6 @@ interface PhysicalSkillView {
   sourceLabel?: string;
   sourcePath?: string;
   skillPath?: string;
-  skillVisibility?: SkillEffectiveVisibility;
-  visibilitySource?: string;
   modelDiscovery?: string;
   userInvocable?: boolean;
   editable?: boolean;
@@ -74,16 +66,6 @@ interface PhysicalSkillView {
 }
 
 export type ListResolvedSkillViewsOptions = SkillSourcePlanOptions & SkillCatalogOptions;
-
-export interface ResolveAgentSkillsConfigOptions {
-  userOverrides?: Record<string, SkillOverrideState>;
-  agentOverrides?: Record<string, SkillOverrideState>;
-}
-
-export interface ResolvedAgentSkillConfigOptions {
-  options?: ResolveAgentSkillsConfigOptions;
-  warnings: string[];
-}
 
 function ensureDir(targetDir: string): void {
   if (!fs.existsSync(targetDir)) {
@@ -273,14 +255,7 @@ function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string
 function isSkillHiddenFromModel(skillDir: string): boolean {
   const parsed = parseSkillMetadata(skillDir);
   if (!parsed.metadata) return false;
-  const visibility = resolveSkillVisibility({
-    name: parsed.metadata.name,
-    frontmatter: {
-      disableModelInvocation: parsed.metadata.disableModelInvocation,
-      userInvocable: parsed.metadata.userInvocable,
-    },
-  });
-  return visibility.modelDiscovery === 'hidden';
+  return parsed.metadata.disableModelInvocation === true;
 }
 
 function isInsideDirectory(rootPath: string, candidatePath: string): boolean {
@@ -354,29 +329,6 @@ function parseAgentConfig(config: string | null | undefined): Record<string, unk
       __config_parse_error__: message,
     };
   }
-}
-
-export function resolveAgentSkillConfigOptions(
-  agentConfig: string | null | undefined,
-  getStoreValue: (key: string) => unknown
-): ResolvedAgentSkillConfigOptions {
-  const user = readUserSkillOverrides(getStoreValue);
-  const parsedAgentConfig = parseAgentConfig(agentConfig);
-  const warnings = [...user.warnings];
-  if (typeof parsedAgentConfig.__config_parse_error__ === 'string') {
-    warnings.push(`Failed to parse agent config for Skill overrides: ${parsedAgentConfig.__config_parse_error__}`);
-  }
-  const agent = readAgentSkillOverrides(parsedAgentConfig);
-  warnings.push(...agent.warnings);
-
-  const options: ResolveAgentSkillsConfigOptions = {};
-  if (Object.keys(user.overrides).length > 0) options.userOverrides = user.overrides;
-  if (Object.keys(agent.overrides).length > 0) options.agentOverrides = agent.overrides;
-
-  return {
-    options: Object.keys(options).length > 0 ? options : undefined,
-    warnings,
-  };
 }
 
 function buildPhysicalSkillView(projectPath: string, scope: SkillScope, skillName: string): PhysicalSkillView {
@@ -502,8 +454,6 @@ function buildResolvedSkillView(skill: ResolvedSkillCatalogEntry): PhysicalSkill
     sourceLabel: getResolvedSkillSourceLabel(skill),
     sourcePath: skill.sourcePath,
     skillPath: skill.skillPath,
-    skillVisibility: skill.visibility,
-    visibilitySource: skill.visibilitySource,
     modelDiscovery: skill.modelDiscovery,
     userInvocable: skill.userInvocable,
     editable: isResolvedSkillEditable(skill),
@@ -604,8 +554,7 @@ export function resolveConversationSkillSnapshotConfig(
 
 export function resolveAgentSkillsConfig(
   projectPath: string,
-  preloadSkillIds?: string[],
-  options: ResolveAgentSkillsConfigOptions = {}
+  preloadSkillIds?: string[]
 ): { skillsSources: string[]; permissions: FilesystemPermission[] } {
   // `preloadSkillIds` is retained for API compatibility with stored
   // agent_skills rows; Agent Skill selection now means Skill Preload.

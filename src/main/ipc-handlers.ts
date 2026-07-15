@@ -26,8 +26,6 @@ import {
   importPhysicalSkillDirectory,
   getBuiltInSkillRegistrations,
 } from './deepagent/skill-manager';
-import { resolveSkillSourcePlan, updateProjectSkillOverride } from './deepagent/skills-runtime/skill-sources';
-import { parseSkillOverrideState } from '../shared/skill-overrides';
 import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/skills';
 import { isRegisteredSceneId } from '../shared/scenes';
 import { createSceneSkillExposureService } from './scene-skill-exposure';
@@ -172,7 +170,6 @@ const RENDERER_STORE_KEYS = new Set([
   'language',
   'approvalMode',
   'autoSave',
-  'skillOverrides',
 ]);
 
 function assertRendererStoreKey(key: unknown): asserts key is string {
@@ -846,26 +843,6 @@ export function registerIpcHandlers() {
     }
     // 主进程内部视图类型（PhysicalSkillView）宽于共享 Skill（string vs 字面量联合）
     return listResolvedSkillViews(project.path) as Skill[];
-  });
-
-  typedHandle('db:getProjectSkillOverrides', (_, projectId) => {
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
-    if (!project) {
-      return {};
-    }
-    return resolveSkillSourcePlan(project.path).config.overrides;
-  });
-
-  typedHandle('db:setProjectSkillOverride', (_, projectId, skillName, rawVisibility) => {
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
-    if (!project) {
-      throw new Error('Project not found');
-    }
-    const visibility = parseSkillOverrideState(rawVisibility);
-    if (!visibility) {
-      throw new Error(`Invalid Skill Override state: ${String(rawVisibility)}`);
-    }
-    return updateProjectSkillOverride(project.path, skillName, visibility).overrides;
   });
 
   typedHandle('db:saveSkill', (_, projectId, skill) => {
