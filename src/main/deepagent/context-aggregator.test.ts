@@ -15,6 +15,7 @@ const {
   getScopePathMock,
   getBuiltInSkillDirsMock,
   resolveAgentSkillConfigOptionsMock,
+  ensureMasterAgentMock,
   storeGetMock,
 } = vi.hoisted(() => {
   const path = require('path');
@@ -27,6 +28,7 @@ const {
     ),
     getBuiltInSkillDirsMock: vi.fn((): string[] => []),
     resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({ options: undefined, warnings: [] })),
+    ensureMasterAgentMock: vi.fn(() => ({ id: 'agent-1', system_prompt: '' })),
     storeGetMock: vi.fn(() => ({})),
   };
 });
@@ -42,6 +44,10 @@ vi.mock('./skill-manager', () => ({
   getBuiltInSkillDirs: getBuiltInSkillDirsMock,
   getBuiltInSkillRegistrations: vi.fn(() => []),
   resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
+}));
+
+vi.mock('../project-agent-service', () => ({
+  ensureMasterAgent: ensureMasterAgentMock,
 }));
 
 vi.mock('./mcp-connector', () => ({
@@ -83,10 +89,44 @@ interface FakeQueryPlan {
 }
 
 function installFakeDb(plan: FakeQueryPlan): void {
+  ensureMasterAgentMock.mockReturnValue({
+    id: String(plan.agentRow?.id ?? 'agent-1'),
+    system_prompt: String(plan.agentRow?.system_prompt ?? ''),
+  });
   // Each .prepare(sql) returns a prepared statement whose .get()/.all() reads
   // are routed by the SQL string. We only need to discriminate the few
   // distinct SELECT patterns the aggregator uses.
   (db.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
+    if (/SELECT project_id, prompt_snapshot FROM sessions/.test(sql)) {
+      return {
+        get: () => ({
+          project_id: String(plan.projectsRow?.project_id ?? 'project-1'),
+          prompt_snapshot: plan.agentRow?.system_prompt ?? null,
+        }),
+        all: () => [],
+      };
+    }
+    if (/SELECT provider_id, config FROM agents WHERE id/.test(sql)) {
+      return {
+        get: () => ({
+          provider_id: plan.agentRow?.provider_id ?? 'provider-1',
+          config: plan.agentRow?.config ?? null,
+        }),
+        all: () => [],
+      };
+    }
+    if (/FROM llm_providers/.test(sql)) {
+      return {
+        get: () => plan.agentRow
+          ? {
+            context_limit: plan.agentRow.context_limit,
+            model_name: plan.agentRow.model_name,
+            provider_name: plan.agentRow.provider_name,
+          }
+          : undefined,
+        all: () => [],
+      };
+    }
     // Provider lookup (08.2 P4 NEW): SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p
     // Must come FIRST because the agent-only SQL also contains "FROM agents a JOIN sessions s".
     //
@@ -111,7 +151,9 @@ function installFakeDb(plan: FakeQueryPlan): void {
     if (/FROM projects p/.test(sql) || (/JOIN projects p/.test(sql) && /JOIN sessions s/.test(sql))) {
       return {
         get: (sessionId: string) => {
-          if (plan.projectsRow !== undefined) return plan.projectsRow;
+          if (plan.projectsRow !== undefined) {
+            return { project_id: 'project-1', ...plan.projectsRow };
+          }
           if (plan.sessionSingle && sessionId in plan.sessionSingle) {
             return plan.sessionSingle[sessionId];
           }

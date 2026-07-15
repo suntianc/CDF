@@ -74,7 +74,7 @@ describe('useConversationWorkspaceModel', () => {
     useLLMStore.setState({ providers: [], activeProvider: null });
   });
 
-  it('uses the active Conversation Agent before the Project Master for the master provider', () => {
+  it('projects a legacy Conversation Agent binding through the Project Master', () => {
     const defaultProvider = provider({ id: 'provider-default', name: 'Default Provider', default_model: 'default-model' });
     const sessionProvider = provider({ id: 'provider-session', name: 'Session Provider', default_model: 'session-model' });
     const defaultAgent = agent({
@@ -112,9 +112,9 @@ describe('useConversationWorkspaceModel', () => {
     const { result } = renderHook(() => useConversationWorkspaceModel());
 
     expect(result.current.workspace.activeSession).toEqual(activeSession);
-    expect(result.current.agent.activeSessionAgent).toEqual(sessionAgent);
+    expect(result.current.agent.activeSessionAgent).toEqual(defaultAgent);
     expect(result.current.agent.defaultAgent).toEqual(defaultAgent);
-    expect(result.current.agent.masterProvider).toEqual(sessionProvider);
+    expect(result.current.agent.masterProvider).toEqual(defaultProvider);
     expect(result.current.workspace.currentProjectRoot).toBe('/tmp/project-one');
   });
 

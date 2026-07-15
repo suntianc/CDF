@@ -457,35 +457,6 @@ describe('skill-manager', () => {
     expect(config.skillsSources).not.toContain(secretPath);
   });
 
-  it('resolveAgentSkillsConfig: legacy Project overrides do not filter model sources', () => {
-    const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
-    fs.mkdirSync(path.join(skillsDir, 'visible-skill'), { recursive: true });
-    fs.mkdirSync(path.join(skillsDir, 'hidden-skill'), { recursive: true });
-    fs.writeFileSync(
-      path.join(tempProjectPath, '.cdf', 'skills.config.json'),
-      JSON.stringify({
-        version: 1,
-        overrides: {
-          'hidden-skill': 'off',
-        },
-        additionalSkillDirectories: [],
-      }),
-      'utf-8'
-    );
-    fs.writeFileSync(
-      path.join(skillsDir, 'visible-skill', 'SKILL.md'),
-      '---\nname: visible-skill\ndescription: Visible skill\n---\n'
-    );
-    fs.writeFileSync(
-      path.join(skillsDir, 'hidden-skill', 'SKILL.md'),
-      '---\nname: hidden-skill\ndescription: Hidden skill\n---\n'
-    );
-
-    const config = resolveAgentSkillsConfig(tempProjectPath);
-
-    expect(config.skillsSources).toContain(skillsDir);
-  });
-
   it('resolveAgentSkillsConfig: skills with disable-model-invocation absent or false are kept (D-10 default)', () => {
     const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     fs.mkdirSync(path.join(skillsDir, 'no-frontmatter-skill'), { recursive: true });

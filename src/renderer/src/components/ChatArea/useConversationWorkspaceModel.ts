@@ -120,18 +120,20 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     return batch.workers.find((worker) => worker.delegatedRunId === viewingParallelWorker.delegatedRunId) ?? null;
   }, [viewingParallelWorker, parallelBatches]);
 
-  const defaultAgent = useMemo(() => (
-    agents.find((agent) => agent.project_id === currentProjectId && agent.slug === 'master-agent') ?? null
+  const masterAgent = useMemo(() => (
+    agents.find((agent) => (
+      agent.project_id === currentProjectId
+      && (agent.role === 'master' || agent.slug === 'master-agent')
+    )) ?? null
   ), [agents, currentProjectId]);
 
-  const activeSessionAgent = useMemo(() => (
-    agents.find((agent) => agent.id === activeSession?.agent_id) ?? defaultAgent
-  ), [activeSession?.agent_id, agents, defaultAgent]);
+  // Historical sessions may retain a legacy Custom Agent id, but every root
+  // Conversation now runs as the protected Project Master.
+  const activeSessionAgent = masterAgent;
 
-  const masterProvider = useMemo(() => {
-    const baseAgent = activeSession ? activeSessionAgent : defaultAgent;
-    return providers.find((provider) => provider.id === baseAgent?.provider_id) ?? null;
-  }, [activeSession, activeSessionAgent, defaultAgent, providers]);
+  const masterProvider = useMemo(() => (
+    providers.find((provider) => provider.id === masterAgent?.provider_id) ?? null
+  ), [masterAgent, providers]);
 
   const hasActiveGoal = Boolean(activeSessionId && goalStatus && activeGoal);
 
@@ -165,7 +167,7 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
     },
     agent: {
       agents,
-      defaultAgent,
+      defaultAgent: masterAgent,
       activeSessionAgent,
       masterProvider,
     },

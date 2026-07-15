@@ -453,35 +453,33 @@ export async function aggregateCurrentSessionContext(
   let projectName: string | undefined;
   let projectPathFromAgent: string | undefined;
   try {
-    // ALWAYS look up the session's agent → active provider to resolve modelName and agentSystemPrompt.
-    const agent = db
-      .prepare(
-        `SELECT a.id, COALESCE(s.prompt_snapshot, a.system_prompt) AS system_prompt, a.provider_id, a.config, p.context_limit,
-                p.default_model AS model_name, p.name AS provider_name
-         FROM agents a
-         JOIN sessions s ON s.agent_id = a.id
-         JOIN llm_providers p ON p.id = a.provider_id AND p.is_active = 1
-         WHERE s.id = ?`
-      )
-      .get(sessionId) as
-      | {
-          id: string;
-          system_prompt: string | null;
-          provider_id: string;
-          config?: string | null;
-          context_limit: number;
-          model_name: string;
-          provider_name: string;
-        }
-      | undefined;
-    if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
-      resolvedLimit = contextLimit;
-    } else if (agent?.context_limit && agent.context_limit > 0) {
-      resolvedLimit = agent.context_limit;
+    const session = db.prepare('SELECT project_id, prompt_snapshot FROM sessions WHERE id = ?')
+      .get(sessionId) as { project_id: string; prompt_snapshot?: string | null } | undefined;
+    if (session) {
+      const master = ensureMasterAgent(db, session.project_id);
+      const masterRow = db.prepare('SELECT provider_id, config FROM agents WHERE id = ?')
+        .get(master.id) as { provider_id?: string | null; config?: string | null } | undefined;
+      const configuredProvider = masterRow?.provider_id
+        ? db.prepare(
+          'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers WHERE id = ? AND is_active = 1',
+        ).get(masterRow.provider_id) as { context_limit?: number; model_name?: string; provider_name?: string } | undefined
+        : undefined;
+      const activeProvider = db.prepare(
+        'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1',
+      ).get() as { context_limit?: number; model_name?: string; provider_name?: string } | undefined;
+      const provider = configuredProvider ?? activeProvider ?? db.prepare(
+        'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers ORDER BY updated_at DESC LIMIT 1',
+      ).get() as { context_limit?: number; model_name?: string; provider_name?: string } | undefined;
+
+      if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
+        resolvedLimit = contextLimit;
+      } else if (provider?.context_limit && provider.context_limit > 0) {
+        resolvedLimit = provider.context_limit;
+      }
+      modelName = overriddenModelName || provider?.model_name || '';
+      agentIdForContext = master.id;
+      agentSystemPrompt = session.prompt_snapshot ?? master.system_prompt ?? null;
     }
-    modelName = overriddenModelName || agent?.model_name || '';
-    agentIdForContext = agent?.id;
-    agentSystemPrompt = agent?.system_prompt ?? null;
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
     if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
@@ -585,17 +583,9 @@ export async function aggregateCurrentSessionContext(
   let mcpPerTool: MCPToolDetail[] = [];
   let connectedServers: MCPServer[] = [];
   try {
-    const agent = db
-      .prepare(
-        `SELECT a.id FROM agents a
-         JOIN sessions s ON s.agent_id = a.id
-         WHERE s.id = ?`
-      )
-      .get(sessionId) as { id: string } | undefined;
-
-    if (agent?.id) {
-      connectedServers = getAgentMcpServers(agent.id);
-      const result = await loadMcpTools(agent.id, connectedServers, getConnectedMcpServers());
+    if (agentIdForContext) {
+      connectedServers = getAgentMcpServers(agentIdForContext);
+      const result = await loadMcpTools(agentIdForContext, connectedServers, getConnectedMcpServers());
       let mcpChars = 0;
       for (const tool of result.tools) {
         const t = tool as { name?: string; schema?: unknown; inputSchema?: unknown };
