@@ -9,7 +9,7 @@ import type {
   SkillOverrideState,
   SkillVisibilitySource,
 } from '../../../shared/skill-overrides';
-import { parseSkillOverrideRecord, resolveSkillVisibility } from './skill-visibility';
+import { resolveSkillVisibility } from './skill-visibility';
 
 export interface ProjectSkillConfig {
   version: 1;
@@ -94,10 +94,6 @@ export interface SkillCatalogOptions {
   includeNestedProjectSkills?: boolean;
 }
 
-function classifyGlobalSource(sourceKind: SkillSourceKind): boolean {
-  return sourceKind === 'built-in' || sourceKind === 'user';
-}
-
 const DEFAULT_PROJECT_SKILL_CONFIG: ProjectSkillConfig = {
   version: 1,
   overrides: {},
@@ -176,15 +172,6 @@ function readProjectSkillConfig(projectPath: string): {
           warnings.push(`Ignored non-string additionalSkillDirectories entry: ${String(entry)}`);
         }
       }
-    }
-    if (
-      rawConfig.overrides &&
-      typeof rawConfig.overrides === 'object' &&
-      !Array.isArray(rawConfig.overrides)
-    ) {
-      const parsedOverrides = parseSkillOverrideRecord(rawConfig.overrides);
-      config.overrides = parsedOverrides.overrides;
-      warnings.push(...parsedOverrides.warnings);
     }
   }
 
@@ -438,16 +425,6 @@ export function resolveSkillCatalog(
         disableModelInvocation: parsed.metadata.disableModelInvocation,
         userInvocable: parsed.metadata.userInvocable,
       },
-      // Scene exposure replaces legacy Override policy for Global Skills. Keep
-      // old override records readable for the migration tickets, but never let
-      // a stale hidden state erase a Global catalog entry before Scene policy.
-      overrides: classifyGlobalSource(source.kind)
-        ? undefined
-        : {
-          user: options.userOverrides,
-          project: plan.config.overrides,
-          agent: options.agentOverrides,
-        },
     });
     const mergeKey = source.qualifier ? qualifiedName : parsed.metadata.name;
     const existing = merged.get(mergeKey);

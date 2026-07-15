@@ -440,27 +440,18 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     expect(result.warnings).toContain('Skill not found: missing-skill');
   });
 
-  it('passes override options from agent config to buildCdfSkillsRuntime', async () => {
+  it('ignores legacy Agent Skill Overrides while retaining preload emphasis', async () => {
     const config = JSON.stringify({ skillOverrides: { 'my-skill': 'off' } });
-    storeGetMock.mockReturnValue({});
-    buildCdfSkillsRuntimeMock.mockReturnValue({
-      skills: [],
-      prompt: '',
-      warnings: [],
-    });
+    buildCdfSkillsRuntimeMock.mockReturnValue({ skills: [], prompt: '', warnings: [] });
 
-    const result = buildCdfSkillsRuntimeAssembly(
-      projectPath,
-      ['project:my-skill'],
-      config,
-      [],
-    );
-    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(
-      projectPath,
-      expect.objectContaining({
-        preloadSkillNames: ['my-skill'],
-      }),
-    );
+    const result = buildCdfSkillsRuntimeAssembly(projectPath, ['project:my-skill'], config, []);
+
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(projectPath, expect.objectContaining({
+      preloadSkillNames: ['my-skill'],
+    }));
+    const runtimeOptions = buildCdfSkillsRuntimeMock.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(runtimeOptions).not.toHaveProperty('userOverrides');
+    expect(runtimeOptions).not.toHaveProperty('agentOverrides');
     expect(result.warnings).toEqual([]);
   });
 });

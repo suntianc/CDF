@@ -16,14 +16,14 @@
 import fs from 'fs';
 import path from 'path';
 import db from '../database';
-import store from '../store';
-import { getBuiltInSkillDirs, getScopePath, resolveAgentSkillConfigOptions } from './skill-manager';
+import { getBuiltInSkillDirs, getScopePath } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
 import { getAgentMcpServers, getConnectedMcpServers } from './shared-infra';
 import type { MCPServer } from '../../shared/types';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
+import { captureConversationSystemContextSnapshot, getConversationSkillSnapshot } from '../conversation-system-context-snapshot';
 
 export interface MCPToolDetail {
   tool: string;
@@ -451,7 +451,6 @@ export async function aggregateCurrentSessionContext(
   let resolvedLimit = DEFAULT_CONTEXT_LIMIT;
   let modelName = '';
   let agentIdForContext: string | undefined;
-  let agentConfigForContext: string | null | undefined;
   let agentSystemPrompt: string | null = null;
   let projectName: string | undefined;
   let projectPathFromAgent: string | undefined;
@@ -484,7 +483,6 @@ export async function aggregateCurrentSessionContext(
     }
     modelName = overriddenModelName || agent?.model_name || '';
     agentIdForContext = agent?.id;
-    agentConfigForContext = agent?.config;
     agentSystemPrompt = agent?.system_prompt ?? null;
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
@@ -533,11 +531,11 @@ export async function aggregateCurrentSessionContext(
   try {
     const project = db
       .prepare(
-        `SELECT p.path FROM projects p
+        `SELECT p.path, p.scene FROM projects p
          JOIN sessions s ON s.project_id = p.id
          WHERE s.id = ?`
       )
-      .get(sessionId) as { path: string } | undefined;
+      .get(sessionId) as { path: string; scene?: 'general' | 'research' } | undefined;
 
     if (project?.path) {
       projectPath = project.path;
@@ -548,12 +546,14 @@ export async function aggregateCurrentSessionContext(
           .all(agentIdForContext) as Array<{ skill_name: string }>;
         preloadSkillNames = skillReferencesToPreloadNames(rows.map((row) => row.skill_name));
       }
-      const skillOverrideOptions = resolveAgentSkillConfigOptions(agentConfigForContext, (key) => store.get(key));
-      for (const warning of skillOverrideOptions.warnings) {
-        console.warn('[context-aggregator] Ignored invalid Skill override:', warning);
-      }
+      const skillSnapshot = getConversationSkillSnapshot(db, sessionId)
+        ?? captureConversationSystemContextSnapshot({
+          projectPath,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: '',
+        }).skillSnapshot;
       const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
-        ...skillOverrideOptions.options,
+        catalog: skillSnapshot as ResolvedSkillCatalogEntry[],
         builtInSkillDirs: getBuiltInSkillDirs(),
         userSkillsDir: getScopePath(projectPath, 'global'),
         preloadSkillNames,

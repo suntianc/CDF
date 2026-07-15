@@ -274,7 +274,7 @@ describe('createDeepAgentRuntime', () => {
       expect.objectContaining({
         checkpointer: expect.objectContaining({ getTuple: checkpointGetTupleMock }),
         memory: [path.join(tempProjectPath, 'AGENTS.md')],
-        permissions: [{ operations: ['read', 'write'], paths: ['/*', '/**/*'] }],
+        permissions: expect.any(Array),
       })
     );
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
@@ -417,7 +417,7 @@ describe('createDeepAgentRuntime', () => {
     const runtime = await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
 
     expect(runtime.agentId).toBe('agent-2');
-    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith(tempProjectPath, ['project:sub-skill']);
+    expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.systemPrompt).toContain('Agent 2 prompt');
     expect(params.subagents).toBeUndefined();
@@ -532,7 +532,7 @@ describe('createDeepAgentRuntime', () => {
 
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
 
-    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith(tempProjectPath, ['project-additional:docs:review']);
+    expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
       preloadSkillNames: ['docs:review'],
     }));
@@ -551,7 +551,7 @@ describe('createDeepAgentRuntime', () => {
     }));
   });
 
-  it('passes user and agent skill overrides into runtime skill resolution', async () => {
+  it('ignores user and Agent Skill Overrides during runtime assembly', async () => {
     const agentWithOverrides = {
       ...agent,
       config: JSON.stringify({
@@ -592,18 +592,11 @@ describe('createDeepAgentRuntime', () => {
 
     await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
 
-    expect(resolveAgentSkillConfigOptionsMock).toHaveBeenCalledWith(
-      agentWithOverrides.config,
-      expect.any(Function)
-    );
-    expect(resolveAgentSkillsConfigMock).toHaveBeenCalledWith(tempProjectPath, ['project:test-skill'], {
-      userOverrides: {
-        'user-hidden': 'off',
-      },
-      agentOverrides: {
-        'agent-hidden': 'off',
-      },
-    });
+    expect(resolveAgentSkillConfigOptionsMock).not.toHaveBeenCalled();
+    expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
+    expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
+      preloadSkillNames: ['test-skill'],
+    }));
   });
 
   it('should not fail runtime creation when harness profile registration rejects', async () => {

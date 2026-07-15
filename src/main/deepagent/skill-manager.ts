@@ -270,14 +270,7 @@ function parseFrontmatter(filePath: string): ParsedFrontmatter & { name?: string
   };
 }
 
-function isSkillHiddenFromModel(
-  skillDir: string,
-  overrides: {
-    project?: Record<string, SkillOverrideState>;
-    user?: Record<string, SkillOverrideState>;
-    agent?: Record<string, SkillOverrideState>;
-  } = {}
-): boolean {
+function isSkillHiddenFromModel(skillDir: string): boolean {
   const parsed = parseSkillMetadata(skillDir);
   if (!parsed.metadata) return false;
   const visibility = resolveSkillVisibility({
@@ -286,7 +279,6 @@ function isSkillHiddenFromModel(
       disableModelInvocation: parsed.metadata.disableModelInvocation,
       userInvocable: parsed.metadata.userInvocable,
     },
-    overrides,
   });
   return visibility.modelDiscovery === 'hidden';
 }
@@ -540,10 +532,7 @@ export function listResolvedSkillViews(
       : options.userSkillsDir,
     enterpriseSkillDirs: options.enterpriseSkillDirs,
   });
-  const catalog = resolveSkillCatalog(plan, {
-    userOverrides: options.userOverrides,
-    agentOverrides: options.agentOverrides,
-  });
+  const catalog = resolveSkillCatalog(plan);
 
   return catalog.skills.map(buildResolvedSkillView);
 }
@@ -627,12 +616,6 @@ export function resolveAgentSkillsConfig(
     userSkillsDir: globalSkillsDir,
   });
   const sources = sourcePlan.sources.map((source) => source.path);
-  const visibilityOverrides = {
-    user: options.userOverrides,
-    project: sourcePlan.config.overrides,
-    agent: options.agentOverrides,
-  };
-
   // 08.2 P4 D-09 disable-model-invocation enforcement: filter the LLM-visible
   // sources so deepagents never sees a skill marked disable-model-invocation: true.
   // We rewrite the per-skill entries to either keep the parent dir (when no skill
@@ -652,7 +635,7 @@ export function resolveAgentSkillsConfig(
     // dir never has disabled siblings to filter, so just push it.
     const hasSkillMd = fs.existsSync(path.join(src, 'SKILL.md'));
     if (hasSkillMd) {
-      if (!isSkillHiddenFromModel(src, visibilityOverrides)) {
+      if (!isSkillHiddenFromModel(src)) {
         filtered.push(src);
       }
       continue;
@@ -663,7 +646,7 @@ export function resolveAgentSkillsConfig(
     for (const entry of fs.readdirSync(src)) {
       const entryPath = path.join(src, entry);
       if (!fs.statSync(entryPath).isDirectory()) continue;
-      if (isSkillHiddenFromModel(entryPath, visibilityOverrides)) {
+      if (isSkillHiddenFromModel(entryPath)) {
         allKept = false;
         continue;
       }

@@ -40,6 +40,7 @@ vi.mock('../database', () => ({
 vi.mock('./skill-manager', () => ({
   getScopePath: getScopePathMock,
   getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  getBuiltInSkillRegistrations: vi.fn(() => []),
   resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
 }));
 
@@ -332,7 +333,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(malformedRow).toBeUndefined();
   });
 
-  it('accounts Skill visibility states and preloaded full instructions from the resolved catalog', async () => {
+  it('uses the Conversation Skill Snapshot without legacy Project override visibility', async () => {
     const writeSkill = (name: string, description: string, body = '') => {
       const skillDir = path.join(tempProjectPath, '.cdf', 'skills', name);
       fs.mkdirSync(skillDir, { recursive: true });
@@ -371,9 +372,9 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     const byName = new Map(result.breakdown.skillsPerSkill.map((row) => [row.name, row]));
 
     expect(byName.get('visible-skill')).toMatchObject({ visibility: 'on', preloaded: false });
-    expect(byName.get('name-skill')).toMatchObject({ visibility: 'name-only', preloaded: false });
-    expect(byName.get('manual-skill')).toBeUndefined();
-    expect(byName.get('off-skill')).toBeUndefined();
+    expect(byName.get('name-skill')).toMatchObject({ visibility: 'on', preloaded: false });
+    expect(byName.get('manual-skill')).toMatchObject({ visibility: 'on', preloaded: false });
+    expect(byName.get('off-skill')).toMatchObject({ visibility: 'on', preloaded: false });
     expect(byName.get('preloaded-skill')).toMatchObject({ visibility: 'on', preloaded: true });
     expect(byName.get('preloaded-skill')!.tokens).toBeGreaterThan(byName.get('visible-skill')!.tokens);
   });

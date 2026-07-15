@@ -486,7 +486,7 @@ describe('skill-manager', () => {
     expect(config.skillsSources).not.toContain(secretPath);
   });
 
-  it('resolveAgentSkillsConfig: project override off filters a skill from model sources', () => {
+  it('resolveAgentSkillsConfig: legacy Project overrides do not filter model sources', () => {
     const skillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     fs.mkdirSync(path.join(skillsDir, 'visible-skill'), { recursive: true });
     fs.mkdirSync(path.join(skillsDir, 'hidden-skill'), { recursive: true });
@@ -512,12 +512,10 @@ describe('skill-manager', () => {
 
     const config = resolveAgentSkillsConfig(tempProjectPath);
 
-    expect(config.skillsSources).toContain(path.join(skillsDir, 'visible-skill'));
-    expect(config.skillsSources).not.toContain(path.join(skillsDir, 'hidden-skill'));
-    expect(config.skillsSources).not.toContain(skillsDir);
+    expect(config.skillsSources).toContain(skillsDir);
   });
 
-  it('resolveAgentSkillsConfig: user override off filters a global skill from model sources', () => {
+  it('resolveAgentSkillsConfig: legacy user overrides do not filter model sources', () => {
     const globalSkillsDir = getScopePath(tempProjectPath, 'global');
     fs.mkdirSync(path.join(globalSkillsDir, 'global-visible'), { recursive: true });
     fs.mkdirSync(path.join(globalSkillsDir, 'global-hidden'), { recursive: true });
@@ -536,9 +534,7 @@ describe('skill-manager', () => {
       },
     });
 
-    expect(config.skillsSources).toContain(path.join(globalSkillsDir, 'global-visible'));
-    expect(config.skillsSources).not.toContain(path.join(globalSkillsDir, 'global-hidden'));
-    expect(config.skillsSources).not.toContain(globalSkillsDir);
+    expect(config.skillsSources).toContain(globalSkillsDir);
   });
 
   it('resolveAgentSkillsConfig: skills with disable-model-invocation absent or false are kept (D-10 default)', () => {

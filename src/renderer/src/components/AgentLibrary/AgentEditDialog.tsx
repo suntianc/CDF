@@ -5,7 +5,6 @@ import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { SKILL_OVERRIDE_STATES, type SkillOverrideState } from '../../../../shared/skill-overrides';
 import {
   AGENT_BUILT_IN_TOOL_NAMES,
   type AgentToolScopeConfig,
@@ -20,21 +19,6 @@ interface AgentEditDialogProps {
   onClose: () => void;
   agentId: string | null; // Null means create, non-null means edit
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
-}
-
-function isSkillOverrideState(value: unknown): value is SkillOverrideState {
-  return typeof value === 'string' && (SKILL_OVERRIDE_STATES as readonly string[]).includes(value);
-}
-
-function readSkillOverridesFromConfig(config?: Record<string, unknown>): Record<string, SkillOverrideState> {
-  const raw = config?.skillOverrides;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-
-  const overrides: Record<string, SkillOverrideState> = {};
-  for (const [skillName, state] of Object.entries(raw)) {
-    if (isSkillOverrideState(state)) overrides[skillName] = state;
-  }
-  return overrides;
 }
 
 function readToolScopeFromConfig(config?: Record<string, unknown>): AgentToolScopeConfig {
@@ -73,7 +57,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const [formSystemPrompt, setFormSystemPrompt] = useState('');
   const [formMcpExclusionIds, setFormMcpExclusionIds] = useState<string[]>([]);
   const [formSkillIds, setFormSkillIds] = useState<string[]>([]);
-  const [formSkillOverrides, setFormSkillOverrides] = useState<Record<string, SkillOverrideState>>({});
   const [formToolScopeMode, setFormToolScopeMode] = useState<AgentToolScopeConfig['mode']>('inherit');
   const [formBuiltInTools, setFormBuiltInTools] = useState<string[]>([]);
   const [formToolScopeMcpServerIds, setFormToolScopeMcpServerIds] = useState<string[]>([]);
@@ -120,7 +103,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         setFormSystemPrompt(agent.system_prompt || '');
         setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
         setFormSkillIds(agent.skillNames || []);
-        setFormSkillOverrides(readSkillOverridesFromConfig(agent.config));
         const toolScope = readToolScopeFromConfig(agent.config);
         setFormToolScopeMode(toolScope.mode);
         setFormBuiltInTools(toolScope.builtInTools ?? []);
@@ -135,7 +117,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       setFormSystemPrompt('');
       setFormMcpExclusionIds([]);
       setFormSkillIds([]);
-      setFormSkillOverrides({});
       setFormToolScopeMode('inherit');
       setFormBuiltInTools([]);
       setFormToolScopeMcpServerIds([]);
@@ -182,7 +163,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       ...(existingAgent?.config ?? {}),
       permissionsPreset: 'project-safe',
       approvalPreset: 'write-operations',
-      skillOverrides: formSkillOverrides,
       toolScope: formToolScopeMode === 'narrow'
         ? {
             mode: 'narrow',
@@ -226,15 +206,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     setFormSkillIds(prev =>
       prev.includes(skillId) ? prev.filter(id => id !== skillId) : [...prev, skillId]
     );
-  };
-
-  const setSkillOverride = (skillName: string, state: SkillOverrideState) => {
-    setFormSkillOverrides(prev => {
-      return {
-        ...prev,
-        [skillName]: state,
-      };
-    });
   };
 
   const toggleBuiltInTool = (toolName: string) => {
@@ -719,65 +690,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                         <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noSkillMatch')}</div>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
-                <ShieldCheck className="w-4 h-4 text-[var(--color-accent)]" />
-                {t('agent.skillOverrideLabel')}
-              </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-                {t('agent.skillOverrideDesc')}
-              </p>
-              <div className="mt-3 space-y-2">
-                {skills.map(sk => {
-                  const displayName = getSkillDisplayName(sk);
-                  const sourceLabel = getSkillSourceLabel(sk);
-                  const currentOverride = formSkillOverrides[displayName] ?? 'on';
-                  return (
-                    <div
-                      key={sk.id}
-                      className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)]/50 bg-[var(--color-bg-app)]/40 px-2.5 py-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-[var(--color-text-primary)]">{displayName}</div>
-                        <div className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                          {sourceLabel}
-                        </div>
-                      </div>
-                      <div
-                        role="group"
-                        aria-label={t('agent.skillOverrideControlLabel', { name: displayName })}
-                        className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px]"
-                      >
-                        {SKILL_OVERRIDE_STATES.map(state => {
-                          const selected = currentOverride === state;
-                          return (
-                            <button
-                              key={state}
-                              type="button"
-                              aria-pressed={selected}
-                              onClick={() => setSkillOverride(displayName, state)}
-                              className={`px-2 py-1 transition-colors ${
-                                selected
-                                  ? 'bg-[var(--color-accent)] text-white'
-                                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                              }`}
-                            >
-                              {t(`agent.skillOverrideState.${state}`)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-                {skills.length === 0 && (
-                  <div className="rounded-md border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-xs italic text-[var(--color-text-muted)]">
-                    {t('agent.noSkillOverrideCandidates')}
                   </div>
                 )}
               </div>

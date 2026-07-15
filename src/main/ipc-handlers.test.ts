@@ -26,6 +26,7 @@ const {
   deleteProjectMock,
   compactWorkingStateMock,
   getWorkingStateStorageStatusMock,
+  captureConversationSystemContextSnapshotMock,
 } = vi.hoisted(() => ({
   ipcHandleMock: vi.fn(),
   runLLMChatMock: vi.fn(),
@@ -53,6 +54,10 @@ const {
   deleteProjectMock: vi.fn(),
   compactWorkingStateMock: vi.fn(),
   getWorkingStateStorageStatusMock: vi.fn(),
+  captureConversationSystemContextSnapshotMock: vi.fn(() => ({
+    promptSnapshot: 'Captured Master prompt',
+    skillSnapshot: listResolvedSkillViewsMock(),
+  })),
 }));
 
 vi.mock('electron', () => ({
@@ -146,6 +151,11 @@ vi.mock('./deepagent/mcp-connector', () => ({
   createMcpClient: vi.fn(),
 }));
 
+vi.mock('./conversation-system-context-snapshot', () => ({
+  captureConversationSystemContextSnapshot: captureConversationSystemContextSnapshotMock,
+  getConversationSkillSnapshot: vi.fn(() => null),
+}));
+
 vi.mock('./scene-presets', () => ({
   initializeScenePreset: initializeScenePresetMock,
 }));
@@ -163,6 +173,7 @@ describe('IPC handlers', () => {
     ensureProjectWatcherMock.mockClear();
     resolveAgentSkillConfigOptionsMock.mockReturnValue({ options: undefined, warnings: [] });
     listResolvedSkillViewsMock.mockReturnValue([]);
+    captureConversationSystemContextSnapshotMock.mockClear();
     savePhysicalSkillMock.mockReset();
     importPhysicalSkillDirectoryMock.mockReset();
     initializeScenePresetMock.mockReset();
@@ -760,7 +771,7 @@ describe('IPC handlers', () => {
     );
     listResolvedSkillViewsMock.mockReturnValue([{ skillPath, userInvocable: true }]);
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => sql.includes('FROM projects') ? { path: tempProjectPath } : null),
+      get: vi.fn(() => sql.includes('FROM projects') ? { path: tempProjectPath, scene: 'general' } : null),
       all: vi.fn(() => []),
       run: vi.fn(),
     }));
@@ -776,7 +787,11 @@ describe('IPC handlers', () => {
         body: '# Review\n\nUse the review checklist.',
         mtimeMs: expect.any(Number),
       });
-      expect(listResolvedSkillViewsMock).toHaveBeenCalledWith(tempProjectPath, {});
+      expect(captureConversationSystemContextSnapshotMock).toHaveBeenCalledWith({
+        projectPath: tempProjectPath,
+        sceneId: 'general',
+        promptSnapshot: '',
+      });
     } finally {
       fs.rmSync(tempProjectPath, { recursive: true, force: true });
     }
@@ -803,7 +818,7 @@ describe('IPC handlers', () => {
     );
     listResolvedSkillViewsMock.mockReturnValue([{ skillPath, userInvocable: false }]);
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn(() => sql.includes('FROM projects') ? { path: tempProjectPath } : null),
+      get: vi.fn(() => sql.includes('FROM projects') ? { path: tempProjectPath, scene: 'general' } : null),
       all: vi.fn(() => []),
       run: vi.fn(),
     }));
@@ -821,55 +836,25 @@ describe('IPC handlers', () => {
     }
   });
 
-  it('passes User and Agent Skill Overrides into commands:list', async () => {
-    const agentConfig = JSON.stringify({
-      skillOverrides: {
-        'docs:review': 'user-invocable-only',
-      },
-    });
-    storeGetMock.mockImplementation((key?: string) =>
-      key === 'skillOverrides' ? { review: 'off' } : undefined
-    );
-    resolveAgentSkillConfigOptionsMock.mockReturnValueOnce({
-      options: {
-        userOverrides: {
-          review: 'off',
-        },
-        agentOverrides: {
-          'docs:review': 'user-invocable-only',
-        },
-      },
-      warnings: [],
-    });
+  it('uses the Scene Skill Set for commands:list without resolving legacy Overrides', async () => {
+    const sceneSkillSet = [{ name: 'review', userInvocable: true }];
+    captureConversationSystemContextSnapshotMock.mockReturnValueOnce({ skillSnapshot: sceneSkillSet });
     dbPrepareMock.mockImplementation((sql: string) => ({
-      get: vi.fn((...args: unknown[]) => {
-        if (sql.includes('SELECT path FROM projects')) return { path: '/tmp/project' };
-        if (sql.includes('SELECT config FROM agents')) {
-          expect(args).toEqual(['agent-1', 'project-1']);
-          return {
-            config: agentConfig,
-          };
-        }
-        return null;
-      }),
+      get: vi.fn(() => sql.includes('FROM projects') ? { path: '/tmp/project', scene: 'research' } : null),
       all: vi.fn(() => []),
       run: vi.fn(),
     }));
 
     registerIpcHandlers();
     const listCommandsHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'commands:list')?.[1];
-    expect(listCommandsHandler).toBeTypeOf('function');
-
     await listCommandsHandler({}, 'project-1', 'agent-1');
 
-    expect(resolveAgentSkillConfigOptionsMock).toHaveBeenCalledWith(agentConfig, expect.any(Function));
-    expect(collectAllCommandsMock).toHaveBeenCalledWith('/tmp/project', 'agent-1', {
-      userOverrides: {
-        review: 'off',
-      },
-      agentOverrides: {
-        'docs:review': 'user-invocable-only',
-      },
+    expect(resolveAgentSkillConfigOptionsMock).not.toHaveBeenCalled();
+    expect(captureConversationSystemContextSnapshotMock).toHaveBeenCalledWith({
+      projectPath: '/tmp/project',
+      sceneId: 'research',
+      promptSnapshot: '',
     });
+    expect(collectAllCommandsMock).toHaveBeenCalledWith('/tmp/project', 'agent-1', {}, sceneSkillSet);
   });
 });

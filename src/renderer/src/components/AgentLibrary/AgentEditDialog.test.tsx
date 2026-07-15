@@ -145,123 +145,53 @@ describe('AgentEditDialog', () => {
     expect(container.textContent).toContain('Excluded');
   });
 
-  it('uses resolved qualified names and source labels for preload and override controls', () => {
+  it('uses resolved qualified names and source labels for Project Skill preload only', () => {
     const saveAgent = vi.fn(async () => {});
     useAgentStore.setState({ saveAgent });
     useSkillStore.setState({
-      skills: [
-        {
-          id: 'project-additional:docs:review',
-          name: 'review',
-          qualifiedName: 'docs:review',
-          description: 'Docs review workflow',
-          scope: 'project',
-          sourceKind: 'project-additional',
-          sourceLabel: 'Project Skill: docs',
-          resourceFiles: [],
-          created_at: 0,
-          updated_at: 0,
-        },
-      ],
+      skills: [{
+        id: 'project-additional:docs:review',
+        name: 'review',
+        qualifiedName: 'docs:review',
+        description: 'Docs review workflow',
+        scope: 'project',
+        sourceKind: 'project-additional',
+        sourceLabel: 'Project Skill: docs',
+        resourceFiles: [],
+        created_at: 0,
+        updated_at: 0,
+      }],
       isLoading: false,
       error: null,
     });
 
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
       target: { value: 'Docs Review Agent' },
     });
     fireEvent.click(screen.getByText('Manage Skill preload'));
-
     const preloadCandidate = screen.getByRole('button', { name: /preload docs:review/i });
-    expect(preloadCandidate.textContent).toContain('docs:review');
     expect(preloadCandidate.textContent).toContain('Project Skill: docs');
     fireEvent.click(preloadCandidate);
-
-    const overrideGroup = screen.getByRole('group', { name: /docs:review visibility override/i });
-    expect(overrideGroup.parentElement?.textContent).toContain('docs:review');
-    expect(overrideGroup.parentElement?.textContent).toContain('Project Skill: docs');
-    fireEvent.click(screen.getByText('Off'));
     fireEvent.click(screen.getByText('Save'));
 
     expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Docs Review Agent',
       skillNames: ['project-additional:docs:review'],
-      config: expect.objectContaining({
-        skillOverrides: {
-          'docs:review': 'off',
-        },
-      }),
+      config: expect.not.objectContaining({ skillOverrides: expect.anything() }),
     }));
   });
 
-  it('persists Agent Skill Override state separately from preload choices', () => {
-    const saveAgent = vi.fn(async () => {});
-    useAgentStore.setState({ saveAgent });
+  it('removes all Skill Override controls and explanatory copy', () => {
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
 
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
-      target: { value: 'Review Agent' },
-    });
-    fireEvent.click(screen.getByText('On'));
-    fireEvent.click(screen.getByText('Off'));
-    fireEvent.click(screen.getByText('Save'));
-
-    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Review Agent',
-      skillNames: [],
-      config: expect.objectContaining({
-        skillOverrides: {
-          review: 'off',
-        },
-      }),
-    }));
-  });
-
-  it('persists Agent Skill Override on as an explicit winning state', () => {
-    const saveAgent = vi.fn(async () => {});
-    useAgentStore.setState({ saveAgent });
-
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
-      target: { value: 'Review Agent' },
-    });
-    fireEvent.click(screen.getByText('Off'));
-    fireEvent.click(screen.getByText('On'));
-    fireEvent.click(screen.getByText('Save'));
-
-    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Review Agent',
-      config: expect.objectContaining({
-        skillOverrides: {
-          review: 'on',
-        },
-      }),
-    }));
+    expect(screen.queryByText(/Agent Skill Overrides/i)).toBeNull();
+    expect(screen.queryByText(/visibility override/i)).toBeNull();
+    expect(screen.queryByText('On')).toBeNull();
+    expect(screen.queryByText('Name only')).toBeNull();
+    expect(screen.queryByText('User only')).toBeNull();
+    expect(screen.queryByText('Off')).toBeNull();
   });
 
   it('lets Master edit and reset only the complete prompt, with changes scoped to new Conversations', () => {

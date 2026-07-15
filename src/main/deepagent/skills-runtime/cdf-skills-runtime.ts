@@ -109,8 +109,6 @@ export function buildCdfSkillsRuntime(
     : (() => {
       const plan = resolveSkillSourcePlan(projectPath, options);
       return resolveSkillCatalog(plan, {
-        userOverrides: options.userOverrides,
-        agentOverrides: options.agentOverrides,
         includeSkill: (source, name) => !isGlobalSkillSourceKind(source.kind)
           || options.isGlobalSkillExposed?.({ sourceKind: source.kind, name }) !== false,
         pathContext: options.pathContext,

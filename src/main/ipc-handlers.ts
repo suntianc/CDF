@@ -21,7 +21,6 @@ import { ensureFileWatcher, watchDirectory, unwatchDirectory } from './services/
 import {
   listPhysicalSkills,
   listResolvedSkillViews,
-  resolveAgentSkillConfigOptions,
   savePhysicalSkill,
   deletePhysicalSkill,
   importPhysicalSkillDirectory,
@@ -33,7 +32,6 @@ import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/sk
 import { isRegisteredSceneId } from '../shared/scenes';
 import { createSceneSkillExposureService } from './scene-skill-exposure';
 import { normalizeWorkflowStages, validateWorkflowStages } from '../shared/workflow-routing';
-import { readUserSkillOverrides } from './deepagent/skills-runtime/skill-visibility';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
 import type {
   AgentRun,
@@ -846,11 +844,8 @@ export function registerIpcHandlers() {
     if (!project) {
       return [];
     }
-    const userOverrides = readUserSkillOverrides((key) => store.get(key));
     // 主进程内部视图类型（PhysicalSkillView）宽于共享 Skill（string vs 字面量联合）
-    return listResolvedSkillViews(project.path, {
-      userOverrides: userOverrides.overrides,
-    }) as Skill[];
+    return listResolvedSkillViews(project.path) as Skill[];
   });
 
   typedHandle('db:getProjectSkillOverrides', (_, projectId) => {
@@ -1308,29 +1303,23 @@ export function registerIpcHandlers() {
   // ===== Phase 6 Plan 02: Slash Command Registry IPC (D-15 O(1) memory read) =====
   typedHandle('commands:list', async (_evt, projectId, agentId, sessionId) => {
     try {
-      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as { path: string; scene?: ProjectScene } | undefined;
       if (!project) {
         return { commands: [], conflicts: [], warnings: [] };
       }
       // Lazily start project-scoped chokidar watcher on first call.
       ensureProjectWatcher(project.path);
-      const agent = agentId
-        ? db.prepare('SELECT config FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as { config?: string | null } | undefined
-        : undefined;
-      const skillOverrideOptions = resolveAgentSkillConfigOptions(agent?.config, (key) => store.get(key));
-      for (const warning of skillOverrideOptions.warnings) {
-        console.warn('[commands:list] Ignored invalid Skill override:', warning);
-      }
-      const skillSnapshot = sessionId
-        ? getConversationSkillSnapshot(db, sessionId)
-        : null;
       if (sessionId) {
         const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
         if (session?.project_id !== projectId) return { commands: [], conflicts: [], warnings: [] };
       }
-      return skillSnapshot
-        ? await collectAllCommands(project.path, agentId, skillOverrideOptions.options ?? {}, skillSnapshot)
-        : await collectAllCommands(project.path, agentId, skillOverrideOptions.options ?? {});
+      const skillSnapshot = (sessionId ? getConversationSkillSnapshot(db, sessionId) : null)
+        ?? captureConversationSystemContextSnapshot({
+          projectPath: project.path,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: '',
+        }).skillSnapshot;
+      return collectAllCommands(project.path, agentId, {}, skillSnapshot);
     } catch (err) {
       console.error('[commands:list] failed:', err);
       return { commands: [], conflicts: [], warnings: [] };
@@ -1414,7 +1403,7 @@ export function registerIpcHandlers() {
         return { body: '', mtimeMs: 0 };
       }
 
-      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as { path: string; scene?: ProjectScene } | undefined;
       if (!project?.path) {
         return { body: '', mtimeMs: 0 };
       }
@@ -1430,14 +1419,11 @@ export function registerIpcHandlers() {
       }
 
       const realResolved = fs.realpathSync(resolved);
-      const agent = agentId
-        ? db.prepare('SELECT config FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as { config?: string | null } | undefined
-        : undefined;
-      const skillOverrideOptions = resolveAgentSkillConfigOptions(agent?.config, (key) => store.get(key));
-      for (const warning of skillOverrideOptions.warnings) {
-        console.warn('[commands:readSkillBody] Ignored invalid Skill override:', warning);
-      }
-      const authorizedSkills = skillSnapshot ?? listResolvedSkillViews(project.path, skillOverrideOptions.options ?? {});
+      const authorizedSkills = skillSnapshot ?? captureConversationSystemContextSnapshot({
+        projectPath: project.path,
+        sceneId: project.scene ?? 'general',
+        promptSnapshot: '',
+      }).skillSnapshot;
       const isResolvedSkillPath = authorizedSkills.some((skill) => {
         if (skill.userInvocable !== true || !skill.skillPath) return false;
         try {

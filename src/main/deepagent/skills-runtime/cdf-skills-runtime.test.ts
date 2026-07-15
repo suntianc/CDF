@@ -34,26 +34,23 @@ describe('buildCdfSkillsRuntime', () => {
 
   it('builds a CDF-owned skills prompt from resolved catalog metadata', () => {
     const runtime = buildCdfSkillsRuntime(tempProjectPath, {
-      agentOverrides: {
-        'secret-review': 'name-only',
-      },
       preloadSkillNames: ['secret-review'],
     });
 
     expect(runtime.skills).toHaveLength(1);
     expect(runtime.prompt).toContain('secret-review');
-    expect(runtime.prompt).toContain('name-only');
-    expect(runtime.prompt).not.toContain('Sensitive trigger text');
-    expect(runtime.prompt).not.toContain('Full secret review instructions');
-    expect(runtime.attributions).toEqual([
+    expect(runtime.prompt).toContain('Sensitive trigger text');
+    expect(runtime.prompt).toContain('Full secret review instructions');
+    expect(runtime.attributions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         phase: 'model-discovery',
         name: 'secret-review',
         qualifiedName: 'secret-review',
         sourceLabel: 'Project Skill',
-        visibility: 'name-only',
+        visibility: 'on',
       }),
-    ]);
+      expect.objectContaining({ phase: 'preload', qualifiedName: 'secret-review' }),
+    ]));
     expect(runtime.warnings).toEqual([]);
   });
 

@@ -202,7 +202,7 @@ describe('resolveSkillSourcePlan', () => {
     expect(plan.warnings[0]).toContain('skills.config.json');
   });
 
-  it('keeps valid project override values and warns about invalid ones', () => {
+  it('ignores legacy project override records while retaining project directory configuration', () => {
     fs.writeFileSync(
       path.join(tempProjectPath, '.cdf', 'skills.config.json'),
       JSON.stringify({
@@ -221,14 +221,11 @@ describe('resolveSkillSourcePlan', () => {
       userSkillsDir: null,
     });
 
-    expect(plan.config.overrides).toEqual({
-      review: 'off',
-    });
-    expect(plan.warnings.join('\n')).toContain('deploy');
-    expect(plan.warnings.join('\n')).toContain('sometimes');
+    expect(plan.config.overrides).toEqual({});
+    expect(plan.warnings).toEqual([]);
   });
 
-  it('updates project overrides while preserving additional skill directories', () => {
+  it('keeps the legacy override writer isolated from normal project config reads', () => {
     fs.writeFileSync(
       path.join(tempProjectPath, '.cdf', 'skills.config.json'),
       JSON.stringify({
@@ -245,10 +242,7 @@ describe('resolveSkillSourcePlan', () => {
 
     expect(updated).toEqual({
       version: 1,
-      overrides: {
-        deploy: 'name-only',
-        review: 'off',
-      },
+      overrides: { review: 'off' },
       additionalSkillDirectories: ['docs/skills'],
     });
 
@@ -260,10 +254,7 @@ describe('resolveSkillSourcePlan', () => {
 
     expect(plan.config).toEqual({
       version: 1,
-      overrides: {
-        deploy: 'name-only',
-        review: 'on',
-      },
+      overrides: {},
       additionalSkillDirectories: ['docs/skills'],
     });
   });
@@ -537,7 +528,7 @@ describe('resolveSkillCatalog', () => {
     expect(readdirSpy).not.toHaveBeenCalled();
   });
 
-  it('applies project overrides keyed by qualified nested skill name', () => {
+  it('ignores legacy overrides for qualified nested Project Skills', () => {
     const projectSkillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     const nestedSkillsDir = path.join(tempProjectPath, 'apps', 'web', '.cdf', 'skills');
     writeSkill(projectSkillsDir, 'deploy', 'Deploy the whole project');
@@ -571,15 +562,15 @@ describe('resolveSkillCatalog', () => {
       }),
       expect.objectContaining({
         qualifiedName: 'apps/web:deploy',
-        visibility: 'user-invocable-only',
-        visibilitySource: 'project',
-        modelDiscovery: 'hidden',
+        visibility: 'on',
+        visibilitySource: 'default',
+        modelDiscovery: 'full',
         userInvocable: true,
       }),
     ]);
   });
 
-  it('applies project overrides keyed by qualified additional skill name', () => {
+  it('ignores legacy overrides for qualified additional Project Skills', () => {
     const projectSkillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     const additionalSkillsDir = path.join(tempProjectPath, 'docs', 'skills');
     fs.mkdirSync(additionalSkillsDir, { recursive: true });
@@ -611,10 +602,10 @@ describe('resolveSkillCatalog', () => {
       }),
       expect.objectContaining({
         qualifiedName: 'docs:review',
-        visibility: 'off',
-        visibilitySource: 'project',
-        modelDiscovery: 'hidden',
-        userInvocable: false,
+        visibility: 'on',
+        visibilitySource: 'default',
+        modelDiscovery: 'full',
+        userInvocable: true,
       }),
     ]);
   });
@@ -676,47 +667,35 @@ describe('resolveSkillCatalog', () => {
     expect(catalog.warnings.join('\n')).toContain('description');
   });
 
-  it('resolves catalog visibility with project overrides before frontmatter defaults', () => {
+  it('ignores legacy Project overrides and preserves Skill-authored invocation metadata', () => {
     const projectSkillsDir = path.join(tempProjectPath, '.cdf', 'skills');
     const skillDir = path.join(projectSkillsDir, 'secret-review');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(
       path.join(tempProjectPath, '.cdf', 'skills.config.json'),
-      JSON.stringify({
-        version: 1,
-        overrides: {
-          'secret-review': 'on',
-        },
-        additionalSkillDirectories: [],
-      }),
+      JSON.stringify({ version: 1, overrides: { 'secret-review': 'on' }, additionalSkillDirectories: [] }),
       'utf-8'
     );
-    fs.writeFileSync(
-      path.join(skillDir, 'SKILL.md'),
-      [
-        '---',
-        'name: secret-review',
-        'description: Secret review workflow',
-        'disable-model-invocation: true',
-        '---',
-        '',
-        '# Secret Review',
-      ].join('\n'),
-      'utf-8'
-    );
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
+      '---',
+      'name: secret-review',
+      'description: Secret review workflow',
+      'disable-model-invocation: true',
+      '---',
+      '',
+      '# Secret Review',
+    ].join('\n'), 'utf-8');
 
-    const plan = resolveSkillSourcePlan(tempProjectPath, {
+    const catalog = resolveSkillCatalog(resolveSkillSourcePlan(tempProjectPath, {
       builtInSkillDirs: [],
       userSkillsDir: null,
-    });
-
-    const catalog = resolveSkillCatalog(plan);
+    }));
 
     expect(catalog.skills[0]).toMatchObject({
       name: 'secret-review',
-      visibility: 'on',
-      visibilitySource: 'project',
-      modelDiscovery: 'full',
+      visibility: 'user-invocable-only',
+      visibilitySource: 'frontmatter',
+      modelDiscovery: 'hidden',
       userInvocable: true,
     });
   });

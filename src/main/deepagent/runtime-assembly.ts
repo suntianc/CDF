@@ -18,10 +18,7 @@ import {
   getBuiltInSkillDirs,
   getBuiltInSkillRegistrations,
   getScopePath,
-  resolveAgentSkillConfigOptions,
-  resolveAgentSkillsConfig,
   resolveConversationSkillSnapshotConfig,
-  type ResolveAgentSkillsConfigOptions,
 } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
@@ -274,24 +271,23 @@ export function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
 }
 
 // =============================================================================
-// 全装配：Skill 流水线（预加载 → 覆盖 → buildCdfSkillsRuntime）
+// 全装配：Skill 流水线（Scene Skill Set / Conversation Skill Snapshot → preload）
 // =============================================================================
 
 interface CdfSkillsAssemblyResult {
   permissions: FilesystemPermission[];
   skillsRuntime: ReturnType<typeof buildCdfSkillsRuntime>;
   warnings: string[];
-  overrideOptions: ResolveAgentSkillsConfigOptions | undefined;
 }
 
 /**
- * Skill 全装配流水线：解析 config overrides → 解析 Skills config → 构造 Skills Runtime。
+ * Skill 全装配流水线：解析 Scene Skill Set 或 Conversation Skill Snapshot，并构造 Skills Runtime。
  *
  * @param projectPath - 项目根目录
  * @param skillNames - Agent 的 Skill 引用 ID 列表（调用方自行获取 getAgentSkillNames）
  * @param config - Agent 行 config 字段（JSON 或 null/undefined）
  * @param pathContext - 路径提及上下文（调用方自行提取）
- * @returns 权限、skillsRuntime、拼接警告、overrideOptions
+ * @returns 权限、skillsRuntime、拼接警告
  */
 export function buildCdfSkillsRuntimeAssembly(
   projectPath: string,
@@ -301,18 +297,11 @@ export function buildCdfSkillsRuntimeAssembly(
   sceneId: ProjectScene = 'general',
   skillSnapshot?: readonly ConversationSkillSnapshotEntry[] | null,
 ): CdfSkillsAssemblyResult {
-  const resolved = resolveAgentSkillConfigOptions(config, (key) => store.get(key));
-  const overrideOptions = resolved.options;
-  const warnings: string[] = [...resolved.warnings];
-
-  const { permissions } = skillSnapshot
-    ? resolveConversationSkillSnapshotConfig(projectPath, skillSnapshot)
-    : overrideOptions
-      ? resolveAgentSkillsConfig(projectPath, skillNames, overrideOptions)
-      : resolveAgentSkillsConfig(projectPath, skillNames);
-
+  // Legacy agent config remains readable by old rows, but no longer affects
+  // visibility. Only Scene Skill Set (or the immutable Conversation snapshot)
+  // can determine which Skills are available for preload or discovery.
+  void config;
   const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
-    ...overrideOptions,
     builtInSkillDirs: getBuiltInSkillDirs(),
     userSkillsDir: getScopePath(projectPath, 'global'),
     preloadSkillNames: getPreloadSkillNames(skillNames),
@@ -321,9 +310,12 @@ export function buildCdfSkillsRuntimeAssembly(
     isGlobalSkillExposed: createGlobalSkillSceneExposureFilter(sceneId),
     catalog: skillSnapshot ? skillSnapshot.map((skill) => ({ ...skill })) as ResolvedSkillCatalogEntry[] : undefined,
   });
-  warnings.push(...skillsRuntime.warnings);
+  const { permissions } = resolveConversationSkillSnapshotConfig(
+    projectPath,
+    skillSnapshot ?? skillsRuntime.skills,
+  );
 
-  return { permissions, skillsRuntime, warnings, overrideOptions };
+  return { permissions, skillsRuntime, warnings: skillsRuntime.warnings };
 }
 // =============================================================================
 // 统一 DeepAgent 运行时装配：provider/model/Harness → Skills → 系统提示词
