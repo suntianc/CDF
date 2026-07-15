@@ -122,6 +122,10 @@ function getProject(projectId: string): RuntimeProjectRow {
   return project;
 }
 
+function providerExists(providerId: string): boolean {
+  return !!db.prepare('SELECT id FROM llm_providers WHERE id = ?').get(providerId);
+}
+
 function getRuntimeAgent(projectId: string): RuntimeAgentRow {
   let agent = db.prepare(
     'SELECT * FROM agents WHERE project_id = ? AND slug = ? LIMIT 1',
@@ -135,7 +139,7 @@ function getRuntimeAgent(projectId: string): RuntimeAgentRow {
   if (!agent) throw new Error(`Project Master Agent not found: ${projectId}`);
 
   const normalizedProviderId = normalizeProviderId(agent.provider_id);
-  return normalizedProviderId
+  return normalizedProviderId && providerExists(normalizedProviderId)
     ? { ...agent, provider_id: normalizedProviderId }
     : { ...agent, provider_id: getFallbackProviderId() };
 }
