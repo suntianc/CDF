@@ -51,6 +51,7 @@ describe('skill-manager', () => {
       { name: 'paper-collection', defaultSceneIds: ['research'] },
       { name: 'paper-reading', defaultSceneIds: ['research'] },
       { name: 'manuscript-review', defaultSceneIds: ['research'] },
+      { name: 'academic-style-revision', defaultSceneIds: ['research'] },
     ]);
   });
 
