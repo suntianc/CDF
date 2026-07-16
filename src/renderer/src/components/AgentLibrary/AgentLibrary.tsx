@@ -120,7 +120,7 @@ export function AgentLibrary() {
         {error && (
           <div className="mb-4 p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-lg flex items-start gap-2 text-xs text-[var(--color-danger)]">
             <span className="w-4 h-4 shrink-0 mt-0.5">⚠️</span>
-            <span>{t(getAgentErrorTranslationKey(error))}</span>
+            <span>{t(getAgentErrorTranslationKey(error, 'agent.operationError'))}</span>
           </div>
         )}
 

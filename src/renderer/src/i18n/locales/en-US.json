@@ -292,6 +292,7 @@
     "providerRequired": "Please add and activate an LLM brain on the 'Model config' page first!",
     "savedSuccess": "✓ Agent「{{name}}」saved successfully",
     "saveError": "Failed to save Agent",
+    "operationError": "The global Agent Library operation failed. Try again.",
     "globalNameConflict": "That Agent name is already used in the global Agent Library.",
     "globalDelegationKeyConflict": "That name produces a delegation key already used in the global Agent Library.",
     "protectedOperationError": "This protected system Agent cannot be renamed, reassigned, or deleted.",

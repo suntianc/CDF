@@ -292,6 +292,7 @@
     "providerRequired": "请先去“模型配置”页面添加并激活一个 LLM 大脑！",
     "savedSuccess": "✓ Agent「{{name}}」保存成功",
     "saveError": "保存 Agent 失败",
+    "operationError": "全局 Agent Library 操作失败，请重试。",
     "globalNameConflict": "该 Agent 名称已被全局 Agent Library 使用。",
     "globalDelegationKeyConflict": "该名称生成的委派键已被全局 Agent Library 使用。",
     "protectedOperationError": "此受保护的系统 Agent 不能重命名、变更角色或删除。",
