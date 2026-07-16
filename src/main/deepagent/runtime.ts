@@ -50,6 +50,7 @@ import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle } from './conversation-working-state';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
+import { resolveProjectContext } from './project-context';
 export { isTransientRuntimeError } from './runtime-errors';
 
 // 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
@@ -74,13 +75,6 @@ interface SubagentStepContext {
 export const subagentStepStorage = new AsyncLocalStorage<SubagentStepContext>();
 
 type RuntimeAgentRow = CatalogAgent;
-
-interface RuntimeProjectRow {
-  id: string;
-  name: string;
-  path: string;
-  scene?: import('../../shared/types').ProjectScene;
-}
 
 // Phase 7 Plan 01: alias to shared ChatRuntimeOverrides (Gap 2 fix).
 type RuntimeModelOverrides = ChatRuntimeOverrides;
@@ -107,21 +101,13 @@ function getFallbackProviderId(): string {
   return fallbackProvider.id;
 }
 
-function getProject(projectId: string): RuntimeProjectRow {
-  const project = db.prepare('SELECT id, name, path, scene FROM projects WHERE id = ?').get(projectId) as RuntimeProjectRow | undefined;
-  if (!project) {
-    throw new Error(`Project with ID ${projectId} not found.`);
-  }
-  return project;
-}
-
 function providerExists(providerId: string): boolean {
   return !!db.prepare('SELECT id FROM llm_providers WHERE id = ?').get(providerId);
 }
 
 function getRuntimeAgent(projectId: string): RuntimeAgentRow {
-  const project = getProject(projectId);
-  const resolved = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general');
+  const project = resolveProjectContext(db, projectId);
+  const resolved = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene);
   const agent = { ...resolved.agent, system_prompt: resolved.system_prompt };
   const normalizedProviderId = normalizeProviderId(agent.provider_id);
   return normalizedProviderId && providerExists(normalizedProviderId)
@@ -544,12 +530,12 @@ async function buildDeepAgentRuntime(
   subagentIds: string[] | undefined,
   releaseWorkingState: () => void,
 ) {
-  const project = getProject(projectId);
+  const project = resolveProjectContext(db, projectId);
   const resolvedAgentRow = getRuntimeAgent(projectId);
   const systemContext = getOrCaptureConversationSystemContextSnapshot(db, {
     sessionId,
     projectPath: project.path,
-    sceneId: project.scene ?? 'general',
+    sceneId: project.scene,
     promptSnapshot: resolvedAgentRow.system_prompt ?? '',
   });
   // Root Conversations are bound to Master. Their durable snapshot, rather
@@ -632,7 +618,7 @@ async function buildDeepAgentRuntime(
   }
 
 
-  console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, subagentIds=${JSON.stringify(subagentIds)}`);
+  log.info(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, subagentIds=${JSON.stringify(subagentIds)}`);
 
   // D-06/D-07/D-17: subagentIds can only select from the stable root-run
   // Target Set; omitted means every captured General-purpose/Custom target.

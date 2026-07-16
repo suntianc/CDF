@@ -8,6 +8,10 @@ import type {
   UpdateGeneralPurposeAgentInput,
 } from '../../../shared/types';
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 interface AgentState {
   agents: Agent[];
   masterScenePrompts: MasterScenePrompt[];
@@ -33,17 +37,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       const agents = await window.electronAPI.db.getAgents();
       set({ agents, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch agents', isLoading: false });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to fetch agents'), isLoading: false });
     }
   },
 
   fetchMasterScenePrompts: async () => {
+    set({ isLoading: true, error: null });
     try {
       const masterScenePrompts = await window.electronAPI.db.getMasterScenePrompts();
-      set({ masterScenePrompts });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch Master Agent prompts' });
+      set({ masterScenePrompts, isLoading: false });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to fetch Master Agent prompts'), isLoading: false });
     }
   },
 
@@ -52,9 +57,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       await window.electronAPI.db.createCustomAgent(agent);
       await get().fetchAgents();
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to create agent', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to create agent'), isLoading: false });
+      throw error;
     }
   },
 
@@ -63,9 +68,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       await window.electronAPI.db.updateCustomAgent(id, agent);
       await get().fetchAgents();
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to save agent', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to save agent'), isLoading: false });
+      throw error;
     }
   },
 
@@ -74,9 +79,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       await window.electronAPI.db.updateGeneralPurposeAgent(agent);
       await get().fetchAgents();
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to save General-purpose Agent', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to save General-purpose Agent'), isLoading: false });
+      throw error;
     }
   },
 
@@ -85,9 +90,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       const masterScenePrompts = await window.electronAPI.db.saveMasterScenePrompts(changes);
       set({ masterScenePrompts, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to save Master Agent prompts', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to save Master Agent prompts'), isLoading: false });
+      throw error;
     }
   },
 
@@ -96,9 +101,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       await window.electronAPI.db.deleteCustomAgent(id);
       await get().fetchAgents();
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to delete agent', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to delete agent'), isLoading: false });
+      throw error;
     }
   },
 }));

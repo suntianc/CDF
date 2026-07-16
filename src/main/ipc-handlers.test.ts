@@ -601,7 +601,7 @@ describe('IPC handlers', () => {
 
     registerIpcHandlers();
     const createSessionHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:createSession')?.[1];
-    const session = createSessionHandler({}, 'project-1', 'Conversation', undefined, undefined, 'custom-1');
+    const session = createSessionHandler({}, 'project-1', 'Conversation', undefined, undefined);
 
     expect(session.agent_id).toBe('system-master-agent');
     expect(agentCatalogMock.resolveMaster).toHaveBeenCalledWith('research');
@@ -617,7 +617,7 @@ describe('IPC handlers', () => {
     const workflowWrites: string[] = [];
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: vi.fn(() => sql.includes('SELECT created_at FROM workflows') ? undefined : undefined),
-      all: vi.fn(() => sql.includes('SELECT * FROM workflows') ? [{
+      all: vi.fn(() => sql.includes('FROM workflows WHERE project_id') ? [{
         id: 'workflow-1', project_id: 'project-1', name: 'Saved', description: null,
         stages: '[]', status: 'draft', created_at: 1, updated_at: 2,
       }] : []),

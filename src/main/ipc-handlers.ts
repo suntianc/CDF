@@ -986,12 +986,18 @@ export function registerIpcHandlers() {
   // ===== Phase 4: Workflow CRUD IPC Handlers =====
 
   typedHandle('db:getWorkflows', (_, projectId) => {
-    const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
+    const rows = db.prepare(`
+      SELECT id, project_id, name, description, stages, status, created_at, updated_at
+      FROM workflows WHERE project_id = ? ORDER BY updated_at DESC
+    `).all(projectId) as any[];
     return rows.map((row) => ({ ...row, stages: row.stages ? JSON.parse(row.stages) : [] }));
   });
 
   typedHandle('db:getWorkflow', (_, id) => {
-    const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
+    const row = db.prepare(`
+      SELECT id, project_id, name, description, stages, status, created_at, updated_at
+      FROM workflows WHERE id = ?
+    `).get(id) as any;
     if (!row) return undefined;
     return { ...row, stages: row.stages ? JSON.parse(row.stages) : [] };
   });

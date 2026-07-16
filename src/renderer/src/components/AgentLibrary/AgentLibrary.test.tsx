@@ -96,6 +96,15 @@ describe('AgentLibrary', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText('Agent name conflicts with an existing Agent')).toBeTruthy();
+    expect(await screen.findByText('That Agent name is already used in the global Agent Library.')).toBeTruthy();
+  });
+
+  it('localizes global Catalog conflicts in Chinese', async () => {
+    await i18n.changeLanguage('zh-CN');
+    useAgentStore.setState({ error: 'Agent delegation key conflicts with an existing Agent' });
+
+    render(<AgentLibrary />);
+
+    expect(screen.getByText('该名称生成的委派键已被全局 Agent Library 使用。')).toBeTruthy();
   });
 });

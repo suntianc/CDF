@@ -119,6 +119,24 @@ describe('AgentEditDialog', () => {
     ]);
   });
 
+  it('shows Master prompt loading and prevents an empty save', () => {
+    const saveMasterScenePrompts = vi.fn(async () => {});
+    useAgentStore.setState({
+      agents: [{ id: 'master-1', role: 'master', name: 'Master Agent', slug: 'master-agent', created_at: 0, updated_at: 0 }],
+      masterScenePrompts: [],
+      isLoading: true,
+      fetchMasterScenePrompts: vi.fn(async () => {}),
+      saveMasterScenePrompts,
+    });
+
+    render(<AgentEditDialog isOpen agentId="master-1" onClose={vi.fn()} showToast={vi.fn()} />);
+
+    expect(screen.getByRole('status').textContent).toMatch(/Loading General and Research prompts/i);
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(saveMasterScenePrompts).not.toHaveBeenCalled();
+  });
+
   it('discards all unsaved Master Scene drafts when cancelled', () => {
     const prompts = [
       { scene: 'general' as const, systemPrompt: 'Saved general', defaultSystemPrompt: 'Default general' },

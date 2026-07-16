@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgentCatalog, GENERAL_PURPOSE_AGENT_ID, MASTER_AGENT_ID } from './agent-catalog';
 import { getOrCaptureConversationSystemContextSnapshot } from './conversation-system-context-snapshot';
 import { captureDelegatedAgentConfigurationSnapshot } from './deepagent/delegated-agent-configuration-snapshot';
+import { buildProjectContext, resolveProjectContext } from './deepagent/project-context';
 import { DelegatedAgentRunCoordinator } from './deepagent/delegated-agent-run-coordinator';
 import {
   DelegatedAgentRunRepository,
@@ -30,6 +31,7 @@ describe('global Agent cross-Project and Scene integration', () => {
       CREATE TABLE llm_providers (id TEXT PRIMARY KEY);
       CREATE TABLE projects (
         id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
         path TEXT NOT NULL,
         scene TEXT NOT NULL
       );
@@ -61,8 +63,11 @@ describe('global Agent cross-Project and Scene integration', () => {
       CREATE TABLE workflow_run_tasks (id TEXT PRIMARY KEY);
     `);
     initializeDelegatedAgentRunSchema(db);
-    db.prepare('INSERT INTO projects (id, path, scene) VALUES (?, ?, ?), (?, ?, ?)')
-      .run('general-project', generalPath, 'general', 'research-project', researchPath, 'research');
+    db.prepare('INSERT INTO projects (id, name, path, scene) VALUES (?, ?, ?, ?), (?, ?, ?, ?)')
+      .run(
+        'general-project', 'General Workspace', generalPath, 'general',
+        'research-project', 'Research Workspace', researchPath, 'research',
+      );
     db.prepare('INSERT INTO sessions (id, project_id, agent_id) VALUES (?, ?, ?), (?, ?, ?)')
       .run(
         'general-conversation', 'general-project', MASTER_AGENT_ID,
@@ -114,7 +119,13 @@ describe('global Agent cross-Project and Scene integration', () => {
         conversationSkillSnapshot: researchContext.skillSnapshot,
       });
     };
-    const executions: Array<{ projectId: string; targetId: string; prompt: string; stateValue: number }> = [];
+    const executions: Array<{
+      projectId: string;
+      targetId: string;
+      prompt: string;
+      projectContext: string;
+      stateValue: number;
+    }> = [];
     const coordinator = new DelegatedAgentRunCoordinator(
       new DelegatedAgentRunRepository(db),
       {
@@ -122,10 +133,12 @@ describe('global Agent cross-Project and Scene integration', () => {
           const isolatedState = { calls: 0 };
           isolatedState.calls += 1;
           const projectId = (request.input as { projectId: string }).projectId;
+          const project = resolveProjectContext(db, projectId);
           executions.push({
             projectId,
             targetId: request.configurationSnapshot!.target.id,
             prompt: request.configurationSnapshot!.target.system_prompt ?? '',
+            projectContext: buildProjectContext(project),
             stateValue: isolatedState.calls,
           });
           return {
@@ -146,7 +159,7 @@ describe('global Agent cross-Project and Scene integration', () => {
       taskToolCallId: 'general-task',
       goal: 'general work',
       configurationSnapshot: captureCurrent(),
-      input: { projectId: 'general-project', projectPath: generalPath, scene: 'general' },
+      input: { projectId: 'general-project' },
     });
 
     catalog.updateCustom(custom.id, {
@@ -163,14 +176,26 @@ describe('global Agent cross-Project and Scene integration', () => {
       taskToolCallId: 'research-task',
       goal: 'research work',
       resolveConfigurationSnapshot: captureCurrent,
-      input: { projectId: 'research-project', projectPath: researchPath, scene: 'research' },
+      input: { projectId: 'research-project' },
     });
 
     expect(generalOutcome.summary).toBe('general-project:1');
     expect(researchOutcome.summary).toBe('research-project:1');
     expect(executions).toEqual([
-      expect.objectContaining({ projectId: 'general-project', targetId: custom.id, prompt: 'Custom prompt v1', stateValue: 1 }),
-      expect.objectContaining({ projectId: 'research-project', targetId: custom.id, prompt: 'Custom prompt v2', stateValue: 1 }),
+      expect.objectContaining({
+        projectId: 'general-project',
+        targetId: custom.id,
+        prompt: 'Custom prompt v1',
+        projectContext: expect.stringContaining(`当前选中项目名称: General Workspace\n项目根目录: ${generalPath}`),
+        stateValue: 1,
+      }),
+      expect.objectContaining({
+        projectId: 'research-project',
+        targetId: custom.id,
+        prompt: 'Custom prompt v2',
+        projectContext: expect.stringContaining(`当前选中项目名称: Research Workspace\n项目根目录: ${researchPath}`),
+        stateValue: 1,
+      }),
     ]);
 
     db.prepare('DELETE FROM projects WHERE id = ?').run('general-project');

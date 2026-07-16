@@ -13,6 +13,7 @@ import {
   X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
+import { getAgentErrorTranslationKey } from './agentErrorI18n';
 
 interface AgentEditDialogProps {
   isOpen: boolean;
@@ -46,6 +47,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const {
     agents,
     masterScenePrompts,
+    isLoading,
+    error,
     createCustomAgent,
     updateCustomAgent,
     updateGeneralPurposeAgent,
@@ -192,6 +195,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isMasterAgent && editingAgent) {
+      if (masterScenePrompts.length === 0 || isLoading) {
+        showToast(t('agent.masterPromptsLoadError'), 'error');
+        return;
+      }
       try {
         await saveMasterScenePrompts(masterScenePrompts.map((prompt) => ({
           scene: prompt.scene,
@@ -256,8 +263,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       } else await updateCustomAgent(existingAgent.id, payload);
       showToast(t('agent.savedSuccess', { name: formName }), 'success');
       onClose();
-    } catch (err) {
-      showToast(t('agent.saveError'), 'error');
+    } catch (error) {
+      showToast(t(getAgentErrorTranslationKey(error)), 'error');
     }
   };
 
@@ -313,6 +320,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   if (isMasterAgent && editingAgent) {
     const activeMasterPrompt = masterScenePrompts.find((prompt) => prompt.scene === masterScene);
+    const masterPromptsUnavailable = masterScenePrompts.length === 0;
     const handleResetMasterPrompt = () => {
       if (!activeMasterPrompt) return;
       setMasterDrafts((drafts) => ({
@@ -350,6 +358,16 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 disabled
               />
             </div>
+            {isLoading && masterPromptsUnavailable && (
+              <p role="status" className="text-xs text-[var(--color-text-muted)]">
+                {t('agent.masterPromptsLoading')}
+              </p>
+            )}
+            {error && masterPromptsUnavailable && !isLoading && (
+              <p role="alert" className="text-xs text-[var(--color-danger)]">
+                {t('agent.masterPromptsLoadError')}
+              </p>
+            )}
             <div className="flex gap-1 border-b border-[var(--color-border)]" role="tablist" aria-label={t('agent.masterSceneTabs')}>
               {masterScenePrompts.map((prompt) => (
                 <button
@@ -374,6 +392,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 value={activeMasterPrompt ? masterDrafts[masterScene] ?? activeMasterPrompt.systemPrompt : ''}
                 onChange={(e) => setMasterDrafts((drafts) => ({ ...drafts, [masterScene]: e.target.value }))}
                 placeholder={t('agent.systemPromptPlaceholder')}
+                disabled={isLoading || masterPromptsUnavailable}
               />
             </div>
             <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
@@ -383,7 +402,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               <button
                 type="button"
                 onClick={handleResetMasterPrompt}
-                className="btn btn-secondary cursor-pointer"
+                disabled={isLoading || masterPromptsUnavailable}
+                className="btn btn-secondary cursor-pointer disabled:cursor-not-allowed"
               >
                 {t('agent.resetMasterPrompt')}
               </button>
@@ -391,7 +411,11 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 <button type="button" onClick={onClose} className="btn btn-secondary cursor-pointer">
                   {t('common.cancel')}
                 </button>
-                <button type="submit" className="btn btn-primary cursor-pointer">
+                <button
+                  type="submit"
+                  disabled={isLoading || masterPromptsUnavailable}
+                  className="btn btn-primary cursor-pointer disabled:cursor-not-allowed"
+                >
                   {t('common.save')}
                 </button>
               </div>

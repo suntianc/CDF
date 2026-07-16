@@ -3,6 +3,7 @@ import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { createAgentCatalog } from './agent-catalog';
+import log from './logger';
 import {
   DelegatedAgentRunRepository,
   initializeDelegatedAgentRunSchema,
@@ -392,17 +393,17 @@ try {
 // The product has not shipped legacy workflow data. If the old graph schema is
 // present, reset it instead of carrying two execution models indefinitely.
 try {
-  const legacyGraphColumn = db.prepare(
-    "SELECT name FROM pragma_table_info('workflows') WHERE name = 'graph_data'"
-  ).get();
-  if (legacyGraphColumn) {
+  const retiredWorkflowColumns = db.prepare(
+    "SELECT name FROM pragma_table_info('workflows') WHERE name IN ('graph_data', 'master_agent_id')"
+  ).all() as Array<{ name: string }>;
+  if (retiredWorkflowColumns.length > 0) {
     db.exec('DROP TABLE IF EXISTS workflow_run_tasks');
     db.exec('DROP TABLE IF EXISTS workflow_stage_gates');
     db.exec('DROP TABLE IF EXISTS workflow_runs');
     db.exec('DROP TABLE IF EXISTS workflow_node_runs');
     db.exec('DROP TABLE IF EXISTS workflow_executions');
     db.exec('DROP TABLE IF EXISTS workflows');
-    console.log('[DB] Destructive reset: dropped legacy workflow tables');
+    log.info(`[DB] Destructive reset: dropped Workflow tables with retired columns (${retiredWorkflowColumns.map((column) => column.name).join(', ')})`);
   }
 } catch {
   // A fresh database has no workflows table yet.
