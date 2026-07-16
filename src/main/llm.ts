@@ -403,7 +403,7 @@ function extractModelText(value: unknown): string {
 }
 
 export async function runLLMJudge(payload: JudgePayload): Promise<{ text: string }> {
-  const model = await createRuntimeModel(payload.projectId, payload.agentId, payload.overrides);
+  const model = await createRuntimeModel(payload.projectId, payload.overrides);
   const response = await model.invoke(payload.prompt);
   return { text: extractModelText(response) };
 }
@@ -490,7 +490,6 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         payload.projectId,
         payload.sessionId,
         payload.message,
-        payload.agentId,
         payload.overrides
       );
       cleanup = runtime.cleanup;

@@ -289,6 +289,7 @@ function setupDatabase(): void {
     DROP TABLE IF EXISTS sessions;
     DROP TABLE IF EXISTS agent_runs;
     DROP TABLE IF EXISTS master_agent_prompts;
+    DROP TABLE IF EXISTS agent_mcp_exclusions;
     DROP TABLE IF EXISTS agents;
     DROP TABLE IF EXISTS llm_providers;
     DROP TABLE IF EXISTS projects;
@@ -307,6 +308,7 @@ function setupDatabase(): void {
       skill_snapshot TEXT
     );
     CREATE TABLE agent_runs (id TEXT PRIMARY KEY);
+    CREATE TABLE agent_mcp_exclusions (agent_id TEXT NOT NULL, mcp_server_id TEXT NOT NULL);
     CREATE TABLE agent_tool_calls (id TEXT PRIMARY KEY, approval_status TEXT);
     CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, created_at INTEGER);
     INSERT INTO projects VALUES ('project-1', 'Project', '/tmp', 'general');
@@ -338,7 +340,6 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
       'project-1',
       'session-1',
       { id: 'message-1', content: 'delegate in parallel' },
-      MASTER_AGENT_ID,
       undefined,
       ['worker'],
     );
@@ -407,7 +408,6 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
       'project-1',
       'session-2',
       { id: 'message-2', content: 'delegate twice' },
-      MASTER_AGENT_ID,
       { modelSource: 'llm_provider', sourceId: 'provider-1', model: 'parent-model' },
       [GENERAL_PURPOSE_AGENT_ID],
     );
@@ -433,7 +433,6 @@ describe('parallel delegation + production isolated runtime + real deepagents', 
       'project-1',
       'session-3',
       { id: 'message-3', content: 'delegate once' },
-      MASTER_AGENT_ID,
       { modelSource: 'llm_provider', sourceId: 'provider-1', model: 'parent-model' },
       [GENERAL_PURPOSE_AGENT_ID],
     );

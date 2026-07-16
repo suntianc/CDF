@@ -121,14 +121,9 @@ export function useConversationWorkspaceModel(): ConversationWorkspaceModel {
   }, [viewingParallelWorker, parallelBatches]);
 
   const masterAgent = useMemo(() => (
-    agents.find((agent) => (
-      agent.project_id === currentProjectId
-      && (agent.role === 'master' || agent.slug === 'master-agent')
-    )) ?? null
-  ), [agents, currentProjectId]);
+    agents.find((agent) => agent.role === 'master') ?? null
+  ), [agents]);
 
-  // Historical sessions may retain a legacy Custom Agent id, but every root
-  // Conversation now runs as the protected Project Master.
   const activeSessionAgent = masterAgent;
 
   const masterProvider = useMemo(() => (

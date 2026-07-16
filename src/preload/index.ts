@@ -5,7 +5,10 @@ import { llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract
 import type { IpcEventPayload } from '../shared/ipc-contract';
 import type {
   AgentApprovalResolution,
-  AgentSaveInput,
+  CreateCustomAgentInput,
+  SaveMasterScenePromptsInput,
+  UpdateCustomAgentInput,
+  UpdateGeneralPurposeAgentInput,
   ChatPayload,
   JudgePayload,
   KnowledgeEntryCreateInput,
@@ -73,8 +76,8 @@ const api = {
     deleteProject: (id: string) => typedInvoke('db:deleteProject', id),
     renameProject: (id: string, name: string) => typedInvoke('db:renameProject', id, name),
     getSessions: (projectId: string) => typedInvoke('db:getSessions', projectId),
-    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) =>
-      typedInvoke('db:createSession', projectId, name, parentSessionId, summary, agentId),
+    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) =>
+      typedInvoke('db:createSession', projectId, name, parentSessionId, summary),
     deleteSession: (sessionId: string) => typedInvoke('db:deleteSession', sessionId),
     getMessages: (sessionId: string) => typedInvoke('db:getMessages', sessionId),
     saveMessage: (message: MessageSaveInput) => typedInvoke('db:saveMessage', message),
@@ -85,11 +88,15 @@ const api = {
     deleteProvider: (id: string) => typedInvoke('db:deleteProvider', id),
     setActiveProvider: (id: string) => typedInvoke('db:setActiveProvider', id),
     selectDirectory: () => typedInvoke('db:selectDirectory'),
-    // Phase 3: Agent Library
-    getAgents: (projectId: string) => typedInvoke('db:getAgents', projectId),
-    saveAgent: (agent: AgentSaveInput) => typedInvoke('db:saveAgent', agent),
-    resetMasterAgentPrompt: (projectId: string) => typedInvoke('db:resetMasterAgentPrompt', projectId),
-    deleteAgent: (id: string) => typedInvoke('db:deleteAgent', id),
+    // Global Agent Library
+    getAgents: () => typedInvoke('db:getAgents'),
+    createCustomAgent: (agent: CreateCustomAgentInput) => typedInvoke('db:createCustomAgent', agent),
+    updateCustomAgent: (id: string, agent: UpdateCustomAgentInput) => typedInvoke('db:updateCustomAgent', id, agent),
+    updateGeneralPurposeAgent: (agent: UpdateGeneralPurposeAgentInput) => typedInvoke('db:updateGeneralPurposeAgent', agent),
+    deleteCustomAgent: (id: string) => typedInvoke('db:deleteCustomAgent', id),
+    getMasterScenePrompts: () => typedInvoke('db:getMasterScenePrompts'),
+    saveMasterScenePrompts: (changes: SaveMasterScenePromptsInput[]) =>
+      typedInvoke('db:saveMasterScenePrompts', changes),
     // Phase 3: Skills
     getSkills: (projectId: string) => typedInvoke('db:getSkills', projectId),
     getGlobalSkills: () => typedInvoke('db:getGlobalSkills'),

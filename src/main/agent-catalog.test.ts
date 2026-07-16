@@ -9,7 +9,21 @@ import {
 
 function createDatabase(): Database.Database {
   const db = new Database(':memory:');
-  db.exec('CREATE TABLE llm_providers (id TEXT PRIMARY KEY)');
+  db.pragma('foreign_keys = ON');
+  db.exec(`
+    CREATE TABLE llm_providers (id TEXT PRIMARY KEY);
+    CREATE TABLE mcp_servers (id TEXT PRIMARY KEY);
+    CREATE TABLE agent_mcp_exclusions (
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      mcp_server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+      PRIMARY KEY (agent_id, mcp_server_id)
+    );
+    CREATE TABLE agent_skills (
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      skill_name TEXT NOT NULL,
+      PRIMARY KEY (agent_id, skill_name)
+    );
+  `);
   return db;
 }
 
@@ -127,6 +141,35 @@ describe('Agent Catalog', () => {
       'evidence-reviewer',
       'a'.repeat(50),
     ]);
+  });
+
+  it('owns global capability relations and rejects Project Skill preload atomically', () => {
+    const db = createDatabase();
+    db.prepare('INSERT INTO mcp_servers (id) VALUES (?)').run('mcp-1');
+    const catalog = createAgentCatalog(db, {
+      createId: () => 'custom-1',
+      listGlobalSkillIds: () => ['built-in:review', 'global:writer'],
+    });
+    const custom = catalog.createCustom({
+      name: 'Capability Agent',
+      mcpServerExclusionIds: ['mcp-1', 'missing'],
+      skillNames: ['built-in:review'],
+    });
+
+    expect(custom).toMatchObject({
+      mcpServerExclusionIds: ['mcp-1'],
+      skillNames: ['built-in:review'],
+    });
+    expect(() => catalog.updateCustom(custom.id, {
+      description: 'must roll back',
+      skillNames: ['project:review'],
+    })).toThrow('must reference a Global Skill');
+    expect(catalog.get(custom.id)).toMatchObject({
+      description: null,
+      skillNames: ['built-in:review'],
+    });
+    expect(() => catalog.updateGeneralPurpose({ skillNames: ['global:missing'] }))
+      .toThrow('unknown Global Skill');
   });
 
   it('protects system identities while permitting General-purpose configuration changes', () => {

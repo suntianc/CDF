@@ -1,4 +1,5 @@
 import type { ResolvedSkillCatalogEntry } from './skill-sources';
+import { resolvedGlobalSkillKey } from '../../../shared/skill-identifiers';
 
 /*
  * Adapted from the SkillsMiddleware prompt formatting in deepagents@1.10.2.
@@ -14,6 +15,9 @@ import type { ResolvedSkillCatalogEntry } from './skill-sources';
 const DEFAULT_SKILL_READ_LINE_LIMIT = 1000;
 
 export interface RenderCdfSkillsPromptOptions {
+  /** Source-aware Global Skill keys. This prevents Project/global name collisions. */
+  preloadSkillKeys?: string[];
+  /** Legacy name-only input retained for callers outside the Agent Catalog. */
   preloadSkillNames?: string[];
   readSkill?: (skill: ResolvedSkillCatalogEntry) => string;
 }
@@ -32,14 +36,16 @@ function renderPreloadedSkills(
   skills: ResolvedSkillCatalogEntry[],
   options: RenderCdfSkillsPromptOptions
 ): string[] {
+  const preloadKeys = new Set(options.preloadSkillKeys ?? []);
   const preloadNames = new Set(options.preloadSkillNames ?? []);
-  if (preloadNames.size === 0 || !options.readSkill) return [];
+  if ((preloadKeys.size === 0 && preloadNames.size === 0) || !options.readSkill) return [];
 
   const sections: string[] = [];
   for (const skill of skills) {
     if (skill.modelDiscovery !== 'full') continue;
     const displayName = skill.qualifiedName ?? skill.name;
-    if (!preloadNames.has(skill.name) && !preloadNames.has(displayName)) continue;
+    const sourceKey = resolvedGlobalSkillKey(skill);
+    if (!preloadNames.has(skill.name) && !preloadNames.has(displayName) && (!sourceKey || !preloadKeys.has(sourceKey))) continue;
     sections.push([
       `### ${displayName}`,
       `Path: \`${skill.skillPath}\``,

@@ -4,7 +4,6 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
-import { useProjectStore } from '../../stores/projectStore';
 import { Agent } from '../../../../shared/types';
 import {
   Plus, Trash2, Edit2, X, Bot, Layers, Code, Search
@@ -26,11 +25,10 @@ interface Toast {
 
 export function AgentLibrary() {
   const { t } = useTranslation();
-  const { agents, error, fetchAgents, deleteAgent } = useAgentStore();
+  const { agents, error, fetchAgents, deleteCustomAgent } = useAgentStore();
   const { providers, fetchProviders } = useLLMStore();
-  const { fetchSkills } = useSkillStore();
+  const { fetchGlobalSkills } = useSkillStore();
   const { fetchMcpServers } = useMcpServerStore();
-  const { currentProjectId } = useProjectStore();
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -40,12 +38,11 @@ export function AgentLibrary() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (!currentProjectId) return;
-    fetchAgents(currentProjectId);
+    fetchAgents();
     fetchProviders();
-    fetchSkills(currentProjectId);
+    fetchGlobalSkills();
     fetchMcpServers();
-  }, [currentProjectId]);
+  }, [fetchAgents, fetchProviders, fetchGlobalSkills, fetchMcpServers]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -68,7 +65,7 @@ export function AgentLibrary() {
   const handleDeleteAgent = async (id: string, name: string) => {
     if (confirm(t('agent.deleteConfirm', { name }))) {
       try {
-        await deleteAgent(id);
+        await deleteCustomAgent(id);
         showToast(t('agent.deletedSuccess', { name }), 'success');
       } catch (err) {
         showToast(t('agent.deleteError'), 'error');
@@ -132,7 +129,7 @@ export function AgentLibrary() {
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
-            const isProtected = agent.is_protected === true || agent.role === 'master' || agent.slug === 'general-purpose';
+            const isProtected = agent.role !== 'custom';
             return (
               <div key={agent.id} className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
                 <div className="min-w-0 flex-1">

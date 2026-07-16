@@ -1,6 +1,16 @@
 export type { Project, ProjectScene } from './projects';
 
-export type { Agent, AgentSaveInput, AgentSaveResult } from './agents';
+export type {
+  Agent,
+  AgentCapabilityInput,
+  AgentRole,
+  AgentToolScopeConfig,
+  CreateCustomAgentInput,
+  MasterScenePrompt,
+  SaveMasterScenePromptsInput,
+  UpdateCustomAgentInput,
+  UpdateGeneralPurposeAgentInput,
+} from './agents';
 
 export type {
   LLMProvider,

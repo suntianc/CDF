@@ -1,12 +1,15 @@
 import { RunnableLambda } from '@langchain/core/runnables';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import type { DelegatedAgentRunCoordinator } from './delegated-agent-run-coordinator';
+import type { DelegatedAgentConfigurationSnapshot } from './delegated-agent-configuration-snapshot';
 
 export interface DelegatedSubagentTarget {
   id: string;
   slug: string;
   name: string;
   description: string;
+  /** Captures current configuration only if this invocation creates a new run. */
+  resolveConfigurationSnapshot: () => DelegatedAgentConfigurationSnapshot;
 }
 
 export interface DelegatedSubagentAdapterOptions {
@@ -51,6 +54,7 @@ export function createDelegatedSubagentAdapter(options: DelegatedSubagentAdapter
           targetAgentName: target.name,
           taskToolCallId,
           goal: getDelegatedGoal(input),
+          resolveConfigurationSnapshot: target.resolveConfigurationSnapshot,
           input,
           signal: invocationConfig?.signal,
         });

@@ -19,11 +19,10 @@ function provider(overrides: Partial<LLMProvider> & Pick<LLMProvider, 'id' | 'na
   };
 }
 
-function agent(overrides: Partial<Agent> & Pick<Agent, 'id' | 'project_id' | 'name' | 'provider_id'>): Agent {
+function agent(overrides: Partial<Agent> & Pick<Agent, 'id' | 'role' | 'name' | 'provider_id'>): Agent {
   return {
     description: '',
     system_prompt: '',
-    is_default: 0,
     created_at: 1_000,
     updated_at: 1_000,
     ...overrides,
@@ -74,20 +73,19 @@ describe('useConversationWorkspaceModel', () => {
     useLLMStore.setState({ providers: [], activeProvider: null });
   });
 
-  it('projects a legacy Conversation Agent binding through the Project Master', () => {
+  it('projects a legacy Conversation Agent binding through the global Master', () => {
     const defaultProvider = provider({ id: 'provider-default', name: 'Default Provider', default_model: 'default-model' });
     const sessionProvider = provider({ id: 'provider-session', name: 'Session Provider', default_model: 'session-model' });
     const defaultAgent = agent({
       id: 'agent-default',
-      project_id: 'project-1',
-      name: 'Default Agent',
+      role: 'master',
+      name: 'Master Agent',
       provider_id: defaultProvider.id,
       slug: 'master-agent',
-      is_default: 1,
     });
     const sessionAgent = agent({
       id: 'agent-session',
-      project_id: 'project-1',
+      role: 'custom',
       name: 'Session Agent',
       provider_id: sessionProvider.id,
     });
@@ -118,20 +116,19 @@ describe('useConversationWorkspaceModel', () => {
     expect(result.current.workspace.currentProjectRoot).toBe('/tmp/project-one');
   });
 
-  it('uses the Project Master for the master provider before a Conversation is active', () => {
+  it('uses the global Master for the master provider before a Conversation is active', () => {
     const defaultProvider = provider({ id: 'provider-default', name: 'Default Provider', default_model: 'default-model' });
     const otherProvider = provider({ id: 'provider-other', name: 'Other Provider', default_model: 'other-model' });
     const defaultAgent = agent({
       id: 'agent-default',
-      project_id: 'project-1',
-      name: 'Default Agent',
+      role: 'master',
+      name: 'Master Agent',
       provider_id: defaultProvider.id,
       slug: 'master-agent',
-      is_default: 1,
     });
     const otherAgent = agent({
       id: 'agent-other',
-      project_id: 'project-1',
+      role: 'custom',
       name: 'Other Agent',
       provider_id: otherProvider.id,
     });

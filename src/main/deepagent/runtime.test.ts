@@ -236,7 +236,7 @@ describe('createDeepAgentRuntime', () => {
         return undefined;
       },
       all: (arg?: string) => {
-        if (sql.includes('FROM agent_skills')) return [{ skill_name: arg === 'agent-2' ? 'project:sub-skill' : 'project:test-skill' }];
+        if (sql.includes('FROM agent_skills')) return [{ skill_name: arg === 'agent-2' ? 'built-in:paper-search' : 'built-in:test-skill' }];
         if (sql.includes('FROM messages')) {
           return [
             { id: 'old-user', role: 'user', content: '旧问题' },
@@ -295,7 +295,7 @@ describe('createDeepAgentRuntime', () => {
     expect(params.skills).toBeUndefined();
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
       builtInSkillDirs: [path.join(os.tmpdir(), 'cdf-built-in-skills', 'knowledge-base')],
-      preloadSkillNames: ['test-skill'],
+      preloadSkillKeys: ['built-in:test-skill'],
     }));
     expect(params.systemPrompt).not.toContain('绑定后才可见');
     expect(params.systemPrompt).not.toContain('Knowledge Base 使用规范');
@@ -348,7 +348,7 @@ describe('createDeepAgentRuntime', () => {
         return undefined;
       },
       all: (arg?: string) => {
-        if (sql.includes('FROM agent_skills')) return [{ skill_name: 'project:test-skill' }];
+        if (sql.includes('FROM agent_skills')) return [{ skill_name: 'built-in:test-skill' }];
         if (sql.includes('FROM mcp_servers')) return [];
         return [];
       },
@@ -402,8 +402,8 @@ describe('createDeepAgentRuntime', () => {
     expect(runtime.inputMessages).toEqual([{ role: 'user', content: '新问题' }]);
   });
 
-  it('ignores a caller Custom Agent ID and assembles the root runtime as Master', async () => {
-    const runtime = await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
+  it('assembles every root runtime as the global Master', async () => {
+    const runtime = await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
 
     expect(runtime.agentId).toBe('agent-1');
     expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
@@ -424,7 +424,6 @@ describe('createDeepAgentRuntime', () => {
       'project-1',
       'session-1',
       { id: 'message-1', content: '新问题' },
-      'agent-1',
       { modelSource: 'ai_subscription', sourceId: 'minimax-token-plan', model: 'MiniMax-M2.7' }
     );
 
@@ -485,7 +484,6 @@ describe('createDeepAgentRuntime', () => {
       'project-1',
       'session-1',
       { id: 'message-1', content: '新问题' },
-      'agent-1',
       {
         modelSource: 'ai_subscription',
         sourceId: 'minimax-token-plan',
@@ -499,7 +497,7 @@ describe('createDeepAgentRuntime', () => {
     });
   });
 
-  it('preserves qualified Master Skill names when building preload hints', async () => {
+  it('preserves source-aware Global Master Skill identities when building preload hints', async () => {
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
@@ -508,7 +506,7 @@ describe('createDeepAgentRuntime', () => {
       },
       all: (arg?: string) => {
         if (sql.includes('FROM agent_skills')) {
-          return [{ skill_name: 'project-additional:docs:review' }];
+          return [{ skill_name: 'built-in:docs:review' }];
         }
         if (sql.includes('FROM messages')) return [];
         if (sql.includes('FROM mcp_servers')) return [];
@@ -517,11 +515,11 @@ describe('createDeepAgentRuntime', () => {
       run: vi.fn(),
     }));
 
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' }, 'agent-2');
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: '新问题' });
 
     expect(resolveAgentSkillsConfigMock).not.toHaveBeenCalled();
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
-      preloadSkillNames: ['docs:review'],
+      preloadSkillKeys: ['built-in:docs:review'],
     }));
   });
 
@@ -529,8 +527,7 @@ describe('createDeepAgentRuntime', () => {
     await createDeepAgentRuntime(
       'project-1',
       'session-1',
-      { id: 'message-1', content: '部署 @apps/web/src/App.tsx' },
-      'agent-1'
+      { id: 'message-1', content: '部署 @apps/web/src/App.tsx' }
     );
 
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
@@ -568,11 +565,11 @@ describe('createDeepAgentRuntime', () => {
 
     createAgentCatalogMock.mockImplementation(() => ({
       resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
-      listDelegationTargets: () => [],
+      listDelegationTargets: () => [{ ...agent2, slug: 'code-agent' }],
       get: (id: string) => id === 'agent-2' ? { ...agent2, slug: 'code-agent' } : id === agent.id ? agent : null,
     }));
 
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, 'agent-1', undefined, ['agent-2']);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents).toBeDefined();
@@ -587,6 +584,11 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('defers delegated Agent Skill and model assembly until one run starts', async () => {
+    createAgentCatalogMock.mockReturnValue({
+      resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+      listDelegationTargets: () => [agent2],
+      get: (id: string) => [agent, agent2].find((candidate) => candidate.id === id) ?? null,
+    });
     dbPrepareMock.mockImplementation((sql: string) => ({
       get: (arg?: string) => {
         if (sql.includes('FROM projects')) return { id: 'project-1', name: 'Project CDF', path: tempProjectPath };
@@ -602,12 +604,12 @@ describe('createDeepAgentRuntime', () => {
       run: vi.fn(),
     }));
 
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, 'agent-1', undefined, ['agent-2']);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test @apps/web/src/App.tsx' }, undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents[0].runnable.invoke).toEqual(expect.any(Function));
     expect(buildCdfSkillsRuntimeMock).not.toHaveBeenCalledWith(tempProjectPath, expect.objectContaining({
-      preloadSkillNames: ['sub-skill'],
+      preloadSkillKeys: ['built-in:paper-search'],
     }));
     expect(vi.mocked(createLangChainModel)).toHaveBeenCalledTimes(1);
   });
@@ -635,13 +637,13 @@ describe('createDeepAgentRuntime', () => {
 
     createAgentCatalogMock.mockImplementation(() => ({
       resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
-      listDelegationTargets: () => [],
+      listDelegationTargets: () => [{ ...agent2, slug: 'minimax-agent' }],
       get: (id: string) => id === 'agent-2'
         ? { ...agent2, slug: 'minimax-agent' }
         : id === agent.id ? agent : null,
     }));
 
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents[0].runnable.invoke).toEqual(expect.any(Function));
@@ -690,7 +692,6 @@ describe('createDeepAgentRuntime', () => {
       'project-1',
       'session-1',
       { id: 'message-1', content: 'test' },
-      'agent-1',
       { allowedTools: ['read_file'] }
     );
 
@@ -893,7 +894,12 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should have task tool enabled when subagentIds provided (excludedTools: [])', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+    createAgentCatalogMock.mockReturnValue({
+      resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+      listDelegationTargets: () => [agent2],
+      get: (id: string) => [agent, agent2].find((candidate) => candidate.id === id) ?? null,
+    });
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, undefined, ['agent-2']);
 
     expect(registerHarnessProfileMock).toHaveBeenCalledWith(
       'llama3',
@@ -905,14 +911,14 @@ describe('createDeepAgentRuntime', () => {
   });
 
   it('should not pass subagents when subagentIds is empty', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, []);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, undefined, []);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents).toBeUndefined();
   });
 
   it('should not pass subagents when subagentIds is undefined', async () => {
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' });
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents).toBeUndefined();
@@ -934,11 +940,11 @@ describe('createDeepAgentRuntime', () => {
 
     createAgentCatalogMock.mockImplementation(() => ({
       resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
-      listDelegationTargets: () => [],
+      listDelegationTargets: () => [{ ...agent2, slug: '', name: 'Code Agent' }],
       get: (id: string) => id === 'agent-2' ? { ...agent2, slug: '', name: 'Code Agent' } : id === agent.id ? agent : null,
     }));
 
-    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, 'agent-1', undefined, ['agent-2']);
+    await createDeepAgentRuntime('project-1', 'session-1', { id: 'message-1', content: 'test' }, undefined, ['agent-2']);
 
     const params = (createDeepAgentMock.mock.calls as any[])[0][0];
     expect(params.subagents[0].name).toBe('code-agent');  // generated from 'Code Agent'
@@ -1010,8 +1016,8 @@ describe('createDeepAgentRuntime', () => {
       expect(params.interruptOn ?? {}).not.toHaveProperty('advance_stage');
     });
 
-    it('ignores a legacy run master_agent_id and keeps workflow tools on the protected Master', async () => {
-      getRunBySessionIdMock.mockReturnValue({ ...workflowRun, master_agent_id: 'someone-else' });
+    it('injects Workflow tools only for the resolved global Master', async () => {
+      getRunBySessionIdMock.mockReturnValue(workflowRun);
 
       await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' });
 
@@ -1019,23 +1025,18 @@ describe('createDeepAgentRuntime', () => {
       expect(toolNames).toContain('advance_stage');
     });
 
-    it('ignores a caller Custom Agent ID and injects workflow tools for Master', async () => {
-      getRunBySessionIdMock.mockReturnValue(workflowRun);
-
-      await createDeepAgentRuntime('project-1', 'session-wf', { id: 'message-1', content: '[系统指令] 请开始执行工作流' }, 'agent-2');
-
-      const toolNames = firstCreateDeepAgentParams().tools.map((t) => t.name);
-      expect(toolNames).toContain('advance_stage');
-    });
-
     it('keeps Custom and General-purpose Agents available for Master Stage delegation', async () => {
+      createAgentCatalogMock.mockReturnValue({
+        resolveMaster: () => ({ agent, system_prompt: agent.system_prompt ?? '' }),
+        listDelegationTargets: () => [agent2, generalPurposeAgent],
+        get: (id: string) => [agent, agent2, generalPurposeAgent].find((candidate) => candidate.id === id) ?? null,
+      });
       getRunBySessionIdMock.mockReturnValue(workflowRun);
 
       await createDeepAgentRuntime(
         'project-1',
         'session-wf',
         { id: 'message-1', content: '[系统指令] 请开始执行工作流' },
-        undefined,
         undefined,
         ['agent-2', 'agent-3'],
       );

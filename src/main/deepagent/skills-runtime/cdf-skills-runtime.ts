@@ -9,11 +9,14 @@ import {
 } from './skill-sources';
 import type { SkillAttribution } from '../../../shared/types';
 import type { GlobalSkillSourceKind, SkillSourceKind } from '../../../shared/skills';
+import { resolvedGlobalSkillKey } from '../../../shared/skill-identifiers';
 
 export interface CdfSkillsRuntimeOptions extends SkillSourcePlanOptions, SkillCatalogOptions {
   /** Frozen Conversation catalog. When present, source discovery is forbidden. */
   catalog?: ResolvedSkillCatalogEntry[];
   preloadSkillNames?: string[];
+  /** Source-aware Global Skill identities selected by an Agent. */
+  preloadSkillKeys?: string[];
   /** Current Project Scene, carried by the runtime assembly for catalog policy. */
   sceneId?: string;
   /** Global Scene policy. Project Skills are intentionally never passed to this predicate. */
@@ -60,10 +63,17 @@ function getSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
   }
 }
 
-function isPreloadedSkill(skill: ResolvedSkillCatalogEntry, preloadSkillNames: string[] | undefined): boolean {
+function isPreloadedSkill(
+  skill: ResolvedSkillCatalogEntry,
+  preloadSkillNames: string[] | undefined,
+  preloadSkillKeys: string[] | undefined,
+): boolean {
   const preloadNames = new Set(preloadSkillNames ?? []);
+  const preloadKeys = new Set(preloadSkillKeys ?? []);
   const displayName = getSkillDisplayName(skill);
-  return preloadNames.has(skill.name) || preloadNames.has(displayName);
+  const sourceKey = resolvedGlobalSkillKey(skill);
+  return preloadNames.has(skill.name) || preloadNames.has(displayName)
+    || (sourceKey !== null && preloadKeys.has(sourceKey));
 }
 
 function skillToAttribution(skill: ResolvedSkillCatalogEntry, phase: SkillAttribution['phase']): SkillAttribution {
@@ -81,7 +91,8 @@ function skillToAttribution(skill: ResolvedSkillCatalogEntry, phase: SkillAttrib
 
 function buildSkillAttributions(
   skills: ResolvedSkillCatalogEntry[],
-  preloadSkillNames: string[] | undefined
+  preloadSkillNames: string[] | undefined,
+  preloadSkillKeys: string[] | undefined,
 ): SkillAttribution[] {
   const attributions: SkillAttribution[] = [];
   for (const skill of skills) {
@@ -90,7 +101,7 @@ function buildSkillAttributions(
     }
     if (
       skill.modelDiscovery === 'full' &&
-      isPreloadedSkill(skill, preloadSkillNames)
+      isPreloadedSkill(skill, preloadSkillNames, preloadSkillKeys)
     ) {
       attributions.push(skillToAttribution(skill, 'preload'));
     }
@@ -115,6 +126,7 @@ export function buildCdfSkillsRuntime(
     })();
   const prompt = renderCdfSkillsPrompt(resolvedCatalog.skills, {
     preloadSkillNames: options.preloadSkillNames,
+    preloadSkillKeys: options.preloadSkillKeys,
     readSkill: (skill) => {
       try {
         return stripSkillFrontmatter(fs.readFileSync(skill.skillPath, 'utf-8'));
@@ -129,6 +141,10 @@ export function buildCdfSkillsRuntime(
     skills: resolvedCatalog.skills,
     prompt,
     warnings: resolvedCatalog.warnings,
-    attributions: buildSkillAttributions(resolvedCatalog.skills, options.preloadSkillNames),
+    attributions: buildSkillAttributions(
+      resolvedCatalog.skills,
+      options.preloadSkillNames,
+      options.preloadSkillKeys,
+    ),
   };
 }

@@ -37,8 +37,7 @@ function action(overrides: Partial<AgentApprovalAction> & Pick<AgentApprovalActi
 function agent(overrides: Partial<Agent> & Pick<Agent, 'name'>): Agent {
   return {
     id: 'agent-id',
-    project_id: 'project-1',
-    is_default: 0,
+    role: 'custom',
     created_at: 1,
     updated_at: 1,
     ...overrides,

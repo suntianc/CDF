@@ -19,7 +19,10 @@ import {
   resolveConversationSkillSnapshotConfig,
 } from './skill-manager';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
-import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
+import {
+  globalSkillReferenceToKey,
+  skillReferencesToPreloadNames,
+} from '../../shared/skill-identifiers';
 import type { ChatRuntimeOverrides, ProjectScene } from '../../shared/types';
 import { createGlobalSkillSceneExposureFilter } from '../global-skill-scene-exposure';
 import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
@@ -136,6 +139,14 @@ export function registerCdfHarnessProfile(
  */
 export function getPreloadSkillNames(skillIds: string[]): string[] {
   return skillReferencesToPreloadNames(skillIds);
+}
+
+/** Agent definitions can preload only Global Skills. Keep source identity so a
+ * same-named Project Skill in a frozen Conversation catalog is never loaded. */
+export function getPreloadSkillKeys(skillIds: string[]): string[] {
+  return skillIds
+    .map(globalSkillReferenceToKey)
+    .filter((key): key is string => key !== null);
 }
 
 // =============================================================================
@@ -273,7 +284,7 @@ export function buildCdfSkillsRuntimeAssembly(
   const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
     builtInSkillDirs: getBuiltInSkillDirs(),
     userSkillsDir: getScopePath(projectPath, 'global'),
-    preloadSkillNames: getPreloadSkillNames(skillNames),
+    preloadSkillKeys: getPreloadSkillKeys(skillNames),
     pathContext,
     sceneId,
     isGlobalSkillExposed: createGlobalSkillSceneExposureFilter(sceneId),

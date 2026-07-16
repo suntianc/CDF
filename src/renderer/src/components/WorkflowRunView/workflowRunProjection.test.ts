@@ -29,6 +29,7 @@ describe('WorkflowRunProjection', () => {
     workflow_id: 'wf-1',
     project_id: 'proj-1',
     session_id: 'sess-1',
+    master_agent_id: 'system-master-agent',
     status: 'running',
     current_stage_id: 'stage-1',
     current_stage_index: 0,

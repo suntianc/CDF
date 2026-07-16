@@ -28,7 +28,7 @@ import {
   getBuiltInSkillRegistrations,
 } from './deepagent/skill-manager';
 import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/skills';
-import { isRegisteredSceneId } from '../shared/scenes';
+import { isRegisteredSceneId, SCENE_REGISTRY } from '../shared/scenes';
 import { createSceneSkillExposureService } from './scene-skill-exposure';
 import { createGlobalSkillSceneExposureFilter } from './global-skill-scene-exposure';
 import { normalizeWorkflowStages, validateWorkflowStages } from '../shared/workflow-routing';
@@ -408,7 +408,7 @@ export function registerIpcHandlers() {
     },
   });
 
-  typedHandle('db:createSession', (_, projectId, name, parentSessionId, summary, agentId) => {
+  typedHandle('db:createSession', (_, projectId, name, parentSessionId, summary) => {
     const id = crypto.randomUUID();
     const now = Date.now();
     ensureProjectForSession(projectId);
@@ -680,95 +680,63 @@ export function registerIpcHandlers() {
     }
   });
 
-  // ===== Phase 3: Agent Library IPC Handlers =====
+  // ===== Global Agent Library IPC Handlers =====
 
-  const toAgentTransport = (agent: CatalogAgent, projectId: string) => ({
+  const createGlobalAgentCatalog = (createId?: () => string) => createAgentCatalog(db, {
+    createId,
+    initializeSchema: false,
+    listGlobalSkillIds: () => listGlobalSkillViews().map((skill) => skill.id),
+  });
+  const toAgentTransport = (agent: CatalogAgent) => ({
     ...agent,
     description: agent.description ?? undefined,
     provider_id: agent.provider_id ?? undefined,
     system_prompt: agent.system_prompt ?? undefined,
     config: agent.config ?? undefined,
-    project_id: projectId, // #184 still transports this field; Catalog does not persist it.
-    is_default: agent.role === 'master' ? 1 : 0,
-    is_protected: agent.role !== 'custom',
-    mcpServerExclusionIds: (db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(agent.id) as Array<{ mcp_server_id: string }>).map((row) => row.mcp_server_id),
-    skillNames: (db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agent.id) as Array<{ skill_name: string }>).map((row) => row.skill_name),
   });
 
-  typedHandle('db:getAgents', (_, projectId) => {
-    const catalog = createAgentCatalog(db, { initializeSchema: false });
-    const project = db.prepare('SELECT scene FROM projects WHERE id = ?').get(projectId) as
-      | { scene?: string | null }
-      | undefined;
-    const scene = project?.scene ?? 'general';
-    return catalog.list().map((agent) => toAgentTransport(
-      agent.role === 'master'
-        ? { ...agent, system_prompt: catalog.getMasterPrompt(scene) }
-        : agent,
-      projectId,
-    ));
+  typedHandle('db:getAgents', () => createGlobalAgentCatalog().list().map(toAgentTransport));
+
+  typedHandle('db:createCustomAgent', (_, agent) => toAgentTransport(
+    createGlobalAgentCatalog(() => agent.id).createCustom({
+      name: agent.name,
+      description: agent.description,
+      provider_id: agent.provider_id,
+      system_prompt: agent.system_prompt,
+      config: agent.config,
+      mcpServerExclusionIds: agent.mcpServerExclusionIds,
+      skillNames: agent.skillNames,
+    }),
+  ));
+
+  typedHandle('db:updateCustomAgent', (_, id, agent) => toAgentTransport(
+    createGlobalAgentCatalog().updateCustom(id, agent),
+  ));
+
+  typedHandle('db:updateGeneralPurposeAgent', (_, agent) => toAgentTransport(
+    createGlobalAgentCatalog().updateGeneralPurpose(agent),
+  ));
+
+  typedCrud({ channel: 'db:deleteCustomAgent', remove: (id) => createGlobalAgentCatalog().deleteCustom(id) });
+
+  typedHandle('db:getMasterScenePrompts', () => {
+    const catalog = createGlobalAgentCatalog();
+    return SCENE_REGISTRY.map((scene) => ({
+      scene: scene.id,
+      systemPrompt: catalog.getMasterPrompt(scene.id),
+      defaultSystemPrompt: catalog.getSceneDefaultPrompt(scene.id),
+    }));
   });
 
-  typedHandle('db:saveAgent', (_, agent) => {
-    const catalog = createAgentCatalog(db, { initializeSchema: false });
-    const current = catalog.get(agent.id);
-    const project = db.prepare('SELECT scene FROM projects WHERE id = ?').get(agent.project_id) as { scene?: string | null } | undefined;
-    if (!project) throw new Error(`Project with ID ${agent.project_id} not found.`);
-    const saved = db.transaction(() => {
-      let next: CatalogAgent;
-      if (current?.role === 'master') {
-        const changesProtectedField = (
-          (agent.name !== undefined && agent.name !== current.name)
-          || (agent.description !== undefined && agent.description !== current.description)
-          || (agent.provider_id !== undefined && agent.provider_id !== current.provider_id)
-          || (agent.config !== undefined && JSON.stringify(agent.config) !== JSON.stringify(current.config))
-          || agent.mcpServerExclusionIds !== undefined
-          || agent.skillNames !== undefined
-        );
-        if (typeof agent.system_prompt !== 'string' || changesProtectedField) {
-          throw new Error('Master Agent is protected: only its complete system prompt can be changed.');
-        }
-        catalog.saveMasterPrompt(project.scene ?? 'general', agent.system_prompt);
-        next = { ...catalog.resolveMaster(project.scene ?? 'general').agent, system_prompt: agent.system_prompt };
-      } else if (current?.role === 'general-purpose') {
-        if (agent.name !== undefined && agent.name !== current.name) {
-          throw new Error('General-purpose Agent is protected and cannot be renamed.');
-        }
-        next = catalog.updateGeneralPurpose({ description: agent.description, provider_id: agent.provider_id, system_prompt: agent.system_prompt, config: agent.config });
-      } else if (current) {
-        next = catalog.updateCustom(agent.id, { name: agent.name, description: agent.description, provider_id: agent.provider_id, system_prompt: agent.system_prompt, config: agent.config });
-      } else {
-        if (!agent.name) throw new Error('Agent name is required.');
-        next = createAgentCatalog(db, { createId: () => agent.id, initializeSchema: false }).createCustom({ name: agent.name, description: agent.description, provider_id: agent.provider_id, system_prompt: agent.system_prompt, config: agent.config });
-      }
-      if (Array.isArray(agent.mcpServerExclusionIds)) {
-        db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(next.id);
-        const insert = db.prepare('INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)');
-        for (const mcpId of new Set(agent.mcpServerExclusionIds)) insert.run(next.id, mcpId);
-      }
-      if (Array.isArray(agent.skillNames)) {
-        db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(next.id);
-        const insert = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
-        for (const skillName of new Set(agent.skillNames.map((name: string) => name.trim()).filter(Boolean))) insert.run(next.id, skillName);
-      }
-      return next;
-    })();
-    return toAgentTransport(saved, agent.project_id);
+  typedHandle('db:saveMasterScenePrompts', (_, changes) => {
+    const catalog = createGlobalAgentCatalog();
+    catalog.saveMasterPrompts(changes);
+    return SCENE_REGISTRY.map((scene) => ({
+      scene: scene.id,
+      systemPrompt: catalog.getMasterPrompt(scene.id),
+      defaultSystemPrompt: catalog.getSceneDefaultPrompt(scene.id),
+    }));
   });
-
-  typedHandle('db:resetMasterAgentPrompt', (_, projectId) => {
-    const project = db.prepare('SELECT scene FROM projects WHERE id = ?').get(projectId) as { scene?: string | null } | undefined;
-    if (!project) throw new Error(`Project with ID ${projectId} not found.`);
-    const catalog = createAgentCatalog(db, { initializeSchema: false });
-    const scene = project.scene ?? 'general';
-    const systemPrompt = catalog.resetMasterPrompt(scene);
-    return toAgentTransport(
-      { ...catalog.resolveMaster(scene).agent, system_prompt: systemPrompt },
-      projectId,
-    );
-  });
-
-  typedCrud({ channel: 'db:deleteAgent', remove: (id) => createAgentCatalog(db, { initializeSchema: false }).deleteCustom(id) });
 
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
 
@@ -1019,17 +987,13 @@ export function registerIpcHandlers() {
 
   typedHandle('db:getWorkflows', (_, projectId) => {
     const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
-    return rows.map((row) => {
-      const { master_agent_id: _legacyMasterAgentId, ...workflow } = row;
-      return { ...workflow, stages: row.stages ? JSON.parse(row.stages) : [] };
-    });
+    return rows.map((row) => ({ ...row, stages: row.stages ? JSON.parse(row.stages) : [] }));
   });
 
   typedHandle('db:getWorkflow', (_, id) => {
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
     if (!row) return undefined;
-    const { master_agent_id: _legacyMasterAgentId, ...workflow } = row;
-    return { ...workflow, stages: row.stages ? JSON.parse(row.stages) : [] };
+    return { ...row, stages: row.stages ? JSON.parse(row.stages) : [] };
   });
 
   typedHandle('db:saveWorkflow', (_, workflow) => {
@@ -1047,13 +1011,13 @@ export function registerIpcHandlers() {
     if (existing) {
       db.prepare(`
         UPDATE workflows
-        SET name = ?, description = ?, stages = ?, master_agent_id = NULL, status = ?, updated_at = ?
+        SET name = ?, description = ?, stages = ?, status = ?, updated_at = ?
         WHERE id = ?
       `).run(name, description || null, stagesJson, status || 'draft', now, id);
     } else {
       db.prepare(`
-        INSERT INTO workflows (id, project_id, name, description, stages, master_agent_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        INSERT INTO workflows (id, project_id, name, description, stages, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, project_id, name, description || null, stagesJson, status || 'draft', now, now);
     }
 

@@ -96,7 +96,6 @@ export type ConversationModelSourceType = 'llm_provider' | 'ai_subscription';
 export interface ChatPayload {
   projectId: string;
   sessionId: string;
-  agentId?: string | null;
   message: {
     id: string;
     content: string;
@@ -111,7 +110,6 @@ export interface ChatPayload {
 // llm:judge 的真实入参（handler 为真，原 src/main/llm.ts 定义迁移至此）。
 export interface JudgePayload {
   projectId: string;
-  agentId?: string | null;
   prompt: string;
   overrides?: ChatRuntimeOverrides;
 }

@@ -66,8 +66,8 @@ function seedMcpServer(id: string) {
     VALUES (?, ?, 'stdio', NULL, 0, 0, 0)`).run(id, id);
 }
 
-function findTool(name: string, projectId = PROJECT_ID, options: { activeAgentId?: string | null } = {}) {
-  const tool = createAgentTools(projectId, options).find((candidate) => candidate.name === name);
+function findTool(name: string, _projectId = PROJECT_ID, options: { activeAgentId?: string | null } = {}) {
+  const tool = createAgentTools(options).find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`Tool ${name} was not registered`);
   return tool;
 }
@@ -147,19 +147,19 @@ describe('Agent tools with the global Catalog schema', () => {
     const created = await invoke('create_agent', {
       name: 'Relations',
       mcpServerExclusionIds: ['mcp-1', 'missing', 'mcp-1'],
-      skillNames: ['global:review', ' global:review ', 'project:docs'],
+      skillNames: ['built-in:knowledge-base', ' built-in:knowledge-base '],
     });
 
     expect(created.mcpServerExclusionIds).toEqual(['mcp-1']);
-    expect(created.skillNames.sort()).toEqual(['global:review', 'project:docs']);
+    expect(created.skillNames.sort()).toEqual(['built-in:knowledge-base']);
 
     const updated = await invoke('update_agent', {
       id: created.id,
       mcpServerExclusionIds: ['mcp-2', 'mcp-2'],
-      skillNames: ['global:release', 'global:release'],
+      skillNames: ['built-in:paper-search', 'built-in:paper-search'],
     });
     expect(updated.mcpServerExclusionIds).toEqual(['mcp-2']);
-    expect(updated.skillNames).toEqual(['global:release']);
+    expect(updated.skillNames).toEqual(['built-in:paper-search']);
     expect((db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(created.id) as Array<{ mcp_server_id: string }>))
       .toEqual([{ mcp_server_id: 'mcp-2' }]);
   });
@@ -168,13 +168,13 @@ describe('Agent tools with the global Catalog schema', () => {
     seedProvider('provider-1', 1, 1);
     const custom = await createCustom('Transactional');
     db.exec(`CREATE TRIGGER reject_agent_skill BEFORE INSERT ON agent_skills
-      WHEN NEW.skill_name = 'reject:skill'
+      WHEN NEW.skill_name = 'built-in:knowledge-base'
       BEGIN SELECT RAISE(ABORT, 'relationship rejected'); END;`);
 
     const result = await invoke('update_agent', {
       id: custom.id,
       description: 'must not persist',
-      skillNames: ['reject:skill'],
+      skillNames: ['built-in:knowledge-base'],
     });
 
     expect(result.error).toMatch(/relationship rejected/);
@@ -186,7 +186,7 @@ describe('Agent tools with the global Catalog schema', () => {
     seedProvider('provider-1', 1, 1);
     seedMcpServer('mcp-1');
     const custom = await invoke('create_agent', {
-      name: 'Cascade', provider_id: 'provider-1', mcpServerExclusionIds: ['mcp-1'], skillNames: ['global:cascade'],
+      name: 'Cascade', provider_id: 'provider-1', mcpServerExclusionIds: ['mcp-1'], skillNames: ['built-in:knowledge-base'],
     });
     db.prepare(`INSERT INTO sessions (id, project_id, name, agent_id, summary, created_at, updated_at)
       VALUES ('session-1', ?, 'Session', NULL, NULL, 0, 0)`).run(PROJECT_ID);

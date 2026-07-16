@@ -146,7 +146,6 @@ describe('runLLMChat', () => {
         id: 'message-1',
         content: 'ping',
       },
-      undefined,
       undefined
     );
     expect(streamEvents).toHaveBeenCalledWith(
@@ -1398,7 +1397,6 @@ describe('runLLMChat', () => {
         id: 'message-3',
         content: 'ping',
       },
-      undefined,
       {
         providerId: 'provider-2',
         model: 'model-2',

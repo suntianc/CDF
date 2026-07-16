@@ -2,7 +2,7 @@
  * runtime.test.ts — Workflow Run 运行编排核心测试
  *
  * 使用真实 SQLite（临时目录）验证：
- * - startRun：解析 Project Master，创建 session + run，冻结完整 stages 骨架快照
+ * - startRun：按 Project Scene 解析全局 Master，创建 session + run，冻结完整 stages 骨架快照
  * - isAdvanceStageInterrupt：检测 deepagents 标准 actionRequests 格式
  * - gateEnabled=false 自动批准，返回 approve decision（非 cursor 推进）
  * - gateEnabled=true 等待审批，返回 approve/reject decision（cursor 由工具 callback 推进）
@@ -109,8 +109,8 @@ function seedData(): void {
   ];
   const stagesJson = JSON.stringify(stages);
   const wfId = crypto.randomUUID();
-  db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(wfId, PROJECT_ID, '测试工作流', stagesJson, null, 'active', now, now);
+  db.prepare('INSERT INTO workflows (id, project_id, name, stages, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(wfId, PROJECT_ID, '测试工作流', stagesJson, 'active', now, now);
   lastWorkflowId = wfId;
 }
 
@@ -136,7 +136,7 @@ describe('startRun', () => {
     expect(run.current_stage_id).toBe('stage-1');
     expect(run.current_stage_index).toBe(0);
     expect(run.total_stages).toBe(2);
-    expect(run).not.toHaveProperty('master_agent_id');
+    expect(run.master_agent_id).toBe(lastMasterAgentId);
     expect(firstStage.id).toBe('stage-1');
     expect(firstStage.name).toBe('需求分析');
 
@@ -149,10 +149,10 @@ describe('startRun', () => {
     expect(session!.agent_id).toBe(lastMasterAgentId);
     expect(session!.prompt_snapshot).toBe(lastMasterPrompt);
 
-    // 旧 schema 列为 expand-compatible 保留，不参与产品/API/runtime 语义。
     expect(db.prepare('SELECT master_agent_id FROM workflow_runs WHERE id = ?').get(run.id)).toEqual({
-      master_agent_id: '',
+      master_agent_id: lastMasterAgentId,
     });
+    expect(db.prepare("SELECT name FROM pragma_table_info('workflows') WHERE name = 'master_agent_id'").get()).toBeUndefined();
   });
 
   it('creates the same durable Skill Snapshot as an ordinary Conversation', () => {
@@ -191,12 +191,12 @@ describe('startRun', () => {
     expect(snapshot).not.toHaveProperty('agentId');
   });
 
-  it('skeleton snapshot is frozen and ignores a later legacy root-Agent value', () => {
+  it('skeleton snapshot is frozen when the Workflow changes later', () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
     const snapshot = JSON.parse(run.skeleton_snapshot!);
     // 修改 DB 中的 workflow，验证 snapshot 不受影响
     const modifiedStages = JSON.stringify([{ id: 'stage-modified', name: 'Modified' }]);
-    db.prepare('UPDATE workflows SET stages = ?, master_agent_id = ? WHERE id = ?').run(modifiedStages, 'other', lastWorkflowId);
+    db.prepare('UPDATE workflows SET stages = ? WHERE id = ?').run(modifiedStages, lastWorkflowId);
     // Re-read run from DB — snapshot should still be original
     const reloaded = getWorkflowRun(run.id)!;
     const reloadedSnapshot = JSON.parse(reloaded.skeleton_snapshot!);
@@ -211,22 +211,26 @@ describe('startRun', () => {
 
   it('throws for workflow without stages', () => {
     const wfId = crypto.randomUUID();
-    db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(wfId, PROJECT_ID, 'Empty', '[]', 'legacy-agent', 'active', Date.now(), Date.now());
+    db.prepare('INSERT INTO workflows (id, project_id, name, stages, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(wfId, PROJECT_ID, 'Empty', '[]', 'active', Date.now(), Date.now());
 
     expect(() => startRun(wfId, PROJECT_ID)).toThrow('Workflow has no stages defined');
   });
 
-  it('starts a Workflow with no legacy master_agent_id by resolving the protected Project Master', () => {
+  it('resolves the global Master and Scene prompt from an immutable Research Project', () => {
     const stages = JSON.stringify([{ id: 's1', name: 'S1', taskDescription: '', acceptanceCriteria: '', gateEnabled: false, terminal: true, routes: [] }]);
     const wfId = crypto.randomUUID();
-    db.prepare('INSERT INTO workflows (id, project_id, name, stages, master_agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(wfId, PROJECT_ID, 'No legacy root', stages, null, 'active', Date.now(), Date.now());
+    db.prepare('UPDATE projects SET scene = ? WHERE id = ?').run('research', PROJECT_ID);
+    agentCatalog.saveMasterPrompt('research', 'Workflow Research Master prompt');
+    const researchMaster = agentCatalog.resolveMaster('research');
+    db.prepare('INSERT INTO workflows (id, project_id, name, stages, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(wfId, PROJECT_ID, 'Research workflow', stages, 'active', Date.now(), Date.now());
 
-    const { sessionId } = startRun(wfId, PROJECT_ID);
+    const { run, sessionId } = startRun(wfId, PROJECT_ID);
+    expect(run.master_agent_id).toBe(researchMaster.agent.id);
     expect(db.prepare('SELECT agent_id, prompt_snapshot FROM sessions WHERE id = ?').get(sessionId)).toEqual({
-      agent_id: lastMasterAgentId,
-      prompt_snapshot: lastMasterPrompt,
+      agent_id: researchMaster.agent.id,
+      prompt_snapshot: 'Workflow Research Master prompt',
     });
   });
 });

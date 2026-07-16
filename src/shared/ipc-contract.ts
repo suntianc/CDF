@@ -2,7 +2,14 @@
 // preload 侧 typedInvoke 与主进程侧 typedHandle 均从这张表推导类型；
 // 参数保持位置元组形态（与线上 invoke 形态一致），以 handler 实际消费为真。
 // 纯类型层契约：不做运行时校验，运行时行为不变。
-import type { Agent, AgentSaveInput, AgentSaveResult } from './agents';
+import type {
+  Agent,
+  CreateCustomAgentInput,
+  MasterScenePrompt,
+  SaveMasterScenePromptsInput,
+  UpdateCustomAgentInput,
+  UpdateGeneralPurposeAgentInput,
+} from './agents';
 import type {
   AgentApprovalResolution,
   AgentRun,
@@ -110,7 +117,7 @@ export interface IpcInvokeContract {
   };
   'db:getSessions': { args: [projectId: string]; result: Session[] };
   'db:createSession': {
-    args: [projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string];
+    args: [projectId: string, name: string, parentSessionId?: string, summary?: string];
     result: Session;
   };
   'db:deleteSession': { args: [sessionId: string]; result: void };
@@ -141,10 +148,13 @@ export interface IpcInvokeContract {
     result: ConversationWorkingStateStorageStatus;
   };
   // ===== db：Agent 库 / Skills / MCP / Tool Configs / Workflow 存储 =====
-  'db:getAgents': { args: [projectId: string]; result: Agent[] };
-  'db:saveAgent': { args: [agent: AgentSaveInput]; result: AgentSaveResult };
-  'db:resetMasterAgentPrompt': { args: [projectId: string]; result: AgentSaveResult };
-  'db:deleteAgent': { args: [id: string]; result: void };
+  'db:getAgents': { args: []; result: Agent[] };
+  'db:createCustomAgent': { args: [agent: CreateCustomAgentInput]; result: Agent };
+  'db:updateCustomAgent': { args: [id: string, agent: UpdateCustomAgentInput]; result: Agent };
+  'db:updateGeneralPurposeAgent': { args: [agent: UpdateGeneralPurposeAgentInput]; result: Agent };
+  'db:deleteCustomAgent': { args: [id: string]; result: void };
+  'db:getMasterScenePrompts': { args: []; result: MasterScenePrompt[] };
+  'db:saveMasterScenePrompts': { args: [changes: SaveMasterScenePromptsInput[]]; result: MasterScenePrompt[] };
   'db:getSkills': { args: [projectId: string]; result: Skill[] };
   'db:getGlobalSkills': { args: []; result: Skill[] };
   'db:saveSkill': { args: [projectId: string, skill: SkillSaveInput]; result: Skill };
@@ -369,9 +379,12 @@ export const IPC_INVOKE_CHANNELS = [
   'working-state:get-storage-status',
   'working-state:optimize-storage',
   'db:getAgents',
-  'db:saveAgent',
-  'db:resetMasterAgentPrompt',
-  'db:deleteAgent',
+  'db:createCustomAgent',
+  'db:updateCustomAgent',
+  'db:updateGeneralPurposeAgent',
+  'db:deleteCustomAgent',
+  'db:getMasterScenePrompts',
+  'db:saveMasterScenePrompts',
   'db:getSkills',
   'db:getGlobalSkills',
   'db:saveSkill',

@@ -40,6 +40,7 @@ import {
 } from './delegated-agent-run-coordinator';
 import { createParallelTaskTool } from './parallel-task-tool';
 import { createAgentCatalog } from '../agent-catalog';
+import { captureDelegatedAgentConfigurationSnapshot } from './delegated-agent-configuration-snapshot';
 
 const success: DelegatedTaskResult = {
   status: 'success',
@@ -86,8 +87,17 @@ describe('parallel_tasks + Delegated Run Coordinator integration', () => {
       createId: () => `delegated-${++nextId}`,
       now: () => 100 + nextId,
     });
+    const workerTarget = createAgentCatalog(testDb, { initializeSchema: false }).listDelegationTargets()
+      .find((agent) => agent.slug === 'worker-agent')!;
     const parallelTool = createParallelTaskTool('project-1', 'session-1', {
       coordinator,
+      delegationTargets: [workerTarget],
+      captureConfigurationSnapshot: (target) => captureDelegatedAgentConfigurationSnapshot({
+        target,
+        mcpServerExclusionIds: [],
+        skillNames: [],
+        conversationSkillSnapshot: [],
+      }),
       createBatchId: () => 'batch-integration',
     });
 

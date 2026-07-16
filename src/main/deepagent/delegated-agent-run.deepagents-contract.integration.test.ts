@@ -94,6 +94,24 @@ describe('single delegation + real deepagents contract', () => {
         slug: 'code-agent',
         name: 'Code Agent',
         description: 'Writes code',
+        resolveConfigurationSnapshot: () => ({
+          target: {
+            id: 'agent-child',
+            role: 'custom',
+            slug: 'code-agent',
+            name: 'Code Agent',
+            description: 'Writes code',
+            provider_id: null,
+            system_prompt: 'Complete the delegated task.',
+            config: null,
+            mcpServerExclusionIds: [],
+            skillNames: [],
+            created_at: 0,
+            updated_at: 0,
+          },
+          mcpServerExclusionIds: [],
+          globalSkillPreloadRefs: [],
+        }),
       },
     });
     const master = createDeepAgent({

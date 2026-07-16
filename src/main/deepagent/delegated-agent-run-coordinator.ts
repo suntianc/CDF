@@ -14,6 +14,7 @@ import {
   DelegatedToolApprovalScheduler,
   type DelegatedToolActionInput,
 } from './delegated-tool-approval-scheduler';
+import type { DelegatedAgentConfigurationSnapshot } from './delegated-agent-configuration-snapshot';
 
 export interface QueueSingleDelegatedRunInput {
   parentAgentRunId: string;
@@ -22,6 +23,8 @@ export interface QueueSingleDelegatedRunInput {
   targetAgentName: string;
   taskToolCallId: string | null;
   goal: string;
+  /** Captured before persistence; kept only for this process lifetime. */
+  configurationSnapshot?: DelegatedAgentConfigurationSnapshot;
 }
 
 export interface DelegatedRunProgress {
@@ -36,6 +39,8 @@ export interface RunSingleDelegatedRunInput
   delegatedRunId?: string;
   input: unknown;
   signal?: AbortSignal;
+  /** Resolve current Catalog configuration only when this call creates a new run. */
+  resolveConfigurationSnapshot?: () => DelegatedAgentConfigurationSnapshot;
 }
 
 export interface RunParallelDelegatedRunInput extends RunSingleDelegatedRunInput {
@@ -94,6 +99,7 @@ export class DelegatedAgentRunCoordinator {
   private readonly inFlight = new Map<string, Promise<DelegatedTaskResult>>();
   private readonly pending: PendingExecution[] = [];
   private readonly toolApprovals: DelegatedToolApprovalScheduler;
+  private readonly configurationSnapshots = new Map<string, DelegatedAgentConfigurationSnapshot>();
   private readonly runChangeListeners = new Set<(parentRunId: string) => void>();
   private activeRuns = 0;
 
@@ -149,6 +155,7 @@ export class DelegatedAgentRunCoordinator {
       if (run?.parent_run_id !== parentRunId) continue;
       this.pending.splice(index, 1);
       this.inFlight.delete(pending.delegatedRunId);
+      this.configurationSnapshots.delete(pending.delegatedRunId);
       pending.resolve(cancellation);
     }
     const changes = this.repository.cancelForParent(parentRunId, endedAt);
@@ -164,11 +171,15 @@ export class DelegatedAgentRunCoordinator {
       );
       if (existing) return existing;
     }
-    return this.repository.createSingle({
+    const delegatedRun = this.repository.createSingle({
       id: this.createId(),
       ...input,
       createdAt: this.now(),
     });
+    if (input.configurationSnapshot) {
+      this.configurationSnapshots.set(delegatedRun.id, input.configurationSnapshot);
+    }
+    return delegatedRun;
   }
 
   async runSingle(input: RunSingleDelegatedRunInput): Promise<DelegatedTaskResult> {
@@ -177,11 +188,25 @@ export class DelegatedAgentRunCoordinator {
       : input.taskToolCallId
         ? this.repository.getByTaskToolCall(input.parentAgentRunId, input.taskToolCallId)
         : null;
-    const delegatedRun = record ?? this.queueSingle(input);
+    let configurationSnapshot = record
+      ? this.configurationSnapshots.get(record.id)
+      : undefined;
+    configurationSnapshot ??= input.configurationSnapshot;
+    if (!configurationSnapshot && input.resolveConfigurationSnapshot) {
+      configurationSnapshot = input.resolveConfigurationSnapshot();
+    }
+
+    const delegatedRun = record ?? this.queueSingle({
+      ...input,
+      configurationSnapshot,
+    });
     if (delegatedRun.outcome) return delegatedRun.outcome;
 
     const existingExecution = this.inFlight.get(delegatedRun.id);
     if (existingExecution) return existingExecution;
+    if (configurationSnapshot && !this.configurationSnapshots.has(delegatedRun.id)) {
+      this.configurationSnapshots.set(delegatedRun.id, configurationSnapshot);
+    }
 
     let resolveExecution!: (outcome: DelegatedTaskResult) => void;
     let rejectExecution!: (error: unknown) => void;
@@ -192,7 +217,11 @@ export class DelegatedAgentRunCoordinator {
     this.inFlight.set(delegatedRun.id, execution);
     this.pending.push({
       delegatedRunId: delegatedRun.id,
-      input: { ...input, delegatedRunId: delegatedRun.id },
+      input: {
+        ...input,
+        delegatedRunId: delegatedRun.id,
+        configurationSnapshot: this.configurationSnapshots.get(delegatedRun.id),
+      },
       resolve: resolveExecution,
       reject: rejectExecution,
     });
@@ -218,6 +247,9 @@ export class DelegatedAgentRunCoordinator {
 
     return Promise.all(queued.map(async (delegatedRun, index) => {
       const item = input.items[index];
+      if (item.configurationSnapshot) {
+        this.configurationSnapshots.set(delegatedRun.id, item.configurationSnapshot);
+      }
       const outcome = await this.runSingle({
         ...item,
         parentAgentRunId: input.parentAgentRunId,
@@ -240,6 +272,7 @@ export class DelegatedAgentRunCoordinator {
         .finally(() => {
           this.activeRuns -= 1;
           this.inFlight.delete(next.delegatedRunId);
+          this.configurationSnapshots.delete(next.delegatedRunId);
           this.promoteQueuedRuns();
         });
     }

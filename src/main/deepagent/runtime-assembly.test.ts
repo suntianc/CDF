@@ -389,8 +389,8 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     });
   });
 
-  it('returns permissions and skillsRuntime', () => {
-    const result = buildCdfSkillsRuntimeAssembly(projectPath, ['project:test-skill'], [
+  it('returns permissions and skillsRuntime with source-aware Global preloads only', () => {
+    const result = buildCdfSkillsRuntimeAssembly(projectPath, ['built-in:test-skill', 'global:personal-review', 'project:ignored'], [
       'apps/web/src/App.tsx',
     ]);
     expect(result.permissions).toBeDefined();
@@ -399,7 +399,7 @@ describe('buildCdfSkillsRuntimeAssembly', () => {
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(
       projectPath,
       expect.objectContaining({
-        preloadSkillNames: ['test-skill'],
+        preloadSkillKeys: ['built-in:test-skill', 'user:personal-review'],
         pathContext: ['apps/web/src/App.tsx'],
       }),
     );
@@ -538,7 +538,7 @@ describe('assembleDeepAgentRuntime', () => {
       agentRow,
       null,
       project,
-      ['project:docs:review', 'project:test-skill'],
+      ['built-in:docs:review', 'global:test-skill', 'project:ignored'],
       ['src/main.ts', 'src/utils.ts'],
       [],
     );
@@ -546,7 +546,7 @@ describe('assembleDeepAgentRuntime', () => {
     expect(buildCdfSkillsRuntimeMock).toHaveBeenCalledWith(
       project.path,
       expect.objectContaining({
-        preloadSkillNames: expect.arrayContaining(['docs:review', 'test-skill']),
+        preloadSkillKeys: expect.arrayContaining(['built-in:docs:review', 'user:test-skill']),
         pathContext: ['src/main.ts', 'src/utils.ts'],
       }),
     );

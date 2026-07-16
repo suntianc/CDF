@@ -2,39 +2,19 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import db from '../database';
 import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
+import { listGlobalSkillViews } from './skill-manager';
 
 const AGENT_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
 
-function getMcpExclusionIds(agentId: string): string[] {
-  return (db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(agentId) as Array<{ mcp_server_id: string }>).map((row) => row.mcp_server_id);
-}
-
-function getSkillNames(agentId: string): string[] {
-  return (db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agentId) as Array<{ skill_name: string }>).map((row) => row.skill_name);
+function createGlobalAgentCatalog() {
+  return createAgentCatalog(db, {
+    initializeSchema: false,
+    listGlobalSkillIds: () => listGlobalSkillViews().map((skill) => skill.id),
+  });
 }
 
 function serialize(agent: CatalogAgent) {
-  return {
-    ...agent,
-    effective_slug: agent.slug,
-    mcpServerExclusionIds: getMcpExclusionIds(agent.id),
-    skillNames: getSkillNames(agent.id),
-  };
-}
-
-function saveRelations(agentId: string, input: { mcpServerExclusionIds?: string[]; skillNames?: string[] }): void {
-  if (input.mcpServerExclusionIds !== undefined) {
-    db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(agentId);
-    const insert = db.prepare('INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)');
-    for (const id of new Set(input.mcpServerExclusionIds)) {
-      if (db.prepare('SELECT id FROM mcp_servers WHERE id = ?').get(id)) insert.run(agentId, id);
-    }
-  }
-  if (input.skillNames !== undefined) {
-    db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(agentId);
-    const insert = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
-    for (const name of new Set(input.skillNames.map((value) => value.trim()).filter(Boolean))) insert.run(agentId, name);
-  }
+  return { ...agent, effective_slug: agent.slug, library_scope: 'global Agent Library' };
 }
 
 function resolveCreateProviderId(providerId: string | null | undefined): string {
@@ -61,16 +41,14 @@ function validateName(name: string): string | null {
 }
 
 export function createAgentTools(
-  projectId: string,
   options: { activeAgentId?: string | null } = {},
 ) {
-  void projectId; // Agent Catalog is global; #184 removes this transport parameter.
   return [
     tool(async () => JSON.stringify(
-      createAgentCatalog(db, { initializeSchema: false }).listDelegationTargets().map(serialize),
+      createGlobalAgentCatalog().listDelegationTargets().map(serialize),
     ), {
       name: 'list_agents',
-      description: '列出可被 Master Agent 调用的全局子 agent，不包含 Master Agent。',
+      description: '列出全局 Agent Library 中可被 Master Agent 调用的子 Agent，不包含 Master Agent。',
       schema: z.object({}),
     }),
     tool(async (input: {
@@ -86,25 +64,21 @@ export function createAgentTools(
       if (!name) return JSON.stringify({ error: 'Invalid agent name. Must contain only English letters, numbers, spaces, hyphens, or underscores.' });
       try {
         const providerId = resolveCreateProviderId(input.provider_id);
-        const catalog = createAgentCatalog(db, { initializeSchema: false });
-        const created = db.transaction(() => {
-          const agent = catalog.createCustom({
-            name,
-            description: input.description ?? null,
-            provider_id: providerId,
-            system_prompt: input.system_prompt ?? null,
-            config: input.config ?? null,
-          });
-          saveRelations(agent.id, input);
-          return agent;
-        })();
+        const created = createGlobalAgentCatalog().createCustom({
+          ...input,
+          name,
+          provider_id: providerId,
+          description: input.description ?? null,
+          system_prompt: input.system_prompt ?? null,
+          config: input.config ?? null,
+        });
         return JSON.stringify(serialize(created));
       } catch (error) {
         return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
       }
     }, {
       name: 'create_agent',
-      description: '创建一个全局 Custom Agent。',
+      description: '在全局 Agent Library 中创建一个 Custom Agent；此写操作会影响所有项目。',
       schema: z.object({
         name: z.string(), description: z.string().optional(), provider_id: z.string().nullable().optional(),
         system_prompt: z.string().optional(), mcpServerExclusionIds: z.array(z.string()).optional(),
@@ -121,25 +95,21 @@ export function createAgentTools(
       skillNames?: string[];
       config?: Record<string, unknown>;
     }) => {
-      const catalog = createAgentCatalog(db, { initializeSchema: false });
+      const catalog = createGlobalAgentCatalog();
       const existing = catalog.get(input.id);
       if (!existing) return JSON.stringify({ error: `Agent not found: ${input.id}` });
       if (existing.role !== 'custom') return JSON.stringify({ error: `${existing.name} is protected; only Custom Agents can be updated.` });
       if (input.name !== undefined && !validateName(input.name)) return JSON.stringify({ error: 'Invalid agent name. Must contain only English letters, numbers, spaces, hyphens, or underscores.' });
       try {
         validateUpdateProviderId(input.provider_id);
-        const updated = db.transaction(() => {
-          const agent = catalog.updateCustom(input.id, input);
-          saveRelations(agent.id, input);
-          return agent;
-        })();
+        const updated = catalog.updateCustom(input.id, input);
         return JSON.stringify(serialize(updated));
       } catch (error) {
         return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
       }
     }, {
       name: 'update_agent',
-      description: '更新一个全局 Custom Agent 的配置。系统 Agent 受保护，不能通过此工具修改。',
+      description: '更新全局 Agent Library 中一个 Custom Agent 的配置；此写操作会影响所有项目。系统 Agent 受保护，不能通过此工具修改。',
       schema: z.object({
         id: z.string(), name: z.string().optional(), description: z.string().optional(), provider_id: z.string().nullable().optional(),
         system_prompt: z.string().optional(), mcpServerExclusionIds: z.array(z.string()).optional(),
@@ -150,19 +120,19 @@ export function createAgentTools(
       if (!id.trim()) return JSON.stringify({ error: 'Agent id is required.' });
       if (options.activeAgentId === id) return JSON.stringify({ error: `Cannot delete the agent currently running this chat session (id=${id}).` });
       try {
-        const catalog = createAgentCatalog(db, { initializeSchema: false });
+        const catalog = createGlobalAgentCatalog();
         const existing = catalog.get(id);
         if (!existing) return JSON.stringify({ error: `Agent not found: ${id}` });
         const inFlight = db.prepare("SELECT id FROM agent_runs WHERE agent_id = ? AND status IN ('running', 'waiting_approval') LIMIT 1").get(id);
         if (inFlight) return JSON.stringify({ error: 'Cannot delete agent with an in-flight run.' });
         catalog.deleteCustom(id);
-        return JSON.stringify({ deleted: true, id, name: existing.name });
+        return JSON.stringify({ deleted: true, id, name: existing.name, library_scope: 'global Agent Library' });
       } catch (error) {
         return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
       }
     }, {
       name: 'delete_agent',
-      description: '删除一个 Custom Agent。',
+      description: '从全局 Agent Library 删除一个 Custom Agent；此写操作会影响所有项目。',
       schema: z.object({ id: z.string() }),
     }),
   ];

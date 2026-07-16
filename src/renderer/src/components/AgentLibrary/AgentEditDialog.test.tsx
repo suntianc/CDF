@@ -4,343 +4,143 @@ import i18n from '../../i18n';
 import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
-import { useProjectStore } from '../../stores/projectStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { AgentEditDialog } from './AgentEditDialog';
 
+const globalSkill = {
+  id: 'global:review', name: 'review', description: 'Review workflow', scope: 'global' as const,
+  sourceKind: 'user' as const, sourceLabel: 'Global Skill', resourceFiles: [], created_at: 0, updated_at: 0,
+};
+
+beforeEach(async () => {
+  await i18n.changeLanguage('en-US');
+  useAgentStore.setState({
+    agents: [], masterScenePrompts: [], isLoading: false, error: null,
+    createCustomAgent: vi.fn(async () => {}),
+    updateCustomAgent: vi.fn(async () => {}),
+    updateGeneralPurposeAgent: vi.fn(async () => {}),
+    fetchMasterScenePrompts: vi.fn(async () => {}),
+    saveMasterScenePrompts: vi.fn(async () => {}),
+    deleteCustomAgent: vi.fn(async () => {}),
+  });
+  useLLMStore.setState({
+    providers: [{
+      id: 'provider-1', name: 'Local model', provider_type: 'ollama', default_model: 'llama3',
+      context_limit: 8192, is_active: 1, created_at: 0, updated_at: 0,
+    }], activeProvider: null, isLoading: false, error: null,
+  });
+  useSkillStore.setState({ skills: [globalSkill], isLoading: false, error: null });
+  useMcpServerStore.setState({ mcpServers: [], isLoading: false, error: null });
+});
+
 describe('AgentEditDialog', () => {
-  beforeEach(async () => {
-    await i18n.changeLanguage('en-US');
-    useProjectStore.setState({
-      currentProjectId: 'project-1',
-      projects: [{ id: 'project-1', name: 'CDF Project', path: '/tmp/cdf', scene: 'general' , created_at: 0, updated_at: 0 }],
-      activeView: 'agents',
-      taskPanelOpen: false,
-    });
-    useAgentStore.setState({
-      agents: [],
-      isLoading: false,
-      error: null,
-      saveAgent: vi.fn(async () => {}),
-    });
-    useLLMStore.setState({
-      providers: [
-        {
-          id: 'provider-1',
-          name: 'Local model',
-          provider_type: 'ollama',
-          default_model: 'llama3',
-          context_limit: 8192,
-          is_active: 1,
-          created_at: 0,
-          updated_at: 0,
-        },
-      ],
-      activeProvider: null,
-      isLoading: false,
-      error: null,
-    });
+  it('only offers Global Skills as preload candidates', () => {
     useSkillStore.setState({
-      skills: [
-        {
-          id: 'project:review',
-          name: 'review',
-          description: 'Review workflow',
-          scope: 'project',
-          resourceFiles: [],
-          created_at: 0,
-          updated_at: 0,
-        },
-      ],
-      isLoading: false,
-      error: null,
-    });
-    useMcpServerStore.setState({
-      mcpServers: [],
-      isLoading: false,
-      error: null,
-    });
-  });
-
-  it('describes Agent Skills as preload instead of access bindings', () => {
-    const { container } = render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText(/Preload Skills/)).toBeTruthy();
-    expect(screen.getByText(/loads full instructions at startup/i)).toBeTruthy();
-    expect(container.textContent).not.toMatch(/Bind Skills|Skills bindings/);
-  });
-
-  it('offers Project Skills as preload candidates', () => {
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    fireEvent.click(screen.getByText('Manage Skill preload'));
-
-    const preloadCandidate = screen.getByRole('button', { name: /preload review/i });
-    expect(preloadCandidate).toBeTruthy();
-    expect(preloadCandidate.textContent).toContain('Project Skill');
-  });
-
-  it('saves MCP Server Exclusions from the default-visible controls', () => {
-    const saveAgent = vi.fn(async () => {});
-    useAgentStore.setState({ saveAgent });
-    useMcpServerStore.setState({
-      mcpServers: [
-        {
-          id: 'github',
-          name: 'GitHub',
-          server_type: 'stdio',
-          config: {},
-          is_connected: true,
-          created_at: 0,
-          updated_at: 0,
-        },
-        {
-          id: 'arxiv',
-          name: 'arXiv',
-          server_type: 'stdio',
-          config: {},
-          is_connected: true,
-          created_at: 0,
-          updated_at: 0,
-        },
-      ],
-      isLoading: false,
-      error: null,
-    });
-
-    const { container } = render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
-      target: { value: 'MCP Agent' },
-    });
-    fireEvent.click(screen.getByLabelText('GitHub visible to this Agent'));
-    fireEvent.click(screen.getByText('Save'));
-
-    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'MCP Agent',
-      mcpServerExclusionIds: ['github'],
-    }));
-    expect(container.textContent).toContain('MCP servers visible');
-    expect(container.textContent).toContain('Excluded');
-  });
-
-  it('uses resolved qualified names and source labels for Project Skill preload only', () => {
-    const saveAgent = vi.fn(async () => {});
-    useAgentStore.setState({ saveAgent });
-    useSkillStore.setState({
-      skills: [{
-        id: 'project-additional:docs:review',
-        name: 'review',
-        qualifiedName: 'docs:review',
-        description: 'Docs review workflow',
-        scope: 'project',
-        sourceKind: 'project-additional',
-        sourceLabel: 'Project Skill: docs',
-        resourceFiles: [],
-        created_at: 0,
-        updated_at: 0,
+      skills: [globalSkill, {
+        id: 'project:review', name: 'project-review', description: 'Project workflow', scope: 'project',
+        sourceKind: 'project', sourceLabel: 'Project Skill', resourceFiles: [], created_at: 0, updated_at: 0,
       }],
-      isLoading: false,
-      error: null,
     });
-
     render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
 
+    fireEvent.click(screen.getByText('Manage Skill preload'));
+
+    expect(screen.getByRole('button', { name: /preload review/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /preload project-review/i })).toBeNull();
+  });
+
+  it('creates a Custom Agent without a Project transport field', () => {
+    const createCustomAgent = vi.fn(async () => {});
+    useAgentStore.setState({ createCustomAgent });
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
+
+    expect((screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement).disabled).toBe(false);
     fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
-      target: { value: 'Docs Review Agent' },
+      target: { value: 'Review Agent' },
     });
     fireEvent.click(screen.getByText('Manage Skill preload'));
-    const preloadCandidate = screen.getByRole('button', { name: /preload docs:review/i });
-    expect(preloadCandidate.textContent).toContain('Project Skill: docs');
-    fireEvent.click(preloadCandidate);
+    fireEvent.click(screen.getByRole('button', { name: /preload review/i }));
     fireEvent.click(screen.getByText('Save'));
 
-    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Docs Review Agent',
-      skillNames: ['project-additional:docs:review'],
-      config: expect.any(Object),
+    expect(createCustomAgent).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Review Agent', skillNames: ['global:review'],
     }));
+    expect((createCustomAgent as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0]).not.toHaveProperty('project_id');
   });
 
-  it('lets Master edit and reset only the complete prompt, with changes scoped to new Conversations', () => {
-    const saveAgent = vi.fn(async () => {});
-    const resetMasterAgentPrompt = vi.fn(async () => {});
+  it('keeps General-purpose identity protected while saving its capability configuration', () => {
+    const updateGeneralPurposeAgent = vi.fn(async () => {});
     useAgentStore.setState({
       agents: [{
-        id: 'master-1',
-        project_id: 'project-1',
-        name: 'Master Agent',
-        slug: 'master-agent',
-        role: 'master',
-        is_protected: true,
-        description: 'Project Master Agent',
-        provider_id: undefined,
-        system_prompt: 'General complete prompt',
-        config: { toolScope: { mode: 'inherit' } },
-        is_default: 1,
-        mcpServerExclusionIds: [],
-        skillNames: [],
-        created_at: 0,
-        updated_at: 0,
-      }],
-      saveAgent,
-      resetMasterAgentPrompt,
-    });
-
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId="master-1"
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText(/only the complete prompt can be changed/i)).toBeTruthy();
-    expect(screen.getByText(/Prompt changes apply only to new Conversations/i)).toBeTruthy();
-    expect(screen.queryByText('Runtime safety configuration')).toBeNull();
-    expect((screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement).disabled).toBe(true);
-
-    fireEvent.change(screen.getByPlaceholderText(/Enter detailed system prompt/i), {
-      target: { value: 'Edited complete prompt' },
-    });
-    fireEvent.click(screen.getByText('Save'));
-    expect(saveAgent).toHaveBeenCalledWith({
-      id: 'master-1',
-      project_id: 'project-1',
-      system_prompt: 'Edited complete prompt',
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /Reset to Scene default/i }));
-    expect(resetMasterAgentPrompt).toHaveBeenCalledWith('project-1');
-  });
-
-  it('makes the Master prompt modal an accessible, keyboard-trapped dialog and restores trigger focus', () => {
-    const onClose = vi.fn();
-    useAgentStore.setState({
-      agents: [{
-        id: 'master-1', project_id: 'project-1', name: 'Master Agent', slug: 'master-agent',
-        role: 'master', is_protected: true, system_prompt: 'General complete prompt', is_default: 1,
+        id: 'general-1', role: 'general-purpose', name: 'General-purpose', slug: 'general-purpose',
+        provider_id: undefined, system_prompt: 'Delegate safely', config: { toolScope: { mode: 'inherit' } },
         created_at: 0, updated_at: 0,
       }],
+      updateGeneralPurposeAgent,
     });
-    const trigger = document.createElement('button');
-    document.body.appendChild(trigger);
-    trigger.focus();
-
-    const { unmount } = render(
-      <AgentEditDialog isOpen agentId="master-1" onClose={onClose} showToast={vi.fn()} />,
-    );
-
-    const dialog = screen.getByRole('dialog');
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByPlaceholderText(/Enter detailed system prompt/i));
-
-    screen.getByRole('button', { name: /Close modal/i }).focus();
-    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Save/i }));
-    fireEvent.keyDown(dialog, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(1);
-
-    unmount();
-    expect(document.activeElement).toBe(trigger);
-    trigger.remove();
-  });
-
-  it('shows the protected General-purpose identity and inherited model selection', () => {
-    useAgentStore.setState({
-      agents: [{
-        id: 'general-1',
-        project_id: 'project-1',
-        name: 'General-purpose',
-        slug: 'general-purpose',
-        is_protected: true,
-        provider_id: undefined,
-        is_default: 0,
-        created_at: 0,
-        updated_at: 0,
-      }],
-    });
-
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId="general-1"
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
+    render(<AgentEditDialog isOpen agentId="general-1" onClose={vi.fn()} showToast={vi.fn()} />);
 
     const nameInput = screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement;
     expect(nameInput.disabled).toBe(true);
-    expect(screen.getAllByText(/protected Project Agent/i)).toHaveLength(2);
     expect(screen.getByText(/inherits the invoking Agent's model/i)).toBeTruthy();
+    fireEvent.click(screen.getByText('Save'));
+    expect(updateGeneralPurposeAgent).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ toolScope: { mode: 'inherit' } }),
+    }));
   });
 
-  it('saves an explicitly narrowed built-in and MCP tool scope independently from Skills', () => {
-    const saveAgent = vi.fn(async () => {});
-    useAgentStore.setState({ saveAgent });
-    useMcpServerStore.setState({
-      mcpServers: [{
-        id: 'github',
-        name: 'GitHub',
-        server_type: 'stdio',
-        config: {},
-        is_connected: true,
-        created_at: 0,
-        updated_at: 0,
-      }],
-      isLoading: false,
-      error: null,
+  it('keeps independent Master Scene drafts, resets only the active draft, and saves atomically', () => {
+    const saveMasterScenePrompts = vi.fn(async () => {});
+    const prompts = [
+      { scene: 'general' as const, systemPrompt: 'Saved general', defaultSystemPrompt: 'Default general' },
+      { scene: 'research' as const, systemPrompt: 'Saved research', defaultSystemPrompt: 'Default research' },
+    ];
+    useAgentStore.setState({
+      agents: [{ id: 'master-1', role: 'master', name: 'Master Agent', slug: 'master-agent', created_at: 0, updated_at: 0 }],
+      masterScenePrompts: prompts,
+      fetchMasterScenePrompts: vi.fn(async () => {}),
+      saveMasterScenePrompts,
     });
+    render(<AgentEditDialog isOpen agentId="master-1" onClose={vi.fn()} showToast={vi.fn()} />);
 
-    render(
-      <AgentEditDialog
-        isOpen
-        agentId={null}
-        onClose={vi.fn()}
-        showToast={vi.fn()}
-      />
-    );
-
-    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
-      target: { value: 'Scoped Agent' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Explicitly narrow/i }));
-    fireEvent.click(screen.getByLabelText(/Allow bash/i));
-    fireEvent.click(screen.getByLabelText(/Allow GitHub MCP server/i));
+    const textarea = screen.getByPlaceholderText(/Enter detailed system prompt/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'Draft general' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Research' }));
+    fireEvent.change(textarea, { target: { value: 'Draft research' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'General' }));
+    expect(textarea.value).toBe('Draft general');
+    fireEvent.click(screen.getByRole('button', { name: /Reset to Scene default/i }));
+    expect(textarea.value).toBe('Default general');
     fireEvent.click(screen.getByText('Save'));
 
-    expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        toolScope: {
-          mode: 'narrow',
-          builtInTools: ['bash'],
-          mcpServerIds: ['github'],
-        },
-      }),
-    }));
+    expect(saveMasterScenePrompts).toHaveBeenCalledWith([
+      { scene: 'general', systemPrompt: 'Default general' },
+      { scene: 'research', systemPrompt: 'Draft research' },
+    ]);
+  });
+
+  it('discards all unsaved Master Scene drafts when cancelled', () => {
+    const prompts = [
+      { scene: 'general' as const, systemPrompt: 'Saved general', defaultSystemPrompt: 'Default general' },
+      { scene: 'research' as const, systemPrompt: 'Saved research', defaultSystemPrompt: 'Default research' },
+    ];
+    useAgentStore.setState({
+      agents: [{ id: 'master-1', role: 'master', name: 'Master Agent', slug: 'master-agent', created_at: 0, updated_at: 0 }],
+      masterScenePrompts: prompts,
+      fetchMasterScenePrompts: vi.fn(async () => {}),
+    });
+    const onClose = vi.fn();
+    const view = render(<AgentEditDialog isOpen agentId="master-1" onClose={onClose} showToast={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Enter detailed system prompt/i), {
+      target: { value: 'Unsaved general' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledOnce();
+
+    view.rerender(<AgentEditDialog isOpen={false} agentId="master-1" onClose={onClose} showToast={vi.fn()} />);
+    view.rerender(<AgentEditDialog isOpen agentId="master-1" onClose={onClose} showToast={vi.fn()} />);
+    expect((screen.getByPlaceholderText(/Enter detailed system prompt/i) as HTMLTextAreaElement).value)
+      .toBe('Saved general');
   });
 });

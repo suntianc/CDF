@@ -4,11 +4,11 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
-import { useProjectStore } from '../../stores/projectStore';
 import {
   AGENT_BUILT_IN_TOOL_NAMES,
   type AgentToolScopeConfig,
 } from '../../../../shared/agents';
+import type { SceneId } from '../../../../shared/scenes';
 import {
   X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
@@ -43,11 +43,18 @@ function getSkillDisplayName(skill: { name: string; qualifiedName?: string | nul
 
 export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEditDialogProps) {
   const { t } = useTranslation();
-  const { agents, saveAgent, resetMasterAgentPrompt } = useAgentStore();
+  const {
+    agents,
+    masterScenePrompts,
+    createCustomAgent,
+    updateCustomAgent,
+    updateGeneralPurposeAgent,
+    fetchMasterScenePrompts,
+    saveMasterScenePrompts,
+  } = useAgentStore();
   const { providers } = useLLMStore();
   const { skills } = useSkillStore();
   const { mcpServers } = useMcpServerStore();
-  const { currentProjectId } = useProjectStore();
 
   // Form State
   const [formName, setFormName] = useState('');
@@ -60,6 +67,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const [formToolScopeMode, setFormToolScopeMode] = useState<AgentToolScopeConfig['mode']>('inherit');
   const [formBuiltInTools, setFormBuiltInTools] = useState<string[]>([]);
   const [formToolScopeMcpServerIds, setFormToolScopeMcpServerIds] = useState<string[]>([]);
+  const [masterScene, setMasterScene] = useState<SceneId>('general');
+  const [masterDrafts, setMasterDrafts] = useState<Record<string, string>>({});
 
   // Multi-selector dropdown states
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
@@ -78,8 +87,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const initialFocusRef = useRef<HTMLTextAreaElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
-  const isMasterAgent = editingAgent?.role === 'master' || editingAgent?.slug === 'master-agent';
-  const isProtectedAgent = editingAgent?.is_protected === true || isMasterAgent || editingAgent?.slug === 'general-purpose';
+  const isMasterAgent = editingAgent?.role === 'master';
+  const isProtectedAgent = editingAgent !== undefined && editingAgent.role !== 'custom';
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -124,6 +133,26 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     }
   };
 
+  useEffect(() => {
+    if (!isOpen) {
+      setMasterDrafts({});
+      setMasterScene('general');
+      return;
+    }
+    if (isMasterAgent) void fetchMasterScenePrompts();
+  }, [isOpen, isMasterAgent, fetchMasterScenePrompts]);
+
+  useEffect(() => {
+    if (!isOpen || !isMasterAgent || masterScenePrompts.length === 0) return;
+    setMasterDrafts((drafts) => {
+      const next = { ...drafts };
+      for (const prompt of masterScenePrompts) {
+        if (next[prompt.scene] === undefined) next[prompt.scene] = prompt.systemPrompt;
+      }
+      return next;
+    });
+  }, [isOpen, isMasterAgent, masterScenePrompts]);
+
   // Initialize/Reset form states when agentId changes
   useEffect(() => {
     if (!isOpen) return;
@@ -134,7 +163,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         setFormName(agent.name);
         setFormDesc(agent.description || '');
         const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
-        setFormProviderId(agent.provider_id || (agent.is_protected || agent.role === 'master' || agent.slug === 'general-purpose' ? '' : activeProvider?.id || ''));
+        setFormProviderId(agent.provider_id || (agent.role !== 'custom' ? '' : activeProvider?.id || ''));
         setFormModel(typeof agent.config?.model === 'string' ? agent.config.model : '');
         setFormSystemPrompt(agent.system_prompt || '');
         setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
@@ -164,11 +193,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     e.preventDefault();
     if (isMasterAgent && editingAgent) {
       try {
-        await saveAgent({
-          id: editingAgent.id,
-          project_id: editingAgent.project_id,
-          system_prompt: formSystemPrompt,
-        });
+        await saveMasterScenePrompts(masterScenePrompts.map((prompt) => ({
+          scene: prompt.scene,
+          systemPrompt: masterDrafts[prompt.scene] ?? prompt.systemPrompt,
+        })));
         showToast(t('agent.masterPromptSaved'), 'success');
         onClose();
       } catch {
@@ -211,7 +239,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
     const payload = {
       id,
-      project_id: currentProjectId || 'default-project',
       name: formName,
       description: formDesc,
       provider_id: formProviderId || null,
@@ -222,7 +249,11 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     };
 
     try {
-      await saveAgent(payload);
+      if (!existingAgent) await createCustomAgent(payload);
+      else if (existingAgent.role === 'general-purpose') {
+        const { id: _id, name: _name, ...capabilities } = payload;
+        await updateGeneralPurposeAgent(capabilities);
+      } else await updateCustomAgent(existingAgent.id, payload);
       showToast(t('agent.savedSuccess', { name: formName }), 'success');
       onClose();
     } catch (err) {
@@ -255,6 +286,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   };
 
   const skillPreloadCandidates = skills.filter(sk => {
+    if (sk.scope !== 'global') return false;
     const query = skillSearchQuery.toLowerCase();
     return sk.name.toLowerCase().includes(query)
       || getSkillDisplayName(sk).toLowerCase().includes(query)
@@ -280,15 +312,13 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   if (!isOpen) return null;
 
   if (isMasterAgent && editingAgent) {
-    const handleResetMasterPrompt = async () => {
-      try {
-        await resetMasterAgentPrompt(editingAgent.project_id);
-        setFormSystemPrompt(editingAgent.system_prompt || '');
-        showToast(t('agent.masterPromptReset'), 'success');
-        onClose();
-      } catch {
-        showToast(t('agent.masterPromptResetError'), 'error');
-      }
+    const activeMasterPrompt = masterScenePrompts.find((prompt) => prompt.scene === masterScene);
+    const handleResetMasterPrompt = () => {
+      if (!activeMasterPrompt) return;
+      setMasterDrafts((drafts) => ({
+        ...drafts,
+        [masterScene]: activeMasterPrompt.defaultSystemPrompt,
+      }));
     };
 
     return (
@@ -320,13 +350,29 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 disabled
               />
             </div>
+            <div className="flex gap-1 border-b border-[var(--color-border)]" role="tablist" aria-label={t('agent.masterSceneTabs')}>
+              {masterScenePrompts.map((prompt) => (
+                <button
+                  key={prompt.scene}
+                  type="button"
+                  role="tab"
+                  aria-selected={masterScene === prompt.scene}
+                  onClick={() => setMasterScene(prompt.scene)}
+                  className={`px-3 py-2 text-xs font-medium ${masterScene === prompt.scene
+                    ? 'border-b-2 border-[var(--color-accent)] text-[var(--color-text-primary)]'
+                    : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
+                >
+                  {prompt.scene === 'general' ? t('agent.masterSceneGeneral') : t('agent.masterSceneResearch')}
+                </button>
+              ))}
+            </div>
             <div className="form-group flex flex-col min-h-[280px]">
               <label className="form-label">{t('agent.systemPromptLabel')}</label>
               <textarea
                 ref={initialFocusRef}
                 className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
-                value={formSystemPrompt}
-                onChange={(e) => setFormSystemPrompt(e.target.value)}
+                value={activeMasterPrompt ? masterDrafts[masterScene] ?? activeMasterPrompt.systemPrompt : ''}
+                onChange={(e) => setMasterDrafts((drafts) => ({ ...drafts, [masterScene]: e.target.value }))}
                 placeholder={t('agent.systemPromptPlaceholder')}
               />
             </div>

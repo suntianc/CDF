@@ -117,7 +117,6 @@ export function ChatArea({
   }, []);
 
   useConversationWorkspaceBootstrap({
-    currentProjectId,
     resetStaleStreamingState,
     fetchProviders,
     fetchAgents,

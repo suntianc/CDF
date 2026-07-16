@@ -71,6 +71,18 @@ const failure: DelegatedTaskResult = {
   error: { code: 'TOOL_FAILED', message: 'worker failed' },
 };
 
+const delegationTargets = [{
+  id: 'agent-1', role: 'custom' as const, name: 'Worker Agent', slug: 'worker',
+  description: 'Does work', provider_id: null, system_prompt: null, config: null,
+  mcpServerExclusionIds: [], skillNames: [],
+  created_at: 0, updated_at: 0,
+}];
+const captureConfigurationSnapshot = () => ({
+  target: delegationTargets[0],
+  mcpServerExclusionIds: [],
+  globalSkillPreloadRefs: [],
+});
+
 function delegatedRun(id: string, overrides: Partial<DelegatedAgentRun> = {}): DelegatedAgentRun {
   return {
     id,
@@ -137,6 +149,8 @@ describe('createParallelTaskTool', () => {
     } as unknown as DelegatedAgentRunCoordinator;
     const parallelTool = createParallelTaskTool('project-1', 'session-1', {
       coordinator,
+      delegationTargets,
+      captureConfigurationSnapshot,
       createBatchId: () => 'batch-1',
     });
 
@@ -187,6 +201,8 @@ describe('createParallelTaskTool', () => {
     } as unknown as DelegatedAgentRunCoordinator;
     const parallelTool = createParallelTaskTool('project-1', 'session-1', {
       coordinator,
+      delegationTargets,
+      captureConfigurationSnapshot,
       createBatchId: () => 'batch-1',
     });
 
@@ -231,6 +247,8 @@ describe('createParallelTaskTool', () => {
     } as unknown as DelegatedAgentRunCoordinator;
     const parallelTool = createParallelTaskTool('project-1', 'session-1', {
       coordinator,
+      delegationTargets,
+      captureConfigurationSnapshot,
       createBatchId: () => 'batch-1',
     });
 

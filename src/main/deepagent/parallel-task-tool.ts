@@ -4,10 +4,10 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import db from '../database';
+import type { CatalogAgent } from '../agent-catalog';
 import type { DelegatedAgentRunCoordinator } from './delegated-agent-run-coordinator';
 import { resolveAgentSlug } from './agent-slug';
-import type { CatalogAgent } from '../agent-catalog';
-import { createAgentCatalog } from '../agent-catalog';
+import type { DelegatedAgentConfigurationSnapshot } from './delegated-agent-configuration-snapshot';
 import type {
   DelegatedAgentRun,
   DelegatedTaskResult,
@@ -37,6 +37,10 @@ export function pushParallelTaskStep(sessionId: string, event: ParallelTaskStepE
 
 interface ParallelTaskToolOptions {
   coordinator: DelegatedAgentRunCoordinator;
+  /** Root-run stable identities that define this tool's accepted target structure. */
+  delegationTargets: readonly CatalogAgent[];
+  /** Resolves one target's current configuration immediately before enqueue. */
+  captureConfigurationSnapshot: (target: CatalogAgent) => DelegatedAgentConfigurationSnapshot;
   createBatchId?: () => string;
 }
 
@@ -50,7 +54,8 @@ interface ParallelTaskInput {
 interface PreparedParallelTask {
   index: number;
   task: ParallelTaskInput;
-  agent: CatalogAgent | null;
+  stableTarget: CatalogAgent | null;
+  configurationSnapshot: DelegatedAgentConfigurationSnapshot | null;
   runTaskId?: string;
 }
 
@@ -163,31 +168,47 @@ export function createParallelTaskTool(
         throw new Error('parallel_tasks requires parentAgentRunId');
       }
 
-      void projectId; // Catalog delegation targets are global in #183.
-      const allAgents = createAgentCatalog(db, { initializeSchema: false }).listDelegationTargets();
+      void projectId;
       const workflowRunTaskIds = resolveWorkflowRunTaskIds(sessionId, tasks);
-      const prepared: PreparedParallelTask[] = tasks.map((task, index) => ({
-        index,
-        task,
-        agent: allAgents.find((candidate) => resolveAgentSlug(candidate) === task.name) ?? null,
-        runTaskId: workflowRunTaskIds[index],
-      }));
+      const prepared: PreparedParallelTask[] = tasks.map((task, index) => {
+        const stableTarget = options.delegationTargets.find(
+          (candidate) => resolveAgentSlug(candidate) === task.name,
+        ) ?? null;
+        let configurationSnapshot: DelegatedAgentConfigurationSnapshot | null = null;
+        if (stableTarget) {
+          try {
+            configurationSnapshot = options.captureConfigurationSnapshot(stableTarget);
+          } catch {
+            // Keep this item isolated. The runtime adapter returns a clear
+            // target-not-found result without failing sibling delegations.
+          }
+        }
+        return {
+          index,
+          task,
+          stableTarget,
+          configurationSnapshot,
+          runTaskId: workflowRunTaskIds[index],
+        };
+      });
       const results: Array<ParallelTaskResult | undefined> = tasks.map(() => undefined);
 
       const batchOutcomes = await options.coordinator.runBatch({
         parentAgentRunId,
         batchId,
-        items: prepared.map(({ task, agent, runTaskId }) => {
-          const targetAgentSlug = agent ? resolveAgentSlug(agent) : task.name;
-          const targetAgentName = agent?.name ?? task.name;
+        items: prepared.map(({ task, stableTarget, configurationSnapshot, runTaskId }) => {
+          const target = configurationSnapshot?.target;
+          const targetAgentSlug = stableTarget ? resolveAgentSlug(stableTarget) : task.name;
+          const targetAgentName = stableTarget?.name ?? task.name;
           const taskContext = task.input
             ? `${task.description}\n\n## 附加上下文\n${JSON.stringify(task.input, null, 2)}`
             : task.description;
           let currentRun: DelegatedAgentRun | null = null;
           return {
-            targetAgentId: agent?.id ?? null,
+            targetAgentId: target?.id ?? null,
             targetAgentSlug,
             targetAgentName,
+            configurationSnapshot: configurationSnapshot ?? undefined,
             taskToolCallId: null,
             workflowRunTaskId: runTaskId,
             goal: task.description,

@@ -206,7 +206,7 @@ interface SessionState {
   ) => void;
   setSessionReasoningEffort: (sessionId: string, effort?: ReasoningEffort) => void;
   fetchSessions: (projectId: string) => Promise<void>;
-  createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
+  createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string, force?: boolean) => Promise<void>;
@@ -557,9 +557,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
     }
   },
 
-  createSession: async (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => {
+  createSession: async (projectId: string, name: string, parentSessionId?: string, summary?: string) => {
     try {
-      const newSession = await window.electronAPI.db.createSession(projectId, name, parentSessionId, summary, agentId);
+      const newSession = await window.electronAPI.db.createSession(projectId, name, parentSessionId, summary);
       await get().fetchSessions(projectId);
       return newSession;
     } catch (err: any) {
@@ -1329,7 +1329,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
         await window.electronAPI.llm.chat(assistantMsgId, {
           projectId,
           sessionId,
-          agentId: activeSession?.agent_id || undefined,
           message: {
             id: userMsgId,
             content,

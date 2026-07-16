@@ -6,6 +6,7 @@ interface SkillState {
   isLoading: boolean;
   error: string | null;
   fetchSkills: (projectId: string) => Promise<void>;
+  fetchGlobalSkills: () => Promise<void>;
   saveSkill: (projectId: string, skill: SkillSaveInput) => Promise<void>;
   deleteSkill: (projectId: string, id: string) => Promise<void>;
 }
@@ -22,6 +23,16 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       set({ skills, isLoading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch skills', isLoading: false });
+    }
+  },
+
+  fetchGlobalSkills: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const skills = await window.electronAPI.db.getGlobalSkills();
+      set({ skills, isLoading: false });
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to fetch global skills', isLoading: false });
     }
   },
 

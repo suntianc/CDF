@@ -9,6 +9,7 @@ import {
   DelegatedAgentRunCoordinator,
   type DelegatedRuntimeAdapter,
 } from './delegated-agent-run-coordinator';
+import { captureDelegatedAgentConfigurationSnapshot } from './delegated-agent-configuration-snapshot';
 
 function createDatabase(): Database.Database {
   const db = new Database(':memory:');
@@ -32,6 +33,28 @@ const success: DelegatedTaskResult = {
   artifacts: ['/tmp/result.md'],
   summary: 'done',
 };
+
+function configurationSnapshot(systemPrompt: string) {
+  return captureDelegatedAgentConfigurationSnapshot({
+    target: {
+      id: 'agent-child',
+      role: 'custom',
+      name: 'Child Agent',
+      slug: 'child',
+      description: null,
+      provider_id: null,
+      system_prompt: systemPrompt,
+      config: null,
+      mcpServerExclusionIds: [],
+      skillNames: [],
+      created_at: 0,
+      updated_at: 0,
+    },
+    mcpServerExclusionIds: [],
+    skillNames: [],
+    conversationSkillSnapshot: [],
+  });
+}
 
 const request = {
   parentAgentRunId: 'run-parent',
@@ -646,6 +669,118 @@ describe('DelegatedAgentRunCoordinator', () => {
     })).toMatchObject({
       launch_form: 'parallel',
       batch_id: 'batch-after-migration',
+    });
+  });
+
+  it('keeps the configuration captured when a streamed task was queued', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const adapter: DelegatedRuntimeAdapter = { run: vi.fn(async () => success) };
+    const coordinator = new DelegatedAgentRunCoordinator(repository, adapter, {
+      createId: () => 'captured-before-run', now: () => 100,
+    });
+    const original = configurationSnapshot('prompt at queue time');
+    const queued = coordinator.queueSingle({ ...request, configurationSnapshot: original });
+
+    await coordinator.runSingle({
+      ...request,
+      delegatedRunId: queued.id,
+      input: { messages: [] },
+      configurationSnapshot: configurationSnapshot('edited after queue'),
+      resolveConfigurationSnapshot: () => configurationSnapshot('resolved after queue'),
+    });
+
+    expect(adapter.run).toHaveBeenCalledWith(expect.objectContaining({
+      configurationSnapshot: original,
+    }));
+  });
+
+  it('keeps a running Delegated Agent Run on its captured configuration after target deletion', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    let finish!: (outcome: DelegatedTaskResult) => void;
+    const adapter: DelegatedRuntimeAdapter = {
+      run: vi.fn((runtimeRequest) => new Promise<DelegatedTaskResult>((resolve) => {
+        expect(runtimeRequest.configurationSnapshot?.target.system_prompt).toBe('prompt before start');
+        finish = resolve;
+      })),
+    };
+    const coordinator = new DelegatedAgentRunCoordinator(repository, adapter, {
+      createId: () => 'running-snapshot', now: () => 100,
+    });
+
+    const execution = coordinator.runSingle({
+      ...request,
+      input: { messages: [] },
+      configurationSnapshot: configurationSnapshot('prompt before start'),
+    });
+    await vi.waitFor(() => expect(repository.get('running-snapshot')?.status).toBe('running'));
+    db.prepare("DELETE FROM agents WHERE id = 'agent-child'").run();
+    finish(success);
+
+    await expect(execution).resolves.toEqual(success);
+    expect(repository.get('running-snapshot')).toMatchObject({
+      target_agent_id: null,
+      target_agent_name: 'Child Agent',
+      status: 'completed',
+    });
+  });
+
+  it('resumes a waiting-for-approval run after its target is deleted', async () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    let coordinator!: DelegatedAgentRunCoordinator;
+    const adapter: DelegatedRuntimeAdapter = {
+      run: vi.fn(async (runtimeRequest) => {
+        await coordinator.runToolAction({
+          delegatedRunId: runtimeRequest.delegatedRunId,
+          action: { id: 'write-after-delete', name: 'write_file', args: {} },
+          requiresApproval: true,
+          execute: async () => 'written',
+        });
+        return success;
+      }),
+    };
+    coordinator = new DelegatedAgentRunCoordinator(repository, adapter, {
+      createId: (() => { let id = 0; return () => `waiting-${++id}`; })(),
+      now: () => 100,
+    });
+    let approvalId = '';
+    coordinator.subscribeToolApprovals((approval) => { approvalId = approval.id; });
+
+    const execution = coordinator.runSingle({
+      ...request,
+      input: { messages: [] },
+      configurationSnapshot: configurationSnapshot('prompt before approval'),
+    });
+    await vi.waitFor(() => expect(approvalId).not.toBe(''));
+    expect(repository.get('waiting-1')?.status).toBe('waiting_approval');
+    db.prepare("DELETE FROM agents WHERE id = 'agent-child'").run();
+    await coordinator.resolveToolApproval(approvalId, 'approve');
+
+    await expect(execution).resolves.toEqual(success);
+    expect(repository.get('waiting-1')).toMatchObject({ target_agent_id: null, status: 'completed' });
+  });
+
+  it('keeps delegated run history when its Custom target is deleted', () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const coordinator = new DelegatedAgentRunCoordinator(repository, { run: vi.fn(async () => success) }, {
+      createId: () => 'deleted-target-history', now: () => 100,
+    });
+    const run = coordinator.queueSingle(request);
+
+    db.prepare("DELETE FROM agents WHERE id = 'agent-child'").run();
+
+    expect(repository.get(run.id)).toMatchObject({
+      target_agent_id: null,
+      target_agent_slug: 'child',
+      target_agent_name: 'Child Agent',
+      status: 'queued',
     });
   });
 

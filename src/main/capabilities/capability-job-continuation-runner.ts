@@ -33,7 +33,6 @@ export function createCapabilityJobContinuationRunner(
       await deps.runChat(stream.sender, requestId, {
         projectId: batch.projectId,
         sessionId: batch.sessionId,
-        agentId: batch.agentId,
         message: {
           id: `background-continuation-input:${batch.batchId}`,
           content: JSON.stringify({

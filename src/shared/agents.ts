@@ -1,3 +1,5 @@
+import type { SceneId } from './scenes';
+
 export function generateAgentSlug(name: string): string {
   return name
     .toLowerCase()
@@ -39,30 +41,25 @@ export interface AgentToolScopeConfig {
 
 export type AgentRole = 'master' | 'general-purpose' | 'custom';
 
+/** Global Agent Library transport. Project ownership and legacy protection flags
+ * are intentionally absent: identity is expressed solely through `role`. */
 export interface Agent {
   id: string;
-  project_id: string;
+  role: AgentRole;
   name: string;
   slug?: string;
-  role?: AgentRole;
-  is_protected?: boolean;
   description?: string;
   provider_id?: string;
   system_prompt?: string;
   config?: Record<string, unknown>;
-  is_default: number;
   mcpServerExclusionIds?: string[];
+  /** Global Skill reference ids only (`built-in:*` or `global:*`). */
   skillNames?: string[];
   created_at: number;
   updated_at: number;
 }
 
-// IPC 保存入参：以 db:saveAgent handler 实际消费的字段为真（slug 与时间戳由主进程生成）。
-export interface AgentSaveInput {
-  id: string;
-  project_id: string;
-  /** Omit only when updating the protected Master Agent's prompt. */
-  name?: string;
+export interface AgentCapabilityInput {
   description?: string | null;
   provider_id?: string | null;
   system_prompt?: string | null;
@@ -71,19 +68,25 @@ export interface AgentSaveInput {
   skillNames?: string[];
 }
 
-// db:saveAgent 的真实返回：入参回显 + 归一化的 is_default/关联数组（handler 为真）。
-export interface AgentSaveResult {
+export interface CreateCustomAgentInput extends AgentCapabilityInput {
   id: string;
-  project_id: string;
   name: string;
-  slug?: string;
-  role?: AgentRole;
-  is_protected?: boolean;
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: Record<string, unknown> | null;
-  is_default: number;
-  mcpServerExclusionIds: string[];
-  skillNames: string[];
+}
+
+export interface UpdateCustomAgentInput extends AgentCapabilityInput {
+  name?: string;
+}
+
+/** The reserved General-purpose identity can only change its capabilities. */
+export type UpdateGeneralPurposeAgentInput = AgentCapabilityInput;
+
+export interface MasterScenePrompt {
+  scene: SceneId;
+  systemPrompt: string;
+  defaultSystemPrompt: string;
+}
+
+export interface SaveMasterScenePromptsInput {
+  scene: SceneId;
+  systemPrompt: string;
 }

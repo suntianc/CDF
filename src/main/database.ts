@@ -415,7 +415,6 @@ db.exec(`
     name TEXT NOT NULL,
     description TEXT,
     stages TEXT NOT NULL DEFAULT '[]',
-    master_agent_id TEXT,
     status TEXT NOT NULL DEFAULT 'draft',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,

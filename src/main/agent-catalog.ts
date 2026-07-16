@@ -14,6 +14,8 @@ export interface CatalogAgent {
   provider_id: string | null;
   system_prompt: string | null;
   config: Record<string, unknown> | null;
+  mcpServerExclusionIds: string[];
+  skillNames: string[];
   created_at: number;
   updated_at: number;
 }
@@ -34,6 +36,8 @@ export interface CreateCustomAgentInput {
   provider_id?: string | null;
   system_prompt?: string | null;
   config?: Record<string, unknown> | null;
+  mcpServerExclusionIds?: string[];
+  skillNames?: string[];
 }
 
 export interface UpdateGeneralPurposeAgentInput {
@@ -41,6 +45,8 @@ export interface UpdateGeneralPurposeAgentInput {
   provider_id?: string | null;
   system_prompt?: string | null;
   config?: Record<string, unknown> | null;
+  mcpServerExclusionIds?: string[];
+  skillNames?: string[];
 }
 
 export interface UpdateCustomAgentInput extends UpdateGeneralPurposeAgentInput {
@@ -68,6 +74,8 @@ export interface CreateAgentCatalogOptions {
   now?: () => number;
   /** The application database initializes the schema once; runtime callers only open it. */
   initializeSchema?: boolean;
+  /** Authoritative Global Skill ids accepted by Agent Skill Preload. */
+  listGlobalSkillIds?: () => Iterable<string>;
 }
 
 export const MASTER_AGENT_ID = 'system-master-agent';
@@ -101,8 +109,24 @@ function parseConfig(raw: string | null): Record<string, unknown> | null {
   return parsed as Record<string, unknown>;
 }
 
-function serializeAgent(row: AgentRow): CatalogAgent {
-  return { ...row, config: parseConfig(row.config) };
+function tableExists(db: Database.Database, tableName: string): boolean {
+  return Boolean(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
+}
+
+function getAgentRelations(db: Database.Database, agentId: string) {
+  const mcpServerExclusionIds = tableExists(db, 'agent_mcp_exclusions')
+    ? (db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ? ORDER BY mcp_server_id').all(agentId) as Array<{ mcp_server_id: string }>)
+      .map((row) => row.mcp_server_id)
+    : [];
+  const skillNames = tableExists(db, 'agent_skills')
+    ? (db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ? ORDER BY skill_name').all(agentId) as Array<{ skill_name: string }>)
+      .map((row) => row.skill_name)
+    : [];
+  return { mcpServerExclusionIds, skillNames };
+}
+
+function serializeAgent(db: Database.Database, row: AgentRow): CatalogAgent {
+  return { ...row, config: parseConfig(row.config), ...getAgentRelations(db, row.id) };
 }
 
 function serializeConfig(config: Record<string, unknown> | null | undefined): string | null {
@@ -121,7 +145,7 @@ function getSceneDefinition(sceneId: SceneId | string) {
 
 function getAgent(db: Database.Database, id: string): CatalogAgent | null {
   const row = db.prepare(`SELECT id, role, name, slug, description, provider_id, system_prompt, config, created_at, updated_at FROM agents WHERE id = ?`).get(id) as AgentRow | undefined;
-  return row ? serializeAgent(row) : null;
+  return row ? serializeAgent(db, row) : null;
 }
 
 function listAgents(db: Database.Database): CatalogAgent[] {
@@ -129,7 +153,7 @@ function listAgents(db: Database.Database): CatalogAgent[] {
     SELECT id, role, name, slug, description, provider_id, system_prompt, config, created_at, updated_at
     FROM agents
     ORDER BY CASE role WHEN 'master' THEN 0 WHEN 'general-purpose' THEN 1 ELSE 2 END, name
-  `).all() as AgentRow[]).map(serializeAgent);
+  `).all() as AgentRow[]).map((row) => serializeAgent(db, row));
 }
 
 function getMasterPrompt(db: Database.Database, sceneId: SceneId | string): string {
@@ -164,6 +188,41 @@ function toCustomIdentity(name: string): { name: string; normalizedName: string;
   const slug = generateAgentSlug(trimmedName);
   if (!trimmedName || !normalizedName || !slug) throw new Error('Custom Agent name must produce a non-empty delegation key');
   return { name: trimmedName, normalizedName, slug };
+}
+
+function saveAgentRelations(
+  db: Database.Database,
+  agentId: string,
+  input: Pick<UpdateGeneralPurposeAgentInput, 'mcpServerExclusionIds' | 'skillNames'>,
+  listGlobalSkillIds: (() => Iterable<string>) | undefined,
+): void {
+  if (input.mcpServerExclusionIds !== undefined) {
+    if (!tableExists(db, 'agent_mcp_exclusions') || !tableExists(db, 'mcp_servers')) {
+      throw new Error('Agent MCP exclusion storage is unavailable');
+    }
+    db.prepare('DELETE FROM agent_mcp_exclusions WHERE agent_id = ?').run(agentId);
+    const insert = db.prepare('INSERT INTO agent_mcp_exclusions (agent_id, mcp_server_id) VALUES (?, ?)');
+    for (const serverId of new Set(input.mcpServerExclusionIds)) {
+      if (db.prepare('SELECT id FROM mcp_servers WHERE id = ?').get(serverId)) insert.run(agentId, serverId);
+    }
+  }
+
+  if (input.skillNames !== undefined) {
+    if (!tableExists(db, 'agent_skills')) throw new Error('Agent Skill preload storage is unavailable');
+    const skillNames = [...new Set(input.skillNames.map((name) => name.trim()).filter(Boolean))];
+    const globalSkillIds = new Set(listGlobalSkillIds?.() ?? []);
+    for (const skillName of skillNames) {
+      if (skillName.startsWith('project:') || skillName.startsWith('project-nested:') || skillName.startsWith('project-additional:')) {
+        throw new Error('Agent Skill preload must reference a Global Skill, not a Project Skill.');
+      }
+      if (!globalSkillIds.has(skillName)) {
+        throw new Error(`Agent Skill preload references an unknown Global Skill: ${skillName}`);
+      }
+    }
+    db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(agentId);
+    const insert = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
+    for (const skillName of skillNames) insert.run(agentId, skillName);
+  }
 }
 
 function assertCompatibleAgentsSchema(db: Database.Database): void {
@@ -247,41 +306,50 @@ export function createAgentCatalog(db: Database.Database, options: CreateAgentCa
       assertCustomIdentityAvailable(db, identity.normalizedName, identity.slug);
       const id = createId();
       const timestamp = now();
-      try {
-        db.prepare(`INSERT INTO agents (id, role, name, normalized_name, slug, normalized_slug, description, provider_id, system_prompt, config, created_at, updated_at) VALUES (?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-          id, identity.name, identity.normalizedName, identity.slug, identity.slug, input.description ?? null, input.provider_id ?? null, input.system_prompt ?? null, serializeConfig(input.config), timestamp, timestamp,
-        );
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) throw new Error('Custom Agent name and delegation key must be globally unique');
-        throw error;
-      }
-      const created = getAgent(db, id);
-      if (!created) throw new Error('Created Custom Agent could not be read');
-      return created;
+      return db.transaction(() => {
+        try {
+          db.prepare(`INSERT INTO agents (id, role, name, normalized_name, slug, normalized_slug, description, provider_id, system_prompt, config, created_at, updated_at) VALUES (?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            id, identity.name, identity.normalizedName, identity.slug, identity.slug, input.description ?? null, input.provider_id ?? null, input.system_prompt ?? null, serializeConfig(input.config), timestamp, timestamp,
+          );
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) throw new Error('Custom Agent name and delegation key must be globally unique');
+          throw error;
+        }
+        saveAgentRelations(db, id, input, options.listGlobalSkillIds);
+        const created = getAgent(db, id);
+        if (!created) throw new Error('Created Custom Agent could not be read');
+        return created;
+      })();
     },
     updateGeneralPurpose(input) {
       const current = getAgent(db, GENERAL_PURPOSE_AGENT_ID);
       if (!current || current.role !== 'general-purpose') throw new Error('General-purpose Agent is missing');
-      db.prepare('UPDATE agents SET description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ? WHERE id = ?').run(
-        input.description === undefined ? current.description : input.description,
-        input.provider_id === undefined ? current.provider_id : input.provider_id,
-        input.system_prompt === undefined ? current.system_prompt : input.system_prompt,
-        input.config === undefined ? serializeConfig(current.config) : serializeConfig(input.config), now(), GENERAL_PURPOSE_AGENT_ID,
-      );
-      return getAgent(db, GENERAL_PURPOSE_AGENT_ID)!;
+      return db.transaction(() => {
+        db.prepare('UPDATE agents SET description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ? WHERE id = ?').run(
+          input.description === undefined ? current.description : input.description,
+          input.provider_id === undefined ? current.provider_id : input.provider_id,
+          input.system_prompt === undefined ? current.system_prompt : input.system_prompt,
+          input.config === undefined ? serializeConfig(current.config) : serializeConfig(input.config), now(), GENERAL_PURPOSE_AGENT_ID,
+        );
+        saveAgentRelations(db, GENERAL_PURPOSE_AGENT_ID, input, options.listGlobalSkillIds);
+        return getAgent(db, GENERAL_PURPOSE_AGENT_ID)!;
+      })();
     },
     updateCustom(id, input) {
       const current = getRequiredCustomAgent(db, id, 'updated');
       const identity = input.name === undefined ? { name: current.name, normalizedName: normalizeName(current.name), slug: current.slug } : toCustomIdentity(input.name);
       assertCustomIdentityAvailable(db, identity.normalizedName, identity.slug, id);
-      db.prepare(`UPDATE agents SET name = ?, normalized_name = ?, slug = ?, normalized_slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ? WHERE id = ?`).run(
-        identity.name, identity.normalizedName, identity.slug, identity.slug,
-        input.description === undefined ? current.description : input.description,
-        input.provider_id === undefined ? current.provider_id : input.provider_id,
-        input.system_prompt === undefined ? current.system_prompt : input.system_prompt,
-        input.config === undefined ? serializeConfig(current.config) : serializeConfig(input.config), now(), id,
-      );
-      return getAgent(db, id)!;
+      return db.transaction(() => {
+        db.prepare(`UPDATE agents SET name = ?, normalized_name = ?, slug = ?, normalized_slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, updated_at = ? WHERE id = ?`).run(
+          identity.name, identity.normalizedName, identity.slug, identity.slug,
+          input.description === undefined ? current.description : input.description,
+          input.provider_id === undefined ? current.provider_id : input.provider_id,
+          input.system_prompt === undefined ? current.system_prompt : input.system_prompt,
+          input.config === undefined ? serializeConfig(current.config) : serializeConfig(input.config), now(), id,
+        );
+        saveAgentRelations(db, id, input, options.listGlobalSkillIds);
+        return getAgent(db, id)!;
+      })();
     },
     deleteCustom(id) {
       getRequiredCustomAgent(db, id, 'deleted');

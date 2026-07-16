@@ -41,6 +41,10 @@ import {
 } from './delegated-agent-run-coordinator';
 import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types';
 import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
+import {
+  captureDelegatedAgentConfigurationSnapshot,
+  type DelegatedAgentConfigurationSnapshot,
+} from './delegated-agent-configuration-snapshot';
 import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle } from './conversation-working-state';
@@ -513,7 +517,6 @@ export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
   currentMessage: RuntimeInputMessage,
-  agentId?: string | null,
   overrides?: RuntimeModelOverrides,
   subagentIds?: string[]  // D-17: agent IDs to configure as subagents
 ) {
@@ -523,7 +526,6 @@ export async function createDeepAgentRuntime(
       projectId,
       sessionId,
       currentMessage,
-      agentId,
       overrides,
       subagentIds,
       releaseWorkingState,
@@ -538,12 +540,10 @@ async function buildDeepAgentRuntime(
   projectId: string,
   sessionId: string,
   currentMessage: RuntimeInputMessage,
-  agentId: string | null | undefined,
   overrides: RuntimeModelOverrides | undefined,
   subagentIds: string[] | undefined,
   releaseWorkingState: () => void,
 ) {
-  void agentId; // Root ownership is always the protected Project Master.
   const project = getProject(projectId);
   const resolvedAgentRow = getRuntimeAgent(projectId);
   const systemContext = getOrCaptureConversationSystemContextSnapshot(db, {
@@ -562,6 +562,28 @@ async function buildDeepAgentRuntime(
   });
   const checkpointer = conversationWorkingStateLifecycle.acquireSaver();
   const agentSkillNames = getAgentSkillNames(agentRow.id);
+  // Capture only this root run's delegation structure. A target's mutable
+  // configuration is resolved later, immediately before each new child run is
+  // persisted, so Catalog edits have an explicit run-creation boundary.
+  const agentCatalog = createAgentCatalog(db, { initializeSchema: false });
+  const delegationTargets = agentCatalog.listDelegationTargets()
+    .map((target) => structuredClone(target));
+  const delegationTargetsById = new Map(delegationTargets.map((target) => [target.id, target]));
+  const captureTargetConfiguration = (
+    stableTarget: CatalogAgent,
+  ): DelegatedAgentConfigurationSnapshot => {
+    const currentTarget = agentCatalog.get(stableTarget.id);
+    if (!currentTarget || currentTarget.role === 'master') {
+      throw new Error(`Delegated target Agent not found: ${stableTarget.slug}`);
+    }
+    return captureDelegatedAgentConfigurationSnapshot({
+      target: currentTarget,
+      targetIdentity: stableTarget,
+      mcpServerExclusionIds: currentTarget.mcpServerExclusionIds,
+      skillNames: currentTarget.skillNames,
+      conversationSkillSnapshot: skillSnapshot,
+    });
+  };
   const pathContext = extractPathMentionContext(currentMessage.content);
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
   const allMcpServers = getConnectedMcpServers();
@@ -610,34 +632,25 @@ async function buildDeepAgentRuntime(
   }
 
 
-  console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);
+  console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, subagentIds=${JSON.stringify(subagentIds)}`);
 
-  // D-06/D-07/D-17: Build subagents list from subagentIds
-  // 如果没有传入 subagentIds，自动查询该项目下的所有 Agent 作为子代理
-  let effectiveSubagentIds = subagentIds;
-  console.log(`[runtime] effectiveSubagentIds initial: ${JSON.stringify(effectiveSubagentIds)}, !effectiveSubagentIds=${!effectiveSubagentIds}`);
-  if (!effectiveSubagentIds || effectiveSubagentIds.length === 0) {
-    console.log(`[runtime] Entering auto-discover branch`);
-    const allAgents = createAgentCatalog(db, { initializeSchema: false }).listDelegationTargets()
-      .filter((candidate) => candidate.id !== agentRow.id)
-      .map((candidate) => ({ id: candidate.id }));
-    console.log(`[runtime] Query returned ${allAgents.length} agents`);
-    effectiveSubagentIds = allAgents.map(a => a.id);
-    console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
-  }
+  // D-06/D-07/D-17: subagentIds can only select from the stable root-run
+  // Target Set; omitted means every captured General-purpose/Custom target.
+  const effectiveSubagentIds = subagentIds?.length
+    ? subagentIds
+    : delegationTargets.map((target) => target.id);
 
   const subagents: Array<ReturnType<typeof createDelegatedSubagentAdapter>> = [];
-  const delegatedTargets = new Map<string, RuntimeAgentRow>();
+  const delegatedTargets = new Map<string, CatalogAgent>();
   const delegatedRunRepository = new DelegatedAgentRunRepository(db);
 
   const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = {
     run: async (request) => {
-      const target = request.targetAgentId
-        ? createAgentCatalog(db, { initializeSchema: false }).get(request.targetAgentId)
-        : null;
-      if (!target) {
+      const snapshot = request.configurationSnapshot;
+      if (!snapshot) {
         throw new Error(`Delegated target Agent not found: ${request.targetAgentSlug}`);
       }
+      const target = snapshot.target;
 
       // Every Delegated Agent Run owns fresh mutable execution state. Agent
       // configuration is reused, but model/graph/backend/checkpoint/tools are not.
@@ -656,10 +669,12 @@ async function buildDeepAgentRuntime(
         parentBuiltInToolNames: builtInToolNames,
         childBuiltInTools,
         parentMcpServerIds: mcpServers.map((server) => server.id),
-        childMcpServers: getAgentMcpServers(target.id),
+        childMcpServers: allMcpServers.filter(
+          (server) => !snapshot.mcpServerExclusionIds.includes(server.id),
+        ),
       });
       const childMcpRuntime = await loadMcpTools(target.id, childScope.mcpServers, allMcpServers);
-      const childSkillNames = getAgentSkillNames(target.id);
+      const childSkillNames = snapshot.globalSkillPreloadRefs;
       const childToolNames = getRuntimeToolNames([
         ...childMcpRuntime.tools,
         ...childScope.builtInTools,
@@ -766,6 +781,8 @@ async function buildDeepAgentRuntime(
   try {
     builtInTools.push(createParallelTaskTool(projectId, sessionId, {
       coordinator: delegatedRunCoordinator,
+      delegationTargets,
+      captureConfigurationSnapshot: captureTargetConfiguration,
     }));
   } catch (error) {
     log.warn('[runtime] Failed to load parallel task tool:', error);
@@ -779,11 +796,11 @@ async function buildDeepAgentRuntime(
         console.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
         continue;
       }
-      const targetAgent = createAgentCatalog(db, { initializeSchema: false }).get(subId);
+      const targetAgent = delegationTargetsById.get(subId);
       if (!targetAgent) continue;
 
-      // CompiledSubAgent is only a routing adapter. It creates no model or graph
-      // until one concrete task invocation has a durable Delegated Agent Run.
+      // CompiledSubAgent owns only the stable routing identity. Configuration
+      // is captured lazily if this invocation creates a Delegated Agent Run.
       const agentSlug = targetAgent.slug || generateSlug(targetAgent.name);
       delegatedTargets.set(agentSlug, targetAgent);
       subagents.push(createDelegatedSubagentAdapter({
@@ -793,18 +810,18 @@ async function buildDeepAgentRuntime(
           slug: agentSlug,
           name: targetAgent.name,
           description: targetAgent.description || '',
+          resolveConfigurationSnapshot: () => captureTargetConfiguration(targetAgent),
         },
       }));
     }
   }
 
-  const masterAgentTools: any[] = createAgentTools(projectId, { activeAgentId: agentRow.id });
+  const masterAgentTools: any[] = createAgentTools({ activeAgentId: agentRow.id });
 
   // Workflow Run（运行即会话）：当本 session 是某个 Workflow Run 的宿主、且当前 Agent
   // 就是该运行的主 Agent 时，注入阶段推进工具 advance_stage（门禁即一次工具审批）。
   const workflowRun = getRunBySessionId(sessionId);
-  // Workflow root ownership follows the protected Project Master identity, not
-  // a caller-controlled or legacy persisted workflow agent ID.
+  // Workflow root identity is always resolved from the global Agent Catalog.
   const isWorkflowMasterAgent = !!workflowRun && agentRow.role === 'master';
   if (isWorkflowMasterAgent) {
     const runId = workflowRun!.id;
@@ -859,14 +876,20 @@ async function buildDeepAgentRuntime(
     ): DelegatedAgentRun | null => {
       const target = delegatedTargets.get(targetAgentSlug);
       if (!target) return null;
-      return delegatedRunCoordinator.queueSingle({
-        parentAgentRunId,
-        targetAgentId: target.id,
-        targetAgentSlug,
-        targetAgentName: target.name,
-        taskToolCallId,
-        goal,
-      });
+      try {
+        const configurationSnapshot = captureTargetConfiguration(target);
+        return delegatedRunCoordinator.queueSingle({
+          parentAgentRunId,
+          targetAgentId: target.id,
+          targetAgentSlug,
+          targetAgentName: target.name,
+          taskToolCallId,
+          goal,
+          configurationSnapshot,
+        });
+      } catch {
+        return null;
+      }
     },
     subscribeDelegatedToolApprovals: delegatedRunCoordinator.subscribeToolApprovals.bind(delegatedRunCoordinator),
     subscribeDelegatedRunChanges: delegatedRunCoordinator.subscribeRunChanges.bind(delegatedRunCoordinator),
@@ -882,10 +905,8 @@ async function buildDeepAgentRuntime(
 
 export async function createRuntimeModel(
   projectId: string,
-  agentId?: string | null,
   overrides?: RuntimeModelOverrides
 ) {
-  void agentId;
   const agentRow = getRuntimeAgent(projectId);
   const { config } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
   registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel, overrides);

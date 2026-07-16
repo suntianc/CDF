@@ -30,6 +30,7 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     created_at: now,
     updated_at: now,
     ...overrides,
+    master_agent_id: overrides.master_agent_id ?? 'system-master-agent',
   };
 }
 

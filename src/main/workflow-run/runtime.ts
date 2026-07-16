@@ -71,7 +71,7 @@ export interface StartRunResult {
 /**
  * 启动一个 Workflow Run：
  * 1. 从 workflows 表读取 stages
- * 2. 解析 Project 受保护的 Master Agent 并创建标记了 workflow_run_id 的 Conversation session
+ * 2. 按 Project Scene 解析唯一全局 Master Agent，并创建 Workflow Conversation
  * 3. 创建 workflow_runs 记录（含完整 stages 的骨架快照）
  * 4. 返回 session/run 及首阶段信息
  */
@@ -111,7 +111,7 @@ export function startRun(workflowId: string, projectId: string): StartRunResult 
     startedAt: now,
   });
 
-  const run = createWorkflowRun(workflowId, projectId, sessionId, stages, skeletonSnapshot);
+  const run = createWorkflowRun(workflowId, projectId, sessionId, master.agent.id, stages, skeletonSnapshot);
 
   db.prepare('UPDATE sessions SET workflow_run_id = ?, workflow_run_status = ? WHERE id = ?')
     .run(run.id, run.status, sessionId);

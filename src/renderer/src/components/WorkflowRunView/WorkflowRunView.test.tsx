@@ -88,6 +88,7 @@ function createMockRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     created_at: Date.now() - 10000,
     updated_at: Date.now(),
     ...overrides,
+    master_agent_id: overrides.master_agent_id ?? 'system-master-agent',
   };
 }
 

@@ -59,6 +59,7 @@ export interface WorkflowRun {
   workflow_id: string;
   project_id: string;
   session_id: string;
+  master_agent_id: string;
   status: WorkflowRunStatus;
   current_stage_id: string;
   current_stage_index: number;

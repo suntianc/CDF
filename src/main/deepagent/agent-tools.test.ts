@@ -48,6 +48,8 @@ function agent(overrides: Partial<CatalogAgent> = {}): CatalogAgent {
     provider_id: 'provider-1',
     system_prompt: null,
     config: null,
+    mcpServerExclusionIds: [],
+    skillNames: [],
     created_at: 1,
     updated_at: 1,
     ...overrides,
@@ -74,7 +76,7 @@ function catalog(overrides: Partial<AgentCatalog> = {}): AgentCatalog {
 }
 
 function findTool(name: string, options: { activeAgentId?: string | null } = {}) {
-  const result = createAgentTools('project-is-ignored', options).find((candidate) => candidate.name === name);
+  const result = createAgentTools(options).find((candidate) => candidate.name === name);
   if (!result) throw new Error(`Tool not found: ${name}`);
   return result;
 }
@@ -101,10 +103,10 @@ describe('createAgentTools', () => {
     const result = await invoke('list_agents', {});
 
     expect(result).toMatchObject([
-      { id: generalPurpose.id, role: 'general-purpose', effective_slug: 'general-purpose' },
-      { id: custom.id, role: 'custom', effective_slug: 'reviewer' },
+      { id: generalPurpose.id, role: 'general-purpose', effective_slug: 'general-purpose', library_scope: 'global Agent Library' },
+      { id: custom.id, role: 'custom', effective_slug: 'reviewer', library_scope: 'global Agent Library' },
     ]);
-    expect(mocks.createAgentCatalog).toHaveBeenCalledWith(expect.anything(), { initializeSchema: false });
+    expect(mocks.createAgentCatalog).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ initializeSchema: false }));
   });
 
   it('creates only through the Catalog and prefers the newest active provider', async () => {
@@ -120,7 +122,6 @@ describe('createAgentTools', () => {
       name: 'Reviewer',
       provider_id: 'active-new',
     }));
-    expect(mocks.transaction).toHaveBeenCalled();
   });
 
   it('falls back to the most recently updated provider when none is active', async () => {
@@ -192,7 +193,12 @@ describe('createAgentTools', () => {
     expect((await invoke('delete_agent', { id: '' })).error).toBe('Agent id is required.');
     const result = await invoke('delete_agent', { id: 'custom-1' });
 
-    expect(result).toEqual({ deleted: true, id: 'custom-1', name: 'Reviewer' });
+    expect(result).toEqual({
+      deleted: true,
+      id: 'custom-1',
+      name: 'Reviewer',
+      library_scope: 'global Agent Library',
+    });
     expect(mocks.catalog.deleteCustom).toHaveBeenCalledWith('custom-1');
   });
 });
