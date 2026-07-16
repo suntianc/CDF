@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { Skill, SkillSaveInput } from '../../../shared/types';
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 interface SkillState {
   skills: Skill[];
   isLoading: boolean;
@@ -21,8 +25,8 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       const skills = await window.electronAPI.db.getSkills(projectId);
       set({ skills, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch skills', isLoading: false });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to fetch skills'), isLoading: false });
     }
   },
 
@@ -31,8 +35,8 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       const skills = await window.electronAPI.db.getGlobalSkills();
       set({ skills, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch global skills', isLoading: false });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to fetch global skills'), isLoading: false });
     }
   },
 
@@ -41,9 +45,9 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       await window.electronAPI.db.saveSkill(projectId, skill);
       await get().fetchSkills(projectId);
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to save skill', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to save skill'), isLoading: false });
+      throw error;
     }
   },
 
@@ -52,9 +56,9 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       await window.electronAPI.db.deleteSkill(projectId, id);
       await get().fetchSkills(projectId);
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to delete skill', isLoading: false });
-      throw err;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to delete skill'), isLoading: false });
+      throw error;
     }
   },
 }));

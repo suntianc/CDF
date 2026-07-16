@@ -22,6 +22,8 @@ beforeEach(async () => {
     masterScenePrompts: [],
     isLoading: false,
     error: null,
+    isMasterPromptsLoading: false,
+    masterPromptsError: null,
     fetchAgents: vi.fn(async () => {}),
     fetchMasterScenePrompts: vi.fn(async () => {}),
     createCustomAgent: vi.fn(async () => {}),

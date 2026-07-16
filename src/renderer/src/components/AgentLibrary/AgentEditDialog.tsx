@@ -48,7 +48,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     agents,
     masterScenePrompts,
     isLoading,
-    error,
+    isMasterPromptsLoading,
+    masterPromptsError,
     createCustomAgent,
     updateCustomAgent,
     updateGeneralPurposeAgent,
@@ -195,7 +196,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isMasterAgent && editingAgent) {
-      if (masterScenePrompts.length === 0 || isLoading) {
+      if (masterScenePrompts.length === 0 || isLoading || isMasterPromptsLoading || masterPromptsError) {
         showToast(t('agent.masterPromptsLoadError'), 'error');
         return;
       }
@@ -321,6 +322,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   if (isMasterAgent && editingAgent) {
     const activeMasterPrompt = masterScenePrompts.find((prompt) => prompt.scene === masterScene);
     const masterPromptsUnavailable = masterScenePrompts.length === 0;
+    const masterPromptsBlocked = isLoading
+      || isMasterPromptsLoading
+      || masterPromptsUnavailable
+      || masterPromptsError !== null;
     const handleResetMasterPrompt = () => {
       if (!activeMasterPrompt) return;
       setMasterDrafts((drafts) => ({
@@ -358,12 +363,12 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 disabled
               />
             </div>
-            {isLoading && masterPromptsUnavailable && (
+            {isMasterPromptsLoading && (
               <p role="status" className="text-xs text-[var(--color-text-muted)]">
                 {t('agent.masterPromptsLoading')}
               </p>
             )}
-            {error && masterPromptsUnavailable && !isLoading && (
+            {masterPromptsError && !isMasterPromptsLoading && (
               <p role="alert" className="text-xs text-[var(--color-danger)]">
                 {t('agent.masterPromptsLoadError')}
               </p>
@@ -392,7 +397,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 value={activeMasterPrompt ? masterDrafts[masterScene] ?? activeMasterPrompt.systemPrompt : ''}
                 onChange={(e) => setMasterDrafts((drafts) => ({ ...drafts, [masterScene]: e.target.value }))}
                 placeholder={t('agent.systemPromptPlaceholder')}
-                disabled={isLoading || masterPromptsUnavailable}
+                disabled={masterPromptsBlocked}
               />
             </div>
             <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
@@ -402,7 +407,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               <button
                 type="button"
                 onClick={handleResetMasterPrompt}
-                disabled={isLoading || masterPromptsUnavailable}
+                disabled={masterPromptsBlocked}
                 className="btn btn-secondary cursor-pointer disabled:cursor-not-allowed"
               >
                 {t('agent.resetMasterPrompt')}
@@ -413,7 +418,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 </button>
                 <button
                   type="submit"
-                  disabled={isLoading || masterPromptsUnavailable}
+                  disabled={masterPromptsBlocked}
                   className="btn btn-primary cursor-pointer disabled:cursor-not-allowed"
                 >
                   {t('common.save')}

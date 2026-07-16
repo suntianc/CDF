@@ -16,6 +16,7 @@ beforeEach(async () => {
   await i18n.changeLanguage('en-US');
   useAgentStore.setState({
     agents: [], masterScenePrompts: [], isLoading: false, error: null,
+    isMasterPromptsLoading: false, masterPromptsError: null,
     createCustomAgent: vi.fn(async () => {}),
     updateCustomAgent: vi.fn(async () => {}),
     updateGeneralPurposeAgent: vi.fn(async () => {}),
@@ -124,7 +125,7 @@ describe('AgentEditDialog', () => {
     useAgentStore.setState({
       agents: [{ id: 'master-1', role: 'master', name: 'Master Agent', slug: 'master-agent', created_at: 0, updated_at: 0 }],
       masterScenePrompts: [],
-      isLoading: true,
+      isMasterPromptsLoading: true,
       fetchMasterScenePrompts: vi.fn(async () => {}),
       saveMasterScenePrompts,
     });
@@ -135,6 +136,25 @@ describe('AgentEditDialog', () => {
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(saveMasterScenePrompts).not.toHaveBeenCalled();
+  });
+
+  it('keeps cached Master prompts read-only when refresh fails', () => {
+    useAgentStore.setState({
+      agents: [{ id: 'master-1', role: 'master', name: 'Master Agent', slug: 'master-agent', created_at: 0, updated_at: 0 }],
+      masterScenePrompts: [
+        { scene: 'general', systemPrompt: 'Cached general', defaultSystemPrompt: 'Default general' },
+        { scene: 'research', systemPrompt: 'Cached research', defaultSystemPrompt: 'Default research' },
+      ],
+      isMasterPromptsLoading: false,
+      masterPromptsError: 'refresh failed',
+      fetchMasterScenePrompts: vi.fn(async () => {}),
+    });
+
+    render(<AgentEditDialog isOpen agentId="master-1" onClose={vi.fn()} showToast={vi.fn()} />);
+
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be loaded/i);
+    expect((screen.getByPlaceholderText(/Enter detailed system prompt/i) as HTMLTextAreaElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('discards all unsaved Master Scene drafts when cancelled', () => {

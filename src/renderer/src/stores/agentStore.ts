@@ -17,6 +17,8 @@ interface AgentState {
   masterScenePrompts: MasterScenePrompt[];
   isLoading: boolean;
   error: string | null;
+  isMasterPromptsLoading: boolean;
+  masterPromptsError: string | null;
   fetchAgents: () => Promise<void>;
   fetchMasterScenePrompts: () => Promise<void>;
   createCustomAgent: (agent: CreateCustomAgentInput) => Promise<void>;
@@ -31,6 +33,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   masterScenePrompts: [],
   isLoading: false,
   error: null,
+  isMasterPromptsLoading: false,
+  masterPromptsError: null,
 
   fetchAgents: async () => {
     set({ isLoading: true, error: null });
@@ -43,12 +47,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   fetchMasterScenePrompts: async () => {
-    set({ isLoading: true, error: null });
+    set({ isMasterPromptsLoading: true, masterPromptsError: null });
     try {
       const masterScenePrompts = await window.electronAPI.db.getMasterScenePrompts();
-      set({ masterScenePrompts, isLoading: false });
+      set({ masterScenePrompts, isMasterPromptsLoading: false });
     } catch (error: unknown) {
-      set({ error: getErrorMessage(error, 'Failed to fetch Master Agent prompts'), isLoading: false });
+      set({
+        masterPromptsError: getErrorMessage(error, 'Failed to fetch Master Agent prompts'),
+        isMasterPromptsLoading: false,
+      });
     }
   },
 
