@@ -4,9 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../../stores/themeStore';
 import { useFileStore } from '../../stores/fileStore';
 import { MarkdownRenderer } from '../ChatArea/MarkdownRenderer';
+import { isFlowDiagramFile } from '../../lib/flowDiagramFile';
 import { FileTypeIcon } from './FileTypeIcon';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react'));
+const FlowDiagramEditor = lazy(() =>
+  import('./FlowDiagramEditor').then((module) => ({ default: module.FlowDiagramEditor }))
+);
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript',
@@ -31,11 +35,13 @@ interface EditorPaneProps {
   filePath: string;
   fileName: string;
   content: string;
+  loadError?: 'unreadable';
 }
 
-export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
+export function EditorPane({ filePath, fileName, content, loadError }: EditorPaneProps) {
   const language = useMemo(() => detectLanguage(fileName), [fileName]);
   const isMd = language === 'markdown';
+  const isFlowDiagram = isFlowDiagramFile(fileName);
   const theme = useThemeStore((s) => s.theme);
   const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const monacoTheme = isDark ? 'vs-dark' : 'light';
@@ -180,7 +186,24 @@ export function EditorPane({ filePath, fileName, content }: EditorPaneProps) {
 
       {/* Content */}
       <div className="flex-1 min-h-0 relative">
-        {isMd && mdPreview ? (
+        {isFlowDiagram ? (
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center">
+                <span className="text-[12px] text-[var(--color-text-muted)]">
+                  {t('filePanel.flowDiagram.loading', 'Loading diagram...')}
+                </span>
+              </div>
+            }
+          >
+            <FlowDiagramEditor
+              content={content}
+              fileName={fileName}
+              filePath={filePath}
+              loadError={loadError}
+            />
+          </Suspense>
+        ) : isMd && mdPreview ? (
           <div className="h-full overflow-y-auto px-4 py-3">
             <MarkdownRenderer text={editedContent} />
           </div>

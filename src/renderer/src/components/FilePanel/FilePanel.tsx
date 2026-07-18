@@ -1,6 +1,8 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { X, FolderTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { flushProjectFile } from '../../lib/projectFileFlush';
 import { useFileStore } from '../../stores/fileStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { FileFilterBar } from './FileFilterBar';
@@ -30,7 +32,6 @@ export function FilePanel() {
     setDirContents,
     setDirError,
     setLoading,
-    closeTab,
     setActiveTab,
   } = useFileStore();
 
@@ -48,6 +49,13 @@ export function FilePanel() {
   }, [filePanelOpen, filePanelWidth]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
+
+  const requestCloseTab = useCallback(async (filePath: string) => {
+    if (!await flushProjectFile(filePath)) return;
+    const store = useFileStore.getState();
+    const index = store.openTabs.findIndex((tab) => tab.path === filePath);
+    if (index >= 0) store.closeTab(index);
+  }, []);
 
   // Monitor the width of the <main> container to adjust file panel dynamically
   useEffect(() => {
@@ -143,7 +151,8 @@ export function FilePanel() {
       if (e.key === 'Escape' && filePanelOpen) {
         const { openTabs, activeTabIndex } = useFileStore.getState();
         if (openTabs.length > 0) {
-          useFileStore.getState().closeTab(activeTabIndex);
+          const activeTab = openTabs[activeTabIndex];
+          if (activeTab) void requestCloseTab(activeTab.path);
         } else {
           setFilePanelOpen(false);
         }
@@ -151,7 +160,7 @@ export function FilePanel() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filePanelOpen, setFilePanelOpen]);
+  }, [filePanelOpen, requestCloseTab, setFilePanelOpen]);
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -237,12 +246,23 @@ export function FilePanel() {
                   {isDirty && (
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] shrink-0" title={t('filePanel.unsaved')} />
                   )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); closeTab(i); }}
-                    className="shrink-0 p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void requestCloseTab(tab.path);
+                        }}
+                        className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] before:absolute before:-inset-1 before:content-['']"
+                        aria-label={t('filePanel.closeTab', { name: tab.name, defaultValue: 'Close {{name}}' })}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t('filePanel.closeTab', { name: tab.name, defaultValue: 'Close {{name}}' })}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               );
             })}
@@ -258,6 +278,7 @@ export function FilePanel() {
               filePath={previewFile.path}
               fileName={previewFile.name}
               content={previewFile.content}
+              loadError={previewFile.loadError}
             />
             <div
               className={`absolute top-8 right-0 bottom-0 w-[240px] z-10 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] flex flex-col shadow-[0_8px_24px_rgba(30,20,10,0.10)] transition-[transform,opacity] duration-200 ease-out ${

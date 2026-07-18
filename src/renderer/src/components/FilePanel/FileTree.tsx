@@ -7,6 +7,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { FileTreeItem } from './FileTreeItem';
 import { FileTreeContextMenu, type ContextMenuAction } from './FileTreeContextMenu';
 import { InlineInput } from './InlineInput';
+import { openProjectFile } from '../../lib/openProjectFile';
 import type { DirectoryEntry } from '@shared/types';
 import {
   Dialog,
@@ -105,23 +106,9 @@ function TreeNode({
   const handleClick = useCallback(
     async (clickedEntry: DirectoryEntry) => {
       if (!rootPath) return;
-      useFileStore.getState().setSelectedPath(clickedEntry.path);
-      try {
-        const result = await window.electronAPI.fs.readFile(rootPath, clickedEntry.path);
-        if (!result.ok) {
-          console.error('[FileTree] Failed to read file:', result.error.message);
-          return;
-        }
-        if ('binary' in result.data) {
-          return;
-        }
-        useFileStore.getState().openPreview({
-          path: clickedEntry.path,
-          name: clickedEntry.name,
-          content: result.data.content,
-        });
-      } catch (err) {
-        console.error('[FileTree] Error reading file:', err);
+      const result = await openProjectFile(rootPath, clickedEntry.path, clickedEntry.name);
+      if (!result.ok) {
+        console.error('[FileTree] Failed to open file:', result.message);
       }
     },
     [rootPath]

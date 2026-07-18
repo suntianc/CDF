@@ -7,6 +7,9 @@ import '@fontsource-variable/plus-jakarta-sans';
 import './i18n';
 import './styles/globals.css';
 
+(window as Window & { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH =
+  new URL('./excalidraw-assets/', window.location.href).href;
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

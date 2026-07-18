@@ -5,6 +5,7 @@ export interface PreviewFile {
   path: string;
   name: string;
   content: string;
+  loadError?: 'unreadable';
 }
 
 interface FileState {

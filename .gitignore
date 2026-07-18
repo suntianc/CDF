@@ -18,6 +18,9 @@ out/
 # electron-vite
 *.local
 
+# Generated Excalidraw self-hosted assets
+src/renderer/public/excalidraw-assets/
+
 # OS
 .DS_Store
 Thumbs.db

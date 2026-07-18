@@ -994,7 +994,23 @@
     "loadingTree": "Loading file tree...",
     "retry": "Retry",
     "emptyDirectory": "This folder is empty",
-    "hideTree": "Hide file tree"
+    "hideTree": "Hide file tree",
+    "closeTab": "Close {{name}}",
+    "flowDiagram": {
+      "loading": "Loading diagram...",
+      "editorLabel": "Edit diagram {{name}}",
+      "invalidTitle": "Unable to open diagram",
+      "invalidDescription": "{{name}} is not a valid Excalidraw document. The original file was not changed.",
+      "unreadableDescription": "{{name}} could not be read. Check file access and try again; the original file was not changed.",
+      "retryLoad": "Retry diagram",
+      "save": "Save diagram",
+      "saveShortcut": "Save diagram (Ctrl/Cmd+S)",
+      "saved": "Saved",
+      "dirty": "Unsaved",
+      "saving": "Saving...",
+      "error": "Save failed",
+      "retrySave": "Save failed. Retry diagram save"
+    }
   },
   "codeBlock": {
     "copy": "Copy",

@@ -994,7 +994,23 @@
     "loadingTree": "正在加载文件树...",
     "retry": "重试",
     "emptyDirectory": "此文件夹为空",
-    "hideTree": "隐藏文件树"
+    "hideTree": "隐藏文件树",
+    "closeTab": "关闭 {{name}}",
+    "flowDiagram": {
+      "loading": "正在加载流程图...",
+      "editorLabel": "编辑流程图 {{name}}",
+      "invalidTitle": "无法打开流程图",
+      "invalidDescription": "{{name}} 不是有效的 Excalidraw 文档。原文件未被修改。",
+      "unreadableDescription": "无法读取 {{name}}。请检查文件访问权限后重试；原文件未被修改。",
+      "retryLoad": "重试打开流程图",
+      "save": "保存流程图",
+      "saveShortcut": "保存流程图（Ctrl/Cmd+S）",
+      "saved": "已保存",
+      "dirty": "未保存",
+      "saving": "正在保存...",
+      "error": "保存失败",
+      "retrySave": "保存失败，请重试保存流程图"
+    }
   },
   "codeBlock": {
     "copy": "复制",

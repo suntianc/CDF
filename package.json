@@ -11,10 +11,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm run build:paper-search && electron-vite dev",
-    "dev:electron": "electron-rebuild -f -w better-sqlite3 && pnpm run build:paper-search && electron-vite dev",
-    "build": "electron-vite build && pnpm run build:paper-search",
+    "dev": "pnpm run prepare:excalidraw-assets && pnpm run build:paper-search && electron-vite dev",
+    "dev:electron": "electron-rebuild -f -w better-sqlite3 && pnpm run prepare:excalidraw-assets && pnpm run build:paper-search && electron-vite dev",
+    "build": "pnpm run prepare:excalidraw-assets && electron-vite build && pnpm run build:paper-search",
     "build:paper-search": "node scripts/build-paper-search-runtime.mjs",
+    "prepare:excalidraw-assets": "node scripts/prepare-excalidraw-assets.mjs",
     "preview": "electron-vite preview",
     "postinstall": "electron-rebuild -f -w better-sqlite3 && patch-package",
     "pretest": "npm rebuild better-sqlite3",
@@ -25,6 +26,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
     "@assistant-ui/react": "^0.14.5",
+    "@excalidraw/excalidraw": "0.18.1",
     "@fontsource-variable/plus-jakarta-sans": "^5.2.8",
     "@langchain/anthropic": "^1.4.0",
     "@langchain/core": "^1.2.2",
