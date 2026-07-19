@@ -197,6 +197,7 @@ export function EditorPane({ filePath, fileName, content, loadError }: EditorPan
             }
           >
             <FlowDiagramEditor
+              key={filePath}
               content={content}
               fileName={fileName}
               filePath={filePath}

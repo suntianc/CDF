@@ -1,5 +1,6 @@
 import { useFileStore, type PreviewFile } from '../stores/fileStore';
 import { isFlowDiagramFile } from './flowDiagramFile';
+import { flushProjectFile } from './projectFileFlush';
 
 export type OpenProjectFileResult =
   | { ok: true; file: PreviewFile; reused: boolean }
@@ -29,6 +30,13 @@ async function openProjectFileFromDisk(
 ): Promise<OpenProjectFileResult> {
   const filePath = canonicalProjectFilePath(rootPath, requestedPath);
   const store = useFileStore.getState();
+  const activeFile = store.openTabs[store.activeTabIndex];
+  if (activeFile && activeFile.path !== filePath && !await flushProjectFile(activeFile.path)) {
+    return {
+      ok: false,
+      message: 'Resolve the current file conflict before switching files.',
+    };
+  }
   store.setSelectedPath(filePath);
 
   const existingIndex = store.openTabs.findIndex(

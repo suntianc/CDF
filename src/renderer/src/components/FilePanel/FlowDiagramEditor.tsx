@@ -55,6 +55,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const pendingContentRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const lastQueuedContentRef = useRef<string | null>(null);
+  const queuedDiskContentRef = useRef<string | null>(null);
   const externalReloadVersionRef = useRef(0);
   const externalPendingPreservationRef = useRef<string | null>(null);
 
@@ -71,7 +72,9 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       return saveQueueRef.current;
     }
 
+    const expectedDiskContent = queuedDiskContentRef.current ?? lastDiskContentRef.current ?? undefined;
     lastQueuedContentRef.current = contentToSave;
+    queuedDiskContentRef.current = contentToSave;
     const operation = saveQueueRef.current.then(async () => {
       setSaveState('saving');
       try {
@@ -79,7 +82,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
           rootPath,
           filePath,
           contentToSave,
-          lastDiskContentRef.current ?? undefined,
+          expectedDiskContent,
         );
         if (!result.ok) {
           console.error('[FlowDiagramEditor] Save failed:', result.error.message);
@@ -110,6 +113,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     void operation.finally(() => {
       if (lastQueuedContentRef.current === contentToSave) {
         lastQueuedContentRef.current = null;
+        queuedDiskContentRef.current = null;
       }
     });
     return operation;
@@ -386,6 +390,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
         name={fileName.replace(/\.excalidraw$/i, '')}
         langCode={i18n.resolvedLanguage === 'zh-CN' ? 'zh-CN' : 'en'}
         onChange={handleChange}
+        viewModeEnabled={conflictedContent !== null}
         renderTopRightUI={() => (
           <div className="flex items-center gap-2">
             <span className="sr-only" role="status" aria-live="polite">

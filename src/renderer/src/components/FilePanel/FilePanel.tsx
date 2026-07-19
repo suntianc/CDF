@@ -32,7 +32,6 @@ export function FilePanel() {
     setDirContents,
     setDirError,
     setLoading,
-    setActiveTab,
   } = useFileStore();
 
   const { projects, currentProjectId } = useProjectStore();
@@ -55,6 +54,14 @@ export function FilePanel() {
     const store = useFileStore.getState();
     const index = store.openTabs.findIndex((tab) => tab.path === filePath);
     if (index >= 0) store.closeTab(index);
+  }, []);
+
+  const requestActivateTab = useCallback(async (index: number) => {
+    const store = useFileStore.getState();
+    if (index === store.activeTabIndex) return;
+    const activeFile = store.openTabs[store.activeTabIndex];
+    if (activeFile && !await flushProjectFile(activeFile.path)) return;
+    useFileStore.getState().setActiveTab(index);
   }, []);
 
   // Monitor the width of the <main> container to adjust file panel dynamically
@@ -239,7 +246,7 @@ export function FilePanel() {
                       ? 'bg-[var(--color-bg-canvas)] text-[var(--color-text-primary)] font-medium border-t-2 border-t-[var(--color-accent)]'
                       : 'bg-[var(--color-bg-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]'
                   }`}
-                  onClick={() => setActiveTab(i)}
+                  onClick={() => void requestActivateTab(i)}
                 >
                   <FileTypeIcon filename={tab.name} className="w-3.5 h-3.5 shrink-0" />
                   <span className="min-w-0 max-w-[100px] flex-1 truncate">{tab.name}</span>

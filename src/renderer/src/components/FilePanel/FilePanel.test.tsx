@@ -259,6 +259,14 @@ describe('Editable Flow Diagram workspace', () => {
     render(<main><FilePanel /></main>);
     fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
     await screen.findByTestId('official-excalidraw');
+    act(() => {
+      useFileStore.getState().openPreview({
+        path: `${PROJECT_PATH}/diagrams/second.excalidraw`,
+        name: 'second.excalidraw',
+        content: DIAGRAM_CONTENT,
+      });
+      useFileStore.getState().setActiveTab(0);
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Draw in diagram' }));
     expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(true);
 
@@ -289,12 +297,17 @@ describe('Editable Flow Diagram workspace', () => {
     expect(writeFile).not.toHaveBeenCalled();
     expect(useFileStore.getState().previewFile?.content).toContain('agent-node');
     expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(true);
+    expect(excalidrawProps.current?.viewModeEnabled).toBe(true);
+
+    fireEvent.click(screen.getByText('second.excalidraw'));
+    await waitFor(() => expect(useFileStore.getState().activeTabIndex).toBe(0));
 
     fireEvent.click(screen.getByRole('button', { name: /关闭 release\.excalidraw|Close release\.excalidraw/ }));
-    await waitFor(() => expect(useFileStore.getState().openTabs).toHaveLength(1));
+    await waitFor(() => expect(useFileStore.getState().openTabs).toHaveLength(2));
 
     fireEvent.click(screen.getByRole('button', { name: /保留 Agent 版本|Keep Agent version/ }));
     expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
+    expect(excalidrawProps.current?.viewModeEnabled).toBe(false);
   });
 
   it('follows the CDF theme and language', async () => {
