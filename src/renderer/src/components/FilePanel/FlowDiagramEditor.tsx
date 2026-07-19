@@ -44,8 +44,10 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [conflictedContent, setConflictedContent] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string | null>(null);
+  const lastDiskContentRef = useRef<string | null>(null);
   const pendingContentRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const lastQueuedContentRef = useRef<string | null>(null);
@@ -68,7 +70,12 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     const operation = saveQueueRef.current.then(async () => {
       setSaveState('saving');
       try {
-        const result = await window.electronAPI.fs.writeFile(rootPath, filePath, contentToSave);
+        const result = await window.electronAPI.fs.writeFile(
+          rootPath,
+          filePath,
+          contentToSave,
+          lastDiskContentRef.current ?? undefined,
+        );
         if (!result.ok) {
           console.error('[FlowDiagramEditor] Save failed:', result.error.message);
           setSaveState('error');
@@ -76,6 +83,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
         }
 
         lastSavedContentRef.current = contentToSave;
+        lastDiskContentRef.current = contentToSave;
         if (pendingContentRef.current === contentToSave) {
           pendingContentRef.current = null;
           setTabDirty(filePath, false);
@@ -142,6 +150,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   useEffect(() => {
     let cancelled = false;
     lastSavedContentRef.current = null;
+    lastDiskContentRef.current = content;
     pendingContentRef.current = null;
 
     if (loadError) {
@@ -178,6 +187,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       if (data.path.replace(/\\/g, '/') !== filePath.replace(/\\/g, '/')) return;
       const version = ++externalReloadVersionRef.current;
       void (async () => {
+        const unsavedContent = pendingContentRef.current;
         if (saveTimerRef.current) {
           clearTimeout(saveTimerRef.current);
           saveTimerRef.current = null;
@@ -195,6 +205,10 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
           );
           if (restoredContent === lastSavedContentRef.current) return;
           lastSavedContentRef.current = restoredContent;
+          lastDiskContentRef.current = result.data.content;
+          setConflictedContent(
+            unsavedContent && unsavedContent !== restoredContent ? unsavedContent : null,
+          );
           setSaveState('saved');
           setTabDirty(filePath, false);
           useFileStore.getState().openPreview({
@@ -234,6 +248,19 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     };
   }, [flushPendingSave]);
 
+  const restoreConflictedContent = useCallback(async () => {
+    if (!conflictedContent) return;
+    setLoadState({ status: 'loading' });
+    try {
+      const diagram = await restoreFlowDiagram(conflictedContent);
+      setConflictedContent(null);
+      setLoadState({ status: 'ready', diagram });
+      scheduleSave(conflictedContent);
+    } catch {
+      setLoadState({ status: 'invalid', reason: 'invalid' });
+    }
+  }, [conflictedContent, scheduleSave]);
+
   const retryLoad = useCallback(async () => {
     if (!rootPath) return;
     setLoadState({ status: 'loading' });
@@ -250,6 +277,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
         diagram.appState,
         diagram.files,
       );
+      lastDiskContentRef.current = result.file.content;
       setSaveState('saved');
       setLoadState({ status: 'ready', diagram });
     } catch {
@@ -315,6 +343,26 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
             <span className="sr-only" role="status" aria-live="polite">
               {t(`filePanel.flowDiagram.${saveState}`)}
             </span>
+            {conflictedContent && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void restoreConflictedContent();
+                    }}
+                    className="flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-warning)] bg-[var(--color-warning-dim)] px-3 text-[12px] font-medium text-[var(--color-warning)] transition-colors hover:bg-[var(--color-warning)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-2"
+                  >
+                    <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                    {t('filePanel.flowDiagram.restoreUnsaved')}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t('filePanel.flowDiagram.externalChangeConflict')}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

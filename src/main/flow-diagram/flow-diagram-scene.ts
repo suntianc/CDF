@@ -48,6 +48,10 @@ const NATIVE_ELEMENT_TYPES = new Set([
   'iframe',
   'laser',
 ]);
+const ARROWHEAD_TYPES = new Set([
+  'arrow', 'bar', 'dot', 'triangle', 'diamond', 'circle', 'circle_outline',
+  'crowfoot_one', 'crowfoot_many', 'crowfoot_one_or_many',
+]);
 
 function finiteNumber(value: unknown, field: string, id: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -185,14 +189,41 @@ function validateElementDetails(
       `Element "${element.id}" requires string stroke and background colors.`,
     );
   }
+  if (!Array.isArray(element.groupIds) || element.groupIds.some((id) => typeof id !== 'string')) {
+    throw new FlowDiagramSceneError(
+      'INVALID_ELEMENT',
+      `Element "${element.id}" groupIds must contain only strings.`,
+    );
+  }
+  if (element.frameId !== null && typeof element.frameId !== 'string') {
+    throw new FlowDiagramSceneError(
+      'INVALID_ELEMENT',
+      `Element "${element.id}" frameId must be a string or null.`,
+    );
+  }
   if (['line', 'arrow', 'freedraw', 'laser'].includes(element.type)) validatePoints(element);
+  if (element.type === 'arrow') {
+    for (const field of ['startArrowhead', 'endArrowhead'] as const) {
+      const arrowhead = element[field];
+      if (arrowhead !== null && arrowhead !== undefined && (
+        typeof arrowhead !== 'string' || !ARROWHEAD_TYPES.has(arrowhead)
+      )) {
+        throw new FlowDiagramSceneError(
+          'INVALID_ELEMENT',
+          `Arrow element "${element.id}" has an invalid ${field}.`,
+        );
+      }
+    }
+  }
   if (element.type === 'text') {
     if (
       typeof element.text !== 'string'
       || typeof element.originalText !== 'string'
       || typeof element.fontSize !== 'number'
+      || !Number.isFinite(element.fontSize)
       || element.fontSize <= 0
       || typeof element.lineHeight !== 'number'
+      || !Number.isFinite(element.lineHeight)
       || element.lineHeight <= 0
     ) {
       throw new FlowDiagramSceneError(
@@ -209,6 +240,30 @@ function validateElementDetails(
         'INVALID_ELEMENT',
         `Image element "${element.id}" references a missing embedded file.`,
       );
+    }
+    if (
+      !Array.isArray(element.scale)
+      || element.scale.length !== 2
+      || element.scale.some((value) => typeof value !== 'number' || !Number.isFinite(value) || value === 0)
+    ) {
+      throw new FlowDiagramSceneError(
+        'INVALID_ELEMENT',
+        `Image element "${element.id}" has an invalid scale.`,
+      );
+    }
+    if (element.crop !== null && element.crop !== undefined) {
+      if (!element.crop || typeof element.crop !== 'object' || Array.isArray(element.crop)) {
+        throw new FlowDiagramSceneError('INVALID_ELEMENT', `Image element "${element.id}" has an invalid crop.`);
+      }
+      const crop = element.crop as Record<string, unknown>;
+      for (const field of ['x', 'y', 'width', 'height', 'naturalWidth', 'naturalHeight']) {
+        if (typeof crop[field] !== 'number' || !Number.isFinite(crop[field])) {
+          throw new FlowDiagramSceneError(
+            'INVALID_ELEMENT',
+            `Image element "${element.id}" crop.${field} must be finite.`,
+          );
+        }
+      }
     }
   }
 }
@@ -280,14 +335,28 @@ export function validateFlowDiagramScene(value: unknown): ExcalidrawScene {
     ids.add(element.id);
   }
 
+  const elementsById = new Map(elements.map((element) => [element.id, element]));
   for (const element of elements) {
+    if (element.isDeleted) continue;
+    if (typeof element.frameId === 'string') {
+      const frame = elementsById.get(element.frameId);
+      if (!frame || (frame.type !== 'frame' && frame.type !== 'magicframe') || frame.isDeleted) {
+        throw new FlowDiagramSceneError(
+          'INVALID_BINDING',
+          `Element "${element.id}" frameId references a missing active frame.`,
+        );
+      }
+    }
     validateReference(element.id, 'startBinding', element.startBinding, ids);
     validateReference(element.id, 'endBinding', element.endBinding, ids);
     if (element.containerId !== null && element.containerId !== undefined) {
-      if (typeof element.containerId !== 'string' || !ids.has(element.containerId)) {
+      const container = typeof element.containerId === 'string'
+        ? elementsById.get(element.containerId)
+        : undefined;
+      if (!container || container.isDeleted || container.type === 'text') {
         throw new FlowDiagramSceneError(
           'INVALID_BINDING',
-          `Element "${element.id}" containerId references a missing element.`,
+          `Element "${element.id}" containerId references an invalid container.`,
         );
       }
     }
@@ -302,10 +371,18 @@ export function validateFlowDiagramScene(value: unknown): ExcalidrawScene {
         const bindingId = binding && typeof binding === 'object'
           ? (binding as Record<string, unknown>).id
           : null;
-        if (typeof bindingId !== 'string' || !ids.has(bindingId)) {
+        const bound = typeof bindingId === 'string' ? elementsById.get(bindingId) : undefined;
+        const bindingType = binding && typeof binding === 'object'
+          ? (binding as Record<string, unknown>).type
+          : undefined;
+        if (
+          !bound
+          || (bindingType !== 'text' && bindingType !== 'arrow')
+          || bound.type !== bindingType
+        ) {
           throw new FlowDiagramSceneError(
             'INVALID_BINDING',
-            `Element "${element.id}" boundElements references a missing element.`,
+            `Element "${element.id}" boundElements references an invalid element.`,
           );
         }
       }

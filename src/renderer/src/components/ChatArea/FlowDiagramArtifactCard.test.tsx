@@ -32,6 +32,9 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../lib/openProjectFile', () => ({
+  canonicalProjectFilePath: (rootPath: string, filePath: string) => (
+    filePath.startsWith(rootPath) ? filePath : `${rootPath}/${filePath.replace(/^\/+/, '')}`
+  ),
   openProjectFile: openProjectFileMock,
 }));
 

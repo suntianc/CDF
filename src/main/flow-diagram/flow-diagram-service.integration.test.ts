@@ -8,6 +8,7 @@ import {
   type FlowDiagramService,
 } from './flow-diagram-service';
 import type { ExcalidrawScene } from './flow-diagram-scene';
+import { writeFile as writeProjectFile } from '../services/file-system';
 
 function scene(elements: Array<Record<string, unknown>> = []): ExcalidrawScene {
   return {
@@ -337,6 +338,8 @@ describe('FlowDiagramService integration', () => {
       { op: 'delete' as const, id: 'deleted' },
       { op: 'update' as const, id: 'active', patch: { id: 'new-id' } },
       { op: 'update' as const, id: 'active', patch: { strokeWidth: 'wide' } },
+      { op: 'update' as const, id: 'active', patch: { groupIds: [42] } },
+      { op: 'update' as const, id: 'active', patch: { frameId: 'missing-frame' } },
       { op: 'add' as const, elements: [rectangle('arrow-without-points', { type: 'arrow' })] },
       { op: 'add' as const, elements: [rectangle('active')] },
     ];
@@ -363,6 +366,50 @@ describe('FlowDiagramService integration', () => {
     });
     expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_SCENE' } });
     expect(fs.readFileSync(filePath)).toEqual(duplicate);
+  });
+
+  it('rejects a stale renderer autosave queued behind an Agent edit', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    const original = writeScene(filePath, scene([rectangle('one')]));
+    let releaseRevision!: () => void;
+    let revisionStarted!: () => void;
+    const revisionStartedPromise = new Promise<void>((resolve) => {
+      revisionStarted = resolve;
+    });
+    const revisionGate = new Promise<void>((resolve) => {
+      releaseRevision = resolve;
+    });
+    const coordinatedService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      revisionStore: {
+        record: vi.fn(async () => {
+          revisionStarted();
+          await revisionGate;
+          return 'agent-edit';
+        }),
+        peekLatest: vi.fn(),
+        consumeLatest: vi.fn(),
+      },
+    });
+
+    const agentEdit = coordinatedService.execute({
+      action: 'edit',
+      file_path: filePath,
+      operations: [{ op: 'add', elements: [rectangle('agent')] }],
+    });
+    await revisionStartedPromise;
+    const staleAutosave = writeProjectFile(
+      projectPath,
+      filePath,
+      original.toString('utf8'),
+      original.toString('utf8'),
+    );
+    releaseRevision();
+
+    await expect(agentEdit).resolves.toMatchObject({ ok: true });
+    await expect(staleAutosave).rejects.toMatchObject({ code: 'ECONFLICT' });
+    expect(fs.readFileSync(filePath, 'utf8')).toContain('"id": "agent"');
   });
 
   it('does not modify the source when revision creation, validation, or replacement fails', async () => {

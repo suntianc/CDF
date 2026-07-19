@@ -1,7 +1,8 @@
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import type { ExcalidrawElementData, ExcalidrawScene } from './flow-diagram-scene';
+import type { FlowDiagramExportFormat } from '../../shared/flow-diagrams';
 
-export type FlowDiagramExportFormat = 'svg' | 'png';
+export type { FlowDiagramExportFormat } from '../../shared/flow-diagrams';
 
 export interface FlowDiagramExportArtifact {
   bytes: Buffer;

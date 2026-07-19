@@ -7,6 +7,7 @@ import {
   createFlowDiagramService,
   type FlowDiagramService,
 } from './flow-diagram-service';
+import { renderFlowDiagramExportAdapter } from './flow-diagram-export-adapter';
 
 const elementSchema = z.object({
   id: z.string().min(1),
@@ -75,6 +76,7 @@ export function createManageFlowDiagramTool(
     projectPath,
     stateRoot: options.stateRoot ?? path.join(app.getPath('userData'), 'flow-diagrams'),
     notifyFileChange,
+    renderExport: renderFlowDiagramExportAdapter,
   });
 
   return tool(

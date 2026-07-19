@@ -255,6 +255,41 @@ describe('Editable Flow Diagram workspace', () => {
     expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
   });
 
+  it('opens the Agent version while preserving dirty local edits as an explicit conflict action', async () => {
+    render(<main><FilePanel /></main>);
+    fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
+    await screen.findByTestId('official-excalidraw');
+    fireEvent.click(screen.getByRole('button', { name: 'Draw in diagram' }));
+    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(true);
+
+    const agentDiagram = {
+      elements: [{ id: 'agent-node', type: 'rectangle' }],
+      appState: { viewBackgroundColor: '#ffffff' },
+      files: {},
+    };
+    loadFromBlob.mockResolvedValue(agentDiagram);
+    readFile.mockResolvedValue({
+      ok: true,
+      data: { content: JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        source: 'https://cdf.local',
+        ...agentDiagram,
+      }) },
+    });
+
+    await act(async () => {
+      for (const listener of directoryChangeListeners) {
+        listener({}, { type: 'change', path: DIAGRAM_PATH });
+      }
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('button', { name: /恢复我的编辑|Restore my edits/ })).toBeTruthy();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(useFileStore.getState().previewFile?.content).toContain('agent-node');
+  });
+
   it('follows the CDF theme and language', async () => {
     render(<main><FilePanel /></main>);
     fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
@@ -290,6 +325,7 @@ describe('Editable Flow Diagram workspace', () => {
       PROJECT_PATH,
       DIAGRAM_PATH,
       expect.any(String),
+      DIAGRAM_CONTENT,
     );
     const savedDocument = JSON.parse(writeFile.mock.calls[0][2]);
     expect(savedDocument).toMatchObject({

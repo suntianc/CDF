@@ -4,6 +4,7 @@ import path from 'path';
 import { isProtectedPath, resolveProjectFile } from '../utils/path-safety';
 import { loadGitignore, toPosix } from '../at-mention/gitignore-loader';
 import type { DirectoryEntry, FileContent, BinaryFileInfo, FileInfo } from '../../shared/types';
+import { runProjectFileMutation } from './project-file-mutation';
 
 const MAX_TEXT_DETECT_BYTES = 8192;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -116,13 +117,25 @@ export async function getFileInfo(
 export async function writeFile(
   rootPath: string,
   filePath: string,
-  content: string
+  content: string,
+  expectedContent?: string,
 ): Promise<void> {
-  const resolved = resolveProjectFile(rootPath, filePath);
-  if (isProtectedPath(resolved)) {
-    throw new Error(`Cannot write to protected path: ${filePath}`);
-  }
-  await fsp.writeFile(resolved, content, 'utf-8');
+  await runProjectFileMutation(rootPath, async () => {
+    const resolved = resolveProjectFile(rootPath, filePath);
+    if (isProtectedPath(resolved)) {
+      throw new Error(`Cannot write to protected path: ${filePath}`);
+    }
+    if (expectedContent !== undefined) {
+      const currentContent = await fsp.readFile(resolved, 'utf-8');
+      if (currentContent !== expectedContent) {
+        throw Object.assign(
+          new Error('File changed on disk before this save could be applied.'),
+          { code: 'ECONFLICT' },
+        );
+      }
+    }
+    await fsp.writeFile(resolved, content, 'utf-8');
+  });
 }
 
 export async function createFile(

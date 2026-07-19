@@ -1019,7 +1019,9 @@
       "dirty": "Unsaved",
       "saving": "Saving...",
       "error": "Save failed",
-      "retrySave": "Save failed. Retry diagram save"
+      "retrySave": "Save failed. Retry diagram save",
+      "restoreUnsaved": "Restore my edits",
+      "externalChangeConflict": "The latest Agent version is open. Restore your preserved unsaved edits only if you want to replace it."
     }
   },
   "codeBlock": {

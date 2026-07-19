@@ -30,6 +30,12 @@ import type {
 import type { GlobalSkillReference } from '../shared/skills';
 import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
 import type { CapabilityJobAction } from '../shared/capability-jobs';
+import {
+  FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL,
+  FLOW_DIAGRAM_EXPORT_RESPONSE_CHANNEL,
+  type FlowDiagramExportRequest,
+  type FlowDiagramExportResponse,
+} from '../shared/flow-diagrams';
 
 const api = {
   store: {
@@ -154,6 +160,16 @@ const api = {
       return () => { ipcRenderer.removeListener(channel, listener); };
     },
   },
+  flowDiagram: {
+    onExportRequest: (callback: (request: FlowDiagramExportRequest) => void) => {
+      const listener = (_event: IpcRendererEvent, request: FlowDiagramExportRequest) => callback(request);
+      ipcRenderer.on(FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL, listener);
+      return () => ipcRenderer.removeListener(FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL, listener);
+    },
+    resolveExport: (response: FlowDiagramExportResponse) => {
+      ipcRenderer.send(FLOW_DIAGRAM_EXPORT_RESPONSE_CHANNEL, response);
+    },
+  },
   // ===== File Management =====
   fs: {
     readDirectory: (rootPath: string, dirPath: string, showHidden?: boolean) =>
@@ -167,8 +183,8 @@ const api = {
       ipcRenderer.on('fs:directoryChange', listener);
       return () => { ipcRenderer.removeListener('fs:directoryChange', listener); };
     },
-    writeFile: (rootPath: string, filePath: string, content: string) =>
-      typedInvoke('fs:writeFile', rootPath, filePath, content),
+    writeFile: (rootPath: string, filePath: string, content: string, expectedContent?: string) =>
+      typedInvoke('fs:writeFile', rootPath, filePath, content, expectedContent),
     createFile: (rootPath: string, filePath: string) =>
       typedInvoke('fs:createFile', rootPath, filePath),
     createDirectory: (rootPath: string, dirPath: string) =>

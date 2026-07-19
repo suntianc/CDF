@@ -9,7 +9,7 @@ function fileNameFromPath(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || filePath;
 }
 
-function canonicalProjectFilePath(rootPath: string, filePath: string): string {
+export function canonicalProjectFilePath(rootPath: string, filePath: string): string {
   const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
   const normalizedFile = filePath.replace(/\\/g, '/');
   if (

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, FileWarning, Workflow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { openProjectFile } from '../../lib/openProjectFile';
+import { canonicalProjectFilePath, openProjectFile } from '../../lib/openProjectFile';
 import { useFileStore } from '../../stores/fileStore';
 
 type PreviewState =
@@ -25,13 +25,6 @@ function localFilePath(href: string): string {
   } catch {
     return withoutProtocol;
   }
-}
-
-function canonicalProjectFilePath(rootPath: string, filePath: string): string {
-  const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-  const requested = filePath.replace(/\\/g, '/');
-  if (requested === root || requested.startsWith(`${root}/`)) return requested;
-  return `${root}/${requested.replace(/^\/+/, '')}`;
 }
 
 export function FlowDiagramArtifactCard({ href, label }: FlowDiagramArtifactCardProps) {
@@ -122,12 +115,12 @@ export function FlowDiagramArtifactCard({ href, label }: FlowDiagramArtifactCard
     : t('chat.flowDiagramInvalid');
 
   return (
-    <div className="relative my-3 w-full max-w-[480px] overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] transition-[border-color,background-color] duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]/30">
+    <div className="relative my-3 w-full max-w-[480px] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] transition-[border-color,background-color] duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]/30">
       <button
         type="button"
         onClick={() => void handleOpen()}
         aria-label={`${t('chat.flowDiagramOpen')}: ${title}`}
-        className="group flex w-full flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] active:bg-[var(--color-bg-hover)]/50"
+        className="group flex w-full flex-col overflow-hidden rounded-[var(--radius-md)] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] active:bg-[var(--color-bg-hover)]/50"
       >
         <span className="flex min-h-44 w-full items-center justify-center bg-[var(--color-bg-sunken)] p-4">
           {preview.status === 'loading' && (
@@ -180,7 +173,7 @@ export function FlowDiagramArtifactCard({ href, label }: FlowDiagramArtifactCard
             type="button"
             onClick={() => void handleCopy()}
             aria-label={t('chat.flowDiagramCopyPath')}
-            className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)]"
+            className="absolute bottom-1 right-1 flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)]"
           >
             {copied
               ? <Check className="h-4 w-4" aria-hidden="true" />

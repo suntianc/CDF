@@ -81,6 +81,7 @@ import { backgroundCapabilityJobs } from './capabilities/background-capability-r
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { deleteConversation, deleteProject } from './conversation-deletion';
 import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
+import { registerFlowDiagramExportResponseHandler } from './flow-diagram/flow-diagram-export-adapter';
 import {
   compactConversationWorkingState,
   getConversationWorkingStateStorageStatus,
@@ -200,6 +201,7 @@ function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
 }
 
 export function registerIpcHandlers() {
+  registerFlowDiagramExportResponseHandler();
   const sceneSkillExposureService = createSceneSkillExposureService({
     storage: {
       get: () => store.get('sceneSkillExposures'),
@@ -1122,9 +1124,9 @@ export function registerIpcHandlers() {
     }
   });
 
-  typedHandle('fs:writeFile', async (_, rootPath, filePath, content) => {
+  typedHandle('fs:writeFile', async (_, rootPath, filePath, content, expectedContent) => {
     try {
-      await writeFile(rootPath, filePath, content);
+      await writeFile(rootPath, filePath, content, expectedContent);
       notifyFileChange(filePath);
       return { ok: true };
     } catch (err: any) {

@@ -256,7 +256,10 @@ export interface IpcInvokeContract {
     result: FsData<FileContent | BinaryFileInfo>;
   };
   'fs:getFileInfo': { args: [rootPath: string, filePath: string]; result: FsData<FileInfo> };
-  'fs:writeFile': { args: [rootPath: string, filePath: string, content: string]; result: FsAck };
+  'fs:writeFile': {
+    args: [rootPath: string, filePath: string, content: string, expectedContent?: string];
+    result: FsAck;
+  };
   'fs:createFile': { args: [rootPath: string, filePath: string]; result: FsAck };
   'fs:createDirectory': { args: [rootPath: string, dirPath: string]; result: FsAck };
   'fs:renameEntry': { args: [rootPath: string, oldPath: string, newName: string]; result: FsAck };

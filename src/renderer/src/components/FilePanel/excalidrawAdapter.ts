@@ -1,4 +1,5 @@
-import { exportToSvg, loadFromBlob, MIME_TYPES, serializeAsJSON } from '@excalidraw/excalidraw';
+import { exportToBlob, exportToSvg, loadFromBlob, MIME_TYPES, serializeAsJSON } from '@excalidraw/excalidraw';
+import type { FlowDiagramExportFormat } from '@shared/flow-diagrams';
 
 export type RestoredFlowDiagram = Awaited<ReturnType<typeof loadFromBlob>>;
 export type FlowDiagramElements = Parameters<typeof serializeAsJSON>[0];
@@ -18,9 +19,9 @@ export function serializeFlowDiagram(
   return serializeAsJSON(elements, appState, files, 'local');
 }
 
-export async function renderFlowDiagramThumbnail(content: string): Promise<string> {
+async function exportableFlowDiagram(content: string) {
   const restored = await restoreFlowDiagram(content);
-  const svg = await exportToSvg({
+  return {
     elements: restored.elements.filter((element) => !element.isDeleted),
     appState: {
       ...restored.appState,
@@ -28,10 +29,45 @@ export async function renderFlowDiagramThumbnail(content: string): Promise<strin
       exportWithDarkMode: false,
     },
     files: restored.files,
+  };
+}
+
+export async function renderFlowDiagramThumbnail(content: string): Promise<string> {
+  const restored = await exportableFlowDiagram(content);
+  const svg = await exportToSvg({
+    ...restored,
     exportPadding: 24,
     skipInliningFonts: true,
   });
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
     new XMLSerializer().serializeToString(svg),
   )}`;
+}
+
+export async function renderFlowDiagramExportWithSdk(
+  content: string,
+  format: FlowDiagramExportFormat,
+): Promise<{ bytes: Uint8Array; mimeType: 'image/png' | 'image/svg+xml' }> {
+  const restored = await exportableFlowDiagram(content);
+  if (format === 'svg') {
+    const svg = await exportToSvg({
+      ...restored,
+      exportPadding: 24,
+      skipInliningFonts: true,
+    });
+    return {
+      bytes: new TextEncoder().encode(new XMLSerializer().serializeToString(svg)),
+      mimeType: 'image/svg+xml',
+    };
+  }
+  const blob = await exportToBlob({
+    ...restored,
+    mimeType: 'image/png',
+    exportPadding: 24,
+  });
+  if (!blob) throw new Error('Excalidraw returned no PNG export.');
+  return {
+    bytes: new Uint8Array(await blob.arrayBuffer()),
+    mimeType: 'image/png',
+  };
 }

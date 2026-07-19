@@ -21,6 +21,7 @@ import {
   createFlowDiagramRevisionStore,
   type FlowDiagramRevisionStore,
 } from './flow-diagram-revision-store';
+import { runProjectFileMutation } from '../services/project-file-mutation';
 
 export type FlowDiagramEditOperation =
   | { op: 'add'; elements: Array<Record<string, unknown>> }
@@ -501,7 +502,7 @@ export function createFlowDiagramService(
   const renderExport = options.renderExport ?? renderFlowDiagramExport;
   const notify = (filePath: string) => options.notifyFileChange?.(filePath);
 
-  const execute = async (input: FlowDiagramActionInput): Promise<FlowDiagramResult> => {
+  const executeUnlocked = async (input: FlowDiagramActionInput): Promise<FlowDiagramResult> => {
     const action = input.action;
     if (action === 'read_format') return success(action, formatDescription());
 
@@ -714,5 +715,10 @@ export function createFlowDiagramService(
     }
   };
 
-  return { execute };
+  return {
+    execute: (input) => runProjectFileMutation(
+      projectPath,
+      () => executeUnlocked(input),
+    ),
+  };
 }
