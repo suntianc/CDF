@@ -840,7 +840,7 @@ async function buildDeepAgentRuntime(
       modelRetryMiddleware({
         maxRetries: 2,
         retryOn: isTransientRuntimeError,
-        onFailure: formatRecoverableModelErrorObservation,
+        onFailure: isWorkflowMasterAgent ? 'error' : formatRecoverableModelErrorObservation,
       }),
     ],
     interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import {
@@ -6,7 +6,17 @@ import {
   WORKFLOW_RUN_MODEL_REQUIRED_ERROR,
 } from '../../stores/workflowRunStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { Workflow } from '../../../../shared/types';
+import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
+import { useLLMStore } from '../../stores/llmStore';
+import { ModelSelectionSurface } from '../ChatArea/modelSelection/ModelSelectionSurface';
+import {
+  buildModelSelectionGroups,
+  resolveDefaultModelSelectionCandidate,
+} from '../ChatArea/modelSelection/useModelSelectionController';
+import type { ModelSourceType } from '../ChatArea/modelSelection/useModelSelectionController';
+import type { ReasoningEffort } from '@shared/ai-subscriptions';
+import type { ChatRuntimeOverrides, Workflow } from '../../../../shared/types';
 import { Plus, Trash2, GitBranch, Clock, Play, Info, Edit } from 'lucide-react';
 
 interface Toast {
@@ -25,8 +35,50 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
   const { workflows, isLoading, error, fetchWorkflows, deleteWorkflow, saveWorkflow } = useWorkflowStore();
   const startRun = useWorkflowRunStore((state) => state.startRun);
   const { currentProjectId } = useProjectStore();
+  const providers = useLLMStore((state) => state.providers);
+  const fetchProviders = useLLMStore((state) => state.fetchProviders);
+  const subscriptionEntries = useAISubscriptionStore((state) => state.entries);
+  const fetchSubscriptionEntries = useAISubscriptionStore((state) => state.fetchEntries);
+  const agents = useAgentStore((state) => state.agents);
+  const fetchAgents = useAgentStore((state) => state.fetchAgents);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort | undefined>();
+
+  const modelGroups = useMemo(
+    () => buildModelSelectionGroups(providers, subscriptionEntries),
+    [providers, subscriptionEntries],
+  );
+  const modelCandidates = useMemo(
+    () => modelGroups.flatMap((group) => group.candidates),
+    [modelGroups],
+  );
+  const masterAgent = agents.find((agent) => agent.role === 'master') ?? null;
+  const masterProvider = providers.find((provider) => provider.id === masterAgent?.provider_id) ?? null;
+  const defaultModelCandidate = useMemo(
+    () => resolveDefaultModelSelectionCandidate(modelCandidates, masterProvider),
+    [masterProvider, modelCandidates],
+  );
+  const explicitlySelectedModelCandidate = selectedModelKey
+    ? modelCandidates.find((candidate) => candidate.key === selectedModelKey) ?? null
+    : null;
+  const displayedModelCandidate = explicitlySelectedModelCandidate ?? defaultModelCandidate;
+
+  const handleSelectModel = (sourceType: ModelSourceType, sourceId: string, modelName: string) => {
+    const candidate = modelCandidates.find((item) => (
+      item.sourceType === sourceType && item.sourceId === sourceId && item.model === modelName
+    ));
+    setSelectedModelKey(candidate?.key ?? null);
+    setSelectedReasoningEffort(undefined);
+  };
+
+  const handleSelectReasoningEffort = (effort?: ReasoningEffort) => {
+    if (!explicitlySelectedModelCandidate && displayedModelCandidate) {
+      setSelectedModelKey(displayedModelCandidate.key);
+    }
+    setSelectedReasoningEffort(effort);
+  };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -41,6 +93,19 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       fetchWorkflows(currentProjectId);
     }
   }, [currentProjectId, fetchWorkflows]);
+
+  useEffect(() => {
+    if (providers.length === 0) void fetchProviders();
+    if (subscriptionEntries.length === 0) void fetchSubscriptionEntries();
+    if (agents.length === 0) void fetchAgents();
+  }, [
+    agents.length,
+    fetchAgents,
+    fetchProviders,
+    fetchSubscriptionEntries,
+    providers.length,
+    subscriptionEntries.length,
+  ]);
 
   const handleDelete = async (id: string, name: string) => {
     if (!currentProjectId) return;
@@ -77,7 +142,18 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
     if (!currentProjectId) return;
     try {
       showToast(t('workflow.list.startingWorkflow'), 'info');
-      await startRun(workflow.id, currentProjectId);
+      const modelOverrides: ChatRuntimeOverrides | undefined = explicitlySelectedModelCandidate
+        ? {
+            modelSource: explicitlySelectedModelCandidate.sourceType,
+            sourceId: explicitlySelectedModelCandidate.sourceId,
+            providerId: explicitlySelectedModelCandidate.sourceType === 'llm_provider'
+              ? explicitlySelectedModelCandidate.sourceId
+              : undefined,
+            model: explicitlySelectedModelCandidate.model,
+            reasoningEffort: selectedReasoningEffort,
+          }
+        : undefined;
+      await startRun(workflow.id, currentProjectId, modelOverrides);
       showToast(t('workflow.list.workflowStarted'), 'success');
     } catch (err: any) {
       const message = err?.message === WORKFLOW_RUN_MODEL_REQUIRED_ERROR
@@ -128,17 +204,40 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       {/* Content */}
       <div className="settings-content overflow-y-auto flex-1 px-5 pb-6 pt-4">
         {/* Toolbar */}
-        <div className="flex items-center justify-between mb-4 shrink-0">
+        <div className="flex items-center justify-between gap-4 mb-4 shrink-0">
           <div className="text-[13px] font-semibold tabular-nums text-[var(--color-text-primary)]">
             {t('workflow.list.title', { count: workflows.length })}
           </div>
-          <button
-            className="btn btn-primary flex items-center gap-1.5 cursor-pointer text-xs py-1.5"
-            onClick={onCreateWorkflow}
-          >
-            <Plus className="w-4 h-4" />
-            <span>{t('workflow.list.newWorkflow')}</span>
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <div
+              className="flex items-center gap-1.5"
+              role="group"
+              aria-label={t('workflow.list.runModel')}
+            >
+              <span className="text-[11px] font-medium text-[var(--color-text-muted)]">
+                {t('workflow.list.runModel')}
+              </span>
+              <ModelSelectionSurface
+                variant="welcome"
+                modelGroups={modelGroups}
+                selectedSourceType={displayedModelCandidate?.sourceType ?? 'llm_provider'}
+                selectedSourceId={displayedModelCandidate?.sourceId ?? ''}
+                selectedModel={displayedModelCandidate?.model ?? ''}
+                currentModelLabel={displayedModelCandidate?.label ?? ''}
+                currentProviderType={displayedModelCandidate?.providerType}
+                onSelectModel={handleSelectModel}
+                selectedReasoningEffort={selectedReasoningEffort}
+                onSelectReasoningEffort={handleSelectReasoningEffort}
+              />
+            </div>
+            <button
+              className="btn btn-primary flex items-center gap-1.5 cursor-pointer text-xs py-1.5"
+              onClick={onCreateWorkflow}
+            >
+              <Plus className="w-4 h-4" />
+              <span>{t('workflow.list.newWorkflow')}</span>
+            </button>
+          </div>
         </div>
 
         {error && (

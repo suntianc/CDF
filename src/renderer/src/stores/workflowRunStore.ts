@@ -64,7 +64,7 @@ interface WorkflowRunStore {
 
   setGraphView: (show: boolean) => void;
   setSelectedStageId: (stageId: string | null) => void;
-  startRun: (workflowId: string, projectId: string) => Promise<void>;
+  startRun: (workflowId: string, projectId: string, modelOverrides?: ChatRuntimeOverrides) => Promise<void>;
   loadRunForSession: (sessionId: string) => Promise<void>;
   dispatchProjectionEvent: (event: WorkflowRunProjectionEvent) => void;
   resolveStageGate: (gateId: string, decision: 'approve' | 'reject' | 'terminate', feedback?: string) => Promise<void>;
@@ -88,10 +88,10 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
     }
   })),
 
-  startRun: async (workflowId, projectId) => {
+  startRun: async (workflowId, projectId, requestedModelOverrides) => {
     set({ isLoading: true, error: null });
     try {
-      const modelOverrides = await resolveWorkflowRunModelOverrides();
+      const modelOverrides = requestedModelOverrides ?? await resolveWorkflowRunModelOverrides();
       if (!modelOverrides?.modelSource || !modelOverrides.sourceId || !modelOverrides.model) {
         throw new Error(WORKFLOW_RUN_MODEL_REQUIRED_ERROR);
       }
@@ -105,6 +105,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
         modelOverrides.model,
         modelOverrides.modelSource,
       );
+      sessionStore.setSessionReasoningEffort(result.sessionId, modelOverrides.reasoningEffort);
       await sessionStore.fetchSessions(projectId);
       await sessionStore.selectSession(result.sessionId);
 

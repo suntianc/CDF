@@ -924,6 +924,7 @@
       "disableWorkflow": "停用工作流",
       "noDescription": "暂无描述",
       "stageCount": "{{count}} 个阶段",
+      "runModel": "运行模型",
       "runDirectly": "启动工作流运行",
       "run": "运行",
       "edit": "编辑",

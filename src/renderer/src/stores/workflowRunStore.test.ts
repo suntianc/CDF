@@ -172,6 +172,43 @@ describe('workflowRunStore.startRun', () => {
       run.session_id,
     );
   });
+
+  it('preserves an explicitly selected reasoning effort on the new Workflow session', async () => {
+    const run = makeRun({ session_id: 'workflow-session' });
+    vi.mocked(window.electronAPI.workflowRun.start).mockResolvedValue({
+      runId: run.id,
+      sessionId: run.session_id,
+      firstStage: {
+        id: 'stage-1',
+        name: 'Stage 1',
+        taskDescription: 'Task 1',
+        acceptanceCriteria: 'criterion 1',
+        gateEnabled: true,
+      },
+    });
+    vi.mocked(window.electronAPI.workflowRun.getRunBySession).mockResolvedValue(run);
+    vi.mocked(window.electronAPI.workflowRun.getStageGates).mockResolvedValue([]);
+    vi.mocked(window.electronAPI.workflowRun.getTasks).mockResolvedValue([]);
+    useSessionStore.setState({
+      fetchSessions: vi.fn(async () => {}),
+      selectSession: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ ok: true as const })),
+    });
+
+    await useWorkflowRunStore.getState().startRun('wf-1', 'proj-1', {
+      modelSource: 'ai_subscription',
+      sourceId: 'codex-oauth',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    });
+
+    expect(useSessionStore.getState().sessionModelOverrides[run.session_id]).toMatchObject({
+      sourceType: 'ai_subscription',
+      sourceId: 'codex-oauth',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    });
+  });
 });
 
 describe('workflowRunStore.loadRunForSession', () => {

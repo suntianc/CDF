@@ -924,6 +924,7 @@
       "disableWorkflow": "Disable workflow",
       "noDescription": "No description",
       "stageCount": "{{count}} Stages",
+      "runModel": "Run model",
       "runDirectly": "Start a Workflow Run",
       "run": "Run",
       "edit": "Edit",
