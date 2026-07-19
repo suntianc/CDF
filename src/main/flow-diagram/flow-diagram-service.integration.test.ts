@@ -336,6 +336,8 @@ describe('FlowDiagramService integration', () => {
       { op: 'update' as const, id: 'missing', patch: { x: 1 } },
       { op: 'delete' as const, id: 'deleted' },
       { op: 'update' as const, id: 'active', patch: { id: 'new-id' } },
+      { op: 'update' as const, id: 'active', patch: { strokeWidth: 'wide' } },
+      { op: 'add' as const, elements: [rectangle('arrow-without-points', { type: 'arrow' })] },
       { op: 'add' as const, elements: [rectangle('active')] },
     ];
     for (const operation of inputs) {
@@ -347,6 +349,10 @@ describe('FlowDiagramService integration', () => {
       expect(result).toMatchObject({ ok: false, action: 'edit' });
       expect(fs.readFileSync(filePath)).toEqual(original);
     }
+    expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
+      ok: false,
+      error: { code: 'NO_REVISION' },
+    });
 
     writeScene(filePath, scene([rectangle('same'), rectangle('same')]));
     const duplicate = fs.readFileSync(filePath);
@@ -368,7 +374,8 @@ describe('FlowDiagramService integration', () => {
       stateRoot,
       revisionStore: {
         record: vi.fn(async () => { throw new Error('revision unavailable'); }),
-        popLatest: vi.fn(),
+        peekLatest: vi.fn(),
+        consumeLatest: vi.fn(),
       },
     });
     expect(await revisionFailure.execute({
@@ -390,6 +397,10 @@ describe('FlowDiagramService integration', () => {
     })).toMatchObject({ ok: false, error: { code: 'WRITE_FAILED' } });
     expect(fs.readFileSync(filePath)).toEqual(original);
     expect(fs.readdirSync(path.dirname(filePath)).some((name) => name.includes('.cdf-tmp-'))).toBe(false);
+    expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
+      ok: false,
+      error: { code: 'NO_REVISION' },
+    });
   });
 
   it('keeps successful edits until an explicit rollback restores the latest applicable revision', async () => {
@@ -419,6 +430,45 @@ describe('FlowDiagramService integration', () => {
       ok: false,
       error: { code: 'NO_REVISION' },
     });
+  });
+
+  it('restores a deleted source from the latest applicable revision', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    const original = writeScene(filePath, scene([rectangle('one')]));
+    await service.execute({
+      action: 'edit',
+      file_path: filePath,
+      operations: [{ op: 'add', elements: [rectangle('two')] }],
+    });
+    fs.unlinkSync(filePath);
+
+    expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
+      ok: true,
+      action: 'rollback',
+    });
+    expect(fs.readFileSync(filePath)).toEqual(original);
+  });
+
+  it('restores the current source if consuming a rollback revision fails', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    const current = writeScene(filePath, scene([rectangle('current')]));
+    const previous = Buffer.from(`${JSON.stringify(scene([rectangle('previous')]), null, 2)}\n`);
+    const failingStore = {
+      record: vi.fn(async () => 'unused'),
+      peekLatest: vi.fn(async () => ({ token: 'latest', sourceBytes: previous })),
+      consumeLatest: vi.fn(async () => { throw new Error('manifest write failed'); }),
+    };
+    const rollbackService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      revisionStore: failingStore,
+    });
+
+    expect(await rollbackService.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
+      ok: false,
+      action: 'rollback',
+    });
+    expect(fs.readFileSync(filePath)).toEqual(current);
   });
 
   it('keeps the current valid source when the latest rollback revision is invalid', async () => {

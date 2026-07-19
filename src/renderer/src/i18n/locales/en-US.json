@@ -674,6 +674,8 @@
     "flowDiagramArtifact": "Editable Flow Diagram",
     "flowDiagramLoading": "Rendering current diagram…",
     "flowDiagramOpen": "Open in Files",
+    "flowDiagramCopyPath": "Copy full path",
+    "flowDiagramPathCopied": "Path copied",
     "flowDiagramMissing": "The source diagram is missing.",
     "flowDiagramInvalid": "The source diagram is invalid.",
     "flowDiagramOpenFailed": "Could not open the source diagram.",

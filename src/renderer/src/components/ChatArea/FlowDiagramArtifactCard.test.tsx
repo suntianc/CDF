@@ -1,5 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { act, fireEvent, render as renderWithTestingLibrary, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { useFileStore } from '../../stores/fileStore';
 import { FlowDiagramArtifactCard } from './FlowDiagramArtifactCard';
 
@@ -8,12 +10,20 @@ const { openProjectFileMock, renderThumbnailMock } = vi.hoisted(() => ({
   renderThumbnailMock: vi.fn(async () => 'data:image/svg+xml,thumbnail'),
 }));
 
+function render(ui: ReactNode) {
+  return renderWithTestingLibrary(
+    <TooltipProvider delayDuration={0}>{ui}</TooltipProvider>,
+  );
+}
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => ({
       'chat.flowDiagramArtifact': 'Editable Flow Diagram',
       'chat.flowDiagramLoading': 'Rendering current diagram…',
       'chat.flowDiagramOpen': 'Open in Files',
+      'chat.flowDiagramCopyPath': 'Copy full path',
+      'chat.flowDiagramPathCopied': 'Path copied',
       'chat.flowDiagramMissing': 'The source diagram is missing.',
       'chat.flowDiagramInvalid': 'The source diagram is invalid.',
       'chat.flowDiagramOpenFailed': 'Could not open the source diagram.',
@@ -46,6 +56,10 @@ describe('FlowDiagramArtifactCard', () => {
       activeTabIndex: -1,
       previewFile: null,
     });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn(async () => undefined) },
+    });
     window.electronAPI = {
       fs: {
         readFile,
@@ -77,6 +91,11 @@ describe('FlowDiagramArtifactCard', () => {
         '/project/diagrams/release.excalidraw',
       );
     });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy full path' }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      '/project/diagrams/release.excalidraw',
+    );
   });
 
   it('refreshes from the source after a matching file notification', async () => {
@@ -104,17 +123,18 @@ describe('FlowDiagramArtifactCard', () => {
       ok: false,
       error: { code: 'ENOENT', message: 'missing' },
     } as any);
-    const { rerender } = render(
+    const { unmount } = render(
       <FlowDiagramArtifactCard href="/project/missing.excalidraw" label="Missing flow" />,
     );
     expect(await screen.findByText('The source diagram is missing.')).toBeTruthy();
+    unmount();
 
     readFile.mockResolvedValueOnce({
       ok: true,
       data: { content: 'invalid', encoding: 'utf-8', size: 7, mtimeMs: 2 },
     });
     renderThumbnailMock.mockRejectedValueOnce(new Error('invalid'));
-    rerender(<FlowDiagramArtifactCard href="/project/invalid.excalidraw" label="Invalid flow" />);
+    render(<FlowDiagramArtifactCard href="/project/invalid.excalidraw" label="Invalid flow" />);
     expect(await screen.findByText('The source diagram is invalid.')).toBeTruthy();
   });
 });

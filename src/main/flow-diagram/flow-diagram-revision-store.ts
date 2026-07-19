@@ -12,12 +12,15 @@ interface RevisionManifest {
   files: Record<string, RevisionStackEntry[]>;
 }
 
+export interface FlowDiagramRevision {
+  token: string;
+  sourceBytes: Buffer;
+}
+
 export interface FlowDiagramRevisionStore {
-  record(filePath: string, sourceBytes: Buffer): Promise<void>;
-  popLatest(
-    filePath: string,
-    apply?: (sourceBytes: Buffer) => Promise<void>,
-  ): Promise<Buffer | null>;
+  record(filePath: string, sourceBytes: Buffer): Promise<string>;
+  peekLatest(filePath: string): Promise<FlowDiagramRevision | null>;
+  consumeLatest(filePath: string, token: string): Promise<void>;
 }
 
 function sha256(value: string): string {
@@ -82,16 +85,54 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
   private readManifest(): RevisionManifest {
     if (!fs.existsSync(this.manifestPath)) return { files: {} };
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.manifestPath, 'utf8')) as RevisionManifest;
-      return parsed && parsed.files && typeof parsed.files === 'object'
-        ? parsed
-        : { files: {} };
+      const parsed: unknown = JSON.parse(fs.readFileSync(this.manifestPath, 'utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+      const files = (parsed as Record<string, unknown>).files;
+      if (!files || typeof files !== 'object' || Array.isArray(files)) throw new Error();
+      const validated: RevisionManifest = { files: {} };
+      for (const [key, value] of Object.entries(files)) {
+        if (!/^[a-f0-9]{64}$/.test(key) || !Array.isArray(value) || value.length > 10_000) {
+          throw new Error();
+        }
+        validated.files[key] = value.map((entry) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error();
+          const record = entry as Record<string, unknown>;
+          if (
+            typeof record.snapshot !== 'string'
+            || !record.snapshot.startsWith(`snapshots/${key}/`)
+            || path.posix.normalize(record.snapshot) !== record.snapshot
+            || typeof record.createdAt !== 'number'
+            || !Number.isFinite(record.createdAt)
+          ) {
+            throw new Error();
+          }
+          return { snapshot: record.snapshot, createdAt: record.createdAt };
+        });
+      }
+      return validated;
     } catch {
       throw new Error('Flow Diagram revision stack is unreadable.');
     }
   }
 
-  async record(filePath: string, sourceBytes: Buffer): Promise<void> {
+  private resolveSnapshotPath(snapshot: string): string {
+    const resolved = path.resolve(this.repositoryPath, snapshot);
+    const relative = path.relative(this.repositoryPath, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error('Flow Diagram revision snapshot is outside internal storage.');
+    }
+    const stat = fs.lstatSync(resolved);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error('Flow Diagram revision snapshot is invalid.');
+    }
+    const realRelative = path.relative(fs.realpathSync(this.repositoryPath), fs.realpathSync(resolved));
+    if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+      throw new Error('Flow Diagram revision snapshot resolves outside internal storage.');
+    }
+    return resolved;
+  }
+
+  async record(filePath: string, sourceBytes: Buffer): Promise<string> {
     this.ensureRepository();
     const key = this.fileKey(filePath);
     const snapshotName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.excalidraw`;
@@ -119,6 +160,7 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
         { snapshot: snapshotRelativePath, createdAt: Date.now() },
       ];
       writeJsonAtomically(this.manifestPath, manifest);
+      return snapshotRelativePath;
     } catch (error) {
       if (!committed) {
         fs.rmSync(snapshotPath, { force: true });
@@ -132,26 +174,29 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
     }
   }
 
-  async popLatest(
-    filePath: string,
-    apply?: (sourceBytes: Buffer) => Promise<void>,
-  ): Promise<Buffer | null> {
+  async peekLatest(filePath: string): Promise<FlowDiagramRevision | null> {
     if (!fs.existsSync(this.repositoryPath)) return null;
+    const key = this.fileKey(filePath);
+    const latest = (this.readManifest().files[key] ?? []).at(-1);
+    if (!latest) return null;
+    return {
+      token: latest.snapshot,
+      sourceBytes: fs.readFileSync(this.resolveSnapshotPath(latest.snapshot)),
+    };
+  }
+
+  async consumeLatest(filePath: string, token: string): Promise<void> {
     const key = this.fileKey(filePath);
     const manifest = this.readManifest();
     const stack = manifest.files[key] ?? [];
     const latest = stack.at(-1);
-    if (!latest) return null;
-    const snapshotPath = path.join(this.repositoryPath, latest.snapshot);
-    const sourceBytes = fs.readFileSync(snapshotPath);
-
-    if (apply) await apply(sourceBytes);
-
+    if (!latest || latest.snapshot !== token) {
+      throw new Error('Flow Diagram revision stack changed before it could be consumed.');
+    }
     const nextStack = stack.slice(0, -1);
     if (nextStack.length > 0) manifest.files[key] = nextStack;
     else delete manifest.files[key];
     writeJsonAtomically(this.manifestPath, manifest);
-    return sourceBytes;
   }
 }
 

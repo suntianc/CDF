@@ -60,7 +60,7 @@ export interface FlowDiagramArtifactDisplay {
 interface FlowDiagramSuccess {
   ok: true;
   action: FlowDiagramActionInput['action'];
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 interface FlowDiagramFailure {
@@ -278,6 +278,29 @@ function activeElementById(
   return target;
 }
 
+const BASE_UPDATE_FIELDS = new Set([
+  'x', 'y', 'width', 'height', 'angle', 'strokeColor', 'backgroundColor',
+  'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'groupIds',
+  'frameId', 'roundness', 'boundElements', 'link', 'locked',
+]);
+const UPDATE_FIELDS_BY_TYPE: Record<string, ReadonlySet<string>> = {
+  text: new Set([
+    ...BASE_UPDATE_FIELDS,
+    'text', 'fontSize', 'fontFamily', 'textAlign', 'verticalAlign',
+    'containerId', 'autoResize', 'lineHeight',
+  ]),
+  line: new Set([...BASE_UPDATE_FIELDS, 'points', 'startBinding', 'endBinding']),
+  arrow: new Set([
+    ...BASE_UPDATE_FIELDS,
+    'points', 'startBinding', 'endBinding', 'startArrowhead', 'endArrowhead', 'elbowed',
+  ]),
+  freedraw: new Set([...BASE_UPDATE_FIELDS, 'points', 'pressures', 'simulatePressure']),
+  laser: new Set([...BASE_UPDATE_FIELDS, 'points']),
+  image: new Set([...BASE_UPDATE_FIELDS, 'fileId', 'status', 'scale', 'crop']),
+  frame: new Set([...BASE_UPDATE_FIELDS, 'name']),
+  magicframe: new Set([...BASE_UPDATE_FIELDS, 'name']),
+};
+
 function updateElement(
   scene: ExcalidrawScene,
   operation: Extract<FlowDiagramEditOperation, { op: 'update' }>,
@@ -286,10 +309,12 @@ function updateElement(
   if (!operation.patch || typeof operation.patch !== 'object' || Array.isArray(operation.patch)) {
     throw new FlowDiagramOperationError('INVALID_OPERATION', 'An update operation requires a patch object.');
   }
-  if ('id' in operation.patch || 'type' in operation.patch || 'isDeleted' in operation.patch) {
+  const allowedFields = UPDATE_FIELDS_BY_TYPE[target.type] ?? BASE_UPDATE_FIELDS;
+  const unsupportedFields = Object.keys(operation.patch).filter((field) => !allowedFields.has(field));
+  if (unsupportedFields.length > 0) {
     throw new FlowDiagramOperationError(
       'INCOMPATIBLE_UPDATE',
-      'Updates cannot change an element id, type, or deletion state.',
+      `Element type "${target.type}" cannot update: ${unsupportedFields.join(', ')}.`,
     );
   }
   Object.assign(target, structuredClone(operation.patch));
@@ -518,7 +543,10 @@ export function createFlowDiagramService(
     let target: string;
     try {
       target = resolveProjectOwnedPath(projectPath, input.file_path, '.excalidraw');
-      if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      if (
+        action !== 'rollback'
+        && (!fs.existsSync(target) || !fs.statSync(target).isFile())
+      ) {
         throw new FlowDiagramOperationError('SOURCE_NOT_FOUND', 'The Flow Diagram source file does not exist.');
       }
     } catch (error) {
@@ -542,8 +570,9 @@ export function createFlowDiagramService(
       } catch (error) {
         return failure(action, error, 'INVALID_SCENE');
       }
+      let revisionToken: string;
       try {
-        await revisionStore.record(target, originalBytes);
+        revisionToken = await revisionStore.record(target, originalBytes);
       } catch (error) {
         return failure(
           action,
@@ -555,6 +584,15 @@ export function createFlowDiagramService(
       try {
         candidate = applyOperations(original, input.operations ?? []);
       } catch (error) {
+        try {
+          await revisionStore.consumeLatest(target, revisionToken);
+        } catch (cleanupError) {
+          return failure(
+            action,
+            new FlowDiagramOperationError('REVISION_FAILED', safeMessage(cleanupError)),
+            'REVISION_FAILED',
+          );
+        }
         return failure(action, error, 'INVALID_OPERATION');
       }
       try {
@@ -569,8 +607,13 @@ export function createFlowDiagramService(
           if (!fs.readFileSync(target).equals(originalBytes)) {
             await replaceFileAtomically(target, originalBytes);
           }
-        } catch {
-          // Surface a stable write failure; never leak internal paths or implementation details.
+          await revisionStore.consumeLatest(target, revisionToken);
+        } catch (cleanupError) {
+          return failure(
+            action,
+            new FlowDiagramOperationError('REVISION_FAILED', safeMessage(cleanupError)),
+            'REVISION_FAILED',
+          );
         }
         return failure(
           action,
@@ -581,28 +624,38 @@ export function createFlowDiagramService(
     }
 
     if (action === 'rollback') {
+      const currentBytes = fs.existsSync(target) ? fs.readFileSync(target) : null;
+      let sourceWasReplaced = false;
       try {
-        const restored = await revisionStore.popLatest(target, async (sourceBytes) => {
-          parseFlowDiagramScene(sourceBytes);
-          const currentBytes = fs.readFileSync(target);
-          try {
-            await replaceFile(target, sourceBytes);
-          } catch (error) {
-            if (!fs.readFileSync(target).equals(currentBytes)) {
-              await replaceFileAtomically(target, currentBytes);
-            }
-            throw error;
-          }
-        });
-        if (!restored) {
+        const revision = await revisionStore.peekLatest(target);
+        if (!revision) {
           throw new FlowDiagramOperationError(
             'NO_REVISION',
             'No applicable Agent edit revision is available for this Flow Diagram.',
           );
         }
+        parseFlowDiagramScene(revision.sourceBytes);
+        await replaceFile(target, revision.sourceBytes);
+        sourceWasReplaced = true;
+        await revisionStore.consumeLatest(target, revision.token);
         notify(target);
         return success(action, fileData(projectPath, target));
       } catch (error) {
+        if (sourceWasReplaced) {
+          try {
+            if (currentBytes) await replaceFileAtomically(target, currentBytes);
+            else await fs.promises.rm(target, { force: true });
+          } catch {
+            return failure(
+              action,
+              new FlowDiagramOperationError(
+                'ROLLBACK_RESTORE_FAILED',
+                'Rollback failed and the previous source could not be restored.',
+              ),
+              'ROLLBACK_RESTORE_FAILED',
+            );
+          }
+        }
         return failure(action, error, 'ROLLBACK_FAILED');
       }
     }

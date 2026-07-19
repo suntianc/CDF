@@ -49,6 +49,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const pendingContentRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const lastQueuedContentRef = useRef<string | null>(null);
+  const externalReloadVersionRef = useRef(0);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -170,6 +171,47 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       cancelled = true;
     };
   }, [content, loadError]);
+
+  useEffect(() => {
+    if (!rootPath) return;
+    const unsubscribe = window.electronAPI.fs.onDirectoryChange((_event, data) => {
+      if (data.path.replace(/\\/g, '/') !== filePath.replace(/\\/g, '/')) return;
+      const version = ++externalReloadVersionRef.current;
+      void (async () => {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        pendingContentRef.current = null;
+        await saveQueueRef.current;
+        const result = await window.electronAPI.fs.readFile(rootPath, filePath);
+        if (externalReloadVersionRef.current !== version || !result.ok || 'binary' in result.data) return;
+        try {
+          const diagram = await restoreFlowDiagram(result.data.content);
+          const restoredContent = serializeFlowDiagram(
+            diagram.elements,
+            diagram.appState,
+            diagram.files,
+          );
+          if (restoredContent === lastSavedContentRef.current) return;
+          lastSavedContentRef.current = restoredContent;
+          setSaveState('saved');
+          setTabDirty(filePath, false);
+          useFileStore.getState().openPreview({
+            path: filePath,
+            name: fileName,
+            content: result.data.content,
+          });
+        } catch {
+          setLoadState({ status: 'invalid', reason: 'invalid' });
+        }
+      })();
+    });
+    return () => {
+      externalReloadVersionRef.current += 1;
+      unsubscribe();
+    };
+  }, [fileName, filePath, rootPath, setTabDirty]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

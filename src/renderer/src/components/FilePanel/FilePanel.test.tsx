@@ -106,6 +106,10 @@ vi.mock('@excalidraw/excalidraw', () => ({
 
 const readFile = vi.fn();
 const writeFile = vi.fn();
+const directoryChangeListeners: Array<(
+  event: unknown,
+  data: { type: string; path: string },
+) => void> = [];
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -137,6 +141,7 @@ beforeEach(() => {
     data: { content: DIAGRAM_CONTENT },
   });
   writeFile.mockReset().mockResolvedValue({ ok: true, data: undefined });
+  directoryChangeListeners.length = 0;
 
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     store: { get: vi.fn().mockResolvedValue(false) },
@@ -146,7 +151,10 @@ beforeEach(() => {
       writeFile,
       watchDirectory: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
       unwatchDirectory: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
-      onDirectoryChange: vi.fn().mockReturnValue(vi.fn()),
+      onDirectoryChange: vi.fn((callback) => {
+        directoryChangeListeners.push(callback);
+        return vi.fn();
+      }),
     },
   };
 
@@ -211,6 +219,40 @@ describe('Editable Flow Diagram workspace', () => {
     expect(readFile).toHaveBeenCalledTimes(1);
     expect(useFileStore.getState().openTabs).toHaveLength(1);
     expect(useFileStore.getState().previewFile?.path).toBe(DIAGRAM_PATH);
+  });
+
+  it('reloads the current source after an Agent file notification', async () => {
+    render(<main><FilePanel /></main>);
+    fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
+    await screen.findByTestId('official-excalidraw');
+
+    const agentDiagram = {
+      elements: [{ id: 'agent-node', type: 'rectangle' }],
+      appState: { viewBackgroundColor: '#ffffff' },
+      files: {},
+    };
+    loadFromBlob.mockResolvedValue(agentDiagram);
+    readFile.mockResolvedValue({
+      ok: true,
+      data: { content: JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        source: 'https://cdf.local',
+        ...agentDiagram,
+      }) },
+    });
+
+    await act(async () => {
+      for (const listener of directoryChangeListeners) {
+        listener({}, { type: 'change', path: DIAGRAM_PATH });
+      }
+    });
+
+    await waitFor(() => expect(excalidrawProps.current?.initialData).toMatchObject({
+      elements: [{ id: 'agent-node', type: 'rectangle' }],
+    }));
+    expect(useFileStore.getState().previewFile?.content).toContain('agent-node');
+    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
   });
 
   it('follows the CDF theme and language', async () => {

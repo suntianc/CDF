@@ -141,6 +141,82 @@ export function normalizeFlowDiagramElement(
   };
 }
 
+function validatePoints(element: ExcalidrawElementData): void {
+  const minimum = element.type === 'freedraw' || element.type === 'laser' ? 1 : 2;
+  if (!Array.isArray(element.points) || element.points.length < minimum) {
+    throw new FlowDiagramSceneError(
+      'INVALID_ELEMENT',
+      `Element "${element.id}" requires at least ${minimum} valid point(s).`,
+    );
+  }
+  for (const point of element.points) {
+    if (
+      !Array.isArray(point)
+      || point.length < 2
+      || typeof point[0] !== 'number'
+      || !Number.isFinite(point[0])
+      || typeof point[1] !== 'number'
+      || !Number.isFinite(point[1])
+    ) {
+      throw new FlowDiagramSceneError(
+        'INVALID_ELEMENT',
+        `Element "${element.id}" contains an invalid point.`,
+      );
+    }
+  }
+}
+
+function validateElementDetails(
+  element: ExcalidrawElementData,
+  files: Record<string, Record<string, unknown>>,
+): void {
+  finiteNumber(element.angle, 'angle', element.id);
+  finiteNumber(element.strokeWidth, 'strokeWidth', element.id);
+  const opacity = finiteNumber(element.opacity, 'opacity', element.id);
+  if (numberOutside(opacity, 0, 100)) {
+    throw new FlowDiagramSceneError(
+      'INVALID_ELEMENT',
+      `Element "${element.id}" opacity must be between 0 and 100.`,
+    );
+  }
+  if (typeof element.strokeColor !== 'string' || typeof element.backgroundColor !== 'string') {
+    throw new FlowDiagramSceneError(
+      'INVALID_ELEMENT',
+      `Element "${element.id}" requires string stroke and background colors.`,
+    );
+  }
+  if (['line', 'arrow', 'freedraw', 'laser'].includes(element.type)) validatePoints(element);
+  if (element.type === 'text') {
+    if (
+      typeof element.text !== 'string'
+      || typeof element.originalText !== 'string'
+      || typeof element.fontSize !== 'number'
+      || element.fontSize <= 0
+      || typeof element.lineHeight !== 'number'
+      || element.lineHeight <= 0
+    ) {
+      throw new FlowDiagramSceneError(
+        'INVALID_ELEMENT',
+        `Text element "${element.id}" has invalid text metrics.`,
+      );
+    }
+  }
+  if (element.type === 'image' && !element.isDeleted) {
+    const fileId = typeof element.fileId === 'string' ? element.fileId : '';
+    const file = fileId ? files[fileId] : undefined;
+    if (!file || typeof file.dataURL !== 'string' || typeof file.mimeType !== 'string') {
+      throw new FlowDiagramSceneError(
+        'INVALID_ELEMENT',
+        `Image element "${element.id}" references a missing embedded file.`,
+      );
+    }
+  }
+}
+
+function numberOutside(value: number, minimum: number, maximum: number): boolean {
+  return value < minimum || value > maximum;
+}
+
 function validateReference(
   elementId: string,
   field: string,
@@ -184,11 +260,14 @@ export function validateFlowDiagramScene(value: unknown): ExcalidrawScene {
     throw new FlowDiagramSceneError('INVALID_SCENE', 'Flow Diagram files must be an object.');
   }
 
+  const files = structuredClone(candidate.files as Record<string, Record<string, unknown>>);
   const elements = candidate.elements.map((element) => {
     if (!element || typeof element !== 'object' || Array.isArray(element)) {
       throw new FlowDiagramSceneError('INVALID_ELEMENT', 'Every Flow Diagram element must be an object.');
     }
-    return normalizeFlowDiagramElement(element as Record<string, unknown>);
+    const normalized = normalizeFlowDiagramElement(element as Record<string, unknown>);
+    validateElementDetails(normalized, files);
+    return normalized;
   });
   const ids = new Set<string>();
   for (const element of elements) {
@@ -239,7 +318,7 @@ export function validateFlowDiagramScene(value: unknown): ExcalidrawScene {
     ...(typeof candidate.source === 'string' ? { source: candidate.source } : {}),
     elements,
     appState: structuredClone(candidate.appState as Record<string, unknown>),
-    files: structuredClone(candidate.files as Record<string, Record<string, unknown>>),
+    files,
   };
 }
 

@@ -674,6 +674,8 @@
     "flowDiagramArtifact": "可编辑流程图",
     "flowDiagramLoading": "正在渲染当前流程图…",
     "flowDiagramOpen": "在 Files 中打开",
+    "flowDiagramCopyPath": "复制完整路径",
+    "flowDiagramPathCopied": "路径已复制",
     "flowDiagramMissing": "源流程图文件已缺失。",
     "flowDiagramInvalid": "源流程图文件无效。",
     "flowDiagramOpenFailed": "无法打开源流程图文件。",
