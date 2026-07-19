@@ -326,6 +326,26 @@ describe('FlowDiagramService integration', () => {
     expect(afterDelete.elements.find((element) => element.id === 'untouched')).toEqual(untouched);
   });
 
+  it('deletes a frame without deleting its untouched child content', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    const frame = rectangle('frame', { type: 'frame', width: 500, height: 300, name: 'Phase' });
+    const child = rectangle('child', { frameId: 'frame', x: 80, y: 80, seed: 777 });
+    writeScene(filePath, scene([frame, child]));
+
+    expect(await service.execute({
+      action: 'edit',
+      file_path: filePath,
+      operations: [{ op: 'delete', id: 'frame' }],
+    })).toMatchObject({ ok: true, data: { summary: { deleted: 1 } } });
+
+    const updated = JSON.parse(fs.readFileSync(filePath, 'utf8')) as ExcalidrawScene;
+    expect(updated.elements.find((element) => element.id === 'frame')?.isDeleted).toBe(true);
+    expect(updated.elements.find((element) => element.id === 'child')).toEqual({
+      ...child,
+      frameId: null,
+    });
+  });
+
   it('returns stable errors for missing, deleted, incompatible, and duplicate ids without changing source bytes', async () => {
     const filePath = path.join(projectPath, 'diagram.excalidraw');
     const original = writeScene(filePath, scene([
@@ -339,6 +359,7 @@ describe('FlowDiagramService integration', () => {
       { op: 'update' as const, id: 'active', patch: { id: 'new-id' } },
       { op: 'update' as const, id: 'active', patch: { strokeWidth: 'wide' } },
       { op: 'update' as const, id: 'active', patch: { groupIds: [42] } },
+      { op: 'update' as const, id: 'active', patch: { groupIds: [''] } },
       { op: 'update' as const, id: 'active', patch: { frameId: 'missing-frame' } },
       { op: 'add' as const, elements: [rectangle('arrow-without-points', { type: 'arrow' })] },
       { op: 'add' as const, elements: [rectangle('active')] },
@@ -410,6 +431,46 @@ describe('FlowDiagramService integration', () => {
     await expect(agentEdit).resolves.toMatchObject({ ok: true });
     await expect(staleAutosave).rejects.toMatchObject({ code: 'ECONFLICT' });
     expect(fs.readFileSync(filePath, 'utf8')).toContain('"id": "agent"');
+  });
+
+  it('rejects invalid image scale and crop bounds without changing source bytes', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    const imageScene = scene([rectangle('image', {
+      type: 'image',
+      fileId: 'image-file',
+      status: 'saved',
+      scale: [1, 1],
+    })]);
+    imageScene.files = {
+      'image-file': {
+        id: 'image-file',
+        mimeType: 'image/png',
+        dataURL: 'data:image/png;base64,iVBORw0KGgo=',
+        created: 1,
+      },
+    };
+    const original = writeScene(filePath, imageScene);
+
+    for (const patch of [
+      { scale: [2, 2] },
+      {
+        crop: {
+          x: -1,
+          y: 0,
+          width: 10,
+          height: 10,
+          naturalWidth: 10,
+          naturalHeight: 10,
+        },
+      },
+    ]) {
+      expect(await service.execute({
+        action: 'edit',
+        file_path: filePath,
+        operations: [{ op: 'update', id: 'image', patch }],
+      })).toMatchObject({ ok: false, error: { code: 'INVALID_ELEMENT' } });
+      expect(fs.readFileSync(filePath)).toEqual(original);
+    }
   });
 
   it('does not modify the source when revision creation, validation, or replacement fails', async () => {

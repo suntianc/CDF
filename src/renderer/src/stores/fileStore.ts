@@ -25,6 +25,7 @@ interface FileState {
   fileTreeCollapsed: boolean;
   dirtyTabs: Record<string, boolean>;
   setTabDirty: (path: string, dirty: boolean) => void;
+  setTabContent: (path: string, content: string) => void;
 
   setFilePanelOpen: (open: boolean) => void;
   toggleFilePanel: () => void;
@@ -70,6 +71,15 @@ export const useFileStore = create<FileState>((set) => ({
   setFilePanelWidth: (width) => set({ filePanelWidth: width }),
   setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null, fileTreeCollapsed: false, dirtyTabs: {} }),
   setTabDirty: (path, dirty) => set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [path]: dirty } })),
+  setTabContent: (path, content) => set((s) => {
+    const openTabs = s.openTabs.map((tab) => (
+      tab.path === path ? { ...tab, content, loadError: undefined } : tab
+    ));
+    const previewFile = s.previewFile?.path === path
+      ? { ...s.previewFile, content, loadError: undefined }
+      : s.previewFile;
+    return { openTabs, previewFile };
+  }),
 
   toggleDir: (path) =>
     set((s) => ({

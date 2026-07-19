@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Save } from 'lucide-react';
+import { AlertCircle, Save, X } from 'lucide-react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { useTranslation } from 'react-i18next';
@@ -38,13 +38,17 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const theme = useThemeStore((state) => state.theme);
   const rootPath = useFileStore((state) => state.rootPath);
   const setTabDirty = useFileStore((state) => state.setTabDirty);
+  const setTabContent = useFileStore((state) => state.setTabContent);
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
   const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [diagramRevision, setDiagramRevision] = useState(0);
   const [conflictedContent, setConflictedContent] = useState<string | null>(null);
+  const conflictedContentRef = useRef<string | null>(null);
+  const editGenerationRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string | null>(null);
   const lastDiskContentRef = useRef<string | null>(null);
@@ -52,6 +56,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const lastQueuedContentRef = useRef<string | null>(null);
   const externalReloadVersionRef = useRef(0);
+  const externalPendingPreservationRef = useRef<string | null>(null);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -84,10 +89,12 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
 
         lastSavedContentRef.current = contentToSave;
         lastDiskContentRef.current = contentToSave;
+        setTabContent(filePath, contentToSave);
         if (pendingContentRef.current === contentToSave) {
           pendingContentRef.current = null;
-          setTabDirty(filePath, false);
-          setSaveState('saved');
+          const hasConflict = conflictedContentRef.current !== null;
+          setTabDirty(filePath, hasConflict);
+          setSaveState(hasConflict ? 'dirty' : 'saved');
         } else {
           setSaveState('dirty');
         }
@@ -106,7 +113,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       }
     });
     return operation;
-  }, [filePath, rootPath, setTabDirty]);
+  }, [filePath, rootPath, setTabContent, setTabDirty]);
 
   const scheduleSave = useCallback((serialized: string) => {
     pendingContentRef.current = serialized;
@@ -120,6 +127,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   }, [filePath, persist, setTabDirty]);
 
   const flushPendingSave = useCallback(async (): Promise<boolean> => {
+    if (conflictedContentRef.current) return false;
     while (true) {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
@@ -144,11 +152,17 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     ) {
       return;
     }
+    editGenerationRef.current += 1;
     scheduleSave(serialized);
   }, [scheduleSave]);
 
   useEffect(() => {
     let cancelled = false;
+    if (lastSavedContentRef.current !== null && lastDiskContentRef.current === content) {
+      return () => {
+        cancelled = true;
+      };
+    }
     lastSavedContentRef.current = null;
     lastDiskContentRef.current = content;
     pendingContentRef.current = null;
@@ -170,6 +184,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
           diagram.files,
         );
         setSaveState('saved');
+        setDiagramRevision((current) => current + 1);
         setLoadState({ status: 'ready', diagram });
       })
       .catch(() => {
@@ -186,8 +201,12 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     const unsubscribe = window.electronAPI.fs.onDirectoryChange((_event, data) => {
       if (data.path.replace(/\\/g, '/') !== filePath.replace(/\\/g, '/')) return;
       const version = ++externalReloadVersionRef.current;
+      const generationAtNotification = editGenerationRef.current;
       void (async () => {
-        const unsavedContent = pendingContentRef.current;
+        const pendingAtNotification = pendingContentRef.current;
+        if (pendingAtNotification) {
+          externalPendingPreservationRef.current ??= pendingAtNotification;
+        }
         if (saveTimerRef.current) {
           clearTimeout(saveTimerRef.current);
           saveTimerRef.current = null;
@@ -203,19 +222,37 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
             diagram.appState,
             diagram.files,
           );
-          if (restoredContent === lastSavedContentRef.current) return;
+          const pendingAfterWait = pendingContentRef.current;
+          const editedWhileWaiting = editGenerationRef.current !== generationAtNotification;
+          if (restoredContent === lastSavedContentRef.current) {
+            const preserved = pendingAfterWait ?? externalPendingPreservationRef.current;
+            externalPendingPreservationRef.current = null;
+            if (preserved && preserved !== restoredContent) scheduleSave(preserved);
+            return;
+          }
+
+          const preservedContent = editedWhileWaiting
+            ? (pendingAfterWait ?? externalPendingPreservationRef.current)
+            : (pendingAtNotification ?? externalPendingPreservationRef.current);
+          if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+          }
+          pendingContentRef.current = null;
+          externalPendingPreservationRef.current = null;
+          if (preservedContent && preservedContent !== restoredContent && !conflictedContentRef.current) {
+            conflictedContentRef.current = preservedContent;
+            setConflictedContent(preservedContent);
+          }
+
+          setLoadState({ status: 'loading' });
           lastSavedContentRef.current = restoredContent;
           lastDiskContentRef.current = result.data.content;
-          setConflictedContent(
-            unsavedContent && unsavedContent !== restoredContent ? unsavedContent : null,
-          );
-          setSaveState('saved');
-          setTabDirty(filePath, false);
-          useFileStore.getState().openPreview({
-            path: filePath,
-            name: fileName,
-            content: result.data.content,
-          });
+          setSaveState(conflictedContentRef.current ? 'dirty' : 'saved');
+          setTabDirty(filePath, conflictedContentRef.current !== null);
+          setTabContent(filePath, result.data.content);
+          setDiagramRevision((current) => current + 1);
+          setLoadState({ status: 'ready', diagram });
         } catch {
           setLoadState({ status: 'invalid', reason: 'invalid' });
         }
@@ -225,7 +262,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       externalReloadVersionRef.current += 1;
       unsubscribe();
     };
-  }, [fileName, filePath, rootPath, setTabDirty]);
+  }, [filePath, rootPath, scheduleSave, setTabContent, setTabDirty]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -253,13 +290,22 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     setLoadState({ status: 'loading' });
     try {
       const diagram = await restoreFlowDiagram(conflictedContent);
+      conflictedContentRef.current = null;
       setConflictedContent(null);
+      setDiagramRevision((current) => current + 1);
       setLoadState({ status: 'ready', diagram });
       scheduleSave(conflictedContent);
     } catch {
       setLoadState({ status: 'invalid', reason: 'invalid' });
     }
   }, [conflictedContent, scheduleSave]);
+
+  const discardConflictedContent = useCallback(() => {
+    conflictedContentRef.current = null;
+    setConflictedContent(null);
+    setTabDirty(filePath, false);
+    setSaveState('saved');
+  }, [filePath, setTabDirty]);
 
   const retryLoad = useCallback(async () => {
     if (!rootPath) return;
@@ -279,6 +325,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       );
       lastDiskContentRef.current = result.file.content;
       setSaveState('saved');
+      setDiagramRevision((current) => current + 1);
       setLoadState({ status: 'ready', diagram });
     } catch {
       setLoadState({ status: 'invalid', reason: 'invalid' });
@@ -333,6 +380,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       aria-label={t('filePanel.flowDiagram.editorLabel', { name: fileName, defaultValue: 'Edit diagram {{name}}' })}
     >
       <Excalidraw
+        key={diagramRevision}
         initialData={{ ...loadState.diagram, scrollToContent: true }}
         theme={resolvedTheme}
         name={fileName.replace(/\.excalidraw$/i, '')}
@@ -344,24 +392,44 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
               {t(`filePanel.flowDiagram.${saveState}`)}
             </span>
             {conflictedContent && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void restoreConflictedContent();
-                    }}
-                    className="flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-warning)] bg-[var(--color-warning-dim)] px-3 text-[12px] font-medium text-[var(--color-warning)] transition-colors hover:bg-[var(--color-warning)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-2"
-                  >
-                    <AlertCircle className="h-4 w-4" aria-hidden="true" />
-                    {t('filePanel.flowDiagram.restoreUnsaved')}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {t('filePanel.flowDiagram.externalChangeConflict')}
-                </TooltipContent>
-              </Tooltip>
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void restoreConflictedContent();
+                      }}
+                      className="flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-warning)] bg-[var(--color-warning-dim)] px-3 text-[12px] font-medium text-[var(--color-warning)] transition-colors hover:bg-[var(--color-warning)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-2"
+                    >
+                      <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                      {t('filePanel.flowDiagram.restoreUnsaved')}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t('filePanel.flowDiagram.externalChangeConflict')}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        discardConflictedContent();
+                      }}
+                      aria-label={t('filePanel.flowDiagram.keepAgentVersion')}
+                      className="relative flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 before:absolute before:-inset-1 before:content-['']"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t('filePanel.flowDiagram.keepAgentVersionDescription')}
+                  </TooltipContent>
+                </Tooltip>
+              </>
             )}
             <Tooltip>
               <TooltipTrigger asChild>

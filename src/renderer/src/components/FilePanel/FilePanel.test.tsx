@@ -288,6 +288,13 @@ describe('Editable Flow Diagram workspace', () => {
     expect(await screen.findByRole('button', { name: /恢复我的编辑|Restore my edits/ })).toBeTruthy();
     expect(writeFile).not.toHaveBeenCalled();
     expect(useFileStore.getState().previewFile?.content).toContain('agent-node');
+    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /关闭 release\.excalidraw|Close release\.excalidraw/ }));
+    await waitFor(() => expect(useFileStore.getState().openTabs).toHaveLength(1));
+
+    fireEvent.click(screen.getByRole('button', { name: /保留 Agent 版本|Keep Agent version/ }));
+    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
   });
 
   it('follows the CDF theme and language', async () => {
@@ -328,6 +335,7 @@ describe('Editable Flow Diagram workspace', () => {
       DIAGRAM_CONTENT,
     );
     const savedDocument = JSON.parse(writeFile.mock.calls[0][2]);
+    expect(useFileStore.getState().previewFile?.content).toBe(writeFile.mock.calls[0][2]);
     expect(savedDocument).toMatchObject({
       type: 'excalidraw',
       elements: [

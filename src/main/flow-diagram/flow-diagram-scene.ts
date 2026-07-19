@@ -189,7 +189,10 @@ function validateElementDetails(
       `Element "${element.id}" requires string stroke and background colors.`,
     );
   }
-  if (!Array.isArray(element.groupIds) || element.groupIds.some((id) => typeof id !== 'string')) {
+  if (
+    !Array.isArray(element.groupIds)
+    || element.groupIds.some((id) => typeof id !== 'string' || id.trim().length === 0)
+  ) {
     throw new FlowDiagramSceneError(
       'INVALID_ELEMENT',
       `Element "${element.id}" groupIds must contain only strings.`,
@@ -244,7 +247,7 @@ function validateElementDetails(
     if (
       !Array.isArray(element.scale)
       || element.scale.length !== 2
-      || element.scale.some((value) => typeof value !== 'number' || !Number.isFinite(value) || value === 0)
+      || element.scale.some((value) => value !== 1 && value !== -1)
     ) {
       throw new FlowDiagramSceneError(
         'INVALID_ELEMENT',
@@ -263,6 +266,23 @@ function validateElementDetails(
             `Image element "${element.id}" crop.${field} must be finite.`,
           );
         }
+      }
+      const x = crop.x as number;
+      const y = crop.y as number;
+      const width = crop.width as number;
+      const height = crop.height as number;
+      const naturalWidth = crop.naturalWidth as number;
+      const naturalHeight = crop.naturalHeight as number;
+      if (
+        x < 0 || y < 0 || width <= 0 || height <= 0
+        || naturalWidth <= 0 || naturalHeight <= 0
+        || x + width > naturalWidth
+        || y + height > naturalHeight
+      ) {
+        throw new FlowDiagramSceneError(
+          'INVALID_ELEMENT',
+          `Image element "${element.id}" crop is outside its natural bounds.`,
+        );
       }
     }
   }

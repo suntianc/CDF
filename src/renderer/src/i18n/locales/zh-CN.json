@@ -1021,7 +1021,9 @@
       "error": "保存失败",
       "retrySave": "保存失败，请重试保存流程图",
       "restoreUnsaved": "恢复我的编辑",
-      "externalChangeConflict": "已打开 Agent 的最新版本。仅当你希望替换该版本时，才恢复已保留的未保存编辑。"
+      "externalChangeConflict": "已打开 Agent 的最新版本。仅当你希望替换该版本时，才恢复已保留的未保存编辑。",
+      "keepAgentVersion": "保留 Agent 版本",
+      "keepAgentVersionDescription": "丢弃已保留的本地编辑，并继续使用当前 Agent 版本。"
     }
   },
   "codeBlock": {

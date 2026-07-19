@@ -364,6 +364,9 @@ function deleteElement(scene: ExcalidrawScene, id: string): number {
       element.isDeleted = true;
       deletedIds.add(element.id);
     }
+    if (typeof element.frameId === 'string' && deletedIds.has(element.frameId)) {
+      element.frameId = null;
+    }
     if (Array.isArray(element.boundElements)) {
       const remaining = element.boundElements.filter((binding) => {
         const boundId = binding && typeof binding === 'object'

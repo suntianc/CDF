@@ -72,10 +72,10 @@ export function EditorPane({ filePath, fileName, content, loadError }: EditorPan
     setEditedContent(content);
     savedContentRef.current = content;
     setIsDirty(false);
-    setTabDirty(filePath, false);
+    if (!isFlowDiagram) setTabDirty(filePath, false);
     setMdPreview(language === 'markdown');
     filePathRef.current = filePath;
-  }, [filePath, content, language, setTabDirty]);
+  }, [filePath, content, isFlowDiagram, language, setTabDirty]);
 
   useEffect(() => {
     window.electronAPI.store.get('autoSave').then((v: unknown) => {
