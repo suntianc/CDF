@@ -381,6 +381,22 @@ const ARXIV_META = {
   description: 'Search arxiv papers.',
 };
 
+const MANAGE_FLOW_DIAGRAM_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    action: { enum: ['read_format', 'create', 'get', 'edit', 'rollback', 'export'] },
+    file_path: { type: 'string' },
+    operations: { type: 'array' },
+    format: { enum: ['png', 'svg'] },
+    output_path: { type: 'string' },
+  },
+  required: ['action'],
+};
+const MANAGE_FLOW_DIAGRAM_META = {
+  name: 'manage_flow_diagram',
+  description: 'Create and safely manage Project-owned editable Excalidraw Flow Diagrams.',
+};
+
 const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: string }; schema: unknown }> = [
   { meta: FETCH_META, schema: FETCH_SCHEMA },
   { meta: DELETE_FILE_META, schema: DELETE_FILE_SCHEMA },
@@ -390,6 +406,7 @@ const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: st
   { meta: TAVILY_META, schema: TAVILY_SCHEMA },
   { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
   { meta: ARXIV_META, schema: ARXIV_SCHEMA },
+  { meta: MANAGE_FLOW_DIAGRAM_META, schema: MANAGE_FLOW_DIAGRAM_SCHEMA },
 ];
 
 // Pre-compute character length of every built-in tool's name+description+schema

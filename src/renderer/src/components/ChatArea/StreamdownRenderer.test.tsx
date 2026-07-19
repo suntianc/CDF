@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { StreamdownRenderer } from './StreamdownRenderer';
+
+vi.mock('./FlowDiagramArtifactCard', () => ({
+  FlowDiagramArtifactCard: ({ href, label }: { href: string; label: string }) => (
+    <div data-testid="flow-diagram-artifact" data-href={href}>{label}</div>
+  ),
+}));
 
 describe('StreamdownRenderer', () => {
   it('should render inline math formulas using KaTeX', () => {
@@ -74,5 +80,24 @@ $$`;
     const { container } = render(<StreamdownRenderer text={markdown} isTypewriting={false} />);
     const details = container.querySelector('details');
     expect(details).toBeTruthy();
+  });
+
+  it('renders local Excalidraw links as dedicated Flow Diagram artifacts', () => {
+    const { getByTestId } = render(
+      <StreamdownRenderer text="[Release flow](/project/diagrams/release.excalidraw)" />,
+    );
+
+    const artifact = getByTestId('flow-diagram-artifact');
+    expect(artifact.getAttribute('data-href')).toBe('/project/diagrams/release.excalidraw');
+    expect(artifact.textContent).toBe('Release flow');
+  });
+
+  it('keeps remote Excalidraw links as external links', () => {
+    const { container } = render(
+      <StreamdownRenderer text="[Remote](https://example.com/release.excalidraw)" />,
+    );
+
+    expect(container.querySelector('[data-testid="flow-diagram-artifact"]')).toBeNull();
+    expect(container.querySelector('a')?.getAttribute('href')).toMatch(/^https:\/\/example\.com/);
   });
 });

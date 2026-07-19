@@ -22,6 +22,7 @@ export const AGENT_BUILT_IN_TOOL_NAMES = [
   'obscura_browse',
   'knowledge_search',
   'knowledge_create',
+  'manage_flow_diagram',
   'generate_image',
   'generate_video',
   'manage_background_jobs',

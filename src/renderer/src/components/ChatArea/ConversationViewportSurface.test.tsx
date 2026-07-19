@@ -120,6 +120,46 @@ describe('ConversationViewportSurface', () => {
     expect(onOpenTaskPanel).toHaveBeenCalledTimes(1);
   });
 
+  it('summarizes Flow Diagram approval without exposing the scene payload', () => {
+    const approval: AgentApprovalRequest = {
+      id: 'approval-flow',
+      runId: 'run-flow',
+      actions: [{
+        name: 'manage_flow_diagram',
+        args: {
+          action: 'edit',
+          file_path: '/project/diagrams/release.excalidraw',
+          operations: [{
+            op: 'add',
+            elements: [{
+              id: 'secret-node',
+              type: 'rectangle',
+              x: 10,
+              y: 20,
+              width: 200,
+              height: 80,
+              text: 'confidential scene payload',
+            }],
+          }],
+        },
+      }],
+    };
+
+    renderSurface({
+      timelineItems: [{
+        type: 'pending_approval_block',
+        id: 'pending-flow',
+        approval,
+      }],
+    });
+    fireEvent.click(screen.getByText(/awaitingApproval/));
+
+    expect(screen.getByText(/"action": "edit"/)).toBeTruthy();
+    expect(screen.getByText(/"target": "\/project\/diagrams\/release.excalidraw"/)).toBeTruthy();
+    expect(screen.getByText(/"added_elements": 1/)).toBeTruthy();
+    expect(screen.queryByText(/secret-node|confidential scene payload/)).toBeNull();
+  });
+
   it('does not expose prompt or signed first-frame source details in approval UI', () => {
     const approval: AgentApprovalRequest = {
       id: 'approval-video',

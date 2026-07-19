@@ -47,6 +47,10 @@ vi.mock('../knowledge-base', () => ({
   createKnowledgeCreateTool: vi.fn(() => ({ name: 'knowledge_create' })),
 }));
 
+vi.mock('../flow-diagram/manage-flow-diagram-tool', () => ({
+  createManageFlowDiagramTool: vi.fn(() => ({ name: 'manage_flow_diagram' })),
+}));
+
 vi.mock('./mcp-connector', () => ({
   loadMcpTools: vi.fn(async () => ({ client: null, tools: [] })),
 }));
@@ -130,7 +134,7 @@ describe('resolveInterruptOn', () => {
 
 describe('DEFAULT_INTERRUPT_ON', () => {
   it('contains every approval-gated built-in tool', () => {
-    expect(Object.keys(DEFAULT_INTERRUPT_ON)).toHaveLength(8);
+    expect(Object.keys(DEFAULT_INTERRUPT_ON)).toHaveLength(9);
   });
 
   it('has all required tool keys', () => {
@@ -143,6 +147,7 @@ describe('DEFAULT_INTERRUPT_ON', () => {
     expect(keys).toContain('create_agent');
     expect(keys).toContain('generate_video');
     expect(keys).toContain('manage_background_jobs');
+    expect(keys).toContain('manage_flow_diagram');
   });
 });
 
@@ -192,6 +197,7 @@ describe('createBuiltInTools', () => {
       'obscura_browse',
       'knowledge_search',
       'knowledge_create',
+      'manage_flow_diagram',
       'generate_image',
       'generate_video',
       'manage_background_jobs',

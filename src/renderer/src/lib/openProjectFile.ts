@@ -85,6 +85,7 @@ export function openProjectFile(
   filePath: string,
   fileName = fileNameFromPath(filePath),
 ): Promise<OpenProjectFileResult> {
+  useFileStore.getState().setFilePanelOpen(true);
   return openProjectFileFromDisk(rootPath, filePath, fileName, true);
 }
 

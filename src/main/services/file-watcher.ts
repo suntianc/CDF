@@ -19,7 +19,10 @@ const pendingEvents = new Map<string, string>();
 
 function flushEvents() {
   for (const [filePath, type] of pendingEvents) {
-    BrowserWindow.getAllWindows().forEach((w) => {
+    const windows = typeof BrowserWindow?.getAllWindows === 'function'
+      ? BrowserWindow.getAllWindows()
+      : [];
+    windows.forEach((w) => {
       w.webContents.send('fs:directoryChange', { type, path: filePath });
     });
   }
@@ -31,6 +34,11 @@ function debouncedBroadcast(type: string, filePath: string) {
   pendingEvents.set(filePath, type);
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(flushEvents, 150);
+}
+
+/** Notify renderer surfaces after an internal Agent tool changes a Project file. */
+export function notifyFileChange(filePath: string, type = 'change'): void {
+  debouncedBroadcast(type, filePath);
 }
 
 function addWatcher(dirPath: string): void {

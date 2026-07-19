@@ -17,7 +17,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { readDirectory, readFile, getFileInfo, writeFile, createFile, createDirectory, renameEntry, trashEntry, resolveProjectFile } from './services/file-system';
-import { ensureFileWatcher, watchDirectory, unwatchDirectory } from './services/file-watcher';
+import { ensureFileWatcher, notifyFileChange, watchDirectory, unwatchDirectory } from './services/file-watcher';
 import {
   listPhysicalSkills,
   listResolvedSkillViews,
@@ -1125,6 +1125,7 @@ export function registerIpcHandlers() {
   typedHandle('fs:writeFile', async (_, rootPath, filePath, content) => {
     try {
       await writeFile(rootPath, filePath, content);
+      notifyFileChange(filePath);
       return { ok: true };
     } catch (err: any) {
       return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };

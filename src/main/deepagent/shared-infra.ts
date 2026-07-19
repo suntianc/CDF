@@ -24,6 +24,7 @@ import { createGenerateVideoJobTool } from '../capabilities/generate-video-job-t
 import { createSynthesizeSpeechTool } from '../capabilities/synthesize-speech';
 import { createGenerateMusicTool } from '../capabilities/generate-music';
 import { createManageBackgroundJobsTool } from '../capabilities/manage-background-jobs-tool';
+import { createManageFlowDiagramTool } from '../flow-diagram/manage-flow-diagram-tool';
 import { createAgentCatalog } from '../agent-catalog';
 
 // Re-export loadMcpTools for consumers that only need shared-infra
@@ -185,6 +186,7 @@ export const DEFAULT_INTERRUPT_ON: InterruptOnConfig = {
   create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
   generate_video: { allowedDecisions: ['approve', 'reject'] },
   manage_background_jobs: { allowedDecisions: ['approve', 'reject'] },
+  manage_flow_diagram: { allowedDecisions: ['approve', 'reject'] },
 };
 
 /**
@@ -219,6 +221,7 @@ export function createBuiltInTools(workingDir: string, sourceSessionId?: string)
     createObscuraBrowserTool({ runner: createObscuraCliRunner() }),
     createKnowledgeSearchTool(workingDir),
     createKnowledgeCreateTool(workingDir),
+    createManageFlowDiagramTool(workingDir),
     createGenerateImageTool(workingDir),
     createGenerateVideoJobTool(workingDir, sourceSessionId),
     createManageBackgroundJobsTool(workingDir),

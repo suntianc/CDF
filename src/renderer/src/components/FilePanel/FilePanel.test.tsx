@@ -203,9 +203,11 @@ describe('Editable Flow Diagram workspace', () => {
     expect(useFileStore.getState().openTabs).toHaveLength(1);
     expect(useFileStore.getState().activeTabIndex).toBe(0);
 
+    act(() => useFileStore.getState().setFilePanelOpen(false));
     await act(async () => {
       await openProjectFile(PROJECT_PATH, '/diagrams/release.excalidraw');
     });
+    expect(useFileStore.getState().filePanelOpen).toBe(true);
     expect(readFile).toHaveBeenCalledTimes(1);
     expect(useFileStore.getState().openTabs).toHaveLength(1);
     expect(useFileStore.getState().previewFile?.path).toBe(DIAGRAM_PATH);

@@ -1,4 +1,4 @@
-import { loadFromBlob, MIME_TYPES, serializeAsJSON } from '@excalidraw/excalidraw';
+import { exportToSvg, loadFromBlob, MIME_TYPES, serializeAsJSON } from '@excalidraw/excalidraw';
 
 export type RestoredFlowDiagram = Awaited<ReturnType<typeof loadFromBlob>>;
 export type FlowDiagramElements = Parameters<typeof serializeAsJSON>[0];
@@ -16,4 +16,22 @@ export function serializeFlowDiagram(
   files: FlowDiagramFiles,
 ): string {
   return serializeAsJSON(elements, appState, files, 'local');
+}
+
+export async function renderFlowDiagramThumbnail(content: string): Promise<string> {
+  const restored = await restoreFlowDiagram(content);
+  const svg = await exportToSvg({
+    elements: restored.elements.filter((element) => !element.isDeleted),
+    appState: {
+      ...restored.appState,
+      exportBackground: true,
+      exportWithDarkMode: false,
+    },
+    files: restored.files,
+    exportPadding: 24,
+    skipInliningFonts: true,
+  });
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    new XMLSerializer().serializeToString(svg),
+  )}`;
 }

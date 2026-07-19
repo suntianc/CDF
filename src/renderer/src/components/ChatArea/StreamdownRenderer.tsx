@@ -6,6 +6,7 @@ import { CodeBlock } from './markdown/CodeBlock';
 import { AlertBlock, type AlertType } from './markdown/AlertBlock';
 import { textAlignClass } from './markdown/textAlign';
 import { ImageZoomContext } from './ImageZoomContext';
+import { FlowDiagramArtifactCard } from './FlowDiagramArtifactCard';
 import 'katex/dist/katex.min.css';
 
 interface StreamdownRendererProps {
@@ -337,6 +338,17 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
 
 const AComponent = ({ children, href }: any) => {
   if (!href) return null;
+
+  const isRemote = /^[a-z][a-z\d+.-]*:\/\//i.test(href)
+    && !/^(?:file|cdf-file):\/\//i.test(href);
+  const isFlowDiagram = /\.excalidraw(?:[?#].*)?$/i.test(href) && !isRemote;
+  if (isFlowDiagram) {
+    return (
+      <span className="block w-full">
+        <FlowDiagramArtifactCard href={href} label={getReactTextContent(children)} />
+      </span>
+    );
+  }
 
   // Check if it's an audio or video path
   const isAudio = /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(href);

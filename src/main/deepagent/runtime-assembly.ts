@@ -239,6 +239,8 @@ export function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
       'Text-to-speech (Speech 2.8 only: speech-2.8-hd / speech-2.8-turbo). Link audio as [label](path).',
     generate_music:
       'Generate songs (music-2.6 only). Needs lyrics unless instrumental/lyrics_optimizer. Link as [title](path).',
+    manage_flow_diagram:
+      'Create, read, precisely edit, roll back, or explicitly export Project-owned editable Excalidraw diagrams. Call read_format before authoring; call rollback only for explicit user rollback intent. Present returned displayMarkdown.',
   };
   let any = false;
   for (const [name, desc] of Object.entries(catalog)) {

@@ -2,6 +2,7 @@ import type { Agent, AgentApprovalHistoryEntry, AgentApprovalRequest, AgentRun, 
 import { estimateTokens } from '@/stores/sessionStore';
 import type { DelegatedTask, ParallelBatch, ParallelWorker } from '@/stores/sessionStore';
 import { projectVideoApprovalSummary } from '../../shared/videoApprovalSummary';
+import { summarizeFlowDiagramApproval } from '@/lib/flowDiagramApproval';
 
 export type ActivityPanelEmptyState = {
   kind: 'noSession' | 'noRun';
@@ -165,6 +166,26 @@ function approvalActionSummary(
   t: ProjectActivityPanelInput['t'],
 ): ActivityPanelApprovalActionSummary {
   const args = toRecord(action.args);
+  if (action.name === 'manage_flow_diagram') {
+    const summary = summarizeFlowDiagramApproval(args);
+    return {
+      key: `${action.name}-${index}`,
+      name: action.name,
+      title: t('taskPanel.flowDiagramApproval'),
+      targetLabel: t('taskPanel.approvalTarget'),
+      target: summary.target,
+      preview: [
+        t('taskPanel.flowDiagramEditSummary', {
+          action: summary.action,
+          added: summary.added,
+          updated: summary.updated,
+          deleted: summary.deleted,
+        }),
+        summary.format,
+      ].filter(Boolean).join(' · '),
+      previewLabel: t('taskPanel.approvalPreviewArgs'),
+    };
+  }
   if (action.name === 'generate_video') {
     const summary = projectVideoApprovalSummary(args, t);
     return {

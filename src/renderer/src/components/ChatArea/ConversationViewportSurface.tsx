@@ -5,6 +5,7 @@ import { AlertCircle, LoaderCircle, ShieldAlert, X } from 'lucide-react';
 import type { AgentApprovalRequest, Message } from '@shared/types';
 import type { DelegatedTask, ParallelWorker, SessionError } from '../../stores/sessionStore';
 import { projectVideoApprovalSummary } from '../shared/videoApprovalSummary';
+import { summarizeFlowDiagramApproval } from '../../lib/flowDiagramApproval';
 import { ToolGroupCard, translateToolAction } from './ToolMessageCard';
 import { MessageItem, formatHMSTime } from './MessageItem';
 import { GoalSystemBubble } from './GoalSystemBubble';
@@ -75,16 +76,29 @@ function approvalArgsForDisplay(
   args: unknown,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): unknown {
-  if (name !== 'generate_video') return args;
-  const summary = projectVideoApprovalSummary(args, t);
-  return {
-    route_hint: summary.route,
-    mode: summary.mode,
-    duration: summary.duration,
-    resolution: summary.resolution,
-    input_summary: summary.inputSummary,
-    non_cancellation_warning: summary.nonCancellationWarning,
-  };
+  if (name === 'manage_flow_diagram') {
+    const summary = summarizeFlowDiagramApproval(args);
+    return {
+      action: summary.action,
+      target: summary.target,
+      added_elements: summary.added,
+      updated_elements: summary.updated,
+      deleted_elements: summary.deleted,
+      ...(summary.format ? { format: summary.format } : {}),
+    };
+  }
+  if (name === 'generate_video') {
+    const summary = projectVideoApprovalSummary(args, t);
+    return {
+      route_hint: summary.route,
+      mode: summary.mode,
+      duration: summary.duration,
+      resolution: summary.resolution,
+      input_summary: summary.inputSummary,
+      non_cancellation_warning: summary.nonCancellationWarning,
+    };
+  }
+  return args;
 }
 
 const PendingApprovalCard = ({ approval, onOpenTaskPanel }: { approval: AgentApprovalRequest; onOpenTaskPanel?: () => void }) => {
