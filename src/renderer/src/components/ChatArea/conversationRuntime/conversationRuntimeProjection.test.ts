@@ -114,7 +114,8 @@ describe('Conversation Runtime Projection', () => {
       deps,
     );
 
-    expect(result.state.currentAssistantMsgId).toBe('assistant-next');
+    expect(result.state.currentAssistantMsgId).toBe('assistant-current:assistant:1');
+    expect(result.state.assistantSegmentIndex).toBe(1);
     expect(result.state.accumulatedContent).toBe('');
     expect(result.state.messages).toEqual([
       { ...assistant, content: 'I will inspect files.' },

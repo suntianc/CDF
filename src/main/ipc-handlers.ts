@@ -1,6 +1,8 @@
 import { ipcMain, dialog, app, shell } from 'electron';
 import { typedHandle } from './typed-ipc';
 import { typedCrud } from './typed-crud';
+import { llmChunkChannel } from '../shared/ipc-contract';
+import { conversationAssistantSegmentMessageId } from '../shared/conversations';
 import log from './logger';
 import store from './store';
 import db from './database';
@@ -37,6 +39,7 @@ import type {
   AgentRun,
   AgentToolCall,
   LLMProvider,
+  LLMStreamEvent,
   MCPServer,
   PaperSearchConfigKey,
   PaperSearchConfigSettings,
@@ -106,6 +109,37 @@ function resolveSceneSkillExposureInput(skill: GlobalSkillReference): SceneSkill
     name: registration.name,
     defaultSceneIds: registration.defaultSceneIds,
   };
+}
+
+function collectAssistantSegments(
+  requestId: string,
+  events: readonly LLMStreamEvent[],
+): Array<{ id: string; content: string }> {
+  const segments: Array<{ id: string; content: string }> = [];
+  let segmentIndex = 0;
+  let content = '';
+
+  const flush = () => {
+    if (!content.trim()) return;
+    segments.push({
+      id: conversationAssistantSegmentMessageId(requestId, segmentIndex),
+      content,
+    });
+  };
+
+  for (const event of events) {
+    if (event.type === 'message_chunk') {
+      content += event.text;
+      continue;
+    }
+    if (event.type === 'tool_start') {
+      flush();
+      content = '';
+      segmentIndex += 1;
+    }
+  }
+  flush();
+  return segments;
 }
 
 function stripMarkdownFrontmatter(content: string): string {
@@ -572,7 +606,47 @@ export function registerIpcHandlers() {
 
   // LLM Streaming API Call handler (deepagents-driven)
   typedHandle('llm:chat', (event, requestId, payload) => {
-    void runLLMChat(event.sender, requestId, payload).catch((error) => {
+    const stream = conversationRunStreams.begin({
+      sessionId: payload.sessionId,
+      requestId,
+      messageId: requestId,
+      origin: 'foreground-message',
+    });
+    const chunkChannel = llmChunkChannel(requestId);
+    const sender = {
+      send: (channel: string, data: unknown) => {
+        // A renderer reload must not terminate work that remains live in main.
+        try {
+          event.sender.send(channel, data);
+        } catch {
+          // The durable stream below remains available to the replacement renderer.
+        }
+        if (channel === chunkChannel) stream.sender.send(channel, data);
+      },
+    };
+
+    void runLLMChat(sender, requestId, payload).then(() => {
+      const snapshot = conversationRunStreams.getActive(payload.sessionId);
+      const segments = collectAssistantSegments(requestId, snapshot?.events ?? []);
+      if (segments.length > 0) {
+        const persistMessage = db.prepare(`INSERT INTO messages (id, session_id, role, content, created_at)
+          VALUES (?, ?, 'assistant', ?, ?)
+          ON CONFLICT(id) DO UPDATE SET content = excluded.content`);
+        const completedAt = Date.now();
+        db.transaction(() => {
+          for (const segment of segments) {
+            persistMessage.run(segment.id, payload.sessionId, segment.content, completedAt);
+          }
+        })();
+      }
+      stream.commit();
+      try {
+        event.sender.send('conversation:messages-changed', { sessionId: payload.sessionId });
+      } catch {
+        // A future renderer load will read the durable message directly.
+      }
+    }).catch((error) => {
+      stream.fail();
       console.error('LLM chat task failed:', error);
     });
     return { ok: true };

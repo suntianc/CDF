@@ -209,7 +209,13 @@ export async function handleAdvanceStageInterrupt(
         },
       }
     : report;
-  const gate = createStageGate(runId, stage.id, stage.name, persistedReport);
+  const gate = stage.gateEnabled
+    ? db.transaction(() => {
+        const pendingGate = createStageGate(runId, stage.id, stage.name, persistedReport);
+        updateRunStatus(runId, 'waiting_gate');
+        return pendingGate;
+      })()
+    : createStageGate(runId, stage.id, stage.name, persistedReport);
   pushProjectionEvent({ type: 'stage_gate', gate });
   if (stage.gateEnabled) {
     pushProjectionEvent({ type: 'run', runId, status: 'waiting_gate', currentStageId: stage.id, currentStageIndex: stageIndex, error: null });
@@ -224,9 +230,6 @@ export async function handleAdvanceStageInterrupt(
   }
 
   // gateEnabled=true：等待外部审批
-  updateRunStatus(runId, 'waiting_gate');
-  db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('waiting_gate', run.session_id);
-
   // 发送 approval_required 事件供 Conversation 时间线使用
   if (sender && channel) {
     sender.send(channel, {

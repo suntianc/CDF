@@ -8,6 +8,7 @@ import {
   DelegatedAgentRunRepository,
   initializeDelegatedAgentRunSchema,
 } from './deepagent/delegated-agent-run-repository';
+import { reconcileOrphanWorkflowRunsAtStartup } from './workflow-run/startup-reconciliation';
 
 const dbPath = path.join(app.getPath('userData'), 'cdf.db');
 const db = new Database(dbPath);
@@ -507,5 +508,10 @@ safeMigrate(
   'workflow_run_tasks table (delegated_run_id)',
   `ALTER TABLE workflow_run_tasks ADD COLUMN delegated_run_id TEXT;`,
 );
+
+const workflowReconciliation = reconcileOrphanWorkflowRunsAtStartup(db);
+if (workflowReconciliation.abortedRunCount > 0) {
+  log.info(`[DB] Reconciled ${workflowReconciliation.abortedRunCount} orphaned Workflow Run(s) as aborted.`);
+}
 
 export default db;

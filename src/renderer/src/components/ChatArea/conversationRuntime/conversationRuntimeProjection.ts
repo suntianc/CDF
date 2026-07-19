@@ -1,3 +1,4 @@
+import { conversationAssistantSegmentMessageId } from '@shared/conversations';
 import type {
   AgentApprovalRequest,
   AgentApprovalHistoryEntry,
@@ -67,6 +68,7 @@ export interface ConversationRuntimeProjectionState {
   isStreaming: boolean;
   streamingMessageId: string | null;
   currentAssistantMsgId: string;
+  assistantSegmentIndex: number;
   accumulatedContent: string;
   pendingToolMessages: Record<string, string[]>;
   runtimeToolMessageIds: string[];
@@ -128,6 +130,7 @@ export function createConversationRuntimeState(
     pendingApprovals: [],
     approvalHistory: [],
     isStreaming: true,
+    assistantSegmentIndex: 0,
     accumulatedContent: '',
     pendingToolMessages: {},
     runtimeToolMessageIds: [],
@@ -147,6 +150,7 @@ export function hydrateConversationRuntimeStream(
     requestId: snapshot.requestId,
     streamingMessageId: snapshot.messageId,
     currentAssistantMsgId: snapshot.messageId,
+    assistantSegmentIndex: 0,
     activeRunId: null,
     pendingApproval: null,
     pendingApprovals: [],
@@ -424,6 +428,7 @@ export function projectConversationRuntime(
       effects.push({ type: 'saveMessage', message: toolMessage });
     }
 
+    const assistantSegmentIndex = state.assistantSegmentIndex + 1;
     return {
       state: {
         ...state,
@@ -433,7 +438,11 @@ export function projectConversationRuntime(
         runtimeToolMessageIds: state.runtimeToolMessageIds.includes(toolMessageId)
           ? state.runtimeToolMessageIds
           : [...state.runtimeToolMessageIds, toolMessageId],
-        currentAssistantMsgId: deps.createId(),
+        currentAssistantMsgId: conversationAssistantSegmentMessageId(
+          state.requestId,
+          assistantSegmentIndex,
+        ),
+        assistantSegmentIndex,
         accumulatedContent: '',
       },
       effects,

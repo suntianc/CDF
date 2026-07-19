@@ -128,6 +128,34 @@ describe('Conversation Runtime Registry', () => {
     expect(duplicate).toMatchObject({ ok: false, code: 'CONVERSATION_BUSY' });
   });
 
+  it('ignores mirrored envelopes while the initiating foreground renderer owns the same Run', () => {
+    const initial = runtime('conversation-1', 'request-1');
+    const claimed = transitionConversationRuntimeRegistry(createConversationRuntimeRegistryState(), {
+      type: 'claim',
+      conversationId: 'conversation-1',
+      requestId: 'request-1',
+      projection: initial,
+    });
+
+    const mirrored = transitionConversationRuntimeRegistry(claimed.state, {
+      type: 'receiveEnvelope',
+      envelope: {
+        sessionId: 'conversation-1',
+        requestId: 'request-1',
+        messageId: 'request-1',
+        origin: 'foreground-message',
+        sequence: 1,
+        event: { type: 'message_chunk', text: 'must not be projected twice' },
+      },
+      initialProjection: initial,
+      projection: { ...initial, accumulatedContent: 'must not be projected twice' },
+    });
+
+    expect(mirrored).toMatchObject({ ok: true, applied: false, effects: [] });
+    expect(mirrored.state).toBe(claimed.state);
+    expect(mirrored.state.entries['conversation-1']?.projection.accumulatedContent).toBe('');
+  });
+
   it('ignores duplicate and stale envelopes and hydrates instead of applying a sequence gap', () => {
     const initial = runtime('conversation-1', 'request-1');
     const firstProjection = { ...initial, accumulatedContent: 'one' };

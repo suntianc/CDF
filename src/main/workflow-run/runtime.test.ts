@@ -384,6 +384,31 @@ describe('handleAdvanceStageInterrupt', () => {
     expect(getWorkflowRun(run.id)?.status).toBe('completed');
   });
 
+  it('persists a pending gate and its waiting status atomically', async () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    db.exec(`CREATE TRIGGER fail_waiting_gate_session_update
+      BEFORE UPDATE OF workflow_run_status ON sessions
+      WHEN NEW.workflow_run_status = 'waiting_gate'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated session status failure');
+      END;`);
+
+    try {
+      await expect(handleAdvanceStageInterrupt(run.id, {
+        acceptanceSelfCheck: [],
+        artifacts: [],
+        summary: 'ready for gate',
+      })).rejects.toThrow('simulated session status failure');
+
+      expect(listStageGates(run.id)).toEqual([]);
+      expect(getWorkflowRun(run.id)?.status).toBe('running');
+      expect(db.prepare('SELECT workflow_run_status FROM sessions WHERE id = ?').get(run.session_id))
+        .toEqual({ workflow_run_status: 'running' });
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS fail_waiting_gate_session_update');
+    }
+  });
+
   it('creates pending gate when gateEnabled=true and waits for resolution', async () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
 

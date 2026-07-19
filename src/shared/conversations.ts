@@ -67,7 +67,11 @@ export type LLMStreamEvent =
   | { type: 'delegated_task_step'; delegatedRunId: string; taskId: string; step: ExecutionStep }
   | { type: 'todos_update'; todos: TodoItem[] };
 
-export type ConversationRunOrigin = 'background-capability-continuation' | 'workflow-resume';
+export type ConversationRunOrigin = 'foreground-message' | 'background-capability-continuation' | 'workflow-resume';
+
+export function conversationAssistantSegmentMessageId(requestId: string, segmentIndex: number): string {
+  return segmentIndex === 0 ? requestId : `${requestId}:assistant:${segmentIndex}`;
+}
 
 export interface ConversationRunIdentity {
   sessionId: string;

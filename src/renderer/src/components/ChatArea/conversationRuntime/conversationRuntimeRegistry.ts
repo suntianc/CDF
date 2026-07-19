@@ -378,6 +378,11 @@ export function transitionConversationRuntimeRegistry(
   if (action.type === 'receiveEnvelope') {
     const { envelope } = action;
     if (current && current.requestId !== envelope.requestId) return success(state);
+    // Foreground events are mirrored into the durable stream by main. The initiating
+    // renderer still consumes its request-scoped channel, so applying the envelope as
+    // well would duplicate chunks. After a renderer reload hydration changes the source
+    // to `envelope`, allowing the replacement renderer to consume subsequent events.
+    if (current?.streamSource === 'foreground') return success(state);
     if (!current && state.terminalOverlays[conversationId]?.[envelope.requestId]) return success(state);
 
     const entry = current ?? {

@@ -30,6 +30,11 @@ const {
   captureConversationSystemContextSnapshotMock,
   createAgentCatalogMock,
   agentCatalogMock,
+  conversationRunStreamsBeginMock,
+  conversationRunStreamsGetActiveMock,
+  conversationStreamSenderMock,
+  conversationStreamCommitMock,
+  conversationStreamFailMock,
 } = vi.hoisted(() => {
   const agentCatalogMock = {
     list: vi.fn(),
@@ -79,6 +84,11 @@ const {
   })),
   createAgentCatalogMock: vi.fn(() => agentCatalogMock),
   agentCatalogMock,
+  conversationRunStreamsBeginMock: vi.fn(),
+  conversationRunStreamsGetActiveMock: vi.fn(),
+  conversationStreamSenderMock: { send: vi.fn() },
+  conversationStreamCommitMock: vi.fn(),
+  conversationStreamFailMock: vi.fn(),
   };
 });
 
@@ -129,6 +139,13 @@ vi.mock('./agent-catalog', () => ({
 vi.mock('./conversation-deletion', () => ({
   deleteConversation: deleteConversationMock,
   deleteProject: deleteProjectMock,
+}));
+
+vi.mock('./conversation-run-stream-runtime', () => ({
+  conversationRunStreams: {
+    begin: conversationRunStreamsBeginMock,
+    getActive: conversationRunStreamsGetActiveMock,
+  },
 }));
 
 vi.mock('./deepagent/conversation-working-state-maintenance', () => ({
@@ -223,6 +240,15 @@ describe('IPC handlers', () => {
     shellOpenExternalMock.mockClear();
     startAISubscriptionLoginMock.mockReset();
     pollAISubscriptionLoginMock.mockReset();
+    conversationStreamSenderMock.send.mockReset();
+    conversationStreamCommitMock.mockReset();
+    conversationStreamFailMock.mockReset();
+    conversationRunStreamsBeginMock.mockReset().mockReturnValue({
+      sender: conversationStreamSenderMock,
+      commit: conversationStreamCommitMock,
+      fail: conversationStreamFailMock,
+    });
+    conversationRunStreamsGetActiveMock.mockReset().mockReturnValue(null);
     deleteConversationMock.mockReset();
     deleteProjectMock.mockReset();
     compactWorkingStateMock.mockReset();
@@ -472,10 +498,85 @@ describe('IPC handlers', () => {
     const chatHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'llm:chat')?.[1];
     expect(chatHandler).toBeTypeOf('function');
 
-    const result = chatHandler({ sender: 'web-contents' }, 'request-1', { sessionId: 'session-1' });
+    const sender = { send: vi.fn() };
+    const result = chatHandler({ sender }, 'request-1', { sessionId: 'session-1' });
 
     expect(result).toEqual({ ok: true });
-    expect(runLLMChatMock).toHaveBeenCalledWith('web-contents', 'request-1', { sessionId: 'session-1' });
+    expect(runLLMChatMock).toHaveBeenCalledWith(expect.any(Object), 'request-1', { sessionId: 'session-1' });
+  });
+
+  it('keeps a foreground llm:chat resumable across renderer reloads without duplicating non-LLM events', async () => {
+    let resolveChat!: () => void;
+    runLLMChatMock.mockReturnValue(new Promise<void>((resolve) => {
+      resolveChat = resolve;
+    }));
+    conversationRunStreamsGetActiveMock.mockReturnValue({
+      content: 'before toolafter tool',
+      events: [
+        { type: 'message_chunk', text: 'before tool' },
+        { type: 'tool_start', id: 'tool-1', name: 'read_file' },
+        { type: 'message_chunk', text: 'after tool' },
+      ],
+    });
+    const rendererSender = { send: vi.fn() };
+
+    registerIpcHandlers();
+    const chatHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'llm:chat')?.[1];
+    expect(chatHandler).toBeTypeOf('function');
+    const persistMessage = vi.fn();
+    dbPrepareMock.mockClear();
+    dbPrepareMock.mockImplementation((_sql: string) => ({
+      all: vi.fn(() => []),
+      get: vi.fn(),
+      run: persistMessage,
+    }));
+
+    expect(chatHandler({ sender: rendererSender }, 'request-1', {
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      message: { id: 'user-1', content: 'research' },
+    })).toEqual({ ok: true });
+
+    expect(conversationRunStreamsBeginMock).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      messageId: 'request-1',
+      origin: 'foreground-message',
+    });
+
+    const durableSender = runLLMChatMock.mock.calls[0][0];
+    const chunk = { type: 'message_chunk', text: 'before tool' };
+    durableSender.send(llmChunkChannel('request-1'), chunk);
+    expect(rendererSender.send).toHaveBeenCalledWith(llmChunkChannel('request-1'), chunk);
+    expect(conversationStreamSenderMock.send).toHaveBeenCalledWith(llmChunkChannel('request-1'), chunk);
+
+    durableSender.send('workflow-run:projection-event', { type: 'run', status: 'running' });
+    expect(rendererSender.send).toHaveBeenCalledWith(
+      'workflow-run:projection-event',
+      { type: 'run', status: 'running' },
+    );
+    expect(conversationStreamSenderMock.send).toHaveBeenCalledTimes(1);
+
+    resolveChat();
+    await vi.waitFor(() => expect(conversationStreamCommitMock).toHaveBeenCalledOnce());
+    expect(dbPrepareMock.mock.calls.some(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO messages')
+    )).toBe(true);
+    expect(persistMessage).toHaveBeenNthCalledWith(
+      1,
+      'request-1',
+      'session-1',
+      'before tool',
+      expect.any(Number),
+    );
+    expect(persistMessage).toHaveBeenNthCalledWith(
+      2,
+      'request-1:assistant:1',
+      'session-1',
+      'after tool',
+      expect.any(Number),
+    );
+    expect(conversationStreamFailMock).not.toHaveBeenCalled();
   });
 
   it('creates Custom Agents through a Project-free typed IPC seam', () => {
