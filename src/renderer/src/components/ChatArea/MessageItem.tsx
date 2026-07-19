@@ -6,7 +6,8 @@ import {
   type CapabilityJobTimelineEvent,
 } from '@shared/capability-jobs';
 
-export const ImageZoomContext = React.createContext<(url: string) => void>(() => {});
+import { ImageZoomContext } from './ImageZoomContext';
+export { ImageZoomContext };
 import { createPortal } from 'react-dom';
 import { ToolMessageCard } from './ToolMessageCard';
 import { StreamdownRenderer } from './StreamdownRenderer';
@@ -714,6 +715,39 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
           {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}
         </div>
       </div>
+
+      {/* Preview Lightbox (Portal) */}
+      {lightboxUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ background: 'var(--color-overlay-scrim)' }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxUrl}
+              alt="preview"
+              className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
+              style={{ borderRadius: 'var(--radius-lg)' }}
+            />
+            <button
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
+              style={{
+                background: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text-muted)',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
+              onClick={() => setLightboxUrl(null)}
+              aria-label="Close preview"
+            >
+              &times;
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }, (prevProps, nextProps) => {

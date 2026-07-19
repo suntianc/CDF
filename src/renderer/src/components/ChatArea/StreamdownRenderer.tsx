@@ -5,7 +5,7 @@ import { createMathPlugin } from '@streamdown/math';
 import { CodeBlock } from './markdown/CodeBlock';
 import { AlertBlock, type AlertType } from './markdown/AlertBlock';
 import { textAlignClass } from './markdown/textAlign';
-import { ImageZoomContext } from './MessageItem';
+import { ImageZoomContext } from './ImageZoomContext';
 import 'katex/dist/katex.min.css';
 
 interface StreamdownRendererProps {
@@ -285,7 +285,7 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div
+    <span
       className="flex items-center gap-3 px-3 py-2 bg-[var(--color-bg-sidebar)] border border-[var(--color-border)] rounded-lg w-full max-w-[320px] select-none shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
       style={{ boxSizing: 'border-box' }}
     >
@@ -304,7 +304,7 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
         )}
       </button>
 
-      <div className="flex-1 flex flex-col gap-1 min-w-0">
+      <span className="flex-1 flex flex-col gap-1 min-w-0">
         <input
           type="range"
           min={0}
@@ -316,11 +316,11 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
             '--slider-progress': `${progressPercent}%`
           } as React.CSSProperties}
         />
-        <div className="flex items-center justify-between text-[9px] font-mono text-[var(--color-text-muted)] mt-0.5 leading-none">
+        <span className="flex items-center justify-between text-[9px] font-mono text-[var(--color-text-muted)] mt-0.5 leading-none">
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(duration)}</span>
-        </div>
-      </div>
+        </span>
+      </span>
 
       <audio
         ref={audioRef}
@@ -331,7 +331,7 @@ const CustomAudioPlayer = ({ src }: { src: string }) => {
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleEnded}
       />
-    </div>
+    </span>
   );
 };
 
