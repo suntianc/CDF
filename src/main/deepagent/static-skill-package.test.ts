@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { buildSync } from 'esbuild';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const cleanupPaths: string[] = [];
@@ -42,13 +42,14 @@ describe('static Skill package materialization', () => {
     fs.writeFileSync(path.join(packageRoot, 'scripts', 'stale.js'), 'unsafe stale script', 'utf-8');
 
     const bundlePath = path.join(tempDir, 'static-skill-package.cjs');
-    execFileSync(path.join(process.cwd(), 'node_modules', '.bin', 'esbuild'), [
-      'src/main/deepagent/static-skill-package.ts',
-      '--bundle',
-      '--platform=node',
-      '--format=cjs',
-      `--outfile=${bundlePath}`,
-    ], { cwd: process.cwd(), encoding: 'utf-8' });
+    buildSync({
+      entryPoints: ['src/main/deepagent/static-skill-package.ts'],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: bundlePath,
+      logLevel: 'silent',
+    });
 
     const runnerPath = path.join(tempDir, 'run-materializer.cjs');
     fs.writeFileSync(runnerPath, [

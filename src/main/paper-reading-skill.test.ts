@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { buildSync } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getBuiltInSkillDirs } from './deepagent/skill-manager';
 import { createKnowledgeEntry, getKnowledgeBaseRoot } from './knowledge-base';
@@ -14,15 +15,13 @@ let previousMarkerCommand: string | undefined;
 
 function buildPdfSkillCliBundle(targetDir: string): string {
   const cliPath = path.join(targetDir, 'pdf-parsing-skill-cli.cjs');
-  execFileSync(path.join(process.cwd(), 'node_modules', '.bin', 'esbuild'), [
-    'src/main/pdf-parsing-skill-cli.ts',
-    '--bundle',
-    '--platform=node',
-    '--format=cjs',
-    `--outfile=${cliPath}`,
-  ], {
-    cwd: process.cwd(),
-    encoding: 'utf-8',
+  buildSync({
+    entryPoints: ['src/main/pdf-parsing-skill-cli.ts'],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: cliPath,
+    logLevel: 'silent',
   });
   return cliPath;
 }
