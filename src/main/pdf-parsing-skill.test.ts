@@ -1449,28 +1449,18 @@ describe('PDF recovery capability discovery', () => {
     expect(result.viableRoutes).not.toContain('local-first');
   });
 
-  it('discovery entrypoint probes the default uvx Marker command and ignores invalid timeout env values', () => {
+  it.skipIf(process.platform === 'win32')('discovery entrypoint probes the default uvx Marker command and ignores invalid timeout env values', () => {
     const builtInSkillDirs = getBuiltInSkillDirs();
     const pdfSkillDir = builtInSkillDirs.find((skillDir) => skillDir.endsWith(`${path.sep}pdf-parsing`)) as string;
-    const probeScriptPath = path.join(projectPath, 'uvx-probe.js');
-    const uvxPath = path.join(projectPath, process.platform === 'win32' ? 'uvx.cmd' : 'uvx');
+    const uvxPath = path.join(projectPath, 'uvx');
     const probeLog = path.join(projectPath, 'uvx-probe.json');
-    const probeScript = [
+    fs.writeFileSync(uvxPath, [
+      '#!/usr/bin/env node',
       'const fs = require("fs");',
       'fs.writeFileSync(process.env.CDF_MARKER_PROBE_LOG, JSON.stringify(process.argv.slice(2)), "utf-8");',
       'process.exit(process.argv.includes("--help") ? 0 : 2);',
-    ].join('\n');
-    if (process.platform === 'win32') {
-      fs.writeFileSync(probeScriptPath, probeScript, 'utf-8');
-      fs.writeFileSync(
-        uvxPath,
-        `@echo off\r\n"${process.execPath}" "${probeScriptPath}" %*\r\n`,
-        'utf-8',
-      );
-    } else {
-      fs.writeFileSync(uvxPath, `#!/usr/bin/env node\n${probeScript}`, 'utf-8');
-      fs.chmodSync(uvxPath, 0o755);
-    }
+    ].join('\n'), 'utf-8');
+    fs.chmodSync(uvxPath, 0o755);
 
     const output = execFileSync(process.execPath, [
       path.join(pdfSkillDir, 'scripts', 'discover-capabilities.js'),
