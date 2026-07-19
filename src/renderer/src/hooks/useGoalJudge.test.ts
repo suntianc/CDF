@@ -404,7 +404,7 @@ describe('useGoalJudge (factory pattern — Issue 8 fix)', () => {
 
     expect(judgeMock).toHaveBeenCalledTimes(1);
     expect(releaseContinueSend).toBeTruthy();
-    releaseContinueSend?.();
+    (releaseContinueSend as unknown as () => void)();
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));

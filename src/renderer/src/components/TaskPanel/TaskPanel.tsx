@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, CircleAlert, Clock, ExternalLink, FileText, Loader, ShieldAlert, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
-import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
-import type { DelegatedTask } from '../../stores/sessionStore';
+import { CheckCircle, ChevronRight, CircleAlert, Clock, FileText, Loader, ShieldAlert, Video, X, XCircle } from 'lucide-react';
+// ChevronDown/ChevronRight/ExternalLink removed — sub-agent detail now renders in ChatArea
+import { useSessionStore } from '../../stores/sessionStore';
 import { useAgentStore } from '../../stores/agentStore';
-import type { AgentApprovalAction, AgentRunStatus } from '../../../../shared/types';
-import { AgentTraceModal } from './AgentTraceModal';
+import { useProjectStore } from '../../stores/projectStore';
+import type { CapabilityJobAction, CapabilityJobSnapshot } from '../../../../shared/capability-jobs';
+import type { AgentRunStatus } from '../../../../shared/types';
+import {
+  projectActivityPanel,
+  type ActivityPanelApprovalActionSummary,
+  type ActivityPanelDelegatedTaskItem,
+  type ActivityPanelParallelWorkSection,
+} from './activityPanelProjection/activityPanelProjection';
 
 export interface TaskPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  width: number;
-  onResize: (width: number) => void;
+  embedded?: boolean;
 }
 
 // [P2-D] Icons alongside text labels are decorative — aria-hidden, not aria-label
@@ -23,6 +29,10 @@ function RunStatusIcon({ status }: { status?: AgentRunStatus }) {
       return <XCircle className="w-4 h-4 text-[var(--color-danger)]" aria-hidden="true" />;
     case 'aborted':
       return <CircleAlert className="w-4 h-4 text-[var(--color-text-muted)]" aria-hidden="true" />;
+    case 'cancelled':
+      return <XCircle className="w-4 h-4 text-[var(--color-text-muted)]" aria-hidden="true" />;
+    case 'interrupted':
+      return <CircleAlert className="w-4 h-4 text-[var(--color-warning)]" aria-hidden="true" />;
     case 'waiting_approval':
       return <ShieldAlert className="w-4 h-4 text-[var(--color-warning)]" aria-hidden="true" />;
     default:
@@ -30,55 +40,7 @@ function RunStatusIcon({ status }: { status?: AgentRunStatus }) {
   }
 }
 
-function toRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function toDisplayText(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value == null) return '';
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function clipText(value: string, maxLength = 180): string {
-  const normalized = value.replace(/\r\n/g, '\n').trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength).trimEnd()}...`;
-}
-
-function getApprovalSummary(action: AgentApprovalAction, t: (key: string) => string) {
-  const args = toRecord(action.args);
-  const target = toDisplayText(args.file_path || args.path || args.target || args.command);
-  const preview = toDisplayText(args.content || args.new_string || args.old_string || args.input);
-  const previewLabel = args.content
-    ? t('taskPanel.approvalPreviewWrite')
-    : args.new_string
-      ? t('taskPanel.approvalPreviewNew')
-      : args.old_string
-        ? t('taskPanel.approvalPreviewMatch')
-        : t('taskPanel.approvalPreviewArgs');
-
-  const toolLabels: Record<string, string> = {
-    write_file: t('taskPanel.toolWriteFile'),
-    edit_file: t('taskPanel.toolEditFile'),
-    delete_file: t('taskPanel.toolDeleteFile'),
-  };
-
-  return {
-    title: toolLabels[action.name] || action.name,
-    target,
-    preview: clipText(preview),
-    previewLabel,
-  };
-}
-
-function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
-  const { t } = useTranslation();
-  const summary = getApprovalSummary(action, t);
+function ApprovalActionCard({ summary }: { summary: ActivityPanelApprovalActionSummary }) {
   return (
     <div className="space-y-2 border-t border-[var(--color-border)] pt-3 first:border-t-0 first:pt-0">
       <div className="flex items-center justify-between gap-2">
@@ -87,20 +49,20 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
           <span className="truncate text-xs font-semibold text-[var(--color-text-primary)]">{summary.title}</span>
         </div>
         {/* [P1-B] 10px → 11px secondary for WCAG AA contrast */}
-        <span className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
-          {action.name}
+        <span className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)]">
+          {summary.name}
         </span>
       </div>
       {summary.target && (
         <div className="bg-[var(--color-bg-app)] px-2 py-1.5">
-          <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.approvalTarget')}</div>
-          <div className="mt-0.5 truncate font-mono text-[11px] text-[var(--color-text-primary)]">{summary.target}</div>
+          <div className="text-xs text-[var(--color-text-secondary)]">{summary.targetLabel}</div>
+          <div className="mt-0.5 truncate font-mono text-xs text-[var(--color-text-primary)]">{summary.target}</div>
         </div>
       )}
       {summary.preview && (
         <div className="bg-[var(--color-bg-app)] px-2 py-1.5">
-          <div className="text-[11px] text-[var(--color-text-secondary)]">{summary.previewLabel}</div>
-          <pre className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--color-text-primary)]">
+          <div className="text-xs text-[var(--color-text-secondary)]">{summary.previewLabel}</div>
+          <pre className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--color-text-primary)]" title={summary.preview}>
             {summary.preview}
           </pre>
         </div>
@@ -109,462 +71,648 @@ function ApprovalActionCard({ action }: { action: AgentApprovalAction }) {
   );
 }
 
-// Activity Trail entry — compact single-row with status dot + metrics
-function DelegatedTaskCard({ task, expanded, onToggle, onOpenTrace, agentName }: {
-  task: DelegatedTask;
-  expanded: boolean;
-  onToggle: () => void;
-  onOpenTrace: () => void;
-  agentName: string;
+function DelegatedTaskCard({ item, onSelect }: {
+  item: ActivityPanelDelegatedTaskItem;
+  onSelect: () => void;
 }) {
-  const { t } = useTranslation();
-  const isRunning = task.status === 'running';
-  const isFailure = task.status === 'failure';
-
-  // [P2-B] Status text for aria-label — conveys status beyond color alone (WCAG 1.4.1)
-  const statusText = isRunning
-    ? t('taskPanel.statusRunning')
-    : isFailure
-      ? t('taskPanel.statusFailed')
-      : t('taskPanel.statusCompleted');
-
-  const totalText = useMemo(
-    () => task.chunks.length > 0 ? task.chunks.join('') : (task.result?.summary || ''),
-    [task.chunks, task.result?.summary],
-  );
-  const tokenEstimate = useMemo(() => estimateTokens(totalText), [totalText]);
-  const tokenDisplay = tokenEstimate > 1000 ? `${(tokenEstimate / 1000).toFixed(1)}k` : `${tokenEstimate}`;
-  const chunkCount = task.chunks.length;
-
-  // Compact metrics: "5 chunks · 1.2k tokens · 12s" (elapsed only when done/failed)
-  const metricsText = useMemo(() => {
-    const parts: string[] = [];
-    if (chunkCount > 0) parts.push(`${chunkCount} ${t('taskPanel.chunkUnit')}`);
-    parts.push(`${tokenDisplay} ${t('taskPanel.tokenUnit')}`);
-    if (!isRunning && task.startedAt) {
-      const end = task.completedAt ?? Date.now();
-      const s = Math.max(0, Math.round((end - task.startedAt) / 1000));
-      parts.push(s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
-    }
-    return parts.join(' · ');
-  }, [chunkCount, tokenDisplay, isRunning, task.startedAt, task.completedAt, t]);
-
-  // Live preview of incoming chunk text (running only, 8 chars)
-  const chunkPreview = isRunning && chunkCount > 0
-    ? task.chunks[task.chunks.length - 1].replace(/\s/g, ' ').slice(0, 8)
-    : null;
+  const isRunning = item.task.status === 'running';
+  const isFailure = item.task.status === 'failure';
 
   return (
-    <div className="relative pl-4">
-      {/* Status dot — aria-hidden; status text conveyed via aria-label on toggle button */}
-      <div className="absolute left-0 top-[13px] flex items-center justify-center w-2 h-2" aria-hidden="true">
-        {isRunning
-          ? <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none" />
-          : isFailure
-            ? <span className="w-2 h-2 rounded-full bg-[var(--color-danger)]" />
-            : <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
-        }
+    <div className="relative pl-7 pb-3 last:pb-0">
+      {/* Masking container for status icon to align with timeline rail */}
+      <div 
+        className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 bg-[var(--color-bg-sidebar)] rounded-full z-10" 
+        aria-hidden="true"
+      >
+        {isRunning ? (
+          <Loader className="w-4 h-4 animate-spin text-[var(--color-accent)] motion-reduce:animate-none" />
+        ) : isFailure ? (
+          <XCircle className="w-4 h-4 text-[var(--color-danger)]" />
+        ) : (
+          <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />
+        )}
       </div>
 
-      {/* Collapsed row */}
-      <div className="flex items-center gap-1.5 py-1.5 min-h-[36px]">
-        {/* [P2-B] aria-label includes status so screen reader gets more than just color */}
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={`${agentName} (${statusText})`}
-          onClick={onToggle}
-          className="flex items-center gap-1.5 flex-1 min-w-0 text-left group/toggle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] rounded-sm"
-        >
-          {/* [P2-C] Chevrons are decorative inside a labeled button */}
-          {expanded
-            ? <ChevronDown aria-hidden="true" className="w-3 h-3 shrink-0 text-[var(--color-text-muted)] group-hover/toggle:text-[var(--color-text-secondary)] transition-colors" />
-            : <ChevronRight aria-hidden="true" className="w-3 h-3 shrink-0 text-[var(--color-text-muted)] group-hover/toggle:text-[var(--color-text-secondary)] transition-colors" />
-          }
-          <span className="text-[13px] font-medium text-[var(--color-text-primary)] truncate">{agentName}</span>
-          {/* [P1-B] 10px → 11px secondary for WCAG AA contrast */}
-          <span className="text-[11px] font-mono text-[var(--color-text-secondary)] truncate max-w-[90px] hidden sm:inline">{task.agentSlug}</span>
-        </button>
-
-        <div className="flex items-center gap-1.5 shrink-0 ml-1">
-          {chunkPreview && (
-            // [P1-B] 10px → 11px secondary; [P1-A] motion-reduce
-            <span className="text-[11px] font-mono text-[var(--color-text-secondary)] truncate max-w-[56px] animate-pulse motion-reduce:animate-none" aria-hidden="true">
-              {chunkPreview}
-            </span>
-          )}
-          {/* [P1-B] 10px → 11px secondary for contrast */}
-          <span className="text-[11px] font-mono text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
-            {metricsText}
-          </span>
-          {/* [P2-E] w-5 → w-6 for WCAG 2.5.8 24px minimum touch target */}
-          <button
-            type="button"
-            aria-label={t('taskPanel.viewTrace')}
-            onClick={(e) => { e.stopPropagation(); onOpenTrace(); }}
-            className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
-          >
-            <ExternalLink className="w-3 h-3" aria-hidden="true" />
-          </button>
+      <button
+        type="button"
+        aria-label={`${item.agentName} (${item.statusText})`}
+        onClick={onSelect}
+        className={`w-full text-left p-2.5 rounded-md border transition-[background-color,border-color] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-sidebar)] focus-visible:outline-none ${
+          item.isActive
+            ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
+            : 'bg-[var(--color-bg-surface)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{item.agentName}</span>
+          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px] text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
+            <span>{item.metricsText}</span>
+            <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)]" aria-hidden="true" />
+          </div>
         </div>
-      </div>
-
-      {/* Expanded body */}
-      {expanded && (
-        // [P2-A] role="status" + aria-live="polite" — not "alert" (alert implies assertive, contradicts polite)
-        <div
-          className="mb-1.5 ml-1 rounded-md bg-[var(--color-bg-app)] border border-[var(--color-border)] p-2.5 space-y-2"
-          role={isFailure ? 'status' : undefined}
-          aria-live={isFailure ? 'polite' : undefined}
-        >
-          {task.goal && (
-            <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">
-              <span className="font-semibold text-[var(--color-text-muted)] mr-1">{t('taskPanel.taskGoal')}:</span>
-              {task.goal}
-            </p>
-          )}
-
-          {/* D-09: Failure = observation only — plain error summary, no action buttons */}
-          {isFailure ? (
-            <div className="text-[11px] space-y-0.5">
-              <div className="font-medium text-[var(--color-danger)]">
-                {task.errorCode || t('taskPanel.taskFailed', { code: '' })}
-              </div>
-              {task.result?.error?.message && (
-                <div className="text-[10px] text-[var(--color-danger)] opacity-80 leading-relaxed">
-                  {task.result.error.message}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="font-mono text-[10.5px] leading-relaxed text-[var(--color-text-primary)] whitespace-pre-wrap break-words max-h-28 overflow-y-auto overflow-x-hidden">
-              {isRunning ? (
-                <>
-                  {chunkCount > 0 ? totalText : t('taskPanel.subagentInitializing')}
-                  {/* [P1-A] motion-reduce on cursor caret */}
-                  <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-accent)] animate-pulse motion-reduce:animate-none align-middle" />
-                </>
-              ) : (
-                task.result?.summary || t('taskPanel.taskCompleted')
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      </button>
     </div>
   );
 }
 
-function TaskPanelContent({ expandedTasks, setExpandedTasks }: {
-  expandedTasks: Record<string, boolean>;
-  setExpandedTasks: Dispatch<SetStateAction<Record<string, boolean>>>;
-}) {
+function ParallelBatchSection({ section }: { section: ActivityPanelParallelWorkSection | null }) {
+  const setViewingParallelWorker = useSessionStore((s) => s.setViewingParallelWorker);
+
+  if (!section || section.batches.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">{section.title}</h3>
+      {section.batches.map((batch) => (
+        <div key={batch.batchId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-1.5">
+          {batch.workers.map((item) => {
+            const worker = item.worker;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setViewingParallelWorker({ batchId: batch.batchId, delegatedRunId: worker.delegatedRunId, agentSlug: worker.agentSlug })}
+                className={`w-full flex flex-col gap-1 p-2 rounded-md border transition-[background-color,border-color] duration-150 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-surface)] focus-visible:outline-none ${
+                  item.isActive
+                    ? 'bg-[var(--color-accent-dim)] border-[var(--color-accent)]/30'
+                    : 'bg-[var(--color-bg-app)] border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {worker.status === 'running'
+                      ? <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none text-[var(--color-accent)]" aria-hidden="true" />
+                      : worker.status === 'failure'
+                        ? <XCircle className="w-3.5 h-3.5 text-[var(--color-danger)]" aria-hidden="true" />
+                        : <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" aria-hidden="true" />
+                    }
+                    <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{item.displayName}</span>
+                  </div>
+                  <span className="text-[10px] tabular-nums text-[var(--color-text-muted)] shrink-0 font-mono">{item.tokenDisplay} {item.tokenUnit}</span>
+                </div>
+                {item.previewText && (
+                  <p className="text-[10px] text-[var(--color-text-muted)] leading-relaxed line-clamp-2 pl-5">{item.previewText}</p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatSnapshotBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function firstFrameSummary(job: CapabilityJobSnapshot): string | null {
+  const snapshot = job.inputSummary?.firstFrame;
+  if (!snapshot) return null;
+  return [
+    snapshot.mimeType,
+    `${snapshot.width}×${snapshot.height}`,
+    snapshot.aspectRatio,
+    formatSnapshotBytes(snapshot.sizeBytes),
+    snapshot.sha256.slice(0, 8),
+  ].join(' · ');
+}
+
+const TERMINAL_CAPABILITY_JOB_STATUSES = new Set<CapabilityJobSnapshot['status']>([
+  'completed',
+  'failed',
+  'canceled',
+]);
+
+function BackgroundJobsSection({ isOpen }: { isOpen: boolean }) {
+  const { t } = useTranslation();
+  const projectId = useProjectStore((state) => state.currentProjectId);
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
+  const [jobs, setJobs] = useState<CapabilityJobSnapshot[]>([]);
+  const [jobsProjectId, setJobsProjectId] = useState(projectId);
+  const visibleJobs = jobsProjectId === projectId ? jobs : [];
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setJobsProjectId(projectId);
+    setJobs([]);
+    setJobsLoading(Boolean(isOpen && projectId));
+    if (!isOpen || !projectId) return;
+    let active = true;
+    const unsubscribe = window.electronAPI.capabilityJobs.onChanged((event) => {
+      if (!active || event.projectId !== projectId) return;
+      setJobs((current) => [
+        event.job,
+        ...current.filter((job) => job.id !== event.job.id),
+      ].sort((left, right) => right.createdAt - left.createdAt));
+      setExpandedJobIds((current) => {
+        const next = new Set(current);
+        if (TERMINAL_CAPABILITY_JOB_STATUSES.has(event.job.status)) next.delete(event.job.id);
+        else next.add(event.job.id);
+        return next;
+      });
+    });
+    window.electronAPI.capabilityJobs.list(projectId)
+      .then((snapshots) => {
+        if (!active) return;
+        setExpandedJobIds((current) => {
+          const next = new Set(current);
+          for (const job of snapshots) {
+            if (TERMINAL_CAPABILITY_JOB_STATUSES.has(job.status)) next.delete(job.id);
+            else next.add(job.id);
+          }
+          return next;
+        });
+        setJobs((current) => {
+          const latestById = new Map(snapshots.map((job) => [job.id, job]));
+          for (const job of current) {
+            const snapshot = latestById.get(job.id);
+            if (!snapshot || job.updatedAt >= snapshot.updatedAt) latestById.set(job.id, job);
+          }
+          return [...latestById.values()]
+            .sort((left, right) => right.createdAt - left.createdAt);
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setJobsLoading(false);
+      });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [isOpen, projectId]);
+
+  const runCommand = (jobId: string, action: CapabilityJobAction) => {
+    if (!projectId) return;
+    const commandKey = `${jobId}:${action}`;
+    setPendingCommand(commandKey);
+    setCommandError(null);
+    window.electronAPI.capabilityJobs.command(projectId, jobId, action)
+      .then((result) => {
+        if (projectIdRef.current !== projectId) return;
+        if (!result.ok) {
+          setCommandError(`taskPanel.commandError.${result.code}`);
+          return;
+        }
+        setExpandedJobIds((current) => {
+          const next = new Set(current);
+          if (TERMINAL_CAPABILITY_JOB_STATUSES.has(result.job.status)) next.delete(result.job.id);
+          else next.add(result.job.id);
+          return next;
+        });
+        setJobs((current) => [
+          result.job,
+          ...current.filter((job) => job.id !== result.job.id),
+        ].sort((left, right) => right.createdAt - left.createdAt));
+      })
+      .catch(() => {
+        if (projectIdRef.current !== projectId) return;
+        setCommandError('taskPanel.commandError.generic');
+      })
+      .finally(() => setPendingCommand((current) => current === commandKey ? null : current));
+  };
+
+  if (!projectId) return null;
+  return (
+    <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
+      <h3 className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-primary)]">
+        <Video className="h-3.5 w-3.5 text-[var(--color-accent)]" aria-hidden="true" />
+        {t('taskPanel.backgroundJobsTitle')}
+      </h3>
+      {commandError && (
+        <p role="alert" className="text-xs text-[var(--color-danger)]">{t(commandError)}</p>
+      )}
+      {jobsLoading ? (
+        <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsLoading')}</p>
+      ) : visibleJobs.length === 0 ? (
+        <p className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.backgroundJobsEmpty')}</p>
+      ) : (
+        <div
+          role="region"
+          aria-label={t('taskPanel.backgroundJobsTitle')}
+          tabIndex={0}
+          style={{ maxHeight: '18rem', overflowY: 'auto' }}
+          className="space-y-2 overscroll-contain pr-1 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+        >
+          {visibleJobs.map((job) => (
+        <div key={job.id} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] p-2">
+          <button
+            type="button"
+            aria-label={t('taskPanel.jobToggle')}
+            aria-expanded={expandedJobIds.has(job.id)}
+            onClick={() => setExpandedJobIds((current) => {
+              const next = new Set(current);
+              if (next.has(job.id)) next.delete(job.id);
+              else next.add(job.id);
+              return next;
+            })}
+            className="flex w-full items-center justify-between gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ChevronRight
+                className={`h-3 w-3 shrink-0 text-[var(--color-text-muted)] transition-transform ${
+                  expandedJobIds.has(job.id) ? 'rotate-90' : ''
+                }`}
+                aria-hidden="true"
+              />
+              <span className="truncate text-xs font-medium text-[var(--color-text-primary)]">
+                {t('taskPanel.videoGeneration')}
+              </span>
+            </span>
+            <span className={`shrink-0 text-xs ${
+              job.status === 'failed'
+                ? 'text-[var(--color-danger)]'
+                : job.status === 'completed'
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-accent)]'
+            }`}>
+              {t(`taskPanel.jobStatus.${job.status}`)}
+            </span>
+          </button>
+          {expandedJobIds.has(job.id) && (
+            <div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-muted)]">
+            <span className="font-mono">{t(`taskPanel.jobRoute.${job.connectionId}`)}</span>
+            {job.queuePosition !== null && (
+              <span className="tabular-nums">{t('taskPanel.queuePosition', { position: job.queuePosition })}</span>
+            )}
+          </div>
+          {job.inputSummary && (
+            <div className="mt-1 space-y-1 text-xs text-[var(--color-text-secondary)]">
+              <p>
+                {[
+                  t(`taskPanel.videoModeValue.${job.inputSummary.mode}`),
+                  job.inputSummary.duration !== undefined ? `${job.inputSummary.duration}s` : null,
+                  job.inputSummary.resolution,
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {firstFrameSummary(job) && (
+                <p className="break-words font-mono text-[11px] text-[var(--color-text-muted)]">
+                  {firstFrameSummary(job)}
+                </p>
+              )}
+            </div>
+          )}
+          {job.detailsPruned && (
+            <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">
+              {t('taskPanel.jobDetailsPruned')}
+            </p>
+          )}
+          {job.statusMessage && (
+            <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">
+              {t(`taskPanel.jobMessage.${job.statusMessage}`)}
+            </p>
+          )}
+          {job.continuationStatus && (
+            <p className={`mt-1 text-xs ${
+              job.continuationStatus === 'failed'
+                ? 'text-[var(--color-danger)]'
+                : 'text-[var(--color-text-secondary)]'
+            }`}>
+              {t(`taskPanel.continuationStatus.${job.continuationStatus}`)}
+            </p>
+          )}
+          {job.continuationError && (
+            <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.continuationError}</p>
+          )}
+          {job.error && <p className="mt-1 break-words text-xs text-[var(--color-danger)]">{job.error}</p>}
+          {job.artifacts.map((artifact) => (
+            <p key={artifact.path} className="mt-1 truncate font-mono text-xs text-[var(--color-text-muted)]" title={artifact.path}>
+              {artifact.path}
+            </p>
+          ))}
+          {job.provider === 'minimax-token-plan' && job.availableActions.includes('stop_tracking') && (
+            <p className="mt-1 break-words text-xs text-[var(--color-warning)]">
+              {t('taskPanel.remoteBillingWarning')}
+            </p>
+          )}
+          {job.availableActions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {job.availableActions.map((action) => {
+                const commandKey = `${job.id}:${action}`;
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    disabled={pendingCommand !== null}
+                    onClick={() => runCommand(job.id, action)}
+                    className="rounded border border-[var(--color-border-strong)] px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {pendingCommand === commandKey
+                      ? t('taskPanel.jobAction.running')
+                      : t(`taskPanel.jobAction.${action}`)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+            </div>
+          )}
+        </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TaskPanelContent({ isOpen }: { isOpen: boolean }) {
   const { t } = useTranslation();
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const activeRunId = useSessionStore((state) => state.activeRunId);
   const agentRuns = useSessionStore((state) => state.agentRuns);
   const agentToolCalls = useSessionStore((state) => state.agentToolCalls);
   const delegatedTasks = useSessionStore((state) => state.delegatedTasks);
+  const parallelBatches = useSessionStore((state) => state.parallelBatches);
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
+  const pendingApprovals = useSessionStore((state) => state.pendingApprovals) ?? [];
+  const approvalHistory = useSessionStore((state) => state.approvalHistory) ?? [];
   const fetchAgentActivity = useSessionStore((state) => state.fetchAgentActivity);
   const resolveApproval = useSessionStore((state) => state.resolveApproval);
-  const [traceModalTaskId, setTraceModalTaskId] = useState<string | null>(null);
-  const traceModalTask = traceModalTaskId
-    ? delegatedTasks.find((t) => t.taskId === traceModalTaskId) ?? null
-    : null;
+  const viewingSubagentId = useSessionStore((state) => state.viewingSubagentId);
+  const setViewingSubagent = useSessionStore((state) => state.setViewingSubagent);
+  const viewingParallelWorker = useSessionStore((state) => state.viewingParallelWorker);
   const agents = useAgentStore((state) => state.agents);
 
-  const statusLabel = (status: AgentRunStatus) => {
-    switch (status) {
-      case 'running': return t('taskPanel.statusRunning');
-      case 'waiting_approval': return t('taskPanel.statusWaitingApproval');
-      case 'completed': return t('taskPanel.statusCompleted');
-      case 'failed': return t('taskPanel.statusFailed');
-      case 'aborted': return t('taskPanel.statusAborted');
-    }
-  };
-
-  const isTaskExpanded = (taskId: string, status: string) => {
-    if (expandedTasks[taskId] !== undefined) {
-      return expandedTasks[taskId];
-    }
-    return status === 'running';
-  };
-
-  const toggleTaskExpand = (taskId: string, status: string) => {
-    setExpandedTasks((prev) => ({
-      ...prev,
-      [taskId]: !isTaskExpanded(taskId, status),
-    }));
-  };
-
-  const getAgentName = (task: DelegatedTask) => {
-    const matched = agents.find((agent) => (agent as { slug?: string }).slug === task.agentSlug || agent.name === task.agentSlug);
-    return matched ? matched.name : (task.agentName || task.agentSlug);
-  };
-
-  const activeRun = useMemo(() => agentRuns.find((run) => run.id === activeRunId) ?? null, [activeRunId, agentRuns]);
-
-  // Master Agent tool call summary
-  const toolSummary = useMemo(() => {
-    const calls = agentToolCalls ?? [];
-    const total = calls.length;
-    const running = calls.filter((toolCall) => toolCall.status === 'running').length;
-    const failed = calls.filter((toolCall) => toolCall.status === 'error');
-    return { total, running, failed };
-  }, [agentToolCalls]);
+  const projection = useMemo(
+    () => projectActivityPanel({
+      activeSessionId,
+      activeRunId,
+      agentRuns,
+      agentToolCalls,
+      delegatedTasks,
+      parallelBatches,
+      pendingApproval,
+      pendingApprovals,
+      approvalHistory,
+      agents,
+      viewingSubagentId,
+      viewingParallelWorker,
+      t,
+    }),
+    [
+      activeSessionId,
+      activeRunId,
+      agentRuns,
+      agentToolCalls,
+      delegatedTasks,
+      parallelBatches,
+      pendingApproval,
+      pendingApprovals,
+      approvalHistory,
+      agents,
+      viewingSubagentId,
+      viewingParallelWorker,
+      t,
+    ],
+  );
 
   useEffect(() => {
+    if (!isOpen) return;
     if (!activeSessionId) return;
     fetchAgentActivity(activeSessionId).catch(() => undefined);
-  }, [activeSessionId, fetchAgentActivity]);
-
-  // D-05: Newest Sub Agent on top (sort by startedAt descending)
-  const sortedTasks = useMemo(
-    () => [...delegatedTasks].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0)),
-    [delegatedTasks],
-  );
+  }, [isOpen, activeSessionId, fetchAgentActivity]);
 
   return (
     <>
-      {!activeSessionId && (
-        <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoSession')}</div>
+      <BackgroundJobsSection isOpen={isOpen} />
+
+      {projection.sessionEmptyState && (
+        <div className="text-xs text-[var(--color-text-muted)]">{projection.sessionEmptyState.message}</div>
       )}
 
-      {activeSessionId && !activeRun && (
-        <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoRun')}</div>
-      )}
-
-      {activeRun && (
+      {projection.runSection && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
           <div className="flex items-center gap-2">
-            <RunStatusIcon status={activeRun.status} />
+            <RunStatusIcon status={projection.runSection.run.status} />
             <div className="text-sm font-medium text-[var(--color-text-primary)]">
-              {statusLabel(activeRun.status)}
+              {projection.runSection.statusLabel}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+          <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
             <Clock className="w-3 h-3" aria-hidden="true" />
-            <span>{new Date(activeRun.started_at).toLocaleTimeString()}</span>
+            <span>{new Date(projection.runSection.startedAt).toLocaleTimeString()}</span>
           </div>
-          {activeRun.error && (
-            <div className="text-xs text-[var(--color-danger)] whitespace-pre-wrap">{activeRun.error}</div>
+          {projection.runSection.error && (
+            <div className="text-xs text-[var(--color-danger)] whitespace-pre-wrap">{projection.runSection.error}</div>
           )}
         </div>
       )}
 
-      {activeRun && toolSummary.total > 0 && (
+      {projection.toolSummarySection && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-3 space-y-2">
           <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">{t('taskPanel.toolSummaryTitle')}</h3>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
-              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{toolSummary.total}</div>
+              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.toolSummarySection.total}</div>
               {/* [P1-B] 10px → 11px secondary */}
-              <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryTotal')}</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryTotal')}</div>
             </div>
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
-              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{toolSummary.running}</div>
-              <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryRunning')}</div>
+              <div className="text-sm font-semibold text-[var(--color-text-primary)]">{projection.toolSummarySection.running}</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryRunning')}</div>
             </div>
             <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-app)] px-2 py-1.5">
-              <div className="text-sm font-semibold text-[var(--color-danger)]">{toolSummary.failed.length}</div>
-              <div className="text-[11px] text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryFailed')}</div>
+              <div className="text-sm font-semibold text-[var(--color-danger)]">{projection.toolSummarySection.failedCount}</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">{t('taskPanel.toolSummaryFailed')}</div>
             </div>
           </div>
-          {toolSummary.failed.slice(0, 3).map((toolCall) => (
-            <div key={toolCall.id} className="text-[11px] text-[var(--color-danger)]">
-              {toolCall.tool_name}: {toolCall.error || t('taskPanel.toolCallFailed')}
+          {projection.toolSummarySection.failedCalls.map((toolCall) => (
+            <div key={toolCall.id} className="text-xs text-[var(--color-danger)]">
+              {toolCall.toolName}: {toolCall.errorText}
             </div>
           ))}
         </div>
       )}
 
-      {pendingApproval && (
-        <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
+      {projection.conversationApprovalSections.map((approvalSection) => (
+        <div key={approvalSection.approvalId} className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-bg-surface)] p-3 shadow-sm space-y-3">
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-warning-dim)] text-[var(--color-warning)]">
               <ShieldAlert className="w-4 h-4" aria-hidden="true" />
             </div>
             <div className="min-w-0">
               {/* [P2-G] div → h3 for proper heading hierarchy */}
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.approvalTitle')}</h3>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{approvalSection.title}</h3>
               {/* [P1-B] muted → secondary */}
-              <div className="mt-0.5 text-[11px] text-[var(--color-text-secondary)]">
-                {pendingApproval.actions.length > 1 ? t('taskPanel.approvalActionsMultiple', { count: pendingApproval.actions.length }) : t('taskPanel.approvalActionsSingle')}
+              <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+                {approvalSection.actionCountText}
               </div>
+              {approvalSection.sourceAgent && (
+                <div className="mt-1 text-xs font-medium text-[var(--color-text-primary)]">{approvalSection.sourceAgent}</div>
+              )}
+              {approvalSection.delegatedTask && (
+                <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">{approvalSection.delegatedTask}</div>
+              )}
             </div>
           </div>
-          {pendingApproval.actions.map((action, index) => (
-            <ApprovalActionCard key={`${action.name}-${index}`} action={action} />
-          ))}
+          <div id={`pending-approval-actions-${approvalSection.approvalId}`} className="space-y-3 w-full">
+            {approvalSection.actions.map((summary) => (
+              <ApprovalActionCard key={summary.key} summary={summary} />
+            ))}
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-primary text-xs" onClick={() => resolveApproval('approve')}>
+            <button type="button" className="btn btn-primary text-xs min-h-11" aria-label={`${t('common.approve')} ${approvalSection.sourceAgent || ''}`.trim()} aria-describedby={`pending-approval-actions-${approvalSection.approvalId}`} onClick={() => pendingApprovals.length > 0 ? resolveApproval('approve', undefined, approvalSection.approvalId) : resolveApproval('approve')}>
               {t('common.approve')}
             </button>
-            <button type="button" className="btn btn-secondary text-xs text-[var(--color-danger)]" onClick={() => resolveApproval('reject')}>
+            <button type="button" className="btn btn-secondary text-xs min-h-11 text-[var(--color-danger)]" aria-label={`${t('common.reject')} ${approvalSection.sourceAgent || ''}`.trim()} aria-describedby={`pending-approval-actions-${approvalSection.approvalId}`} onClick={() => pendingApprovals.length > 0 ? resolveApproval('reject', undefined, approvalSection.approvalId) : resolveApproval('reject')}>
               {t('common.reject')}
             </button>
           </div>
         </div>
+      ))}
+
+      {projection.approvalHistorySection.length > 0 && (
+        <section className="space-y-2" aria-label={t('taskPanel.approvalHistoryTitle')}>
+          <h3 className="text-xs font-semibold text-[var(--color-text-primary)]">{t('taskPanel.approvalHistoryTitle')}</h3>
+          {projection.approvalHistorySection.map((item) => (
+            <div key={item.approvalId} className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-[var(--color-text-primary)]">{item.sourceAgent} · {item.toolName}</span>
+                <span className="text-[var(--color-text-secondary)]">{item.status}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[var(--color-text-muted)]">
+                <span>{item.outcome}</span>
+                <time dateTime={new Date(item.resolvedAt).toISOString()}>{new Date(item.resolvedAt).toLocaleTimeString()}</time>
+              </div>
+            </div>
+          ))}
+        </section>
       )}
 
-      {activeRun && toolSummary.total === 0 && !pendingApproval && (
+
+      {projection.runSection && !projection.toolSummarySection && !projection.conversationApprovalSection && (
         <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoToolActivity')}</div>
       )}
 
-      {sortedTasks.length > 0 && (() => {
-        const total = sortedTasks.length;
-        const completedCount = sortedTasks.filter(t => t.status === 'success' || t.status === 'failure').length;
-        const percentage = total > 0 ? Math.round((completedCount / total) * 100) : 0;
-        const allSubagentsComplete = total > 0 && sortedTasks.every(t => t.status === 'success' || t.status === 'failure');
-        const isMasterRunning = activeRun && activeRun.status === 'running';
-
-        return (
-          <div className="space-y-3">
-            {/* Sub Agent progress bar */}
-            <div className="space-y-1.5 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg p-3">
-              <div className="flex items-center justify-between text-[11px] font-medium text-[var(--color-text-secondary)]">
-                <span>{t('taskPanel.subagentProgress')}</span>
-                <span>{t('taskPanel.subagentProgressCount', { done: completedCount, total })}</span>
-              </div>
-              {/* [P1-A] motion-reduce on progress transition */}
-              <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40">
-                <div
-                  className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500 ease-out motion-reduce:transition-none"
-                  style={{ width: `${percentage}%` }}
-                />
-              </div>
+      {projection.delegatedWorkSection && (
+        <div className="space-y-3">
+          {/* Sub Agent progress bar */}
+          <div className="space-y-1.5 bg-[var(--color-bg-surface)] border border-[var(--color-border)] rounded-lg p-3">
+            <div className="flex items-center justify-between text-xs font-medium text-[var(--color-text-secondary)]">
+              <span>{t('taskPanel.subagentProgress')}</span>
+              <span>{t('taskPanel.subagentProgressCount', {
+                done: projection.delegatedWorkSection.progress.completedCount,
+                total: projection.delegatedWorkSection.progress.total,
+              })}</span>
             </div>
+            {/* [P1-A] motion-reduce on progress transition */}
+            <div
+              role="progressbar"
+              aria-valuenow={projection.delegatedWorkSection.progress.percentage}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={t('taskPanel.subagentProgress')}
+              className="h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-app)] border border-[var(--color-border)]/40"
+            >
+              <div
+                className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                style={{ width: `${projection.delegatedWorkSection.progress.percentage}%` }}
+              />
+            </div>
+          </div>
 
-            {/* Synthesis indicator */}
-            {allSubagentsComplete && isMasterRunning && (
-              // [P1-A] motion-reduce on both pulse and spin
-              <div className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-[11px] text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
-                <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                <span>{t('taskPanel.synthesizing', { count: total })}</span>
-              </div>
-            )}
+          {/* Synthesis indicator */}
+          {projection.delegatedWorkSection.synthesisText && (
+            // [P1-A] motion-reduce on both pulse and spin
+            <div aria-live="polite" className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/15 px-3 py-2 text-xs text-[var(--color-accent)] font-medium animate-pulse motion-reduce:animate-none">
+              <Loader className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              <span>{projection.delegatedWorkSection.synthesisText}</span>
+            </div>
+          )}
 
-            {/* Activity Trail — Agent orchestration timeline (D-05: newest first) */}
-            <div>
-              <h3 className="text-xs font-semibold text-[var(--color-text-primary)] mb-1.5">
-                {t('taskPanel.delegatedTasksTitle')}
-              </h3>
-              <div className="relative">
-                {/* Vertical timeline rail */}
-                {sortedTasks.length > 1 && (
-                  <div
-                    className="absolute left-[3px] top-3 bottom-3 w-px bg-[var(--color-border)]"
-                    aria-hidden="true"
+          {/* Activity Trail — Agent orchestration timeline (D-05: newest first) */}
+          <div>
+            <h3 className="text-xs font-semibold text-[var(--color-text-primary)] mb-1.5">
+              {t('taskPanel.delegatedTasksTitle')}
+            </h3>
+            <div className="relative">
+              {/* Vertical timeline rail */}
+              {projection.delegatedWorkSection.tasks.length > 1 && (
+                <div
+                  className="absolute left-2 top-3 bottom-3 w-px bg-[var(--color-border)]"
+                  aria-hidden="true"
+                />
+              )}
+              <div className="space-y-0">
+                {projection.delegatedWorkSection.tasks.map((item) => (
+                  <DelegatedTaskCard
+                    key={item.task.taskId}
+                    item={item}
+                    onSelect={() => setViewingSubagent(item.task.taskId)}
                   />
-                )}
-                <div className="space-y-0.5">
-                  {sortedTasks.map((task) => (
-                    <DelegatedTaskCard
-                      key={task.taskId}
-                      task={task}
-                      expanded={isTaskExpanded(task.taskId, task.status)}
-                      onToggle={() => toggleTaskExpand(task.taskId, task.status)}
-                      onOpenTrace={() => setTraceModalTaskId(task.taskId)}
-                      agentName={getAgentName(task)}
-                    />
-                  ))}
-                </div>
+                ))}
               </div>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
-      {sortedTasks.length === 0 && activeRun && toolSummary.total === 0 && !pendingApproval && (
+      {!projection.delegatedWorkSection && projection.runSection && !projection.toolSummarySection && !projection.conversationApprovalSection && (
         <div className="text-xs text-[var(--color-text-muted)]">{t('taskPanel.emptyNoDelegatedTasks')}</div>
       )}
 
-      <AgentTraceModal
-        open={traceModalTaskId !== null}
-        onClose={() => setTraceModalTaskId(null)}
-        task={traceModalTask}
-      />
+      <ParallelBatchSection section={projection.parallelWorkSection} />
+
     </>
   );
 }
 
-export function TaskPanel({ isOpen, onClose, width, onResize }: TaskPanelProps) {
+export function TaskPanel({ isOpen, onClose, embedded = false }: TaskPanelProps) {
   const { t } = useTranslation();
-  const [isResizing, setIsResizing] = useState(false);
-  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
-
-  void onClose;
-
-  const handleMouseDown = (event: React.MouseEvent) => {
-    event.preventDefault();
-    setIsResizing(true);
-  };
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [animateActive, setAnimateActive] = useState(isOpen);
 
   useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = window.innerWidth - event.clientX;
-      const clampedWidth = Math.min(600, Math.max(300, newWidth));
-      onResize(clampedWidth);
-    };
-
-    const handleMouseUp = () => setIsResizing(false);
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.userSelect = 'none';
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.body.style.userSelect = '';
-      };
+    if (isOpen) {
+      setShouldRender(true);
+      const animTimer = setTimeout(() => setAnimateActive(true), 10);
+      return () => clearTimeout(animTimer);
+    } else {
+      setAnimateActive(false);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+      }, 200);
+      return () => clearTimeout(timer);
     }
-    return undefined;
-  }, [isResizing, onResize]);
+  }, [isOpen]);
+
+  if (!shouldRender) return null;
 
   return (
     <aside
-      className={`h-full bg-[var(--color-bg-sidebar)] flex flex-col relative shrink-0 ${
-        isResizing ? '' : 'transition-all duration-300 ease-in-out motion-reduce:transition-none'
-      } ${
-        isOpen
-          ? 'border-l border-[var(--color-border)] opacity-100'
-          : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
+      aria-label={t('taskPanel.title')}
+      className={`${embedded
+        ? 'h-full w-[360px] min-w-[300px] max-w-[440px] border-l'
+        : 'w-[360px] max-h-[70vh] rounded-[var(--radius-lg)] border'
+      } bg-[var(--color-bg-surface)] border-[var(--color-border)] flex flex-col overflow-hidden origin-top-right transition-[opacity,transform] duration-200 ease-in-out ${
+        animateActive
+          ? 'opacity-100 scale-100 pointer-events-auto'
+          : 'opacity-0 scale-[0.98] pointer-events-none'
       }`}
-      style={{ width: isOpen ? width : 0 }}
     >
-      {isOpen && (
-        <>
-          <div
-            onMouseDown={handleMouseDown}
-            className="absolute left-[-22px] top-0 bottom-0 w-11 cursor-col-resize z-50 flex justify-center"
-          >
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-valuenow={width}
-              aria-valuemin={300}
-              aria-valuemax={600}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowLeft') { onResize(Math.max(300, width - 40)); }
-                if (e.key === 'ArrowRight') { onResize(Math.min(600, width + 40)); }
-              }}
-              className={`w-1.5 h-full transition-colors duration-150 motion-reduce:transition-none outline-none ${isResizing ? 'bg-[var(--color-accent)]/80' : 'hover:bg-[var(--color-accent)]/40'}`}
-            />
-          </div>
+      <div className="flex min-h-10 items-center justify-between px-4 border-b border-[var(--color-border)] shrink-0 select-none">
+        <h2 className="text-[13px] font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          aria-label={t('common.close')}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] h-[57px] shrink-0 select-none">
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('taskPanel.title')}</h2>
-          </div>
-
-          <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            <TaskPanelContent expandedTasks={expandedTasks} setExpandedTasks={setExpandedTasks} />
-          </div>
-        </>
-      )}
+      <div className="flex-1 p-4 overflow-y-auto space-y-4">
+        <TaskPanelContent isOpen={isOpen} />
+      </div>
     </aside>
   );
 }

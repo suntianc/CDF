@@ -4,12 +4,12 @@ import { MCPServer } from '../../shared/types';
 
 interface McpCacheEntry {
   client: MultiServerMCPClient | null;
-  tools: StructuredToolInterface[];
+  toolsByServer: Map<string, StructuredToolInterface[]>;
   configHash: string;
 }
 
-// 按 agentId 缓存 MCP 长连接，配置不变时复用（Agent 运行时用）
-const mcpCache = new Map<string, McpCacheEntry>();
+// Agent 运行时共享一套 MCP 长连接；Agent 级差异只过滤工具清单。
+let mcpCache: McpCacheEntry | null = null;
 
 // 按 serverId 缓存 MCP 长连接，供健康检查复用
 const serverClients = new Map<string, { client: MultiServerMCPClient; lastUsed: number }>();
@@ -19,7 +19,9 @@ const CONNECTION_TTL = 5 * 60 * 1000;
 
 function hashServers(servers: MCPServer[]): string {
   return JSON.stringify(
-    servers.map((s) => ({ id: s.id, server_type: s.server_type, config: s.config }))
+    [...servers]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((s) => ({ id: s.id, server_type: s.server_type, config: s.config }))
   );
 }
 
@@ -120,37 +122,51 @@ export async function disconnectMcpServer(serverId: string): Promise<void> {
  * 断开所有 MCP 服务器连接（应用退出时调用）
  */
 export async function disconnectAllMcpServers(): Promise<void> {
-  for (const [_serverId, cached] of serverClients) {
-    await cached.client.close().catch(() => {});
-  }
+  const closes = [...serverClients.values()].map((cached) =>
+    cached.client.close().catch(() => {}),
+  );
+  await Promise.all(closes);
   serverClients.clear();
 }
 
 export async function loadMcpTools(
-  agentId: string,
-  servers: MCPServer[]
+  _agentId: string,
+  servers: MCPServer[],
+  sharedServers: MCPServer[] = servers,
 ): Promise<{ client: MultiServerMCPClient | null; tools: StructuredToolInterface[] }> {
-  const configHash = hashServers(servers);
-  const cached = mcpCache.get(agentId);
+  const configHash = hashServers(sharedServers);
 
-  // 配置未变，直接复用缓存的连接和工具列表
-  if (cached && cached.configHash === configHash) {
-    return { client: cached.client, tools: cached.tools };
+  // 全局配置未变，复用共享连接；按当前 Agent 可见 server 过滤工具。
+  if (mcpCache && mcpCache.configHash === configHash) {
+    return {
+      client: mcpCache.client,
+      tools: collectToolsForServers(mcpCache.toolsByServer, servers),
+    };
   }
 
-  // 配置变更或首次连接，关闭旧连接
-  if (cached?.client) {
-    await cached.client.close().catch(() => {});
+  // 全局配置变更或首次连接，关闭旧共享连接。
+  if (mcpCache?.client) {
+    await mcpCache.client.close().catch(() => {});
   }
 
-  if (servers.length === 0) {
-    const entry: McpCacheEntry = { client: null, tools: [], configHash };
-    mcpCache.set(agentId, entry);
+  if (sharedServers.length === 0) {
+    const entry: McpCacheEntry = { client: null, toolsByServer: new Map(), configHash };
+    mcpCache = entry;
     return { client: null, tools: [] };
   }
 
-  const client = createMcpClient(servers);
-  const tools = await client.getTools();
-  mcpCache.set(agentId, { client, tools, configHash });
-  return { client, tools };
+  const client = createMcpClient(sharedServers);
+  const toolEntries = await Promise.all(
+    sharedServers.map(async (server) => [server.id, await client.getTools(server.id)] as const),
+  );
+  const toolsByServer = new Map<string, StructuredToolInterface[]>(toolEntries);
+  mcpCache = { client, toolsByServer, configHash };
+  return { client, tools: collectToolsForServers(toolsByServer, servers) };
+}
+
+function collectToolsForServers(
+  toolsByServer: Map<string, StructuredToolInterface[]>,
+  servers: MCPServer[],
+): StructuredToolInterface[] {
+  return servers.flatMap((server) => toolsByServer.get(server.id) ?? []);
 }

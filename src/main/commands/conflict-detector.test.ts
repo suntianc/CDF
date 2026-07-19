@@ -11,18 +11,18 @@ describe('conflict-detector', () => {
     const result = detectConflicts([
       cmd('goal', 'system'),
       cmd('arxiv', 'mcp'),
-      cmd('review', 'workflow'),
+      cmd('review', 'cmd:project'),
     ]);
     expect(result).toEqual([]);
   });
 
-  it('case 1: system /goal + workflow /goal → 1 error with 2 entries', () => {
-    const result = detectConflicts([cmd('goal', 'system'), cmd('goal', 'workflow')]);
+  it('case 1: system /goal + cmd:system /goal → 1 error with 2 entries', () => {
+    const result = detectConflicts([cmd('goal', 'system'), cmd('goal', 'cmd:system')]);
     expect(result).toHaveLength(1);
     expect(result[0].commandName).toBe('goal');
     expect(result[0].conflicts).toEqual([
       { source: 'system', badge: '[system]' },
-      { source: 'workflow', badge: '[workflow]' },
+      { source: 'cmd:system', badge: '[cmd:system]' },
     ]);
   });
 
@@ -42,14 +42,14 @@ describe('conflict-detector', () => {
     const result = detectConflicts([
       cmd('multi', 'system'),
       cmd('multi', 'mcp'),
-      cmd('multi', 'workflow'),
+      cmd('multi', 'cmd:system'),
     ]);
     expect(result).toHaveLength(1);
     expect(result[0].conflicts).toHaveLength(3);
   });
 
-  it('case 5: CJK collision: skill /上下文 + workflow /上下文 (NFKC normalized equal) → 1 error', () => {
-    const result = detectConflicts([cmd('上下文', 'skill:project'), cmd('上下文', 'workflow')]);
+  it('case 5: CJK collision: skill /上下文 + cmd:system /上下文 (NFKC normalized equal) → 1 error', () => {
+    const result = detectConflicts([cmd('上下文', 'skill:project'), cmd('上下文', 'cmd:system')]);
     expect(result).toHaveLength(1);
     expect(result[0].conflicts).toHaveLength(2);
   });
@@ -58,7 +58,7 @@ describe('conflict-detector', () => {
     // "上下文" with composed form should collide with decomposed form
     const result = detectConflicts([
       cmd('上下文', 'skill:project'),
-      cmd('上下文', 'workflow'),
+      cmd('上下文', 'cmd:system'),
     ]);
     expect(result).toHaveLength(1);
   });
@@ -83,7 +83,7 @@ describe('conflict-detector', () => {
     const result = detectConflicts([
       cmd('a', 'system'),
       cmd('a', 'mcp'),
-      cmd('b', 'workflow'),
+      cmd('b', 'cmd:project'),
       cmd('b', 'skill:global'),
     ]);
     expect(result).toHaveLength(2);

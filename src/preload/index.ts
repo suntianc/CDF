@@ -1,75 +1,149 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { IpcRendererEvent } from 'electron';
+import { typedInvoke } from './typed-ipc';
+import { llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
+import type { IpcEventPayload } from '../shared/ipc-contract';
+import type {
+  AgentApprovalResolution,
+  CreateCustomAgentInput,
+  SaveMasterScenePromptsInput,
+  UpdateCustomAgentInput,
+  UpdateGeneralPurposeAgentInput,
+  ChatPayload,
+  JudgePayload,
+  KnowledgeEntryCreateInput,
+  KnowledgeEntrySearchOptions,
+  KnowledgeEntryUpdateInput,
+  LLMProviderSaveInput,
+  MCPServerSaveInput,
+  LLMStreamEvent,
+  MessageSaveInput,
+  PaperSearchConfigKey,
+  ParallelTaskStepEvent,
+  ProjectScene,
+  SearchProviderSaveInput,
+  SkillSaveInput,
+  WorkflowSaveInput,
+  StageGateResolution,
+  WorkflowRunProjectionEvent,
+} from '../shared/types';
+import type { GlobalSkillReference } from '../shared/skills';
+import type { AISubscriptionEntryId, CapabilityId } from '../shared/ai-subscriptions';
+import type { CapabilityJobAction } from '../shared/capability-jobs';
+import {
+  FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL,
+  FLOW_DIAGRAM_EXPORT_RESPONSE_CHANNEL,
+  type FlowDiagramExportRequest,
+  type FlowDiagramExportResponse,
+} from '../shared/flow-diagrams';
 
-contextBridge.exposeInMainWorld('electronAPI', {
+const api = {
   store: {
-    get: (key: string) => ipcRenderer.invoke('store:get', key),
-    set: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
+    get: (key: string) => typedInvoke('store:get', key),
+    set: (key: string, value: unknown) => typedInvoke('store:set', key, value),
+  },
+  workingState: {
+    getStorageStatus: () => typedInvoke('working-state:get-storage-status'),
+    optimizeStorage: () => typedInvoke('working-state:optimize-storage'),
+  },
+  aiSubscriptions: {
+    getEntries: () => typedInvoke('aiSubscriptions:getEntries'),
+    getActiveLogins: () => typedInvoke('aiSubscriptions:getActiveLogins'),
+    setCapabilityEnabled: (entryId: AISubscriptionEntryId, capabilityId: CapabilityId, enabled: boolean) =>
+      typedInvoke('aiSubscriptions:setCapabilityEnabled', entryId, capabilityId, enabled),
+    connectWithKey: (entryId: AISubscriptionEntryId, subscriptionKey: string) =>
+      typedInvoke('aiSubscriptions:connectWithKey', entryId, subscriptionKey),
+    startLogin: (entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>) =>
+      typedInvoke('aiSubscriptions:startLogin', entryId),
+    pollLogin: (entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) =>
+      typedInvoke('aiSubscriptions:pollLogin', entryId, attemptId),
+    cancelLogin: (entryId: Extract<AISubscriptionEntryId, 'codex-oauth' | 'xai-oauth'>, attemptId: string) =>
+      typedInvoke('aiSubscriptions:cancelLogin', entryId, attemptId),
+    disconnect: (entryId: AISubscriptionEntryId) =>
+      typedInvoke('aiSubscriptions:disconnect', entryId),
+    getCapabilityRoutes: (capabilityId: CapabilityId) =>
+      typedInvoke('aiSubscriptions:getCapabilityRoutes', capabilityId),
+    refreshStatus: (entryId: AISubscriptionEntryId) =>
+      typedInvoke('aiSubscriptions:refreshStatus', entryId),
+  },
+  shell: {
+    openExternalUrl: (url: string) => typedInvoke('shell:openExternalUrl', url),
+  },
+  skills: {
+    getGlobalSceneExposure: (skill: GlobalSkillReference) =>
+      typedInvoke('skills:getGlobalSceneExposure', skill),
+    setGlobalSceneExposure: (skill: GlobalSkillReference, sceneId: string, exposed: boolean) =>
+      typedInvoke('skills:setGlobalSceneExposure', skill, sceneId, exposed),
   },
   db: {
-    getProjects: () => ipcRenderer.invoke('db:getProjects'),
-    createProject: (name: string, projectPath: string) =>
-      ipcRenderer.invoke('db:createProject', name, projectPath),
-    deleteProject: (id: string) => ipcRenderer.invoke('db:deleteProject', id),
-    renameProject: (id: string, name: string) => ipcRenderer.invoke('db:renameProject', id, name),
-    getSessions: (projectId: string) => ipcRenderer.invoke('db:getSessions', projectId),
-    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) =>
-      ipcRenderer.invoke('db:createSession', projectId, name, parentSessionId, summary, agentId),
-    deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
-    getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
-    saveMessage: (message: any) => ipcRenderer.invoke('db:saveMessage', message),
-    updateMessageThinkDuration: (id: string, seconds: number) => ipcRenderer.invoke('db:updateMessageThinkDuration', id, seconds),
-    deleteMessage: (id: string) => ipcRenderer.invoke('db:deleteMessage', id),
-    getProviders: () => ipcRenderer.invoke('db:getProviders'),
-    saveProvider: (provider: any) => ipcRenderer.invoke('db:saveProvider', provider),
-    deleteProvider: (id: string) => ipcRenderer.invoke('db:deleteProvider', id),
-    setActiveProvider: (id: string) => ipcRenderer.invoke('db:setActiveProvider', id),
-    selectDirectory: () => ipcRenderer.invoke('db:selectDirectory'),
-    // Phase 3: Agent Library
-    getAgents: (projectId: string) => ipcRenderer.invoke('db:getAgents', projectId),
-    saveAgent: (agent: any) => ipcRenderer.invoke('db:saveAgent', agent),
-    deleteAgent: (id: string) => ipcRenderer.invoke('db:deleteAgent', id),
+    getProjects: () => typedInvoke('db:getProjects'),
+    createProject: (name: string, projectPath: string, scene?: ProjectScene) =>
+      typedInvoke('db:createProject', name, projectPath, scene),
+    deleteProject: (id: string) => typedInvoke('db:deleteProject', id),
+    renameProject: (id: string, name: string) => typedInvoke('db:renameProject', id, name),
+    getSessions: (projectId: string) => typedInvoke('db:getSessions', projectId),
+    createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) =>
+      typedInvoke('db:createSession', projectId, name, parentSessionId, summary),
+    deleteSession: (sessionId: string) => typedInvoke('db:deleteSession', sessionId),
+    getMessages: (sessionId: string) => typedInvoke('db:getMessages', sessionId),
+    saveMessage: (message: MessageSaveInput) => typedInvoke('db:saveMessage', message),
+    updateMessageThinkDuration: (id: string, seconds: number) => typedInvoke('db:updateMessageThinkDuration', id, seconds),
+    deleteMessage: (id: string) => typedInvoke('db:deleteMessage', id),
+    getProviders: () => typedInvoke('db:getProviders'),
+    saveProvider: (provider: LLMProviderSaveInput) => typedInvoke('db:saveProvider', provider),
+    deleteProvider: (id: string) => typedInvoke('db:deleteProvider', id),
+    setActiveProvider: (id: string) => typedInvoke('db:setActiveProvider', id),
+    selectDirectory: () => typedInvoke('db:selectDirectory'),
+    // Global Agent Library
+    getAgents: () => typedInvoke('db:getAgents'),
+    createCustomAgent: (agent: CreateCustomAgentInput) => typedInvoke('db:createCustomAgent', agent),
+    updateCustomAgent: (id: string, agent: UpdateCustomAgentInput) => typedInvoke('db:updateCustomAgent', id, agent),
+    updateGeneralPurposeAgent: (agent: UpdateGeneralPurposeAgentInput) => typedInvoke('db:updateGeneralPurposeAgent', agent),
+    deleteCustomAgent: (id: string) => typedInvoke('db:deleteCustomAgent', id),
+    getMasterScenePrompts: () => typedInvoke('db:getMasterScenePrompts'),
+    saveMasterScenePrompts: (changes: SaveMasterScenePromptsInput[]) =>
+      typedInvoke('db:saveMasterScenePrompts', changes),
     // Phase 3: Skills
-    getSkills: (projectId: string) => ipcRenderer.invoke('db:getSkills', projectId),
-    saveSkill: (projectId: string, skill: any) => ipcRenderer.invoke('db:saveSkill', projectId, skill),
-    deleteSkill: (projectId: string, id: string) => ipcRenderer.invoke('db:deleteSkill', projectId, id),
-    importSkillDirectory: (sourceDir: string) => ipcRenderer.invoke('db:importSkillDirectory', sourceDir),
-    getSkillVersions: (skillId: string) => ipcRenderer.invoke('db:getSkillVersions', skillId),
-    getAgentRuns: (sessionId: string) => ipcRenderer.invoke('db:getAgentRuns', sessionId),
-    getAgentToolCalls: (runId: string) => ipcRenderer.invoke('db:getAgentToolCalls', runId),
-    getLatestTodos: (sessionId: string) => ipcRenderer.invoke('db:getLatestTodos', sessionId),
+    getSkills: (projectId: string) => typedInvoke('db:getSkills', projectId),
+    getGlobalSkills: () => typedInvoke('db:getGlobalSkills'),
+    saveSkill: (projectId: string, skill: SkillSaveInput) => typedInvoke('db:saveSkill', projectId, skill),
+    deleteSkill: (projectId: string, id: string) => typedInvoke('db:deleteSkill', projectId, id),
+    importSkillDirectory: (sourceDir: string) => typedInvoke('db:importSkillDirectory', sourceDir),
+    getAgentRuns: (sessionId: string) => typedInvoke('db:getAgentRuns', sessionId),
+    getAgentToolCalls: (runId: string) => typedInvoke('db:getAgentToolCalls', runId),
+    getDelegatedAgentRuns: (sessionId: string) => typedInvoke('db:getDelegatedAgentRuns', sessionId),
+    getDelegatedToolActions: (sessionId: string) => typedInvoke('db:getDelegatedToolActions', sessionId),
+    getLatestTodos: (sessionId: string) => typedInvoke('db:getLatestTodos', sessionId),
     // Phase 3: MCP Servers
-    getMcpServers: () => ipcRenderer.invoke('db:getMcpServers'),
-    saveMcpServer: (server: any) => ipcRenderer.invoke('db:saveMcpServer', server),
-    deleteMcpServer: (id: string) => ipcRenderer.invoke('db:deleteMcpServer', id),
-    toggleMcpConnection: (id: string, connected: boolean) => ipcRenderer.invoke('db:toggleMcpConnection', id, connected),
-    checkMcpHealth: (id: string) => ipcRenderer.invoke('db:checkMcpHealth', id),
-    selectFile: () => ipcRenderer.invoke('db:selectFile'),
+    getMcpServers: () => typedInvoke('db:getMcpServers'),
+    saveMcpServer: (server: MCPServerSaveInput) => typedInvoke('db:saveMcpServer', server),
+    deleteMcpServer: (id: string) => typedInvoke('db:deleteMcpServer', id),
+    toggleMcpConnection: (id: string, connected: boolean) => typedInvoke('db:toggleMcpConnection', id, connected),
+    checkMcpHealth: (id: string) => typedInvoke('db:checkMcpHealth', id),
+    selectFile: () => typedInvoke('db:selectFile'),
     // Phase 4: Tool Configs
-    getToolConfigs: () => ipcRenderer.invoke('db:getToolConfigs'),
-    saveToolConfig: (config: any) => ipcRenderer.invoke('db:saveToolConfig', config),
-    deleteToolConfig: (id: string) => ipcRenderer.invoke('db:deleteToolConfig', id),
+    getToolConfigs: () => typedInvoke('db:getToolConfigs'),
+    saveToolConfig: (config: SearchProviderSaveInput) => typedInvoke('db:saveToolConfig', config),
+    deleteToolConfig: (id: string) => typedInvoke('db:deleteToolConfig', id),
     // Phase 4: Workflows
-    getWorkflows: (projectId: string) => ipcRenderer.invoke('db:getWorkflows', projectId),
-    getWorkflow: (id: string) => ipcRenderer.invoke('db:getWorkflow', id),
-    saveWorkflow: (workflow: any) => ipcRenderer.invoke('db:saveWorkflow', workflow),
-    deleteWorkflow: (id: string) => ipcRenderer.invoke('db:deleteWorkflow', id),
-    getWorkflowExecutions: (workflowId: string) => ipcRenderer.invoke('db:getWorkflowExecutions', workflowId),
-    getWorkflowExecution: (id: string) => ipcRenderer.invoke('db:getWorkflowExecution', id),
-    getWorkflowNodeRuns: (executionId: string) => ipcRenderer.invoke('db:getWorkflowNodeRuns', executionId),
-    openFile: (filePath: string, projectId?: string) => ipcRenderer.invoke('db:openFile', filePath, projectId),
-    revealFile: (filePath: string, projectId?: string) => ipcRenderer.invoke('db:revealFile', filePath, projectId),
+    getWorkflows: (projectId: string) => typedInvoke('db:getWorkflows', projectId),
+    getWorkflow: (id: string) => typedInvoke('db:getWorkflow', id),
+    saveWorkflow: (workflow: WorkflowSaveInput) => typedInvoke('db:saveWorkflow', workflow),
+    deleteWorkflow: (id: string) => typedInvoke('db:deleteWorkflow', id),
+    openFile: (filePath: string, projectId?: string) => typedInvoke('db:openFile', filePath, projectId),
+    revealFile: (filePath: string, projectId?: string) => typedInvoke('db:revealFile', filePath, projectId),
   },
   llm: {
-    chat: (requestId: string, payload: any) => ipcRenderer.invoke('llm:chat', requestId, payload),
-    judge: (payload: any) => ipcRenderer.invoke('llm:judge', payload),
-    stopChat: (requestId: string) => ipcRenderer.invoke('llm:stopChat', requestId),
-    resolveApproval: (requestId: string, resolution: any) => ipcRenderer.invoke('llm:resolveApproval', requestId, resolution),
-    testProvider: (providerId: string) => ipcRenderer.invoke('llm:testProvider', providerId),
-    fetchProviderModels: (providerId: string) => ipcRenderer.invoke('llm:fetchProviderModels', providerId),
-    fetchOllamaModels: (apiUrl: string) => ipcRenderer.invoke('llm:fetchOllamaModels', apiUrl),
-    onChunk: (requestId: string, callback: (event: any, data: any) => void) => {
-      const channel = `llm:chunk-${requestId}`;
-      const listener = (event: any, data: any) => callback(event, data);
+    chat: (requestId: string, payload: ChatPayload) => typedInvoke('llm:chat', requestId, payload),
+    judge: (payload: JudgePayload) => typedInvoke('llm:judge', payload),
+    stopChat: (requestId: string) => typedInvoke('llm:stopChat', requestId),
+    resolveApproval: (requestId: string, resolution: AgentApprovalResolution) => typedInvoke('llm:resolveApproval', requestId, resolution),
+    testProvider: (providerId: string) => typedInvoke('llm:testProvider', providerId),
+    fetchProviderModels: (providerId: string) => typedInvoke('llm:fetchProviderModels', providerId),
+    fetchOllamaModels: (apiUrl: string) => typedInvoke('llm:fetchOllamaModels', apiUrl),
+    onChunk: (requestId: string, callback: (event: IpcRendererEvent, data: LLMStreamEvent) => void) => {
+      const channel = llmChunkChannel(requestId);
+      const listener = (event: IpcRendererEvent, data: LLMStreamEvent) => callback(event, data);
       ipcRenderer.on(channel, listener);
       return () => {
         ipcRenderer.removeListener(channel, listener);
@@ -78,43 +152,68 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   deepagents: {
     createAgent: (config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) =>
-      ipcRenderer.invoke('deepagents:createAgent', config),
-  },
-  workflow: {
-    runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) =>
-      ipcRenderer.invoke('workflow:run', workflowId, projectId, triggerSource, input),
-    stopWorkflow: (executionId: string) =>
-      ipcRenderer.invoke('workflow:stop', executionId),
-    getWorkflowEvents: (executionId: string) =>
-      ipcRenderer.invoke('workflow:getEvents', executionId),
-    onWorkflowEvent: (executionId: string, callback: (event: any, data: any) => void) => {
-      const channel = `workflow:event-${executionId}`;
-      const listener = (event: any, data: any) => callback(event, data);
+      typedInvoke('deepagents:createAgent', config),
+    onParallelTaskStep: (sessionId: string, callback: (event: IpcRendererEvent, data: ParallelTaskStepEvent) => void) => {
+      const channel = parallelTaskStepChannel(sessionId);
+      const listener = (event: IpcRendererEvent, data: ParallelTaskStepEvent) => callback(event, data);
       ipcRenderer.on(channel, listener);
-      return () => {
-        ipcRenderer.removeListener(channel, listener);
-      };
+      return () => { ipcRenderer.removeListener(channel, listener); };
     },
-    // 历史执行记录
-    listExecutions: (workflowId: string) =>
-      ipcRenderer.invoke('workflow:listExecutions', workflowId),
-    deleteExecution: (executionId: string) =>
-      ipcRenderer.invoke('workflow:deleteExecution', executionId),
-    exportExecution: (executionId: string) =>
-      ipcRenderer.invoke('workflow:exportExecution', executionId),
+  },
+  flowDiagram: {
+    onExportRequest: (callback: (request: FlowDiagramExportRequest) => void) => {
+      const listener = (_event: IpcRendererEvent, request: FlowDiagramExportRequest) => callback(request);
+      ipcRenderer.on(FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL, listener);
+      return () => ipcRenderer.removeListener(FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL, listener);
+    },
+    resolveExport: (response: FlowDiagramExportResponse) => {
+      ipcRenderer.send(FLOW_DIAGRAM_EXPORT_RESPONSE_CHANNEL, response);
+    },
+  },
+  // ===== File Management =====
+  fs: {
+    readDirectory: (rootPath: string, dirPath: string, showHidden?: boolean) =>
+      typedInvoke('fs:readDirectory', rootPath, dirPath, showHidden),
+    readFile: (rootPath: string, filePath: string) =>
+      typedInvoke('fs:readFile', rootPath, filePath),
+    getFileInfo: (rootPath: string, filePath: string) =>
+      typedInvoke('fs:getFileInfo', rootPath, filePath),
+    onDirectoryChange: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'fs:directoryChange'>) => void) => {
+      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'fs:directoryChange'>) => callback(event, data);
+      ipcRenderer.on('fs:directoryChange', listener);
+      return () => { ipcRenderer.removeListener('fs:directoryChange', listener); };
+    },
+    writeFile: (rootPath: string, filePath: string, content: string, expectedContent?: string) =>
+      typedInvoke('fs:writeFile', rootPath, filePath, content, expectedContent),
+    createFile: (rootPath: string, filePath: string) =>
+      typedInvoke('fs:createFile', rootPath, filePath),
+    createDirectory: (rootPath: string, dirPath: string) =>
+      typedInvoke('fs:createDirectory', rootPath, dirPath),
+    renameEntry: (rootPath: string, oldPath: string, newName: string) =>
+      typedInvoke('fs:renameEntry', rootPath, oldPath, newName),
+    trashEntry: (rootPath: string, targetPath: string) =>
+      typedInvoke('fs:trashEntry', rootPath, targetPath),
+    showItemInFolder: (filePath: string) =>
+      typedInvoke('fs:showItemInFolder', filePath),
+    watchDirectory: (rootPath: string, dirPath: string) =>
+      typedInvoke('fs:watchDirectory', rootPath, dirPath),
+    unwatchDirectory: (dirPath: string) =>
+      typedInvoke('fs:unwatchDirectory', dirPath),
   },
   // ===== Phase 6 Plan 02: Slash Command Registry bridge =====
   commands: {
-    list: (projectId: string, agentId: string) =>
-      ipcRenderer.invoke('commands:list', projectId, agentId),
+    list: (projectId: string, agentId: string, sessionId?: string | null) =>
+      typedInvoke('commands:list', projectId, agentId, sessionId),
     readProjectCommands: (projectId: string) =>
-      ipcRenderer.invoke('commands:readProjectCommands', projectId),
+      typedInvoke('commands:readProjectCommands', projectId),
     // 08.2 D-06: lazy body load on dispatch. Returns body + mtime; defensive
     // empty values on path-traversal/missing-file/IO failure.
-    readBody: (bodyPath: string): Promise<{ body: string; mtimeMs: number }> =>
-      ipcRenderer.invoke('commands:readBody', bodyPath),
-    onChanged: (callback: (event: any, data: { source: string }) => void) => {
-      const listener = (event: any, data: { source: string }) => callback(event, data);
+    readBody: (bodyPath: string) =>
+      typedInvoke('commands:readBody', bodyPath),
+    readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string, sessionId?: string | null) =>
+      typedInvoke('commands:readSkillBody', projectId, agentId, skillPath, sessionId),
+    onChanged: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => void) => {
+      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => callback(event, data);
       ipcRenderer.on('commands:changed', listener);
       return () => {
         ipcRenderer.removeListener('commands:changed', listener);
@@ -123,11 +222,74 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Phase 8 — D-16: chokidar fallback notification. Fired once per session
     // when chokidar.watch() fails (EPERM/ENOENT/EBUSY). Renderer shows a
     // user-visible toast and re-fetches the (now static) command list.
-    onFallback: (callback: (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => void) => {
-      const listener = (event: any, data: { scope: 'system' | 'project'; dir: string; error: string }) => callback(event, data);
+    onFallback: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:fallback'>) => void) => {
+      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:fallback'>) => callback(event, data);
       ipcRenderer.on('commands:fallback', listener);
       return () => {
         ipcRenderer.removeListener('commands:fallback', listener);
+      };
+    },
+  },
+  workflowRun: {
+    start: (workflowId: string, projectId: string) =>
+      typedInvoke('workflow-run:start', workflowId, projectId),
+    getRuns: (workflowId: string) =>
+      typedInvoke('workflow-run:get-runs', workflowId),
+    getRun: (runId: string) =>
+      typedInvoke('workflow-run:get-run', runId),
+    getRunBySession: (sessionId: string) =>
+      typedInvoke('workflow-run:get-run-by-session', sessionId),
+    getStageGates: (runId: string) =>
+      typedInvoke('workflow-run:get-stage-gates', runId),
+    resolveStageGate: (gateId: string, resolution: StageGateResolution) =>
+      typedInvoke('workflow-run:resolve-stage-gate', gateId, resolution),
+    abort: (runId: string) =>
+      typedInvoke('workflow-run:abort', runId),
+    getTasks: (runId: string) =>
+      typedInvoke('workflow-run:get-tasks', runId),
+    onProjectionEvent: (callback: (data: WorkflowRunProjectionEvent) => void) => {
+      const listener = (_event: IpcRendererEvent, data: WorkflowRunProjectionEvent) => callback(data);
+      ipcRenderer.on('workflow-run:projection-event', listener);
+      return () => { ipcRenderer.removeListener('workflow-run:projection-event', listener); };
+    },
+  },
+  conversation: {
+    getActiveRun: (sessionId: string) => typedInvoke('conversation:get-active-run', sessionId),
+    onRunEvent: (
+      callback: (data: IpcEventPayload<'conversation:run-event'>) => void
+    ) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        data: IpcEventPayload<'conversation:run-event'>
+      ) => callback(data);
+      ipcRenderer.on('conversation:run-event', listener);
+      return () => {
+        ipcRenderer.removeListener('conversation:run-event', listener);
+      };
+    },
+    onMessagesChanged: (
+      callback: (data: IpcEventPayload<'conversation:messages-changed'>) => void
+    ) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        data: IpcEventPayload<'conversation:messages-changed'>
+      ) => callback(data);
+      ipcRenderer.on('conversation:messages-changed', listener);
+      return () => {
+        ipcRenderer.removeListener('conversation:messages-changed', listener);
+      };
+    },
+  },
+  capabilityJobs: {
+    list: (projectId: string) => typedInvoke('capability-jobs:list', projectId),
+    command: (projectId: string, jobId: string, action: CapabilityJobAction) =>
+      typedInvoke('capability-jobs:command', projectId, jobId, action),
+    onChanged: (callback: (data: IpcEventPayload<'capability-jobs:changed'>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: IpcEventPayload<'capability-jobs:changed'>) =>
+        callback(data);
+      ipcRenderer.on('capability-jobs:changed', listener);
+      return () => {
+        ipcRenderer.removeListener('capability-jobs:changed', listener);
       };
     },
   },
@@ -136,14 +298,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // infers `kind` from `path.endsWith('/')` (pitfall #4 — minimal payload).
   project: {
     listAtMentionCandidates: (projectId: string) =>
-      ipcRenderer.invoke('project:listAtMentionCandidates', projectId),
+      typedInvoke('project:listAtMentionCandidates', projectId),
+  },
+  knowledge: {
+    list: (projectId: string, options?: KnowledgeEntrySearchOptions) =>
+      typedInvoke('knowledge:list', projectId, options),
+    search: (projectId: string, options?: KnowledgeEntrySearchOptions) =>
+      typedInvoke('knowledge:search', projectId, options),
+    create: (projectId: string, input: KnowledgeEntryCreateInput) =>
+      typedInvoke('knowledge:create', projectId, input),
+    read: (projectId: string, relativePath: string) =>
+      typedInvoke('knowledge:read', projectId, relativePath),
+    update: (projectId: string, relativePath: string, input: KnowledgeEntryUpdateInput) =>
+      typedInvoke('knowledge:update', projectId, relativePath, input),
+    delete: (projectId: string, relativePath: string) =>
+      typedInvoke('knowledge:delete', projectId, relativePath),
+  },
+  papers: {
+    openPdf: (projectId: string, resource: string) =>
+      typedInvoke('paper-library:openPdf', projectId, resource),
+  },
+  paperSearch: {
+    getSettings: () => typedInvoke('paper-search:getSettings'),
+    saveConfigValue: (key: PaperSearchConfigKey, value: string) =>
+      typedInvoke('paper-search:saveConfigValue', key, value),
+    clearConfigValue: (key: PaperSearchConfigKey) =>
+      typedInvoke('paper-search:clearConfigValue', key),
   },
   // ===== Phase 7 Plan 01: /context token breakdown bridge (D-08) =====
   // 08.2 P4: optional contextLimit so renderer can pin the active provider
   // limit (P10 mitigation). Falls back to default 200_000 server-side.
   context: {
     currentSession: (sessionId: string, contextLimit?: number, overriddenModelName?: string) =>
-      ipcRenderer.invoke('context:currentSession', sessionId, contextLimit, overriddenModelName),
+      typedInvoke('context:currentSession', sessionId, contextLimit, overriddenModelName),
   },
   platform: process.platform,
-});
+};
+
+contextBridge.exposeInMainWorld('electronAPI', api);
+
+// window.electronAPI 的类型即实际暴露对象：契约 → preload → window，结构性漂移不可能存在。
+export type PreloadApi = typeof api;

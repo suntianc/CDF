@@ -22,7 +22,16 @@ vi.mock('lucide-react', () => {
   return {
     File: sentinel('file'),
     Folder: sentinel('folder'),
+    FileVideo: sentinel('file-video'),
+    FolderOpen: sentinel('folder-open'),
     AlertTriangle: sentinel('alert-triangle'),
+    // 共享 AlertBlock 经由 StreamdownRenderer 进入 MessageItem 子树。
+    Info: sentinel('info'),
+    Lightbulb: sentinel('lightbulb'),
+    AlertCircle: sentinel('alert-circle'),
+    AlertOctagon: sentinel('alert-octagon'),
+    CheckCircle2: sentinel('check-circle-2'),
+    XCircle: sentinel('x-circle'),
   };
 });
 
@@ -90,4 +99,31 @@ describe('MessageItem at-token rendering (Phase 08.3 — C-03)', () => {
     // The AtToken component sets data-at-token-kind={kind} — dir tokens have "dir"
     expect(token.getAttribute('data-at-token-kind')).toBe('dir');
   });
+  it('renders a structured capability Job event instead of raw JSON', () => {
+    const message = {
+      ...baseMessage(JSON.stringify({
+        type: 'capability_job_event',
+        eventId: 'capability-job:job-1:terminal',
+        jobId: 'job-1',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        status: 'completed',
+        provider: 'minimax-token-plan',
+        mode: 'first-frame',
+        artifacts: [{ path: '/project/video.mp4', mimeType: 'video/mp4' }],
+        error: null,
+      })),
+      role: 'assistant' as const,
+    };
+
+    const { container } = render(
+      <MessageItem message={message} isLast={false} isStreaming={false} />
+    );
+
+    expect(container.textContent).toContain('conversation.capabilityJob.completed');
+    expect(container.textContent).toContain('taskPanel.jobRoute.minimax-token-plan');
+    expect(container.textContent).toContain('taskPanel.videoModeValue.first-frame');
+    expect(container.textContent).not.toContain('capability_job_event');
+  });
+
 });

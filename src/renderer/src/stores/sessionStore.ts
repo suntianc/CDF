@@ -1,15 +1,42 @@
 import { create } from 'zustand';
 import { useProjectStore } from './projectStore';
 import {
+  createConversationRuntimeState,
+  hydrateConversationRuntimeStream,
+  projectConversationRuntime,
+  restoreConversationRuntime,
+  type ConversationRuntimeProjectionEffect,
+  type ConversationRuntimeProjectionState,
+} from '../components/ChatArea/conversationRuntime/conversationRuntimeProjection';
+import {
+  createConversationRuntimeRegistryState,
+  getConversationRuntimeEntry,
+  getConversationRuntimeErrorEntry,
+  getConversationRuntimeRequest,
+  mergeConversationRuntimeMessages,
+  transitionConversationRuntimeRegistry,
+  type ConversationRuntimeRegistryAction,
+  type ConversationRuntimeRegistryEffect,
+  type ConversationRuntimeRegistryState,
+} from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
+import {
   AgentApprovalRequest,
+  AgentApprovalHistoryEntry,
   AgentRun,
   AgentToolCall,
   ChatRuntimeOverrides,
+  ConversationRunStreamEnvelope,
+  ConversationRunStreamSnapshot,
+  ConversationModelSourceType,
+  ExecutionStep,
   LLMStreamEvent,
   Message,
   Session,
+  SkillAttribution,
   TodoItem,
 } from '../../../shared/types';
+import type { ReasoningEffort } from '../../../shared/ai-subscriptions';
+import { CONVERSATION_DELETE_ERROR_CODES } from '../../../shared/conversation-deletion';
 
 export function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -26,18 +53,95 @@ export function estimateTokens(text: string): number {
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
 }
 
+function parsePersistedToolValue(value: string | null | undefined): unknown {
+  if (value === null || value === undefined) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function reconcilePersistedToolMessages(messages: Message[], toolCalls: AgentToolCall[]): Message[] {
+  if (messages.length === 0 || toolCalls.length === 0) return messages;
+
+  const toolCallsById = new Map(toolCalls.map((call) => [call.id, call]));
+  let changed = false;
+
+  const nextMessages = messages.map((message) => {
+    if (message.role !== 'system') return message;
+
+    let content: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return message;
+      content = parsed as Record<string, unknown>;
+    } catch {
+      return message;
+    }
+
+    if (content.type !== 'tool') return message;
+    const call = toolCallsById.get(message.id);
+    if (!call || call.status === 'running') return message;
+
+    const nextContent = {
+      ...content,
+      name: typeof content.name === 'string' ? content.name : call.tool_name,
+      status: call.status === 'success' ? 'success' : 'error',
+      output: call.status === 'success'
+        ? (content.output ?? parsePersistedToolValue(call.output))
+        : content.output,
+      error: call.status === 'success'
+        ? undefined
+        : (content.error ?? call.error ?? 'Tool call did not complete successfully'),
+    };
+    const serialized = JSON.stringify(nextContent);
+    if (serialized === message.content) return message;
+    changed = true;
+    return { ...message, content: serialized };
+  });
+
+  return changed ? nextMessages : messages;
+}
+
 export interface SessionError {
   message: string;
+  messageParams?: Record<string, string | number>;
   recoverableActions?: { label: string; action: () => void }[];
 }
 
+export type SendMessageResult =
+  | { ok: true }
+  | { ok: false; code: 'CONVERSATION_BUSY' };
+
+export interface ParallelWorker {
+  delegatedRunId: string;
+  agentSlug: string;
+  agentName?: string;   // 来自 task_start.label
+  goal?: string;        // 来自 task_start.goal（原始任务描述）
+  summary?: string;     // 来自 task_end.summary（完成后的输出摘要）
+  status: 'running' | 'success' | 'failure';
+  steps: ExecutionStep[];
+  textBuffer: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
+export interface ParallelBatch {
+  batchId: string;
+  workers: ParallelWorker[];
+  startedAt: number;
+}
+
 export interface DelegatedTask {
+  delegatedRunId: string;
   taskId: string;
   agentSlug: string;
   agentName: string;
   goal: string;
   status: 'running' | 'success' | 'failure';
   chunks: string[];
+  steps: ExecutionStep[];
   startedAt?: number;
   completedAt?: number;
   result?: {
@@ -72,9 +176,14 @@ interface SessionState {
   agentRuns: AgentRun[];
   agentToolCalls: AgentToolCall[];
   delegatedTasks: DelegatedTask[];
+  parallelBatches: ParallelBatch[];
   todos: TodoItem[];
   pendingApproval: AgentApprovalRequest | null;
+  pendingApprovals: AgentApprovalRequest[];
+  approvalHistory: AgentApprovalHistoryEntry[];
   error: SessionError | null;
+  isConversationLoading: boolean;
+  conversationRuntimeRegistry: ConversationRuntimeRegistryState;
   // D-02/D-04/D-05: per-session user goal (in-memory, persists across switches)
   sessionGoals: Map<string, string>;
   // 08.2 P3 C1-05: per-session /goal judge status (iteration + reason).
@@ -82,54 +191,237 @@ interface SessionState {
   // on session switch — goal is sticky per P6 lock. ChatArea/GoalSystemBubble
   // filter by activeSessionId at render time.
   goalJudgeStatus: Map<string, GoalJudgeStatusEntry>;
-  sessionModelOverrides: Record<string, { providerId: string; model: string }>;
-  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => void;
+  sessionModelOverrides: Record<string, {
+    providerId: string;
+    sourceId?: string;
+    sourceType?: ConversationModelSourceType;
+    model: string;
+    reasoningEffort?: ReasoningEffort;
+  }>;
+  setSessionModelOverride: (
+    sessionId: string,
+    sourceId: string,
+    model: string,
+    sourceType?: ConversationModelSourceType
+  ) => void;
+  setSessionReasoningEffort: (sessionId: string, effort?: ReasoningEffort) => void;
   fetchSessions: (projectId: string) => Promise<void>;
-  createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => Promise<Session>;
+  createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   selectSession: (sessionId: string | null) => Promise<void>;
   fetchAgentActivity: (sessionId: string, force?: boolean) => Promise<void>;
-  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<void>;
+  sendMessage: (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => Promise<SendMessageResult>;
+  handleConversationRunEvent: (envelope: ConversationRunStreamEnvelope) => void;
+  handleMessagesChanged: (sessionId: string) => void;
+  hydrateConversationRun: (sessionId: string, expectedRequestId?: string) => Promise<void>;
   getMessagesForSession: (sessionId: string) => Message[];
   getIsSessionStreaming: (sessionId: string) => boolean;
   setSessionGoal: (sessionId: string, goal: string) => void;
   setGoalJudgeStatus: (sessionId: string, partial: Partial<GoalJudgeStatusEntry>) => void;
   getGoalJudgeStatus: (sessionId: string) => GoalJudgeStatusEntry | undefined;
   clearGoalJudgeStatus: (sessionId: string) => void;
-  resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string) => Promise<void>;
+  viewingSubagentId: string | null;
+  setViewingSubagent: (id: string | null) => void;
+  viewingParallelWorker: { batchId: string; delegatedRunId: string; agentSlug: string } | null;
+  setViewingParallelWorker: (key: { batchId: string; delegatedRunId: string; agentSlug: string } | null) => void;
+  resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string, approvalId?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
   checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
   updateMessageThinkDuration: (messageId: string, seconds: number) => void;
 }
 
-interface StreamingSessionState {
-  messages: Message[];
-  todos: TodoItem[];
-  delegatedTasks: DelegatedTask[];
-  agentRuns: AgentRun[];
-  agentToolCalls: AgentToolCall[];
-  activeRunId: string | null;
-  pendingApproval: AgentApprovalRequest | null;
-  isStreaming: boolean;
-  streamingMessageId: string | null;
-}
-
-const streamingSessionsCache = new Map<string, StreamingSessionState>();
+type StreamingSessionState = ConversationRuntimeProjectionState;
 interface ActivityFetchEntry {
   requestId: number;
   promise: Promise<void>;
 }
-const activityFetches = new Map<string, ActivityFetchEntry>();
-const latestActivityFetchRequestIds = new Map<string, number>();
-let latestSelectSessionRequestId = 0;
-let nextActivityFetchRequestId = 0;
 
 interface SendMessageOptions {
   hiddenUserMessage?: boolean;
+  imageBase64?: string[];
+  skillAttributions?: SkillAttribution[];
 }
 
-export const useSessionStore = create<SessionState>((set, get) => ({
+export const useSessionStore = create<SessionState>((set, get) => {
+  const activityFetches = new Map<string, ActivityFetchEntry>();
+  const latestActivityFetchRequestIds = new Map<string, number>();
+  let latestSelectSessionRequestId = 0;
+  let nextActivityFetchRequestId = 0;
+
+  const projectionDeps = {
+    now: () => Date.now(),
+    createId: () => window.crypto.randomUUID(),
+    estimateTokens,
+  };
+
+  const projectionPatch = (projection: ConversationRuntimeProjectionState) => ({
+    messages: projection.messages,
+    todos: projection.todos,
+    delegatedTasks: projection.delegatedTasks,
+    parallelBatches: projection.parallelBatches,
+    agentRuns: projection.agentRuns,
+    agentToolCalls: projection.agentToolCalls,
+    activeRunId: projection.activeRunId,
+    pendingApproval: projection.pendingApproval,
+    pendingApprovals: projection.pendingApprovals,
+    approvalHistory: projection.approvalHistory,
+    isStreaming: projection.isStreaming,
+    streamingMessageId: projection.streamingMessageId,
+    isConversationLoading: false,
+  });
+
+  const publishRegistryEntry = (conversationId: string) => {
+    if (get().activeSessionId !== conversationId) return;
+    const registry = get().conversationRuntimeRegistry;
+    const entry = getConversationRuntimeEntry(registry, conversationId);
+    if (!entry) return;
+    const errorEntry = getConversationRuntimeErrorEntry(registry, conversationId);
+    const error = errorEntry?.error
+      ? {
+          message: errorEntry.error.message,
+          messageParams: errorEntry.error.messageParams,
+          ...(errorEntry.error.retryablePersistence
+            ? {
+                recoverableActions: [{
+                  label: 'chat.retryPersistence',
+                  action: () => {
+                    transitionRegistry({
+                      type: 'retryPersistence',
+                      conversationId,
+                      requestId: errorEntry.requestId,
+                    });
+                  },
+                }],
+              }
+            : errorEntry.error.retrySubmission
+              ? {
+                  recoverableActions: [{
+                    label: '重试',
+                    action: () => {
+                      const retry = errorEntry.error?.retrySubmission;
+                      if (!retry) return;
+                      void get().sendMessage(
+                        retry.projectId,
+                        retry.content,
+                        retry.overrides,
+                        retry.targetSessionId,
+                        retry.options,
+                      );
+                    },
+                  }],
+                }
+              : {}),
+        }
+      : null;
+    set({ ...projectionPatch(entry.projection), error });
+  };
+
+  const refreshRegistryHistory = async (conversationId: string, requestId: string) => {
+    const getMessages = window.electronAPI?.db?.getMessages;
+    if (typeof getMessages !== 'function') return;
+    try {
+      const persisted = await getMessages(conversationId);
+      const entry = getConversationRuntimeRequest(
+        get().conversationRuntimeRegistry,
+        conversationId,
+        requestId,
+      );
+      if (!entry) return;
+      const visibleEntry = getConversationRuntimeEntry(
+        get().conversationRuntimeRegistry,
+        conversationId,
+      );
+      if (get().activeSessionId === conversationId && visibleEntry?.requestId === requestId) {
+        set({
+          messages: mergeConversationRuntimeMessages(persisted, entry.projection),
+          isConversationLoading: false,
+        });
+      }
+      transitionRegistry({ type: 'historyRefreshSucceeded', conversationId, requestId });
+      if (get().activeSessionId === conversationId) {
+        void get().fetchAgentActivity(conversationId, true).catch(() => {});
+      }
+    } catch (err: unknown) {
+      transitionRegistry({
+        type: 'historyRefreshFailed',
+        conversationId,
+        requestId,
+        error: { message: err instanceof Error ? err.message : 'Failed to refresh Conversation history' },
+      });
+      publishRegistryEntry(conversationId);
+    }
+  };
+
+  const executeRegistryEffects = (effects: ConversationRuntimeRegistryEffect[]) => {
+    for (const effect of effects) {
+      if (effect.type === 'projectRuntime') {
+        publishRegistryEntry(effect.conversationId);
+        continue;
+      }
+      if (effect.type === 'hydrateRuntime') {
+        void get().hydrateConversationRun(effect.conversationId, effect.requestId).catch((err) => {
+          console.error('Failed to restore active Conversation run:', err);
+        });
+        continue;
+      }
+      if (effect.type === 'refreshHistory') {
+        void refreshRegistryHistory(effect.conversationId, effect.requestId);
+        continue;
+      }
+      if (effect.type === 'persistTerminal') {
+        void window.electronAPI.db.saveMessage(effect.message)
+          .then(() => {
+            transitionRegistry({
+              type: 'persistenceSucceeded',
+              conversationId: effect.conversationId,
+              requestId: effect.requestId,
+            });
+          })
+          .catch((err: unknown) => {
+            const entry = getConversationRuntimeRequest(
+              get().conversationRuntimeRegistry,
+              effect.conversationId,
+              effect.requestId,
+            );
+            if (!entry) return;
+            transitionRegistry({
+              type: 'persistenceFailed',
+              conversationId: effect.conversationId,
+              requestId: effect.requestId,
+              projection: entry.projection,
+              message: effect.message,
+              error: {
+                message: err instanceof Error ? err.message : 'chat.persistenceFailed',
+              },
+            });
+          });
+        continue;
+      }
+      if (get().activeSessionId === effect.conversationId) {
+        const remainingEntry = getConversationRuntimeEntry(
+          get().conversationRuntimeRegistry,
+          effect.conversationId,
+        );
+        if (remainingEntry) {
+          publishRegistryEntry(effect.conversationId);
+        } else {
+          set({ error: null });
+        }
+      }
+    }
+  };
+
+  function transitionRegistry(action: ConversationRuntimeRegistryAction) {
+    const result = transitionConversationRuntimeRegistry(get().conversationRuntimeRegistry, action);
+    if (result.ok && result.applied) {
+      set({ conversationRuntimeRegistry: result.state });
+      executeRegistryEffects(result.effects);
+    }
+    return result;
+  }
+
+  return ({
   sessions: [],
   activeSessionId: null,
   messages: [],
@@ -139,9 +431,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   agentRuns: [],
   agentToolCalls: [],
   delegatedTasks: [],
+  parallelBatches: [],
   todos: [],
   pendingApproval: null,
+  pendingApprovals: [],
+  approvalHistory: [],
   error: null,
+  isConversationLoading: false,
+  conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
   sessionModelOverrides: (() => {
@@ -154,11 +451,53 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   })(),
 
-  setSessionModelOverride: (sessionId: string, providerId: string, model: string) => {
+  viewingSubagentId: null,
+  setViewingSubagent: (id) => set({ viewingSubagentId: id, viewingParallelWorker: null }),
+  viewingParallelWorker: null,
+  setViewingParallelWorker: (key) => set({ viewingParallelWorker: key, viewingSubagentId: null }),
+
+  setSessionModelOverride: (
+    sessionId: string,
+    sourceId: string,
+    model: string,
+    sourceType: ConversationModelSourceType = 'llm_provider'
+  ) => {
     set((state) => {
+      const reasoningEffort = sourceId && model
+        ? state.sessionModelOverrides[sessionId]?.reasoningEffort
+        : undefined;
       const nextOverrides = {
         ...state.sessionModelOverrides,
-        [sessionId]: { providerId, model },
+        [sessionId]: {
+          providerId: sourceId,
+          sourceId,
+          sourceType,
+          model,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+        },
+      };
+      try {
+        localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
+      } catch (err) {
+        console.error('Failed to save sessionModelOverrides to localStorage:', err);
+      }
+      return { sessionModelOverrides: nextOverrides };
+    });
+  },
+
+  setSessionReasoningEffort: (sessionId: string, effort?: ReasoningEffort) => {
+    set((state) => {
+      const current = state.sessionModelOverrides[sessionId];
+      if (!current) return state;
+      const nextOverride = { ...current };
+      if (effort) {
+        nextOverride.reasoningEffort = effort;
+      } else {
+        delete nextOverride.reasoningEffort;
+      }
+      const nextOverrides = {
+        ...state.sessionModelOverrides,
+        [sessionId]: nextOverride,
       };
       try {
         localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
@@ -218,9 +557,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  createSession: async (projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => {
+  createSession: async (projectId: string, name: string, parentSessionId?: string, summary?: string) => {
     try {
-      const newSession = await window.electronAPI.db.createSession(projectId, name, parentSessionId, summary, agentId);
+      const newSession = await window.electronAPI.db.createSession(projectId, name, parentSessionId, summary);
       await get().fetchSessions(projectId);
       return newSession;
     } catch (err: any) {
@@ -260,106 +599,141 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           sessionModelOverrides: nextOverrides,
         };
       });
+      transitionRegistry({ type: 'removeConversation', conversationId: sessionId });
 
       const { activeSessionId } = get();
       if (activeSessionId) {
         await get().selectSession(activeSessionId);
       } else {
-        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null });
+        set({ messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null, pendingApprovals: [], approvalHistory: [] });
       }
-    } catch (err: any) {
-      set({ error: { message: err.message || 'Failed to delete session' } });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({
+        error: {
+          message: message.includes(CONVERSATION_DELETE_ERROR_CODES.ACTIVE_AGENT_RUN)
+            ? 'chat.deleteConversationBlockedActiveRun'
+            : message.includes(CONVERSATION_DELETE_ERROR_CODES.ACTIVE_CAPABILITY_JOB)
+              ? 'chat.deleteConversationBlockedCapabilityJob'
+              : message || 'Failed to delete session',
+        },
+      });
     }
   },
  
   selectSession: async (sessionId: string | null) => {
     const requestId = ++latestSelectSessionRequestId;
     if (!sessionId) {
-      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], todos: [], activeRunId: null, pendingApproval: null, error: null, isStreaming: false, streamingMessageId: null });
+      set({ activeSessionId: null, messages: [], agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], todos: [], activeRunId: null, pendingApproval: null, pendingApprovals: [], approvalHistory: [], error: null, isStreaming: false, streamingMessageId: null, isConversationLoading: false, viewingSubagentId: null, viewingParallelWorker: null });
       return;
     }
+
+    const selectedEntry = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
+    set({
+      activeSessionId: sessionId,
+      viewingSubagentId: null,
+      viewingParallelWorker: null,
+      ...(selectedEntry
+        ? { ...projectionPatch(selectedEntry.projection), error: null }
+        : {
+            messages: [],
+            agentRuns: [],
+            agentToolCalls: [],
+            delegatedTasks: [],
+            parallelBatches: [],
+            todos: [],
+            activeRunId: null,
+            pendingApproval: null,
+            pendingApprovals: [],
+            approvalHistory: [],
+            error: null,
+            isStreaming: false,
+            streamingMessageId: null,
+            isConversationLoading: true,
+          }),
+    });
+    if (selectedEntry) publishRegistryEntry(sessionId);
+    const messagesAtLoadStart = get().messages;
+
     try {
-      const cached = streamingSessionsCache.get(sessionId);
-      if (cached) {
-        set({
-          activeSessionId: sessionId,
-          messages: cached.messages,
-          todos: cached.todos,
-          delegatedTasks: cached.delegatedTasks,
-          agentRuns: cached.agentRuns,
-          agentToolCalls: cached.agentToolCalls,
-          activeRunId: cached.activeRunId,
-          pendingApproval: cached.pendingApproval,
-          isStreaming: cached.isStreaming,
-          streamingMessageId: cached.streamingMessageId,
-          error: null,
-        });
-      } else {
-        set({ error: null });
-        const messagesBeforeLoad = get().activeSessionId === sessionId ? get().messages : null;
+      let messages: Message[] | null = null;
+      let messageError: unknown = null;
+      try {
+        messages = await window.electronAPI.db.getMessages(sessionId);
+      } catch (err: unknown) {
+        messageError = err;
+      }
 
-        let messages: Message[] | null = null;
-        let messageError: any = null;
-        try {
-          messages = await window.electronAPI.db.getMessages(sessionId);
-        } catch (err: any) {
-          messageError = err;
-        }
+      if (latestSelectSessionRequestId !== requestId || get().activeSessionId !== sessionId) return;
 
-        if (latestSelectSessionRequestId !== requestId) return;
-
-        if (messages) {
-          const cachedDuringLoad = streamingSessionsCache.get(sessionId);
-          const messagesChangedDuringLoad = messagesBeforeLoad !== null && get().messages !== messagesBeforeLoad;
-          if (cachedDuringLoad) {
+      if (messages) {
+        const entryDuringLoad = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
+        if (entryDuringLoad) {
+          const baseProjection = {
+            ...entryDuringLoad.baseProjection,
+            messages,
+          };
+          transitionRegistry({
+            type: 'mergeHistory',
+            conversationId: sessionId,
+            requestId: entryDuringLoad.requestId,
+            baseProjection,
+            projection: {
+              ...entryDuringLoad.projection,
+              messages: mergeConversationRuntimeMessages(messages, entryDuringLoad.projection),
+            },
+          });
+        } else {
+          const liveMessages = get().messages;
+          if (liveMessages !== messagesAtLoadStart) {
+            const liveById = new Map(liveMessages.map((message) => [message.id, message]));
+            const persistedIds = new Set(messages.map((message) => message.id));
             set({
-              activeSessionId: sessionId,
-              messages: cachedDuringLoad.messages,
-              todos: cachedDuringLoad.todos,
-              delegatedTasks: cachedDuringLoad.delegatedTasks,
-              agentRuns: cachedDuringLoad.agentRuns,
-              agentToolCalls: cachedDuringLoad.agentToolCalls,
-              activeRunId: cachedDuringLoad.activeRunId,
-              pendingApproval: cachedDuringLoad.pendingApproval,
-              isStreaming: cachedDuringLoad.isStreaming,
-              streamingMessageId: cachedDuringLoad.streamingMessageId,
-              error: null,
-            });
-          } else if (messagesChangedDuringLoad) {
-            set({
-              activeSessionId: sessionId,
+              messages: [
+                ...messages.map((message) => liveById.get(message.id) ?? message),
+                ...liveMessages.filter((message) => !persistedIds.has(message.id)),
+              ],
+              isConversationLoading: false,
               error: null,
             });
           } else {
-            set({
-              activeSessionId: sessionId,
-              messages,
-              agentRuns: [],
-              agentToolCalls: [],
-              delegatedTasks: [],
-              todos: [],
-              error: null,
-              isStreaming: false,
-              streamingMessageId: null,
-              activeRunId: null,
-              pendingApproval: null,
-            });
+            set({ messages, isConversationLoading: false, error: null });
           }
-        } else {
-          set({ error: { message: messageError?.message || 'Failed to load messages for session' } });
         }
+      } else {
+        set({
+          isConversationLoading: false,
+          error: {
+            message: messageError instanceof Error
+              ? messageError.message
+              : 'Failed to load messages for session',
+          },
+        });
+      }
 
-        if (get().activeSessionId === sessionId) {
-          try {
-            await get().fetchAgentActivity(sessionId, true);
-          } catch {
-            // fetchAgentActivity already records the more specific activity-load error.
-          }
+      if (get().activeSessionId === sessionId && latestSelectSessionRequestId === requestId) {
+        try {
+          await get().fetchAgentActivity(sessionId, true);
+        } catch {
+          // fetchAgentActivity records the source Conversation error.
         }
       }
-    } catch (err: any) {
-      if (latestSelectSessionRequestId === requestId) {
-        set({ error: { message: err.message || 'Failed to load messages for session' } });
+      if (get().activeSessionId === sessionId && latestSelectSessionRequestId === requestId) {
+        const entry = get().conversationRuntimeRegistry.entries[sessionId];
+        if (!entry || (entry.active && entry.streamSource === 'envelope')) {
+          transitionRegistry({
+            type: 'requestHydration',
+            conversationId: sessionId,
+            ...(entry ? { requestId: entry.requestId } : {}),
+          });
+        }
+      }
+    } catch (err: unknown) {
+      if (latestSelectSessionRequestId === requestId && get().activeSessionId === sessionId) {
+        set({
+          isConversationLoading: false,
+          error: { message: err instanceof Error ? err.message : 'Failed to load messages for session' },
+        });
       }
     }
   },
@@ -382,135 +756,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           typeof window.electronAPI.db.getAgentToolCalls !== 'function'
         ) {
           if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
-            set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], activeRunId: null });
+            set({ agentRuns: [], agentToolCalls: [], delegatedTasks: [], parallelBatches: [], activeRunId: null });
           }
           return;
         }
         const runs = await window.electronAPI.db.getAgentRuns(sessionId);
-      const activeRun = runs[0] || null;
-      const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+        const delegatedAgentRuns = typeof window.electronAPI.db.getDelegatedAgentRuns === 'function'
+          ? await window.electronAPI.db.getDelegatedAgentRuns(sessionId)
+          : [];
+        const delegatedToolActions = typeof window.electronAPI.db.getDelegatedToolActions === 'function'
+          ? await window.electronAPI.db.getDelegatedToolActions(sessionId)
+          : [];
+        const activeRun = runs[0] || null;
+        const toolCalls = activeRun ? await window.electronAPI.db.getAgentToolCalls(activeRun.id) : [];
+        const historicalToolCalls = runs.length > 1
+          ? (await Promise.all(runs.slice(1).map((run) => window.electronAPI.db.getAgentToolCalls(run.id)))).flat()
+          : [];
+        const messageToolCalls = [...toolCalls, ...historicalToolCalls];
 
-      // Detect stale running state: if the session is not currently streaming,
-      // any task still marked 'running' in DB is likely a crash or disconnect
-      // leftover. Streaming chunks are ephemeral (not persisted), so these
-      // tasks will permanently show "0 块 / 0 tokens" unless resolved.
-      const isSessionStreaming = streamingSessionsCache.has(sessionId);
+        // Detect stale running state against the Registry's authoritative ownership.
+        const registryEntry = get().conversationRuntimeRegistry.entries[sessionId];
+        const isSessionStreaming = registryEntry?.active ?? false;
 
-      const tasks: DelegatedTask[] = [];
-      for (const call of toolCalls) {
-        if (call.tool_name === 'task') {
-          let agentSlug = 'unknown';
-          let goal = '';
-          try {
-            const input = call.input ? JSON.parse(call.input) : {};
-            agentSlug = input.subagent_type || input.name || 'unknown';
-            if (input.task) {
-              try {
-                const taskPackage = JSON.parse(input.task);
-                goal = taskPackage.goal || '';
-              } catch {
-                goal = input.name || '任务执行';
-              }
-            } else if (input.description) {
-              goal = input.description;
-            }
-          } catch (e) {
-            console.warn('[sessionStore] Failed to parse task tool call input:', call.input, e);
-          }
-
-          let status: 'running' | 'success' | 'failure' = 'success';
-          let errorCode: string | undefined;
-          let parsedResult: any;
-
-          if (call.status === 'running') {
-            // If the session is not streaming, a "running" task means the
-            // process that owned it disappeared (crash / disconnect / tab
-            // close). Resolve it so the UI never shows a permanently-running
-            // ghost with 0 chunks and 0 tokens.
-            if (!isSessionStreaming) {
-              status = 'failure';
-              errorCode = 'DISCONNECTED';
-              parsedResult = {
-                status: 'failure',
-                artifacts: [],
-                summary: '',
-                error: { code: 'DISCONNECTED', message: '会话流已结束，任务未正常完成' },
-              };
-            } else {
-              status = 'running';
-            }
-          } else if (call.status === 'error') {
-            status = 'failure';
-            errorCode = 'UNKNOWN';
-            const msg = call.error || '';
-            if (msg.toLowerCase().includes('timeout')) errorCode = 'TIMEOUT';
-            else if (msg.toLowerCase().includes('interrupt') || msg.toLowerCase().includes('cancel')) errorCode = 'INTERRUPTED';
-            parsedResult = {
-              status: 'failure',
-              artifacts: [],
-              summary: '',
-              error: { code: errorCode, message: msg }
-            };
-          } else {
-            try {
-              const rawOutput = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
-              const parsedOutput = JSON.parse(rawOutput);
-              if (parsedOutput && typeof parsedOutput === 'object') {
-                if (parsedOutput.status === 'failure') {
-                  status = 'failure';
-                  errorCode = parsedOutput.error?.code || 'PARSE_FAILED';
-                  parsedResult = parsedOutput;
-                } else if (parsedOutput.summary !== undefined) {
-                  status = 'success';
-                  parsedResult = parsedOutput;
-                } else {
-                  if (parsedOutput.lg_name === 'Command' && parsedOutput.update?.messages?.length > 0) {
-                    const toolMsg = parsedOutput.update.messages[parsedOutput.update.messages.length - 1];
-                    const content = typeof toolMsg === 'object' ? toolMsg.kwargs?.content : toolMsg;
-                    if (typeof content === 'string') {
-                      try {
-                        parsedResult = JSON.parse(content);
-                        if (parsedResult.status === 'failure') {
-                          status = 'failure';
-                          errorCode = parsedResult.error?.code || 'PARSE_FAILED';
-                        }
-                      } catch {
-                        parsedResult = { status: 'success', artifacts: [], summary: content.slice(0, 500) };
-                      }
-                    } else {
-                      parsedResult = { status: 'success', artifacts: [], summary: '任务执行完成' };
-                    }
-                  } else {
-                    parsedResult = { status: 'success', artifacts: [], summary: '任务执行完成' };
-                  }
-                }
-              }
-            } catch (e: any) {
-              status = 'failure';
-              errorCode = 'PARSE_FAILED';
-              parsedResult = {
-                status: 'failure',
-                artifacts: [],
-                summary: '',
-                error: { code: 'PARSE_FAILED', message: e?.message || 'unknown parse error' }
-              };
-            }
-          }
-
-          tasks.push({
-            taskId: call.id,
-            agentSlug,
-            agentName: agentSlug,
-            goal,
-            status,
-            chunks: [],
-            result: parsedResult,
-            errorCode,
-            startedAt: call.started_at,
-            completedAt: call.ended_at || undefined
-          });
-        }
-      }
       // Reconstruct the latest successful todos from database history on session switch
       let latestTodos: TodoItem[] = [];
       try {
@@ -540,21 +807,39 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         console.warn('[sessionStore] Failed to fetch/parse latest todos from DB:', err);
       }
 
+        const restoredRuntime = restoreConversationRuntime({
+          sessionId,
+          isStreaming: isSessionStreaming,
+          agentRuns: runs,
+          agentToolCalls: toolCalls,
+          delegatedAgentRuns,
+          delegatedToolActions,
+          latestTodos,
+        });
+        const tasks = restoredRuntime.delegatedTasks;
+
         if (get().activeSessionId !== sessionId || latestActivityFetchRequestIds.get(sessionId) !== requestId) return;
 
         // Preserve live chunks from streaming cache and current store state.
         // DB-reconstructed tasks always have chunks: [] (streaming chunks are
         // transient and not persisted to SQLite). Merging from both sources
         // prevents "0 块 / 0 tokens" flash on every reopen / session switch.
-        const streamCache = streamingSessionsCache.get(sessionId);
+        const streamProjection = getConversationRuntimeEntry(
+          get().conversationRuntimeRegistry,
+          sessionId,
+        )?.projection;
         const storeTasks = get().delegatedTasks ?? [];
 
         for (const t of tasks) {
           // Prefer streaming cache chunks (most recent), fall back to current
           // store chunks (may survive a brief cache deletion window), then keep
           // the DB-derived empty array as last resort.
-          const streamCached = streamCache?.delegatedTasks?.find(c => c.taskId === t.taskId);
-          const storeTask = storeTasks.find(s => s.taskId === t.taskId);
+          const streamCached = streamProjection?.delegatedTasks?.find(
+            (candidate) => candidate.delegatedRunId === t.delegatedRunId,
+          );
+          const storeTask = storeTasks.find(
+            (candidate) => candidate.delegatedRunId === t.delegatedRunId,
+          );
 
           if (streamCached && streamCached.chunks.length > 0) {
             t.chunks = streamCached.chunks;
@@ -567,6 +852,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             t.chunks = storeTask.chunks;
           }
 
+          // Preserve runtime-injected steps (not persisted to DB).
+          if (streamCached && streamCached.steps.length > 0) {
+            t.steps = streamCached.steps;
+          } else if (storeTask && storeTask.steps.length > 0) {
+            t.steps = storeTask.steps;
+          }
+
           // Also preserve startedAt from streaming cache / store if the DB
           // tool call didn't record one (e.g. task tool call created before
           // run_started event was received).
@@ -575,13 +867,49 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
         }
 
-        set({
-          agentRuns: runs,
-          agentToolCalls: toolCalls,
-          delegatedTasks: tasks,
-          todos: latestTodos,
-          activeRunId: activeRun?.id || null,
-        });
+        const messages = reconcilePersistedToolMessages(get().messages, messageToolCalls);
+
+        const currentEntry = getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId);
+        if (currentEntry) {
+          const restoredApprovalIds = new Set(restoredRuntime.approvalHistory.map((entry) => entry.approval.id));
+          const approvalHistory = [
+            ...restoredRuntime.approvalHistory,
+            ...currentEntry.projection.approvalHistory.filter((entry) => !restoredApprovalIds.has(entry.approval.id)),
+          ];
+          const baseProjection = {
+            ...currentEntry.baseProjection,
+            messages,
+            agentRuns: restoredRuntime.agentRuns,
+            agentToolCalls: restoredRuntime.agentToolCalls,
+            delegatedTasks: tasks,
+            parallelBatches: restoredRuntime.parallelBatches,
+            todos: restoredRuntime.todos,
+            activeRunId: restoredRuntime.activeRunId,
+            approvalHistory,
+          };
+          transitionRegistry({
+            type: 'mergeHistory',
+            conversationId: sessionId,
+            requestId: currentEntry.requestId,
+            baseProjection,
+            projection: {
+              ...currentEntry.projection,
+              messages: mergeConversationRuntimeMessages(messages, currentEntry.projection),
+              approvalHistory,
+            },
+          });
+        } else {
+          set({
+            messages,
+            agentRuns: restoredRuntime.agentRuns,
+            agentToolCalls: restoredRuntime.agentToolCalls,
+            delegatedTasks: tasks,
+            parallelBatches: restoredRuntime.parallelBatches,
+            todos: restoredRuntime.todos,
+            activeRunId: restoredRuntime.activeRunId,
+            approvalHistory: restoredRuntime.approvalHistory,
+          });
+        }
       } catch (err: any) {
         if (get().activeSessionId === sessionId && latestActivityFetchRequestIds.get(sessionId) === requestId) {
           set({ error: { message: err.message || 'Failed to load agent activity' } });
@@ -590,9 +918,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         } finally {
           if (activityFetches.get(sessionId) === entry) {
             activityFetches.delete(sessionId);
-          }
-          if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
-            latestActivityFetchRequestIds.delete(sessionId);
           }
           if (latestActivityFetchRequestIds.get(sessionId) === requestId) {
             latestActivityFetchRequestIds.delete(sessionId);
@@ -607,28 +932,147 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   getMessagesForSession: (sessionId: string) => {
     if (get().activeSessionId === sessionId) return get().messages;
-    return streamingSessionsCache.get(sessionId)?.messages ?? [];
+    return getConversationRuntimeEntry(get().conversationRuntimeRegistry, sessionId)?.projection.messages ?? [];
   },
 
   getIsSessionStreaming: (sessionId: string) => {
-    if (get().activeSessionId === sessionId) return get().isStreaming;
-    return streamingSessionsCache.get(sessionId)?.isStreaming ?? false;
+    return get().conversationRuntimeRegistry.entries[sessionId]?.active ?? false;
+  },
+
+  handleConversationRunEvent: (envelope) => {
+    const current = get();
+    const existing = current.conversationRuntimeRegistry.entries[envelope.sessionId];
+    const visibleEntry = getConversationRuntimeEntry(
+      current.conversationRuntimeRegistry,
+      envelope.sessionId,
+    );
+    const visibleProjection = visibleEntry?.projection;
+    const isSelected = current.activeSessionId === envelope.sessionId;
+    const initialProjection = existing?.baseProjection ?? createConversationRuntimeState({
+      sessionId: envelope.sessionId,
+      requestId: envelope.requestId,
+      streamingMessageId: envelope.messageId,
+      currentAssistantMsgId: envelope.messageId,
+      ...((isSelected || visibleProjection)
+        ? {
+            messages: visibleProjection?.messages ?? current.messages,
+            todos: visibleProjection?.todos ?? current.todos,
+            delegatedTasks: visibleProjection?.delegatedTasks ?? current.delegatedTasks,
+            parallelBatches: visibleProjection?.parallelBatches ?? current.parallelBatches,
+            agentRuns: visibleProjection?.agentRuns ?? current.agentRuns,
+            agentToolCalls: visibleProjection?.agentToolCalls ?? current.agentToolCalls,
+            activeRunId: visibleProjection?.activeRunId ?? current.activeRunId,
+            pendingApproval: visibleProjection?.pendingApproval ?? current.pendingApproval,
+            pendingApprovals: visibleProjection?.pendingApprovals ?? current.pendingApprovals,
+            approvalHistory: visibleProjection?.approvalHistory ?? current.approvalHistory,
+          }
+        : {}),
+    });
+    const sourceProjection = existing?.requestId === envelope.requestId
+      ? existing.projection
+      : initialProjection;
+    const projected = projectConversationRuntime(
+      sourceProjection,
+      { kind: 'llm', event: envelope.event },
+      projectionDeps,
+    );
+    const retryableError = projected.effects.find((effect) => effect.type === 'setRetryableError');
+
+    transitionRegistry({
+      type: 'receiveEnvelope',
+      envelope,
+      initialProjection,
+      projection: projected.state,
+      ...(retryableError
+        ? {
+            error: {
+              message: retryableError.message,
+              messageParams: retryableError.messageParams,
+            },
+          }
+        : {}),
+    });
+  },
+
+  handleMessagesChanged: (sessionId) => {
+    const entry = get().conversationRuntimeRegistry.entries[sessionId];
+    // Active foreground state is already current in the Registry; background
+    // completion emits its own request-scoped refreshHistory effect.
+    if (entry?.active) return;
+    if (get().activeSessionId === sessionId) {
+      void get().selectSession(sessionId);
+    }
+  },
+
+  hydrateConversationRun: async (sessionId, expectedRequestId) => {
+    if (typeof window.electronAPI.conversation?.getActiveRun !== 'function') return;
+    const snapshot = await window.electronAPI.conversation.getActiveRun(sessionId);
+    const existing = get().conversationRuntimeRegistry.entries[sessionId];
+    if (!snapshot) {
+      // A request-less hydration may race with a newly claimed foreground Run.
+      // Only the identity that requested hydration may release ownership.
+      if (expectedRequestId) {
+        transitionRegistry({
+          type: 'hydrateMissing',
+          conversationId: sessionId,
+          requestId: expectedRequestId,
+        });
+      }
+      return;
+    }
+
+    const normalizedSnapshot: ConversationRunStreamSnapshot = {
+      ...snapshot,
+      events: snapshot.events ?? [],
+    };
+    const current = get();
+    const baseProjection = existing?.requestId === snapshot.requestId
+      ? existing.baseProjection
+      : createConversationRuntimeState({
+          sessionId,
+          requestId: snapshot.requestId,
+          streamingMessageId: snapshot.messageId,
+          currentAssistantMsgId: snapshot.messageId,
+          ...(current.activeSessionId === sessionId
+            ? {
+                messages: current.messages,
+                todos: current.todos,
+                delegatedTasks: current.delegatedTasks,
+                parallelBatches: current.parallelBatches,
+                agentRuns: current.agentRuns,
+                agentToolCalls: current.agentToolCalls,
+                activeRunId: current.activeRunId,
+                pendingApproval: current.pendingApproval,
+                pendingApprovals: current.pendingApprovals,
+                approvalHistory: current.approvalHistory,
+                isStreaming: current.isStreaming,
+              }
+            : {}),
+        });
+    const projection = hydrateConversationRuntimeStream(
+      baseProjection,
+      normalizedSnapshot,
+      projectionDeps,
+    );
+    transitionRegistry({
+      type: 'hydrateSnapshot',
+      conversationId: sessionId,
+      requestId: snapshot.requestId,
+      sequence: snapshot.sequence,
+      projection,
+      baseProjection,
+    });
   },
 
 
   sendMessage: async (projectId: string, content: string, overrides?: ChatRuntimeOverrides, targetSessionId?: string, options?: SendMessageOptions) => {
     const { activeSessionId, sessions } = get();
     const sessionId = targetSessionId ?? activeSessionId;
-    if (!sessionId) return;
-    const cachedSession = streamingSessionsCache.get(sessionId);
-    const isSessionStreaming = sessionId === activeSessionId ? get().isStreaming : cachedSession?.isStreaming;
-    if (isSessionStreaming) return;
+    if (!sessionId) return { ok: true };
     const activeSession = sessions.find((session) => session.id === sessionId);
 
-    // Clear old todos immediately to prevent stale data flashing
-    set({ todos: [] });
-
     const userMsgId = window.crypto.randomUUID();
+    const assistantMsgId = window.crypto.randomUUID();
     const userTokens = estimateTokens(content);
     const userMsg: Message = {
       id: userMsgId,
@@ -637,436 +1081,247 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       content,
       tokens: userTokens,
       created_at: Date.now(),
+      ...(options?.imageBase64?.length ? { imageBase64: options.imageBase64 } : {}),
     };
+    const skillAttributionMessages: Message[] = options?.skillAttributions?.length
+      ? [{
+        id: window.crypto.randomUUID(),
+        session_id: sessionId,
+        role: 'system',
+        content: JSON.stringify({
+          type: 'skill_attribution',
+          attributions: options.skillAttributions,
+        }),
+        tokens: 0,
+        created_at: Date.now(),
+      }]
+      : [];
+    const assistantMsgPlaceholder: Message = {
+      id: assistantMsgId,
+      session_id: sessionId,
+      role: 'assistant',
+      content: '',
+      tokens: 0,
+      created_at: Date.now(),
+    };
+    const initialState: StreamingSessionState = createConversationRuntimeState({
+      sessionId,
+      requestId: assistantMsgId,
+      streamingMessageId: assistantMsgId,
+      currentAssistantMsgId: assistantMsgId,
+      messages: [
+        ...get().getMessagesForSession(sessionId),
+        ...(options?.hiddenUserMessage ? [] : [userMsg]),
+        ...skillAttributionMessages,
+        assistantMsgPlaceholder,
+      ],
+      todos: [],
+      delegatedTasks: [],
+      parallelBatches: [],
+      agentRuns: [],
+      agentToolCalls: [],
+      activeRunId: null,
+      pendingApproval: null,
+      pendingApprovals: [],
+      approvalHistory: [],
+      isStreaming: true,
+      accumulatedContent: '',
+      pendingToolMessages: {},
+      runtimeToolMessageIds: [],
+    });
+
+    const claim = transitionRegistry({
+      type: 'claim',
+      conversationId: sessionId,
+      requestId: assistantMsgId,
+      projection: initialState,
+    });
+    if (!claim.ok) return { ok: false, code: claim.code };
+    publishRegistryEntry(sessionId);
+
+    // Clear old todos only when this request owns the visible Conversation.
+    if (get().activeSessionId === sessionId) {
+      set({ todos: [] });
+    }
 
     try {
       if (!options?.hiddenUserMessage) {
         await window.electronAPI.db.saveMessage(userMsg);
       }
-
-      // Append User message and placeholder Assistant message
-      const assistantMsgId = window.crypto.randomUUID();
-      const assistantMsgPlaceholder: Message = {
-        id: assistantMsgId,
-        session_id: sessionId,
-        role: 'assistant',
-        content: '',
-        tokens: 0,
-        created_at: Date.now(),
-      };
-
-      const baseMessages = get().getMessagesForSession(sessionId);
-      const initialState: StreamingSessionState = {
-        messages: [
-          ...baseMessages,
-          ...(options?.hiddenUserMessage ? [] : [userMsg]),
-          assistantMsgPlaceholder,
-        ],
-        todos: [],
-        delegatedTasks: [],
-        agentRuns: [],
-        agentToolCalls: [],
-        activeRunId: null,
-        pendingApproval: null,
-        isStreaming: true,
-        streamingMessageId: assistantMsgId,
-      };
-
-      streamingSessionsCache.set(sessionId, initialState);
-
-      if (activeSessionId === sessionId) {
-        set(initialState);
+      for (const message of skillAttributionMessages) {
+        await window.electronAPI.db.saveMessage(message);
       }
 
-      let accumulatedContent = '';
+      transitionRegistry({
+        type: 'update',
+        conversationId: sessionId,
+        requestId: assistantMsgId,
+        projection: initialState,
+      });
+
       let cleanup = () => {};
-      const pendingToolMessages = new Map<string, string[]>();
-      let currentAssistantMsgId = assistantMsgId;
+      let parallelCleanup = () => {};
 
-      const streamPromise = new Promise<void>((resolve, reject) => {
-        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, async (_event: unknown, data: LLMStreamEvent) => {
-          const cached = streamingSessionsCache.get(sessionId);
-          if (!cached) return;
-
-          if (data.type === 'todos_update') {
-            cached.todos = data.todos;
+      const executeRuntimeProjectionEffect = async (
+        effect: ConversationRuntimeProjectionEffect,
+        nextState: StreamingSessionState,
+        resolve: () => void,
+        reject: (reason?: unknown) => void,
+      ): Promise<boolean> => {
+        if (effect.type === 'openActivityPanel') {
+          const projectStore = useProjectStore.getState();
+          if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
+            projectStore.setTaskPanelOpen(true);
           }
+          return false;
+        }
 
-          else if (data.type === 'run_started') {
-            cached.activeRunId = data.runId;
-            cached.agentRuns = [
-              {
-                id: data.runId,
-                session_id: sessionId,
-                agent_id: data.agentId,
-                request_id: assistantMsgId,
-                status: data.status,
-                started_at: Date.now(),
-                ended_at: null,
-                aborted: 0,
+        if (effect.type === 'saveMessage') {
+          const terminalAssistantSave = !nextState.isStreaming
+            && effect.message.id === nextState.currentAssistantMsgId;
+          try {
+            await window.electronAPI.db.saveMessage(effect.message);
+            if (terminalAssistantSave) {
+              transitionRegistry({
+                type: 'persistenceSucceeded',
+                conversationId: sessionId,
+                requestId: assistantMsgId,
+              });
+            }
+          } catch (err: unknown) {
+            console.error('Failed to save runtime projection message:', err);
+            if (terminalAssistantSave) {
+              transitionRegistry({
+                type: 'persistenceFailed',
+                conversationId: sessionId,
+                requestId: assistantMsgId,
+                projection: nextState,
+                message: effect.message,
+                error: {
+                  message: err instanceof Error ? err.message : 'chat.persistenceFailed',
+                },
+              });
+            } else if (get().activeSessionId === sessionId) {
+              set({ error: { message: err instanceof Error ? err.message : 'chat.persistenceFailed' } });
+            }
+          }
+          return false;
+        }
+
+        if (effect.type === 'cleanupStream') {
+          cleanup();
+          parallelCleanup();
+          return false;
+        }
+
+        if (effect.type === 'setRetryableError') {
+          transitionRegistry({
+            type: 'terminalFailed',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+            projection: nextState,
+            error: {
+              message: effect.message || '对话请求出错',
+              messageParams: effect.messageParams,
+              retrySubmission: {
+                projectId,
+                content,
+                overrides,
+                targetSessionId,
+                options,
               },
-              ...cached.agentRuns.filter((run) => run.id !== data.runId),
-            ];
-            cached.agentToolCalls = [];
-          }
-
-          else if (data.type === 'run_updated') {
-            cached.agentRuns = cached.agentRuns.map((run) =>
-              run.id === data.runId ? { ...run, status: data.status, error: data.error || run.error || null, ended_at: ['completed', 'failed', 'aborted'].includes(data.status) ? Date.now() : run.ended_at } : run
-            );
-          }
-
-          else if (data.type === 'approval_required') {
-            cached.pendingApproval = data.approval;
-          }
-
-          else if (data.type === 'approval_resolved') {
-            cached.pendingApproval = null;
-          }
-
-          else if (data.type === 'delegated_task_start') {
-            const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
-              projectStore.setTaskPanelOpen(true);
-            }
-            cached.delegatedTasks = [
-              ...cached.delegatedTasks,
-              {
-                taskId: data.taskId,
-                agentSlug: data.agentSlug,
-                agentName: data.agentName,
-                goal: data.goal,
-                status: 'running',
-                chunks: [],
-                startedAt: Date.now(),
-              },
-            ];
-          }
-
-          else if (data.type === 'delegated_task_chunk') {
-            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
-              task.taskId === data.taskId
-                ? { ...task, chunks: [...task.chunks, data.text] }
-                : task
-            );
-          }
-
-          else if (data.type === 'delegated_task_end') {
-            cached.delegatedTasks = cached.delegatedTasks.map((task) =>
-              task.taskId === data.taskId
-                ? {
-                    ...task,
-                    status: data.status,
-                    result: data.result,
-                    errorCode: data.errorCode,
-                    completedAt: Date.now(),
-                  }
-                : task
-            );
-          }
-
-          else if (data.type === 'message_chunk' && data.text) {
-            const hasMsg = cached.messages.some((m) => m.id === currentAssistantMsgId);
-            if (!hasMsg) {
-              const newPlaceholder: Message = {
-                id: currentAssistantMsgId,
-                session_id: sessionId,
-                role: 'assistant',
-                content: '',
-                tokens: 0,
-                created_at: Date.now(),
-              };
-              cached.messages = [...cached.messages, newPlaceholder];
-            }
-
-            accumulatedContent += data.text;
-            cached.messages = cached.messages.map((m) =>
-              m.id === currentAssistantMsgId ? { ...m, content: accumulatedContent } : m
-            );
-          }
-
-          else if (data.type === 'tool_start') {
-            const projectStore = useProjectStore.getState();
-            if (projectStore.activeView === 'chat' && get().activeSessionId === sessionId) {
-              projectStore.setTaskPanelOpen(true);
-            }
-            // 1. 如果上一段助手有说话，将其持久化写入 SQLite
-            if (accumulatedContent.trim()) {
-              const prevMsg = {
-                id: currentAssistantMsgId,
-                session_id: sessionId,
-                role: 'assistant' as const,
-                content: accumulatedContent,
-                tokens: estimateTokens(accumulatedContent),
-              };
-              window.electronAPI.db.saveMessage(prevMsg).catch((err: unknown) => {
-                console.error('Failed to save intermediate assistant message:', err);
-                if (get().activeSessionId === sessionId) {
-                  set({ error: { message: '消息保存失败，对话历史可能不完整' } });
-                }
-              });
-            }
-
-            // 2. 插入运行中的工具卡片
-            const toolMessageId = data.id || window.crypto.randomUUID();
-            if (!data.id) {
-              const queue = pendingToolMessages.get(data.name) || [];
-              queue.push(toolMessageId);
-              pendingToolMessages.set(data.name, queue);
-            }
-
-            const toolMsgContent = {
-              type: 'tool',
-              name: data.name,
-              status: 'running',
-              input: data.input,
-            };
-
-            const toolMsg: Message = {
-              id: toolMessageId,
-              session_id: sessionId,
-              role: 'system',
-              content: JSON.stringify(toolMsgContent),
-              created_at: Date.now(),
-              tokens: 0,
-            };
-
-            const hasExistingMsg = cached.messages.some((m) => m.id === toolMessageId);
-
-            if (hasExistingMsg) {
-              cached.messages = cached.messages.map((m) =>
-                m.id === toolMessageId ? { ...m, content: JSON.stringify(toolMsgContent) } : m
-              );
-              cached.agentToolCalls = cached.agentToolCalls.map((tc) =>
-                tc.id === toolMessageId
-                  ? { ...tc, status: 'running', input: JSON.stringify(data.input ?? null) }
-                  : tc
-              );
-            } else {
-              cached.messages = [...cached.messages, toolMsg];
-              if (data.id) {
-                cached.agentToolCalls = [
-                  ...cached.agentToolCalls,
-                  {
-                    id: data.id,
-                    run_id: cached.activeRunId || '',
-                    tool_name: data.name,
-                    input: JSON.stringify(data.input ?? null),
-                    output: null,
-                    status: 'running',
-                    error: null,
-                    started_at: Date.now(),
-                    ended_at: null,
-                    approval_status: null,
-                  },
-                ];
-              }
-
-              window.electronAPI.db.saveMessage(toolMsg).catch((err: unknown) => {
-                console.error('Failed to save tool start message:', err);
-              });
-            }
-
-            // 3. 准备切换下一段助手消息
-            currentAssistantMsgId = window.crypto.randomUUID();
-            accumulatedContent = '';
-          }
-
-          else if (data.type === 'tool_end' || data.type === 'tool_error') {
-            let toolMessageId = data.id;
-            if (!toolMessageId) {
-              const queue = pendingToolMessages.get(data.name) || [];
-              toolMessageId = queue.shift();
-              pendingToolMessages.set(data.name, queue);
-            }
-
-            if (data.type === 'tool_end' && data.name === 'write_todos') {
-              try {
-                const outputObj = typeof data.output === 'string' ? JSON.parse(data.output) : data.output;
-                let todosList = null;
-                if (outputObj && typeof outputObj === 'object') {
-                  if (Array.isArray(outputObj)) {
-                    todosList = outputObj;
-                  } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
-                    todosList = outputObj.update.todos;
-                  } else if (outputObj.value && typeof outputObj.value === 'object') {
-                    const val = outputObj.value;
-                    if (val.update && Array.isArray(val.update.todos)) {
-                      todosList = val.update.todos;
-                    }
-                  }
-                }
-                if (Array.isArray(todosList)) {
-                  cached.todos = todosList;
-                }
-              } catch (err) {
-                console.warn('Failed to parse todos from write_todos tool output:', err);
-              }
-            }
-
-            if (toolMessageId) {
-              const isEnd = data.type === 'tool_end';
-              
-              const currentMsg = cached.messages.find(m => m.id === toolMessageId);
-              let parsedContent: any = {};
-              if (currentMsg) {
-                try {
-                  parsedContent = JSON.parse(currentMsg.content);
-                } catch (e) {
-                  parsedContent = { type: 'tool', name: data.name };
-                }
-              } else {
-                parsedContent = { type: 'tool', name: data.name };
-              }
-
-              const newContentObj = {
-                ...parsedContent,
-                status: isEnd ? 'success' : 'error',
-                output: isEnd ? data.output : undefined,
-                error: !isEnd ? data.error : undefined,
-              };
-
-              const updatedContent = JSON.stringify(newContentObj);
-
-              cached.messages = cached.messages.map((m) =>
-                m.id === toolMessageId ? { ...m, content: updatedContent } : m
-              );
-              cached.agentToolCalls = cached.agentToolCalls.map((toolCall) =>
-                toolCall.id === toolMessageId
-                  ? {
-                      ...toolCall,
-                      status: isEnd ? 'success' : 'error',
-                      output: isEnd ? JSON.stringify(data.output ?? null) : toolCall.output,
-                      error: !isEnd ? data.error : null,
-                      ended_at: Date.now(),
-                    }
-                  : toolCall
-              );
-
-              const savedMsg = {
-                id: toolMessageId,
-                session_id: sessionId,
-                role: 'system' as const,
-                content: updatedContent,
-                created_at: currentMsg?.created_at || Date.now(),
-                tokens: 0,
-              };
-
-              window.electronAPI.db.saveMessage(savedMsg).catch((err: unknown) => {
-                console.error('Failed to save tool output to db:', err);
-              });
-            }
-          }
-
-          else if (data.type === 'message_done') {
-            cleanup();
-            try {
-              if (accumulatedContent.trim()) {
-                const assistantTokens = estimateTokens(accumulatedContent);
-                const finalAssistantMsg = {
-                  id: currentAssistantMsgId,
-                  session_id: sessionId,
-                  role: 'assistant' as const,
-                  content: accumulatedContent,
-                  tokens: assistantTokens,
-                };
-
-                await window.electronAPI.db.saveMessage(finalAssistantMsg);
-                
-                cached.messages = cached.messages
-                  .map((m) =>
-                    m.id === currentAssistantMsgId ? { ...m, tokens: assistantTokens } : m
-                  )
-                  .filter((m) => !(m.role === 'assistant' && m.content === ''));
-              } else {
-                cached.messages = cached.messages.filter((m) => !(m.role === 'assistant' && m.content === ''));
-              }
-              cached.isStreaming = false;
-              cached.streamingMessageId = null;
-              cached.pendingApproval = null;
-
-              if (get().activeSessionId === sessionId) {
-                set({
-                  messages: cached.messages,
-                  isStreaming: false,
-                  streamingMessageId: null,
-                  pendingApproval: null,
-                  todos: cached.todos,
-                  delegatedTasks: cached.delegatedTasks,
-                  agentRuns: cached.agentRuns,
-                  agentToolCalls: cached.agentToolCalls,
-                  activeRunId: cached.activeRunId,
-                });
-              }
-              streamingSessionsCache.delete(sessionId);
-              resolve();
-            } catch (err: any) {
-              console.error('Failed to save message or complete stream:', err);
-              cached.messages = cached.messages.filter((m) => !(m.role === 'assistant' && m.content === ''));
-              cached.isStreaming = false;
-              cached.streamingMessageId = null;
-              cached.pendingApproval = null;
-
-              if (get().activeSessionId === sessionId) {
-                set({
-                  messages: cached.messages,
-                  isStreaming: false,
-                  streamingMessageId: null,
-                  pendingApproval: null,
-                  error: { message: err.message || '保存回复消息失败' },
-                });
-              }
-              streamingSessionsCache.delete(sessionId);
-              reject(err);
-            }
-            return;
-          }
-
-          else if (data.type === 'runtime_error') {
-            cleanup();
-            const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
-            cached.messages = cached.messages.filter(
-              (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
-            );
-            cached.isStreaming = false;
-            cached.streamingMessageId = null;
-            cached.pendingApproval = null;
-
-            if (get().activeSessionId === sessionId) {
-              set({
-                messages: cached.messages,
-                isStreaming: false,
-                streamingMessageId: null,
-                pendingApproval: null,
-                error: { message: data.error || '对话请求出错', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
-              });
-            }
-            streamingSessionsCache.delete(sessionId);
-            reject(new Error(data.error || '对话请求出错'));
-            return;
-          }
-
-          // Sync with Zustand if currently active
+            },
+          });
           if (get().activeSessionId === sessionId) {
             set({
-              messages: cached.messages,
-              todos: cached.todos,
-              delegatedTasks: cached.delegatedTasks,
-              agentRuns: cached.agentRuns,
-              agentToolCalls: cached.agentToolCalls,
-              activeRunId: cached.activeRunId,
-              pendingApproval: cached.pendingApproval,
-              isStreaming: cached.isStreaming,
-              streamingMessageId: cached.streamingMessageId,
+              error: {
+                message: effect.message || '对话请求出错',
+                messageParams: effect.messageParams,
+                recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId, options) }],
+              },
             });
           }
+          return false;
+        }
+
+        if (effect.type === 'resolveStream') {
+          transitionRegistry({
+            type: 'release',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+          });
+          resolve();
+          return true;
+        }
+
+        if (effect.type === 'rejectStream') {
+          transitionRegistry({
+            type: 'release',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+          });
+          reject(new Error(effect.error || '对话请求出错'));
+          return true;
+        }
+
+        return false;
+      };
+
+      parallelCleanup = window.electronAPI.deepagents.onParallelTaskStep(sessionId, (_event: unknown, data: { batchId: string; delegatedRunId: string; agentSlug: string; step: ExecutionStep }) => {
+        const runtime = get().conversationRuntimeRegistry.entries[sessionId];
+        if (!runtime || runtime.requestId !== assistantMsgId) return;
+        const result = projectConversationRuntime(runtime.projection, { kind: 'parallelTaskStep', event: data }, projectionDeps);
+        transitionRegistry({
+          type: 'update',
+          conversationId: sessionId,
+          requestId: assistantMsgId,
+          projection: result.state,
+        });
+      });
+
+      const streamPromise = new Promise<void>((resolve, reject) => {
+        let streamEventQueue = Promise.resolve();
+
+        const processStreamEvent = async (data: LLMStreamEvent) => {
+          const runtime = get().conversationRuntimeRegistry.entries[sessionId];
+          if (!runtime || runtime.requestId !== assistantMsgId) return;
+          const result = projectConversationRuntime(runtime.projection, { kind: 'llm', event: data }, projectionDeps);
+          const update = transitionRegistry({
+            type: 'update',
+            conversationId: sessionId,
+            requestId: assistantMsgId,
+            projection: result.state,
+          });
+          if (!update.ok || !update.applied) return;
+
+          let terminal = false;
+          for (const effect of result.effects) {
+            terminal = await executeRuntimeProjectionEffect(effect, result.state, resolve, reject) || terminal;
+          }
+
+        };
+
+        cleanup = window.electronAPI.llm.onChunk(assistantMsgId, (_event: unknown, data: LLMStreamEvent) => {
+          streamEventQueue = streamEventQueue.then(
+            () => processStreamEvent(data),
+            () => processStreamEvent(data),
+          );
+          return streamEventQueue;
         });
       });
 
       const sessionModelOverride = get().sessionModelOverrides[sessionId] || {};
+      const sessionOverrideSourceType = sessionModelOverride.sourceType || 'llm_provider';
       const finalOverrides = {
-        providerId: sessionModelOverride.providerId || undefined,
+        modelSource: sessionModelOverride.sourceId ? sessionOverrideSourceType : undefined,
+        sourceId: sessionModelOverride.sourceId || undefined,
+        providerId: sessionOverrideSourceType === 'llm_provider'
+          ? sessionModelOverride.providerId || undefined
+          : undefined,
         model: sessionModelOverride.model || undefined,
+        ...(sessionModelOverride.reasoningEffort
+          ? { reasoningEffort: sessionModelOverride.reasoningEffort }
+          : {}),
         ...overrides,
       };
 
@@ -1074,57 +1329,96 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         await window.electronAPI.llm.chat(assistantMsgId, {
           projectId,
           sessionId,
-          agentId: activeSession?.agent_id || undefined,
           message: {
             id: userMsgId,
             content,
+            ...(options?.imageBase64?.length ? { imageBase64: options.imageBase64 } : {}),
           },
           overrides: finalOverrides,
         });
         await streamPromise;
       } catch (err: any) {
         cleanup();
+        parallelCleanup();
         // 移除未持久化的 assistant 占位和工具消息
-        const toolMsgIds = new Set([...pendingToolMessages.values()].flat());
-        pendingToolMessages.clear();
-        const cached = streamingSessionsCache.get(sessionId);
-        if (cached) {
-          cached.messages = cached.messages.filter(
-            (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
-          );
-          cached.isStreaming = false;
-          cached.streamingMessageId = null;
-          cached.pendingApproval = null;
-        }
-        if (get().activeSessionId === sessionId) {
+        const runtime = getConversationRuntimeRequest(
+          get().conversationRuntimeRegistry,
+          sessionId,
+          assistantMsgId,
+        );
+        const projection = runtime?.projection;
+        const transientMessageIds = new Set([
+          assistantMsgId,
+          projection?.currentAssistantMsgId,
+          ...Object.values(projection?.pendingToolMessages ?? {}).flat(),
+          ...(projection?.runtimeToolMessageIds ?? []),
+        ].filter(Boolean));
+        const release = transitionRegistry({
+          type: 'release',
+          conversationId: sessionId,
+          requestId: assistantMsgId,
+        });
+        if (release.ok && release.applied && get().activeSessionId === sessionId) {
           set((state) => ({
             messages: state.messages.filter(
-              (m) => m.id !== assistantMsgId && m.id !== currentAssistantMsgId && !toolMsgIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
+              (m) => !transientMessageIds.has(m.id) && !(m.role === 'assistant' && m.content === '')
             ),
             isStreaming: false,
             streamingMessageId: null,
             pendingApproval: null,
-            error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
+            pendingApprovals: [],
+            approvalHistory: [],
+            error: state.error ?? { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
           }));
         }
-        streamingSessionsCache.delete(sessionId);
       }
     } catch (err: any) {
-      if (get().activeSessionId === sessionId) {
+      const release = transitionRegistry({
+        type: 'release',
+        conversationId: sessionId,
+        requestId: assistantMsgId,
+      });
+      if (release.ok && release.applied && get().activeSessionId === sessionId) {
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId) }] },
+          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
         });
       }
-      streamingSessionsCache.delete(sessionId);
     }
+    return { ok: true };
   },
 
-  resolveApproval: async (decision, editedArgs) => {
-    const { streamingMessageId, pendingApproval } = get();
-    if (!streamingMessageId || !pendingApproval) return;
+  resolveApproval: async (decision, editedArgs, approvalId) => {
+    const { streamingMessageId, pendingApproval, pendingApprovals } = get();
+    const selectedApproval = approvalId
+      ? pendingApprovals.find((item) => item.id === approvalId) ?? null
+      : pendingApproval;
+    if (!selectedApproval) return;
 
+    const isWorkflowStageGate = selectedApproval.actions.length === 1
+      && selectedApproval.actions[0].name === 'advance_stage';
+    if (isWorkflowStageGate) {
+      if (decision === 'edit') {
+        set({ error: { message: '阶段门禁仅支持批准或打回。' } });
+        return;
+      }
+      try {
+        await window.electronAPI.workflowRun.resolveStageGate(selectedApproval.id, {
+          decision: decision === 'approve' ? 'approve' : 'reject',
+          feedback: decision === 'reject' ? '用户打回了当前阶段，请继续完善。' : undefined,
+        });
+        set((state) => {
+          const next = state.pendingApprovals.filter((item) => item.id !== selectedApproval.id);
+          return { pendingApprovals: next, pendingApproval: next[0] ?? null };
+        });
+      } catch (err: unknown) {
+        set({ error: { message: err instanceof Error ? err.message : String(err) } });
+      }
+      return;
+    }
+
+    if (!streamingMessageId) return;
     let editedAction: unknown;
     if (decision === 'edit') {
       try {
@@ -1136,8 +1430,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     await window.electronAPI.llm.resolveApproval(streamingMessageId, {
-      approvalId: pendingApproval.id,
-      decisions: pendingApproval.actions.map((action) => ({
+      approvalId: selectedApproval.id,
+      decisions: selectedApproval.actions.map((action) => ({
         type: decision,
         editedAction: decision === 'edit' ? { name: action.name, args: editedAction } : undefined,
         message: decision === 'reject' ? '用户拒绝了该工具调用。' : undefined,
@@ -1170,4 +1464,5 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
     }
   },
-}));
+  });
+});

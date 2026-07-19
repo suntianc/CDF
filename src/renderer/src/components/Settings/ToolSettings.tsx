@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import type { SearchProviderType } from '@shared/types';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Check, Loader2, AlertCircle, Wrench, Eye, EyeOff, HelpCircle, Save, Info, ShieldAlert, Sliders, X
+  Loader2, Wrench, Eye, EyeOff, Info, ShieldAlert, Sliders
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 
@@ -93,7 +94,7 @@ const getIntegratedTools = (t: (key: string) => string): ToolMeta[] => [
 
 interface ToolConfigItem {
   id: string;
-  tool_type: string;
+  tool_type: SearchProviderType;
   name: string;
   api_key: string;
   config: Record<string, any>;
@@ -263,7 +264,7 @@ export function ToolSettings() {
       `}</style>
 
       {/* Toast Notification Container */}
-      <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-12 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div 
             key={t.id} 
@@ -282,7 +283,13 @@ export function ToolSettings() {
       </div>
 
       {/* Topbar */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.toolsDesc')}
+          </span>
+        </div>
+      </header>
 
       {/* Main Settings Content */}
       <div className="settings-content !pt-3 flex-1 overflow-y-auto flex flex-col">

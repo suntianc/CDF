@@ -1,18 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PanelLeft, Settings, GitFork, ArrowLeft, Monitor, SquarePen, LayoutGrid, Bot, Wrench, Sliders } from 'lucide-react';
+import { PanelLeft, Settings, Workflow, ArrowLeft, Brain, SquarePen, Puzzle, UserCog, Wrench, SlidersHorizontal, GraduationCap, Gem } from 'lucide-react';
 import { ProjectTree } from '../ProjectTree/ProjectTree';
-import { useProjectStore } from '../../stores/projectStore';
+import { type AppView, useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   collapsed: boolean;
   width: number;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system';
+  activeView: AppView;
   onCollapse: () => void;
   onResize: (width: number) => void;
-  onChangeView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system') => void;
+  onChangeView: (view: AppView) => void;
 }
 
 export function Sidebar({
@@ -26,6 +26,28 @@ export function Sidebar({
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
+
+  const scrollTimeoutRef = useRef<any>(null);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    container.classList.add(styles.scrolling);
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      container.classList.remove(styles.scrolling);
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const { currentProjectId } = useProjectStore();
   const { 
@@ -74,7 +96,7 @@ export function Sidebar({
     onChangeView('chat');
   };
 
-  const isSettings: boolean = activeView !== 'chat';
+  const isSettings = ['settings', 'ai-subscriptions', 'agents', 'plugins', 'workflows', 'tools', 'research', 'system'].includes(activeView);
 
   return (
     <aside
@@ -98,24 +120,27 @@ export function Sidebar({
             <button
               onClick={() => onChangeView('agents')}
               className={`${styles.sidebarMenuBtn} ${activeView === 'agents' ? styles.active : ''}`}
+              aria-current={activeView === 'agents' ? 'page' : undefined}
             >
-              <Bot className="w-4 h-4" />
+              <UserCog className="w-4 h-4" />
               <span>{t('sidebar.agents')}</span>
             </button>
 
             <button
               onClick={() => onChangeView('plugins')}
               className={`${styles.sidebarMenuBtn} ${activeView === 'plugins' ? styles.active : ''}`}
+              aria-current={activeView === 'plugins' ? 'page' : undefined}
             >
-              <LayoutGrid className="w-4 h-4" />
+              <Puzzle className="w-4 h-4" />
               <span>{t('sidebar.plugins')}</span>
             </button>
 
             <button
               onClick={() => onChangeView('workflows')}
               className={`${styles.sidebarMenuBtn} ${activeView === 'workflows' ? styles.active : ''}`}
+              aria-current={activeView === 'workflows' ? 'page' : undefined}
             >
-              <GitFork className="w-4 h-4" />
+              <Workflow className="w-4 h-4" />
               <span>{t('sidebar.workflows')}</span>
             </button>
           </>
@@ -136,7 +161,10 @@ export function Sidebar({
       {!isSettings ? (
         <>
           {/* Unified scrollable container for projects and conversations */}
-          <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-4">
+          <div 
+            className={`${styles.scrollContainer} flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-4`}
+            onScroll={handleScroll}
+          >
             {/* Project tree contains nested projects and sessions */}
             <ProjectTree />
           </div>
@@ -148,51 +176,81 @@ export function Sidebar({
           </div>
         </>
       ) : (
-        <div className={styles.settingsMenu}>
+        <nav className={styles.settingsMenu} aria-label={t('sidebar.navigation')}>
           <div className={styles.settingsMenuHeader}>{t('sidebar.settings.header')}</div>
-          <div
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'settings' ? styles.active : ''}`}
             onClick={() => onChangeView('settings')}
+            aria-current={activeView === 'settings' ? 'page' : undefined}
           >
-            <Monitor className="w-4 h-4" />
+            <Brain className="w-4 h-4" />
             {t('sidebar.settings.llm')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
+            className={`${styles.settingsMenuItem} ${activeView === 'ai-subscriptions' ? styles.active : ''}`}
+            onClick={() => onChangeView('ai-subscriptions')}
+            aria-current={activeView === 'ai-subscriptions' ? 'page' : undefined}
+          >
+            <Gem className="w-4 h-4" />
+            {t('sidebar.settings.aiSubscriptions')}
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'agents' ? styles.active : ''}`}
             onClick={() => onChangeView('agents')}
+            aria-current={activeView === 'agents' ? 'page' : undefined}
           >
-            <Bot className="w-4 h-4" />
+            <UserCog className="w-4 h-4" />
             {t('sidebar.settings.agents')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'plugins' ? styles.active : ''}`}
             onClick={() => onChangeView('plugins')}
+            aria-current={activeView === 'plugins' ? 'page' : undefined}
           >
-            <LayoutGrid className="w-4 h-4" />
+            <Puzzle className="w-4 h-4" />
             {t('sidebar.settings.skillsMcp')}
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
+            className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}
+            onClick={() => onChangeView('workflows')}
+            aria-current={activeView === 'workflows' ? 'page' : undefined}
+          >
+            <Workflow className="w-4 h-4" />
+            {t('sidebar.settings.workflows')}
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'tools' ? styles.active : ''}`}
             onClick={() => onChangeView('tools')}
+            aria-current={activeView === 'tools' ? 'page' : undefined}
           >
             <Wrench className="w-4 h-4" />
             {t('sidebar.settings.tools')}
-          </div>
-          <div
-            className={`${styles.settingsMenuItem} ${activeView === 'workflows' ? styles.active : ''}`}
-            onClick={() => onChangeView('workflows')}
+          </button>
+          <button
+            type="button"
+            className={`${styles.settingsMenuItem} ${activeView === 'research' ? styles.active : ''}`}
+            onClick={() => onChangeView('research')}
+            aria-current={activeView === 'research' ? 'page' : undefined}
           >
-            <GitFork className="w-4 h-4" />
-            {t('sidebar.settings.workflows')}
-          </div>
-          <div
+            <GraduationCap className="w-4 h-4" />
+            {t('sidebar.settings.research')}
+          </button>
+          <button
+            type="button"
             className={`${styles.settingsMenuItem} ${activeView === 'system' ? styles.active : ''}`}
             onClick={() => onChangeView('system')}
+            aria-current={activeView === 'system' ? 'page' : undefined}
           >
-            <Sliders className="w-4 h-4" />
+            <SlidersHorizontal className="w-4 h-4" />
             {t('sidebar.settings.system')}
-          </div>
-        </div>
+          </button>
+        </nav>
       )}
 
       <div

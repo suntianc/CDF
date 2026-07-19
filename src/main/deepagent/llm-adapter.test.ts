@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { createLangChainModel, getOllamaBaseUrl } from './llm-adapter';
+import {
+  createLangChainModel,
+  getOllamaBaseUrl,
+} from './llm-adapter';
 
 describe('createLangChainModel', () => {
   it('should create OpenAI-compatible models', () => {
@@ -13,6 +16,59 @@ describe('createLangChainModel', () => {
 
     expect(model.model).toBe('gpt-4o-mini');
     expect(model.clientConfig?.baseURL).toBe('https://api.example.com/v1');
+  });
+
+  it('passes an OAuth-aware fetch transport to the OpenAI client', () => {
+    const authenticatedFetch = async () => new Response('ok');
+    const model = createLangChainModel({
+      apiKey: 'oauth-access-token',
+      apiUrl: 'https://api.example.com/v1',
+      defaultModel: 'oauth-model',
+      providerType: 'openai',
+      fetch: authenticatedFetch,
+    }) as any;
+
+    expect(model.clientConfig?.fetch).toBe(authenticatedFetch);
+  });
+
+  it('passes an explicit retry limit to the LangChain request caller', () => {
+    const model = createLangChainModel({
+      apiKey: 'oauth-access-token',
+      apiUrl: 'https://api.example.com/v1',
+      defaultModel: 'oauth-model',
+      providerType: 'openai',
+      maxRetries: 0,
+    }) as any;
+
+    expect(model.caller?.maxRetries).toBe(0);
+  });
+
+  it('serializes reasoning effort into the final Responses request body', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const captureFetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ error: { message: 'stop after capture' } }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const model = createLangChainModel({
+      apiKey: 'oauth-access-token',
+      apiUrl: 'https://api.example.com/v1',
+      defaultModel: 'reasoning-model',
+      providerType: 'openai',
+      useResponsesApi: true,
+      maxRetries: 0,
+      modelKwargs: { reasoning: { effort: 'high' } },
+      fetch: captureFetch,
+    });
+
+    await expect(model.invoke('Solve this carefully')).rejects.toThrow('stop after capture');
+
+    expect(requestBody).toEqual(expect.objectContaining({
+      model: 'reasoning-model',
+      reasoning: { effort: 'high' },
+    }));
   });
 
   it('should use ChatAnthropic for MiniMax', () => {
@@ -158,6 +214,14 @@ describe('getOllamaBaseUrl', () => {
     expect(getOllamaBaseUrl('http://localhost:11434/v1')).toBe('http://localhost:11434');
   });
 });
+
+function sseResponse(lines: string[]): Response {
+  const body = lines.map((line) => (line.startsWith('data:') || line === '' ? line : `data: ${line}`)).join('\n') + '\n';
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
 
 // ===== Streaming / thinking preservation regression =====
 // Load-bearing test for the 6-hunk patch-package on @langchain/anthropic@1.4.0.

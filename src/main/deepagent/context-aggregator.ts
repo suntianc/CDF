@@ -1,8 +1,8 @@
 // D-07/D-08/D-09: Aggregate token breakdown for the current session's loaded context.
-// Data sources: conversation (messages table), skills (listPhysicalSkills),
-// MCP tools (loadMcpTools), workflows (workflows table graph_data),
+// Data sources: conversation (messages table), skills (resolved CDF Skill catalog),
+// MCP tools (loadMcpTools), workflows (workflows table stages),
 // system prompt (agents.system_prompt + buildProjectContext),
-// system tools (5 built-in tool schemas — fetch/delete_file/bash/tavily/anysearch/arxiv).
+// system tools (built-in tool schemas — fetch/delete_file/bash/knowledge_search/knowledge_create/tavily/anysearch/arxiv).
 // Token heuristic: Math.ceil(chars * 0.25) — OpenAI rough 1 token ≈ 4 chars.
 // Per-source try-catch: if one source fails, the others still report real values.
 //
@@ -15,11 +15,16 @@
 
 import fs from 'fs';
 import path from 'path';
-import YAML from 'yaml';
 import db from '../database';
-import { listPhysicalSkills, getScopePath } from './skill-manager';
+import { getBuiltInSkillDirs, getScopePath } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
+import { getAgentMcpServers, getConnectedMcpServers } from './shared-infra';
 import type { MCPServer } from '../../shared/types';
+import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
+import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
+import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
+import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
+import { createAgentCatalog } from '../agent-catalog';
 
 export interface MCPToolDetail {
   tool: string;
@@ -35,6 +40,9 @@ export interface SkillDetail {
   name: string;
   scope: 'global' | 'project';
   tokens: number;
+  visibility?: string;
+  sourceLabel?: string;
+  preloaded?: boolean;
 }
 export interface WorkflowDetail {
   id: string;
@@ -58,7 +66,7 @@ export interface ContextBreakdown {
   workflows: number;
   // 08.2 P4 — promoted to real calculations (polish after CONTEXT.md Issue 1):
   systemPrompt: number;          // 08.2 polish: agents.system_prompt + buildProjectContext
-  systemTools: number;           // 08.2 polish: 5 built-in tool schema sum
+  systemTools: number;           // 08.2 polish: built-in tool schema sum
   customAgents: number;          // v1.1 placeholder — default 0 (v1.2 推)
   memoryFiles: number;           // v1.1 placeholder — default 0 (v1.2 推)
   messages: number;              // alias of conversation (Claude Code parity)
@@ -118,39 +126,81 @@ function safeFileSize(filePath: string): number {
   }
 }
 
-/**
- * Read the YAML frontmatter `description` field from a SKILL.md file.
- *
- * Why this exists: deepagent's progressive-disclosure pattern only injects
- * `name + description + path` for each skill into the LLM's system
- * prompt. The full SKILL.md body is only read on demand via read_file.
- * Aggregator should reflect what the LLM actually sees — the description
- * field, not the entire file.
- *
- * Returns 0 if the file is missing, the frontmatter is unparseable, or
- * the description field is absent — the caller falls back to a sensible
- * default in that case (file size for the rough-worst-case number).
- */
-function readSkillDescriptionChars(skillMdPath: string): number {
-  try {
-    if (!fs.existsSync(skillMdPath)) return 0;
-    const raw = fs.readFileSync(skillMdPath, 'utf-8');
-    // Frontmatter is delimited by `---` lines at the start of the file.
-    if (!raw.startsWith('---')) return 0;
-    const end = raw.indexOf('\n---', 3);
-    if (end < 0) return 0;
-    const fmBlock = raw.slice(3, end);
-    const parsed = YAML.parse(fmBlock);
-    if (!parsed || typeof parsed !== 'object') return 0;
-    const desc = (parsed as Record<string, unknown>).description;
-    if (typeof desc !== 'string') return 0;
-    return desc.length;
-  } catch {
-    return 0;
+const DEFAULT_CONTEXT_LIMIT = 200_000;
+
+function stripSkillFrontmatter(content: string): string {
+  if (!content.startsWith('---\n')) return content;
+  const end = content.indexOf('\n---', 4);
+  return end === -1
+    ? content
+    : content.slice(end + '\n---'.length).replace(/^\s+/, '');
+}
+
+function getSkillDisplayName(skill: ResolvedSkillCatalogEntry): string {
+  return skill.qualifiedName ?? skill.name;
+}
+
+function getSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
+  switch (skill.sourceKind) {
+    case 'built-in':
+      return 'Built-in Skill';
+    case 'project':
+      return 'Project Skill';
+    case 'project-nested':
+      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
+    case 'project-additional':
+      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
+    case 'user':
+      return 'Global Skill';
+    case 'enterprise':
+      return 'Managed Skill';
   }
 }
 
-const DEFAULT_CONTEXT_LIMIT = 200_000;
+function isPreloadedSkill(skill: ResolvedSkillCatalogEntry, preloadSkillNames: string[]): boolean {
+  const preloadNames = new Set(preloadSkillNames);
+  const displayName = getSkillDisplayName(skill);
+  return preloadNames.has(skill.name) || preloadNames.has(displayName);
+}
+
+function getSkillScope(skill: ResolvedSkillCatalogEntry): 'global' | 'project' {
+  return skill.sourceKind === 'user' || skill.sourceKind === 'built-in' || skill.sourceKind === 'enterprise'
+    ? 'global'
+    : 'project';
+}
+
+function estimateResolvedSkillContextChars(
+  skill: ResolvedSkillCatalogEntry,
+  preloadSkillNames: string[]
+): { chars: number; preloaded: boolean } {
+  const displayName = getSkillDisplayName(skill);
+  let chars = 0;
+
+  if (skill.modelDiscovery === 'full') {
+    chars += [
+      `- **${displayName}**: ${skill.description}`,
+      `  -> Read \`${skill.skillPath}\` for full instructions`,
+    ].join('\n').length;
+  }
+
+  const preloaded = skill.modelDiscovery === 'full' &&
+    isPreloadedSkill(skill, preloadSkillNames);
+  if (preloaded) {
+    try {
+      const body = stripSkillFrontmatter(fs.readFileSync(skill.skillPath, 'utf-8'));
+      chars += [
+        `### ${displayName}`,
+        `Path: \`${skill.skillPath}\``,
+        '',
+        body,
+      ].join('\n').length;
+    } catch {
+      chars += safeFileSize(skill.skillPath);
+    }
+  }
+
+  return { chars, preloaded };
+}
 
 // === System-prompt estimate ===============================================
 // runtime.ts:296 (buildProjectContext) appends a fixed CJK block describing
@@ -159,7 +209,7 @@ const DEFAULT_CONTEXT_LIMIT = 200_000;
 // bytes that the LLM actually receives. Update both sites in lockstep if
 // the runtime template changes.
 function buildProjectContextString(projectName: string, projectPath: string): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（对所有项目默认可见）\n- Agent 选择 Skill 只表示预加载或强调，不表示访问授权\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
 }
 
 // === Built-in tool schemas (08.2 polish) =================================
@@ -167,6 +217,7 @@ function buildProjectContextString(projectName: string, projectPath: string): st
 //   - fetch-tool.ts (FETCH_SCHEMA)
 //   - file-tools.ts (DELETE_FILE_SCHEMA)
 //   - bash-tool.ts (inline schema for `bash`)
+//   - knowledge-base.ts (KNOWLEDGE_SEARCH_SCHEMA, KNOWLEDGE_CREATE_SCHEMA)
 //   - search-tools.ts (TAVILY_SCHEMA, ANYSEARCH_SCHEMA)
 //   - arxiv-tool.ts (ARXIV_SCHEMA)
 // Schema strings are duplicated here rather than imported so the aggregator
@@ -222,6 +273,75 @@ const BASH_META = {
     'Execute a bash command. Returns stdout, stderr, and exit code. Use this to run system commands, scripts, or interact with the file system. Only use for tasks that require shell commands.',
 };
 
+const KNOWLEDGE_SEARCH_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    keyword: { type: 'string' },
+    tags: { type: 'array', items: { type: 'string' } },
+    tagMatch: { type: 'string', enum: ['all', 'any'] },
+    dateField: { type: 'string', enum: ['timestamp'] },
+    dateFrom: { type: 'string' },
+    dateTo: { type: 'string' },
+    sortBy: { type: 'string', enum: ['timestamp', 'title'] },
+    sortOrder: { type: 'string', enum: ['asc', 'desc'] },
+    limit: { type: 'number' },
+  },
+  additionalProperties: false,
+};
+const KNOWLEDGE_SEARCH_META = {
+  name: 'knowledge_search',
+  description:
+    'Search project-local Knowledge Entries stored under .cdf/knowledge. Returns relative paths so you can read matching entries with read_file. Does not read, create, update, or delete entries.',
+};
+
+const KNOWLEDGE_CREATE_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', description: 'OKF concept type. Defaults to Reference.' },
+    title: { type: 'string', description: 'Knowledge Entry title.' },
+    description: { type: 'string', description: 'Optional OKF description.' },
+    resource: { type: 'string', description: 'Optional OKF resource URI, path, or identifier.' },
+    authors: { type: 'array', items: { type: 'string' } },
+    source: { type: 'string' },
+    journal: { type: 'string' },
+    volume: { type: 'string' },
+    issue: { type: 'string' },
+    pages: { type: 'string' },
+    year: { type: ['string', 'number'] },
+    doi: { type: 'string' },
+    journalMetrics: {
+      type: 'object',
+      properties: {
+        impactFactor: { type: ['number', 'string'] },
+        casTier: { type: 'string' },
+        jcrQuartile: { type: 'string' },
+        indexing: { type: 'array', items: { type: 'string' } },
+        year: { type: ['number', 'string'] },
+        source: { type: 'string' },
+      },
+      required: ['year', 'source'],
+      additionalProperties: false,
+    },
+    body: { type: 'string', description: 'Markdown body content for the Knowledge Entry.' },
+    tags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Optional tags for the Knowledge Entry.',
+    },
+    relativePath: {
+      type: 'string',
+      description: 'Optional Knowledge Base-relative .md path. If omitted, CDF generates one from title.',
+    },
+  },
+  required: ['title', 'body'],
+  additionalProperties: false,
+};
+const KNOWLEDGE_CREATE_META = {
+  name: 'knowledge_create',
+  description:
+    'Create a project-local Knowledge Entry under .cdf/knowledge with managed OKF frontmatter, safe path handling, and collision protection. Does not update or delete entries.',
+};
+
 const TAVILY_SCHEMA: unknown = {
   type: 'object',
   properties: {
@@ -261,13 +381,32 @@ const ARXIV_META = {
   description: 'Search arxiv papers.',
 };
 
+const MANAGE_FLOW_DIAGRAM_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    action: { enum: ['read_format', 'create', 'get', 'edit', 'rollback', 'export'] },
+    file_path: { type: 'string' },
+    operations: { type: 'array' },
+    format: { enum: ['png', 'svg'] },
+    output_path: { type: 'string' },
+  },
+  required: ['action'],
+};
+const MANAGE_FLOW_DIAGRAM_META = {
+  name: 'manage_flow_diagram',
+  description: 'Create and safely manage Project-owned editable Excalidraw Flow Diagrams.',
+};
+
 const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: string }; schema: unknown }> = [
   { meta: FETCH_META, schema: FETCH_SCHEMA },
   { meta: DELETE_FILE_META, schema: DELETE_FILE_SCHEMA },
   { meta: BASH_META, schema: BASH_SCHEMA },
+  { meta: KNOWLEDGE_SEARCH_META, schema: KNOWLEDGE_SEARCH_SCHEMA },
+  { meta: KNOWLEDGE_CREATE_META, schema: KNOWLEDGE_CREATE_SCHEMA },
   { meta: TAVILY_META, schema: TAVILY_SCHEMA },
   { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
   { meta: ARXIV_META, schema: ARXIV_SCHEMA },
+  { meta: MANAGE_FLOW_DIAGRAM_META, schema: MANAGE_FLOW_DIAGRAM_SCHEMA },
 ];
 
 // Pre-compute character length of every built-in tool's name+description+schema
@@ -289,7 +428,7 @@ function safeStringifyLen(v: unknown): number {
  * - Conversation: SUM(LENGTH(content)) FROM messages WHERE session_id = ?
  * - Skills:      sum SKILL.md file sizes for the project's physical skills
  * - MCP tools:   sum JSON.stringify(tool.schema || tool.inputSchema).length
- * - Workflows:   SUM(LENGTH(graph_data)) FROM workflows WHERE status = 'active' AND project_id = ?
+ * - Workflows:   SUM(LENGTH(stages)) FROM workflows WHERE status = 'active' AND project_id = ?
  * - Project command bodies (08.2 P4 NEW, v1.1 real): sum .cdf/commands/*.md bytes × 0.25
  * - Per-MCP-tool (08.2 P4 NEW, v1.1 real): [{ tool, server, tokens }]
  * - System prompt / system tools / custom agents / memory files
@@ -326,37 +465,38 @@ export async function aggregateCurrentSessionContext(
   // Resolve contextLimit + modelName from the active provider (P10 — provider-specific).
   let resolvedLimit = DEFAULT_CONTEXT_LIMIT;
   let modelName = '';
+  let agentIdForContext: string | undefined;
   let agentSystemPrompt: string | null = null;
   let projectName: string | undefined;
   let projectPathFromAgent: string | undefined;
   try {
-    // ALWAYS look up the session's agent → active provider to resolve modelName and agentSystemPrompt.
-    const agent = db
-      .prepare(
-        `SELECT a.id, a.system_prompt, a.provider_id, p.context_limit,
-                p.default_model AS model_name, p.name AS provider_name
-         FROM agents a
-         JOIN sessions s ON s.agent_id = a.id
-         JOIN llm_providers p ON p.id = a.provider_id AND p.is_active = 1
-         WHERE s.id = ?`
-      )
-      .get(sessionId) as
-      | {
-          id: string;
-          system_prompt: string | null;
-          provider_id: string;
-          context_limit: number;
-          model_name: string;
-          provider_name: string;
-        }
-      | undefined;
-    if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
-      resolvedLimit = contextLimit;
-    } else if (agent?.context_limit && agent.context_limit > 0) {
-      resolvedLimit = agent.context_limit;
+    const session = db.prepare('SELECT project_id, prompt_snapshot FROM sessions WHERE id = ?')
+      .get(sessionId) as { project_id: string; prompt_snapshot?: string | null } | undefined;
+    if (session) {
+      const projectScene = db.prepare('SELECT scene FROM projects WHERE id = ?').get(session.project_id) as { scene?: string | null } | undefined;
+      const resolvedMaster = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(projectScene?.scene ?? 'general');
+      const master = resolvedMaster.agent;
+      const configuredProvider = master.provider_id
+        ? db.prepare(
+          'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers WHERE id = ? AND is_active = 1',
+        ).get(master.provider_id) as { context_limit?: number; model_name?: string; provider_name?: string } | undefined
+        : undefined;
+      const activeProvider = db.prepare(
+        'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1',
+      ).get() as { context_limit?: number; model_name?: string; provider_name?: string } | undefined;
+      const provider = configuredProvider ?? activeProvider ?? db.prepare(
+        'SELECT context_limit, default_model AS model_name, name AS provider_name FROM llm_providers ORDER BY updated_at DESC LIMIT 1',
+      ).get() as { context_limit?: number; model_name?: string; provider_name?: string } | undefined;
+
+      if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
+        resolvedLimit = contextLimit;
+      } else if (provider?.context_limit && provider.context_limit > 0) {
+        resolvedLimit = provider.context_limit;
+      }
+      modelName = overriddenModelName || provider?.model_name || '';
+      agentIdForContext = master.id;
+      agentSystemPrompt = session.prompt_snapshot ?? resolvedMaster.system_prompt;
     }
-    modelName = overriddenModelName || agent?.model_name || '';
-    agentSystemPrompt = agent?.system_prompt ?? null;
   } catch (err) {
     console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
     if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
@@ -396,55 +536,55 @@ export async function aggregateCurrentSessionContext(
   }
 
   // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown.
-  //
-  // 08.2 polish: deepagent's design (per the package's progressive-
-  // disclosure pattern) injects only `name + description + path` for
-  // each skill into the LLM's system prompt. The full SKILL.md is
-  // only read on demand via read_file. Previously the aggregator
-  // counted the entire SKILL.md byte size (e.g. skill-creator's
-  // 33KB SKILL.md reported as 8.3k tokens), which overstated the
-  // LLM-visible cost by 30-100x. We now read only the YAML
-  // frontmatter description field, which is what the LLM actually
-  // sees at conversation start.
+  // Consume the same resolved CDF Skills runtime as Chat / worker / workflow
+  // paths so Scene exposure and preload semantics are accounted once.
   let skills = 0;
   let projectPath: string | undefined;
   let skillsPerSkill: SkillDetail[] = [];
   try {
     const project = db
       .prepare(
-        `SELECT p.path FROM projects p
+        `SELECT p.id AS project_id, p.path, p.scene FROM projects p
          JOIN sessions s ON s.project_id = p.id
          WHERE s.id = ?`
       )
-      .get(sessionId) as { path: string } | undefined;
+      .get(sessionId) as { project_id: string; path: string; scene?: 'general' | 'research' } | undefined;
 
     if (project?.path) {
       projectPath = project.path;
-      const physicalSkills = listPhysicalSkills(projectPath);
+      let preloadSkillNames: string[] = [];
+      if (agentIdForContext) {
+        const rows = db
+          .prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?')
+          .all(agentIdForContext) as Array<{ skill_name: string }>;
+        preloadSkillNames = skillReferencesToPreloadNames(rows.map((row) => row.skill_name));
+      }
+      const skillSnapshot = getOrCaptureConversationSystemContextSnapshot(db, {
+        sessionId,
+        projectPath,
+        sceneId: project.scene ?? 'general',
+        promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
+      }).skillSnapshot;
+      const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
+        catalog: skillSnapshot as ResolvedSkillCatalogEntry[],
+        builtInSkillDirs: getBuiltInSkillDirs(),
+        userSkillsDir: getScopePath(projectPath, 'global'),
+        preloadSkillNames,
+      });
+      for (const warning of skillsRuntime.warnings) {
+        console.warn('[context-aggregator] Ignored invalid Skill runtime input:', warning);
+      }
       let skillsChars = 0;
-      for (const skill of physicalSkills) {
-        const scope = (skill.scope === 'global' ? 'global' : 'project') as
-          | 'global'
-          | 'project';
-        const baseDir =
-          scope === 'global'
-            ? getScopePath(projectPath, 'global')
-            : getScopePath(projectPath, 'project');
-        const skillMdPath = path.join(baseDir, skill.name, 'SKILL.md');
-        // 08.2 polish: count only the description field (the LLM-visible
-        // portion), not the full file. Fall back to the full file size
-        // only if the file is missing or the frontmatter is unparseable
-        // (defensive — never let aggregator crash on a malformed skill).
-        const descChars = readSkillDescriptionChars(skillMdPath);
-        const chars =
-          descChars > 0
-            ? descChars + skill.name.length + '/skills/'.length
-            : safeFileSize(skillMdPath);
+      for (const skill of skillsRuntime.skills) {
+        const { chars, preloaded } = estimateResolvedSkillContextChars(skill, preloadSkillNames);
+        if (chars <= 0) continue;
         skillsChars += chars;
         skillsPerSkill.push({
-          name: skill.name,
-          scope,
+          name: getSkillDisplayName(skill),
+          scope: getSkillScope(skill),
           tokens: safeMath(chars),
+          sourceLabel: getSkillSourceLabel(skill),
+          preloaded,
         });
       }
       skills = safeMath(skillsChars);
@@ -460,19 +600,9 @@ export async function aggregateCurrentSessionContext(
   let mcpPerTool: MCPToolDetail[] = [];
   let connectedServers: MCPServer[] = [];
   try {
-    const agent = db
-      .prepare(
-        `SELECT a.id FROM agents a
-         JOIN sessions s ON s.agent_id = a.id
-         WHERE s.id = ?`
-      )
-      .get(sessionId) as { id: string } | undefined;
-
-    if (agent?.id) {
-      connectedServers = db
-        .prepare('SELECT * FROM mcp_servers WHERE is_connected = 1')
-        .all() as MCPServer[];
-      const result = await loadMcpTools(agent.id, connectedServers);
+    if (agentIdForContext) {
+      connectedServers = getAgentMcpServers(agentIdForContext);
+      const result = await loadMcpTools(agentIdForContext, connectedServers, getConnectedMcpServers());
       let mcpChars = 0;
       for (const tool of result.tools) {
         const t = tool as { name?: string; schema?: unknown; inputSchema?: unknown };
@@ -507,7 +637,7 @@ export async function aggregateCurrentSessionContext(
   try {
     const rows = db
       .prepare(
-        `SELECT id, name, LENGTH(graph_data) AS len
+        `SELECT id, name, LENGTH(stages) AS len
          FROM workflows
          WHERE status = 'active' AND project_id = (
            SELECT project_id FROM sessions WHERE id = ?
@@ -566,13 +696,13 @@ export async function aggregateCurrentSessionContext(
   }
 
   // 7. systemTools (08.2 polish — promoted to real calculation).
-  //     runtime.ts:492-504 mounts a fixed array of built-in tools into
-  //     every agent regardless of MCP / skill bindings:
+  //     runtime.ts mounts a fixed array of built-in tools into
+  //     every agent regardless of MCP Server Exclusions or Skill Preload selections:
   //       [fetch, delete_file (plan-mode stripped), bash (plan-mode stripped),
+  //        knowledge_search, knowledge_create,
   //        tavily / anysearch / arxiv (tool_configs.is_enabled=1 only)]
-  //     We sum the character length of name+description+schema for all 6
-  //     (note: plan-mode strips 2, so the live count is 4 for plan sessions —
-  //     we report the full 6 here; the delta is negligible).
+  //     We sum the character length of name+description+schema for all mirrored
+  //     built-ins here; plan-mode strips only the write/shell tools.
   //     08.2 polish: also populate per-tool breakdown.
   let systemTools = 0;
   let systemToolsPerTool: SystemToolDetail[] = [];

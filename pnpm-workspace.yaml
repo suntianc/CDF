@@ -5,3 +5,6 @@ allowBuilds:
   electron-winstaller: true
   esbuild: true
   utf-8-validate: true
+minimumReleaseAgeExclude:
+  - '@langchain/openai@1.5.5'
+  - '@langchain/core@1.2.2'

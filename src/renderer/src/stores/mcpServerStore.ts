@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { MCPServer } from '../../../shared/types';
+import { MCPServer, MCPServerSaveInput } from '../../../shared/types';
 
 interface MCPServerState {
   mcpServers: MCPServer[];
   isLoading: boolean;
   error: string | null;
   fetchMcpServers: () => Promise<void>;
-  saveMcpServer: (server: Partial<MCPServer>) => Promise<void>;
+  saveMcpServer: (server: MCPServerSaveInput) => Promise<void>;
   deleteMcpServer: (id: string) => Promise<void>;
   checkMcpHealth: (id: string) => Promise<{ ok: boolean; message?: string }>;
   toggleMcpConnection: (id: string, connected: boolean) => Promise<void>;

@@ -1,21 +1,4 @@
-// Unit tests for the pure functions in agent-slug.ts.
-// `ensureUniqueSlug` requires DB access and is exercised in
-// agent-tools.integration.test.ts; here we cover the pure
-// normalization + resolve helpers.
-
-import { describe, expect, it, vi } from 'vitest';
-
-// Stub electron + database so the helper module can be imported
-// without triggering the better-sqlite3 native binding. The
-// pure functions under test don't touch the database, so a
-// minimal stub is sufficient.
-vi.mock('electron', () => ({
-  app: { getPath: () => '/tmp/cdf-agent-slug-unit-test' },
-  ipcMain: { handle: () => {} },
-}));
-vi.mock('../database', () => ({
-  default: { prepare: () => ({ all: () => [] }) },
-}));
+import { describe, expect, it } from 'vitest';
 
 import { generateSlug, resolveAgentSlug } from './agent-slug';
 

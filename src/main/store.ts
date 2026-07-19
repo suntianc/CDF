@@ -1,4 +1,8 @@
 import Store from 'electron-store';
+import type { ApprovalMode } from '../shared/types';
+import type { PersistedAISubscriptionState } from '../shared/ai-subscriptions';
+
+type SceneSkillExposureStore = Record<string, Record<string, boolean>>;
 
 interface StoreSchema {
   theme: 'light' | 'dark' | 'system';
@@ -12,6 +16,11 @@ interface StoreSchema {
     y?: number;
   };
   language: 'zh-CN' | 'en-US';
+  // Phase 14: 全局审批模式默认值
+  approvalMode: ApprovalMode;
+  autoSave: boolean;
+  sceneSkillExposures: SceneSkillExposureStore;
+  aiSubscriptions: PersistedAISubscriptionState;
 }
 
 const store = new Store<StoreSchema>({
@@ -22,6 +31,10 @@ const store = new Store<StoreSchema>({
     sidebarCollapsed: false,
     windowBounds: { width: 1200, height: 800 },
     language: 'zh-CN',
+    approvalMode: 'strict',
+    autoSave: false,
+    sceneSkillExposures: {},
+    aiSubscriptions: {},
   },
   schema: {
     theme: { type: 'string', enum: ['light', 'dark', 'system'] },
@@ -39,6 +52,19 @@ const store = new Store<StoreSchema>({
       required: ['width', 'height'],
     },
     language: { type: 'string', enum: ['zh-CN', 'en-US'] },
+    approvalMode: { type: 'string', enum: ['strict', 'agent_decides', 'bypass'] },
+    autoSave: { type: 'boolean' },
+    sceneSkillExposures: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: { type: 'boolean' },
+      },
+    },
+    aiSubscriptions: {
+      type: 'object',
+      additionalProperties: true,
+    },
   },
   clearInvalidConfig: true,
 });

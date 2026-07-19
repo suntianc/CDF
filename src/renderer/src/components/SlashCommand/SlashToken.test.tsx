@@ -2,8 +2,7 @@
 //
 // SlashToken is the inline visual pill rendered by the ChatArea overlay
 // (Plan 03). It is a pure presentational component that:
-//   - renders a 5-category lucide icon (skills/command collapse to single
-//     icon — see iconMap.ts) + Title-Cased name
+//   - renders a 4-category lucide icon
 //   - exposes data-testid="slash-token" by default with optional override
 //   - calls e.preventDefault() on mousedown so click-in-token never moves
 //     the textarea caret (D-04 / SPEC R5)
@@ -17,10 +16,8 @@ import { createEvent, fireEvent, render } from '@testing-library/react';
 import { SlashToken } from './SlashToken';
 
 // Map every icon component the production code MIGHT import from lucide-react
-// to a sentinel. The 5 icons the component actually uses are: Sparkles,
-// GraduationCap, Wrench, Play, Terminal. We mock them ALL by their
-// PascalCase name so vi.mock returns a sentinel for any icon the iconMap
-// (or future maintainer) might swap in.
+// to a sentinel. The 4 icons the component actually uses are: Sparkles,
+// GraduationCap, Wrench, Terminal.
 vi.mock('lucide-react', () => {
   const sentinel = (testId: string) => {
     // Type as ComponentType to bypass the strict SVGProps type check —
@@ -37,7 +34,6 @@ vi.mock('lucide-react', () => {
     Sparkles: sentinel('sparkles'),
     GraduationCap: sentinel('graduation-cap'),
     Wrench: sentinel('wrench'),
-    Play: sentinel('play'),
     Terminal: sentinel('terminal'),
     // Fallback pass-through for any other icon the test harness
     // transitively imports (e.g. via @testing-library or React internals).
@@ -92,11 +88,6 @@ describe('SlashToken (Phase 08.1 — D-02 / D-04 / D-05 / D-06)', () => {
     expect(getByTestId('wrench')).toBeTruthy();
   });
 
-  // Test 6 — workflow source → play
-  it('renders workflow source with the play icon', () => {
-    const { getByTestId } = render(<SlashToken name="pr-review" source="workflow" />);
-    expect(getByTestId('play')).toBeTruthy();
-  });
 
   // Test 7 — click-in-token does not move caret (D-04 / SPEC R5)
   it('click on the token does not move focus (onMouseDown preventDefault)', () => {

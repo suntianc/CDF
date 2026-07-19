@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import YAML from 'yaml';
 import type { ParsedFrontmatter, SlashCommand } from '../../shared/types';
+import { parseFrontmatterStringList } from '../frontmatter-list';
 
 /** D-20 / Phase 6: original hand-rolled frontmatter fields. 08.2 keeps them
  *  on the new typed return shape for back-compat with consumers that read
@@ -64,14 +65,10 @@ export function parseFrontmatter(filePath: string): CommandFrontmatter {
       typeof parsed['user-invocable'] === 'boolean'
         ? (parsed['user-invocable'] as boolean)
         : true,
-    allowedTools: Array.isArray(parsed['allowed-tools'])
-      ? (parsed['allowed-tools'] as unknown[]).filter((v): v is string => typeof v === 'string')
-      : [],
+    allowedTools: parseFrontmatterStringList(parsed['allowed-tools']),
     whenToUse:
       typeof parsed['when_to_use'] === 'string' ? (parsed['when_to_use'] as string) : '',
-    arguments: Array.isArray(parsed['arguments'])
-      ? (parsed['arguments'] as unknown[]).filter((v): v is string => typeof v === 'string')
-      : [],
+    arguments: parseFrontmatterStringList(parsed['arguments']),
   };
 }
 

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useLLMStore } from '../../stores/llmStore';
 import { LLMProvider } from '../../../../shared/types';
 import {
-  Plus, Trash2, Eye, EyeOff, Check, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
+  Plus, Trash2, Eye, EyeOff, Loader2, AlertCircle, Edit2, Play, RefreshCw, X
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import { ProviderIcon } from '../ui/ProviderIcon';
@@ -341,7 +341,13 @@ export function ModelSettings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
       {/* Topbar */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.llmDesc')}
+          </span>
+        </div>
+      </header>
 
       {/* Main Settings Content */}
       <div className="settings-content !pt-3">

@@ -1,46 +1,18 @@
-// Real-SQLite integration tests for createAgentTools.
-//
-// These tests verify behavior that the mock-based agent-tools.test.ts
-// cannot cover:
-//   1. legacy `slug IS NULL` rows whose effective slug would collide
-//      with a same-named new agent (PR #5 maintainer feedback
-//      2026-06-09) — the mock's SELECT shim does not run real `IS NULL`.
-//   2. duplicate mcpServerIds / skillNames within a single
-//      create/update — real SQLite throws `UNIQUE constraint failed`
-//      on the composite PK; the mock silently appends duplicates.
-//   3. `delete_agent` triggers real FK CASCADE on agent_mcp_servers,
-//      agent_skills, agent_runs, agent_tool_calls — the mock
-//      manually deletes from JS maps.
-//
-// Strategy: stub the Electron import so the production `../database`
-// module can evaluate, then use the real better-sqlite3 connection.
-// In `beforeEach` we wipe every table and seed the minimum rows
-// required by FK constraints. The same `db` singleton is shared
-// across tests in this file (it's an in-process module export), so
-// we never `close()` it mid-run; cleanup happens via DELETE FROM.
-
 import fs from 'fs';
 import path from 'path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GENERAL_PURPOSE_AGENT_ID, MASTER_AGENT_ID } from '../agent-catalog';
 
-// Per-process tmp dir for the test DB. `vi.hoisted` ensures this
-// runs before `vi.mock` factory is invoked (vitest hoists vi.mock
-// above all imports, including `os`/`path`/`fs` above — so we
-// resolve the dir via require('os') + require('node:fs') inside
-// the hoisted callback). Use `os.tmpdir()` so Windows runners
-// (which don't define TMPDIR) get a writable path automatically.
 const TMP_DIR = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const osSync = require('os') as typeof import('os');
+  const os = require('node:os') as typeof import('node:os');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const fsSync = require('node:fs') as typeof import('node:fs');
-  const dir = `${osSync.tmpdir()}/cdf-agent-tools-int-${process.pid}-${Date.now()}`;
-  fsSync.mkdirSync(dir, { recursive: true });
-  return dir;
+  const directory = `${os.tmpdir()}/cdf-agent-tools-${process.pid}-${Date.now()}`;
+  fsSync.mkdirSync(directory, { recursive: true });
+  return directory;
 });
 
-// Stub electron BEFORE importing the production `../database` module
-// (database.ts calls `app.getPath('userData')` at import time).
 vi.mock('electron', () => ({
   app: { getPath: () => TMP_DIR },
   ipcMain: { handle: () => {} },
@@ -49,22 +21,23 @@ vi.mock('electron', () => ({
 import db from '../database';
 import { createAgentTools } from './agent-tools';
 
-const PROJECT_ID = 'project-integration-1';
-const PROJECT_PATH = path.join(TMP_DIR, 'project-root');
+const PROJECT_ID = 'agent-tools-project';
+const PROJECT_PATH = path.join(TMP_DIR, 'project');
 
 const TABLES_IN_DELETE_ORDER = [
-  // Children first to avoid FK violations during the wipe.
   'agent_tool_calls',
+  'delegated_tool_actions',
+  'delegated_agent_runs',
   'agent_runs',
-  'workflow_node_runs',
-  'workflow_executions',
+  'workflow_run_tasks',
+  'workflow_stage_gates',
+  'workflow_runs',
   'workflows',
   'agent_skills',
-  'agent_mcp_servers',
+  'agent_mcp_exclusions',
   'mcp_servers',
   'messages',
   'sessions',
-  'agents',
   'llm_providers',
   'tool_configs',
   'projects',
@@ -72,36 +45,42 @@ const TABLES_IN_DELETE_ORDER = [
 
 function freshDb() {
   db.pragma('foreign_keys = ON');
-  for (const t of TABLES_IN_DELETE_ORDER) {
-    db.exec(`DELETE FROM ${t}`);
-  }
-
-  // Seed the minimum rows the tool checks against. The production
-  // database.ts auto-inserts defaults on first open, but DELETE FROM
-  // wipes them; re-seed what `create_agent` actually looks at.
-  db.prepare(
-    `INSERT INTO projects (id, name, path, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(PROJECT_ID, 'Integration Test Project', PROJECT_PATH, 0, 0);
-
-  db.prepare(
-    `INSERT INTO llm_providers
-       (id, name, provider_type, api_key, api_url, default_model,
-        context_limit, is_active, created_at, updated_at)
-     VALUES (?, ?, ?, NULL, ?, ?, ?, 1, 0, 0)`,
-  ).run('prov-1', 'Test OpenAI', 'openai', 'https://api.openai.com/v1', 'gpt-4o', 8192);
+  for (const table of TABLES_IN_DELETE_ORDER) db.exec(`DELETE FROM ${table}`);
+  // The Agent Catalog owns the protected system identities. Tests may reset
+  // Custom data but must never remove Master or General-purpose rows.
+  db.exec("DELETE FROM agents WHERE role = 'custom'");
+  db.prepare(`INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, 'general', 0, 0)`)
+    .run(PROJECT_ID, 'Agent tools test', PROJECT_PATH);
 }
 
-function findTool(name: string) {
-  const tools = createAgentTools(PROJECT_ID);
-  const t = tools.find((x) => (x as any).name === name);
-  if (!t) throw new Error(`Tool ${name} not found`);
-  return t as any;
+function seedProvider(id: string, isActive: number, updatedAt: number) {
+  db.prepare(`
+    INSERT INTO llm_providers
+      (id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, created_at, updated_at)
+    VALUES (?, ?, 'openai', NULL, 'https://example.test', 'model', 8192, ?, 0, ?)
+  `).run(id, id, isActive, updatedAt);
 }
 
-async function invokeTool(name: string, input: unknown) {
-  const t = findTool(name);
-  return JSON.parse(await t.invoke(input as any));
+function seedMcpServer(id: string) {
+  db.prepare(`INSERT INTO mcp_servers (id, name, server_type, config, is_connected, created_at, updated_at)
+    VALUES (?, ?, 'stdio', NULL, 0, 0, 0)`).run(id, id);
+}
+
+function findTool(name: string, _projectId = PROJECT_ID, options: { activeAgentId?: string | null } = {}) {
+  const tool = createAgentTools(options).find((candidate) => candidate.name === name);
+  if (!tool) throw new Error(`Tool ${name} was not registered`);
+  return tool;
+}
+
+async function invoke(name: string, input: unknown, projectId = PROJECT_ID, options: { activeAgentId?: string | null } = {}) {
+  const tool = findTool(name, projectId, options) as { invoke(input: unknown): Promise<string> };
+  return JSON.parse(await tool.invoke(input));
+}
+
+async function createCustom(name = 'Reviewer') {
+  const result = await invoke('create_agent', { name });
+  expect(result.error).toBeUndefined();
+  return result as { id: string; name: string; provider_id: string };
 }
 
 beforeEach(() => {
@@ -109,208 +88,137 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try {
-    db.close();
-  } catch {
-    /* already closed */
-  }
-  try {
-    fs.rmSync(TMP_DIR, { recursive: true, force: true });
-  } catch {
-    /* best-effort cleanup */
-  }
+  db.close();
+  fs.rmSync(TMP_DIR, { recursive: true, force: true });
 });
 
-describe('create_agent: NULL-slug legacy row does not get shadowed', () => {
-  it('legacy agent with slug=NULL gets a -2 suffixed new agent, not a same-slug shadow', async () => {
-    // Seed a "legacy" row that pre-dates the D-03 migration (slug NULL).
-    // Insert with raw SQL to bypass create_agent (which would now write
-    // a slug itself).
-    const legacyId = 'legacy-1';
-    db.prepare(
-      `INSERT INTO agents
-         (id, project_id, name, slug, description, provider_id,
-          system_prompt, config, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, NULL, 'prov-1', NULL, NULL, 0, 0, 0)`,
-    ).run(legacyId, PROJECT_ID, 'Reviewer');
+describe('Agent tools with the global Catalog schema', () => {
+  it('lists General-purpose and Custom delegation targets globally, never Master', async () => {
+    seedProvider('provider-1', 1, 1);
+    const custom = await createCustom('Cross Project Reviewer');
 
-    // Sanity: legacy effective slug is `reviewer` (NULL → generateSlug)
-    const before = db.prepare('SELECT name, slug FROM agents WHERE id = ?').get(legacyId) as any;
-    expect(before.slug).toBeNull();
+    const result = await invoke('list_agents', {}, 'another-project');
 
-    // The new create_agent must NOT collide on the legacy row's
-    // effective slug. The inline query before this fix
-    // (`slug = ? OR slug LIKE ?`) missed NULL rows; the new
-    // `ensureUniqueSlug` helper explicitly checks
-    // `slug IS NULL OR slug = ''` and projects their effective slug
-    // into the taken set.
-    const result = await invokeTool('create_agent', { name: 'Reviewer' });
-
-    expect(result.error).toBeUndefined();
-    // The new agent's persisted slug must NOT be 'reviewer' (that
-    // would shadow the legacy row at runtime.ts:584's
-    // `agentRow.slug || generateSlug(agentRow.name)` fallback).
-    expect(result.slug).toBe('reviewer-2');
-    expect(result.effective_slug).toBe('reviewer-2');
-
-    // Legacy row unchanged (NOT backfilled by the create — the
-    // database.ts:225-241 startup migration owns that, not the
-    // per-row write path).
-    const after = db.prepare('SELECT slug FROM agents WHERE id = ?').get(legacyId) as any;
-    expect(after.slug).toBeNull();
-
-    // New row persisted with the resolved unique slug.
-    const newRow = db.prepare('SELECT slug FROM agents WHERE id = ?').get(result.id) as any;
-    expect(newRow.slug).toBe('reviewer-2');
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: GENERAL_PURPOSE_AGENT_ID, role: 'general-purpose' }),
+      expect.objectContaining({ id: custom.id, role: 'custom', effective_slug: 'cross-project-reviewer' }),
+    ]));
+    expect(result.some((agent: { id: string }) => agent.id === MASTER_AGENT_ID)).toBe(false);
   });
-});
 
-describe('create_agent / update_agent: duplicate join rows surface as tool errors', () => {
-  it('create_agent with duplicate mcpServerIds throws UNIQUE on (agent_id, mcp_server_id)', async () => {
-    // Seed a real mcp_servers row so the validation SELECT passes.
-    db.prepare(
-      `INSERT INTO mcp_servers (id, name, server_type, config, is_connected, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, 0, 0, 0)`,
-    ).run('m1', 'm1', 'stdio');
+  it('uses active-then-recent provider fallback and validates explicit provider selection', async () => {
+    expect((await invoke('create_agent', { name: 'No Provider' })).error).toMatch(/No LLM provider is configured/);
 
-    // With duplicates and no fix, the second INSERT would throw
-    // `UNIQUE constraint failed: agent_mcp_servers.agent_id,
-    //  agent_mcp_servers.mcp_server_id` inside db.transaction().
-    // After the dedup fix (Array.from(new Set(...))), the second
-    // m1 is removed before the loop, so the create should succeed.
-    const result = await invokeTool('create_agent', {
-      name: 'dup-mcp-test',
-      provider_id: 'prov-1',
-      mcpServerIds: ['m1', 'm1'],
+    seedProvider('inactive-recent', 0, 30);
+    seedProvider('active-old', 1, 10);
+    seedProvider('active-new', 1, 20);
+    expect((await createCustom('Active Fallback') as { provider_id: string }).provider_id).toBe('active-new');
+    expect((await invoke('create_agent', { name: 'Null Provider Fallback', provider_id: null })).provider_id).toBe('active-new');
+    expect((await invoke('create_agent', { name: 'Missing Provider', provider_id: 'missing' })).error).toBe('Provider not found: missing');
+
+    db.exec("UPDATE llm_providers SET is_active = 0");
+    expect((await createCustom('Recent Fallback') as { provider_id: string }).provider_id).toBe('inactive-recent');
+  });
+
+  it('surfaces global Catalog name and delegation-key conflicts without suffixing', async () => {
+    seedProvider('provider-1', 1, 1);
+    await createCustom('Global Reviewer');
+    expect((await invoke('create_agent', { name: 'Global Reviewer' }, 'other-project')).error)
+      .toMatch(/name conflicts/i);
+
+    const sharedKey = 'a'.repeat(50);
+    await createCustom(`${sharedKey}x`);
+    const keyConflict = await invoke('create_agent', { name: `${sharedKey}y` }, 'yet-another-project');
+    expect(keyConflict.error).toMatch(/delegation key conflicts/i);
+    expect(keyConflict.effective_slug).toBeUndefined();
+  });
+
+  it('rejects Master and General-purpose updates and deletions', async () => {
+    for (const id of [MASTER_AGENT_ID, GENERAL_PURPOSE_AGENT_ID]) {
+      expect((await invoke('update_agent', { id, name: 'Changed' })).error).toMatch(/protected/i);
+      expect((await invoke('delete_agent', { id })).error).toMatch(/Only Custom Agents/i);
+    }
+  });
+
+  it('replaces supplied MCP exclusions and skills, deduping values and ignoring unknown MCP ids', async () => {
+    seedProvider('provider-1', 1, 1);
+    seedMcpServer('mcp-1');
+    seedMcpServer('mcp-2');
+    const created = await invoke('create_agent', {
+      name: 'Relations',
+      mcpServerExclusionIds: ['mcp-1', 'missing', 'mcp-1'],
+      skillNames: ['built-in:knowledge-base', ' built-in:knowledge-base '],
     });
 
-    expect(result.error).toBeUndefined();
-    expect(result.mcpServerIds).toEqual(['m1']); // deduped to one
-    // The agents row was committed (transaction did NOT roll back).
-    const agents = db.prepare('SELECT COUNT(*) AS c FROM agents').get() as any;
-    expect(agents.c).toBe(1);
+    expect(created.mcpServerExclusionIds).toEqual(['mcp-1']);
+    expect(created.skillNames.sort()).toEqual(['built-in:knowledge-base']);
+
+    const updated = await invoke('update_agent', {
+      id: created.id,
+      mcpServerExclusionIds: ['mcp-2', 'mcp-2'],
+      skillNames: ['built-in:paper-search', 'built-in:paper-search'],
+    });
+    expect(updated.mcpServerExclusionIds).toEqual(['mcp-2']);
+    expect(updated.skillNames).toEqual(['built-in:paper-search']);
+    expect((db.prepare('SELECT mcp_server_id FROM agent_mcp_exclusions WHERE agent_id = ?').all(created.id) as Array<{ mcp_server_id: string }>))
+      .toEqual([{ mcp_server_id: 'mcp-2' }]);
   });
 
-  it('update_agent with duplicate skillNames still surfaces UNIQUE on (agent_id, skill_name)', async () => {
-    // The dedup fix covers the deduped path. To prove the real
-    // SQLite UNIQUE constraint catches a slip (e.g. if the dedup
-    // were accidentally bypassed by a future refactor), we
-    // deliberately insert two raw rows via the DB to set up an
-    // inconsistent pre-state, then call update_agent and assert
-    // it does NOT crash.
-    const agentId = 'agent-1';
-    db.prepare(
-      `INSERT INTO agents
-         (id, project_id, name, slug, description, provider_id,
-          system_prompt, config, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, 'prov-1', NULL, NULL, 0, 0, 0)`,
-    ).run(agentId, PROJECT_ID, 'a', 'a');
+  it('rolls back a Custom definition update when a relationship write fails', async () => {
+    seedProvider('provider-1', 1, 1);
+    const custom = await createCustom('Transactional');
+    db.exec(`CREATE TRIGGER reject_agent_skill BEFORE INSERT ON agent_skills
+      WHEN NEW.skill_name = 'built-in:knowledge-base'
+      BEGIN SELECT RAISE(ABORT, 'relationship rejected'); END;`);
 
-    // After the dedup fix, update_agent with dup skills must
-    // succeed and only persist the unique ones.
-    const result = await invokeTool('update_agent', {
-      id: agentId,
-      skillNames: ['global:foo', 'global:foo', 'global:bar'],
+    const result = await invoke('update_agent', {
+      id: custom.id,
+      description: 'must not persist',
+      skillNames: ['built-in:knowledge-base'],
     });
 
-    expect(result.error).toBeUndefined();
-    expect(result.skillNames.sort()).toEqual(['global:bar', 'global:foo']);
-    const persisted = db
-      .prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ? ORDER BY skill_name')
-      .all(agentId) as any[];
-    expect(persisted.map((r) => r.skill_name)).toEqual(['global:bar', 'global:foo']);
-  });
-});
-
-describe('delete_agent: FK CASCADE cleans up dependents on real SQLite', () => {
-  it('cascades through agent_mcp_servers / agent_skills / agent_runs / agent_tool_calls', async () => {
-    // Seed a session first (agent_runs has FK to sessions).
-    const sessionId = 'sess-1';
-    db.prepare(
-      `INSERT INTO sessions (id, project_id, name, agent_id, summary, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, 0, 0)`,
-    ).run(sessionId, PROJECT_ID, 's', null);
-
-    // Seed an agent with: 1 mcp_server, 1 skill, 1 run, 1 tool-call.
-    const agentId = 'agent-x';
-    db.prepare(
-      `INSERT INTO agents
-         (id, project_id, name, slug, description, provider_id,
-          system_prompt, config, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, 'prov-1', NULL, NULL, 0, 0, 0)`,
-    ).run(agentId, PROJECT_ID, 'a', 'a');
-
-    db.prepare(
-      `INSERT INTO mcp_servers (id, name, server_type, config, is_connected, created_at, updated_at)
-       VALUES ('m1', 'm1', 'stdio', NULL, 0, 0, 0)`,
-    ).run();
-    db.prepare(
-      `INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, 'm1')`,
-    ).run(agentId);
-    db.prepare(
-      `INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, 'global:foo')`,
-    ).run(agentId);
-
-    const runId = 'run-1';
-    db.prepare(
-      `INSERT INTO agent_runs
-         (id, session_id, agent_id, request_id, status, error,
-          started_at, ended_at, aborted)
-       VALUES (?, ?, ?, 'r1', 'completed', NULL, 0, 0, 0)`,
-    ).run(runId, sessionId, agentId);
-    db.prepare(
-      `INSERT INTO agent_tool_calls
-         (id, run_id, tool_name, input, output, status, error,
-          approval_status, started_at, ended_at)
-       VALUES ('tc-1', ?, 't', NULL, NULL, 'ok', NULL, NULL, 0, 0)`,
-    ).run(runId);
-
-    // Pre-check: every dependent row is present.
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agents').get() as any).c).toBe(1);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_mcp_servers').get() as any).c).toBe(1);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_skills').get() as any).c).toBe(1);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_runs').get() as any).c).toBe(1);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_tool_calls').get() as any).c).toBe(1);
-
-    // Invoke delete_agent with no activeAgentId / running-run guard
-    // (so the guards don't fire and we get to the actual DELETE).
-    const result = await invokeTool('delete_agent', { id: agentId });
-    expect(result.deleted).toBe(true);
-
-    // Post-check: agent row gone AND all dependents CASCADE-cleaned.
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agents').get() as any).c).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_mcp_servers').get() as any).c).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_skills').get() as any).c).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_runs').get() as any).c).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_tool_calls').get() as any).c).toBe(0);
-
-    // The session row survives (no FK from agent to session that
-    // would CASCADE; sessions.agent_id is SET NULL if a session had
-    // this agent_id, but here we inserted agent_id=NULL so nothing
-    // changes).
-    expect((db.prepare('SELECT COUNT(*) AS c FROM sessions').get() as any).c).toBe(1);
+    expect(result.error).toMatch(/relationship rejected/);
+    expect(db.prepare('SELECT description FROM agents WHERE id = ?').get(custom.id)).toEqual({ description: null });
+    db.exec('DROP TRIGGER reject_agent_skill');
   });
 
-  it('agent_runs.agent_id NOT NULL is enforced (P2 #6 ancestor: still holds)', async () => {
-    // Schema-level guarantee, but verifying it at the test layer
-    // guards against a future migration that loosens the constraint
-    // — the entire delete_agent guard logic depends on this column
-    // being NOT NULL (see agent-tools.ts:633-635 for the trade-off
-    // that forced us to accept CASCADE instead of SET NULL).
-    db.prepare(
-      `INSERT INTO sessions (id, project_id, name, agent_id, summary, created_at, updated_at)
-       VALUES ('sess-2', ?, 's', NULL, NULL, 0, 0)`,
-    ).run(PROJECT_ID);
+  it('cascades a deleted Custom Agent through its relationships and completed run history', async () => {
+    seedProvider('provider-1', 1, 1);
+    seedMcpServer('mcp-1');
+    const custom = await invoke('create_agent', {
+      name: 'Cascade', provider_id: 'provider-1', mcpServerExclusionIds: ['mcp-1'], skillNames: ['built-in:knowledge-base'],
+    });
+    db.prepare(`INSERT INTO sessions (id, project_id, name, agent_id, summary, created_at, updated_at)
+      VALUES ('session-1', ?, 'Session', NULL, NULL, 0, 0)`).run(PROJECT_ID);
+    db.prepare(`INSERT INTO agent_runs (id, session_id, agent_id, request_id, status, started_at, aborted)
+      VALUES ('run-1', 'session-1', ?, 'request-1', 'completed', 0, 0)`).run(custom.id);
+    db.prepare(`INSERT INTO agent_tool_calls (id, run_id, tool_name, status, started_at)
+      VALUES ('call-1', 'run-1', 'tool', 'success', 0)`).run();
 
-    expect(() =>
-      db
-        .prepare(
-          `INSERT INTO agent_runs
-             (id, session_id, agent_id, request_id, status, error,
-              started_at, ended_at, aborted)
-           VALUES ('run-2', 'sess-2', NULL, 'r2', 'completed', NULL, 0, 0, 0)`,
-        )
-        .run(),
-    ).toThrow(/NOT NULL/i);
+    expect(await invoke('delete_agent', { id: custom.id })).toMatchObject({ deleted: true, id: custom.id });
+    for (const table of ['agents', 'agent_mcp_exclusions', 'agent_skills', 'agent_runs', 'agent_tool_calls']) {
+      expect((db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${table === 'agents' ? 'id' : table === 'agent_runs' ? 'agent_id' : table === 'agent_tool_calls' ? 'run_id' : 'agent_id'} = ?`)
+        .get(table === 'agent_tool_calls' ? 'run-1' : custom.id) as { count: number }).count).toBe(0);
+    }
+  });
+
+  it.each(['running', 'waiting_approval'])('refuses to delete a Custom Agent with a %s run', async (status) => {
+    seedProvider('provider-1', 1, 1);
+    const custom = await createCustom(`In Flight ${status}`);
+    db.prepare(`INSERT INTO sessions (id, project_id, name, agent_id, summary, created_at, updated_at)
+      VALUES ('session-1', ?, 'Session', NULL, NULL, 0, 0)`).run(PROJECT_ID);
+    db.prepare(`INSERT INTO agent_runs (id, session_id, agent_id, request_id, status, started_at, aborted)
+      VALUES ('run-1', 'session-1', ?, 'request-1', ?, 0, 0)`).run(custom.id, status);
+
+    expect((await invoke('delete_agent', { id: custom.id })).error).toMatch(/in-flight run/);
+    expect(db.prepare('SELECT id FROM agents WHERE id = ?').get(custom.id)).toBeDefined();
+  });
+
+  it('refuses to delete the Agent active in this chat and requires a non-empty id', async () => {
+    seedProvider('provider-1', 1, 1);
+    const custom = await createCustom('Active');
+
+    expect((await invoke('delete_agent', { id: '' })).error).toBe('Agent id is required.');
+    expect((await invoke('delete_agent', { id: custom.id }, PROJECT_ID, { activeAgentId: custom.id })).error).toMatch(/currently running/);
   });
 });

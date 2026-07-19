@@ -1,292 +1,173 @@
 import { create } from 'zustand';
-import { ExecutionStep, Workflow, WorkflowExecution, WorkflowNodeRun, WorkflowStreamEvent } from '../../../shared/types';
+import type { Workflow, WorkflowSaveInput, WorkflowStage } from '../../../shared/types';
+import { normalizeWorkflowStages } from '../../../shared/workflow-routing';
 
 interface WorkflowState {
   workflows: Workflow[];
   currentWorkflow: Workflow | null;
-  executions: WorkflowExecution[];
-  currentExecution: WorkflowExecution | null;
-  nodeRuns: WorkflowNodeRun[];
-  nodeTrace: Record<string, ExecutionStep[]>;
   isLoading: boolean;
   error: string | null;
-  activeExecutionId: string | null;
-  processedSeqs: Set<number>;
-
   fetchWorkflows: (projectId: string) => Promise<void>;
   fetchWorkflow: (id: string) => Promise<void>;
-  saveWorkflow: (workflow: Omit<Workflow, 'created_at' | 'updated_at'> & { id?: string }) => Promise<Workflow>;
+  saveWorkflow: (workflow: WorkflowSaveInput) => Promise<Workflow>;
   deleteWorkflow: (id: string, projectId?: string) => Promise<void>;
   setCurrentWorkflow: (workflow: Workflow | null) => void;
+  addStage: () => void;
+  removeStage: (stageId: string) => void;
+  updateStage: (stageId: string, data: Partial<Pick<WorkflowStage, 'name' | 'taskDescription' | 'acceptanceCriteria' | 'gateEnabled' | 'terminal' | 'routes'>>) => void;
+  moveStageUp: (stageId: string) => void;
+  moveStageDown: (stageId: string) => void;
+  reorderStages: (fromIndex: number, toIndex: number) => void;
+}
 
-  fetchExecutions: (workflowId: string) => Promise<void>;
-  fetchNodeRuns: (executionId: string) => Promise<void>;
-  runWorkflow: (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => Promise<string>;
-  stopWorkflow: (executionId: string) => Promise<void>;
-  subscribeToExecution: (executionId: string) => () => void;
+function normalizeWorkflow(workflow: Workflow): Workflow {
+  return { ...workflow, stages: normalizeWorkflowStages(Array.isArray(workflow.stages) ? workflow.stages : []) };
+}
 
-  // 历史执行记录
-  historyExecutions: WorkflowExecution[];
-  fetchHistoryExecutions: (workflowId: string) => Promise<void>;
-  deleteHistoryExecution: (executionId: string, workflowId: string) => Promise<void>;
-  exportHistoryExecution: (executionId: string) => Promise<{ saved: boolean; path?: string; canceled?: boolean; error?: string }>;
+function updateCurrentStages(
+  set: (updater: (state: WorkflowState) => Partial<WorkflowState>) => void,
+  transform: (stages: WorkflowStage[]) => WorkflowStage[],
+): void {
+  set((state) => {
+    if (!state.currentWorkflow) return {};
+    return {
+      currentWorkflow: {
+        ...state.currentWorkflow,
+        stages: transform(state.currentWorkflow.stages),
+      },
+    };
+  });
 }
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   workflows: [],
   currentWorkflow: null,
-  executions: [],
-  currentExecution: null,
-  nodeRuns: [],
-  nodeTrace: {},
   isLoading: false,
   error: null,
-  activeExecutionId: null,
-  processedSeqs: new Set<number>(),
-  historyExecutions: [],
 
-  fetchWorkflows: async (projectId: string) => {
+  fetchWorkflows: async (projectId) => {
     set({ isLoading: true, error: null });
     try {
       const workflows = await window.electronAPI.db.getWorkflows(projectId);
-      set({ workflows, isLoading: false });
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to fetch workflows', isLoading: false });
+      set({ workflows: workflows.map(normalizeWorkflow) });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  fetchWorkflow: async (id: string) => {
+  fetchWorkflow: async (id) => {
     set({ isLoading: true, error: null });
     try {
       const workflow = await window.electronAPI.db.getWorkflow(id);
-      set({ currentWorkflow: workflow || null, isLoading: false });
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to fetch workflow', isLoading: false });
+      set({ currentWorkflow: workflow ? normalizeWorkflow(workflow) : null });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  saveWorkflow: async (workflow: Omit<Workflow, 'created_at' | 'updated_at'> & { id?: string }) => {
+  saveWorkflow: async (workflow) => {
     set({ isLoading: true, error: null });
     try {
-      const saved = await window.electronAPI.db.saveWorkflow(workflow);
-      await get().fetchWorkflows(workflow.project_id);
-      set({ isLoading: false });
+      const saved = await window.electronAPI.db.saveWorkflow({ ...workflow, stages: workflow.stages ?? [] });
+      if (saved) {
+        const normalized = normalizeWorkflow(saved);
+        set((state) => ({
+          workflows: state.workflows.some((item) => item.id === normalized.id)
+            ? state.workflows.map((item) => item.id === normalized.id ? normalized : item)
+            : [normalized, ...state.workflows],
+          currentWorkflow: normalized,
+        }));
+      }
       return saved;
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to save workflow', isLoading: false });
-      throw err;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  deleteWorkflow: async (id: string, projectId?: string) => {
+  deleteWorkflow: async (id, projectId) => {
     set({ isLoading: true, error: null });
     try {
       await window.electronAPI.db.deleteWorkflow(id);
-      const projectToFetch = projectId || get().currentWorkflow?.project_id;
-      if (projectToFetch) {
-        await get().fetchWorkflows(projectToFetch);
-      }
-      if (get().currentWorkflow?.id === id) {
-        set({ currentWorkflow: null });
-      }
-      set({ isLoading: false });
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to delete workflow', isLoading: false });
-      throw err;
-    }
-  },
-
-  setCurrentWorkflow: (workflow: Workflow | null) => {
-    set({ currentWorkflow: workflow });
-  },
-
-  fetchExecutions: async (workflowId: string) => {
-    set({ isLoading: true, error: null });
-    try {
-      const executions = await window.electronAPI.db.getWorkflowExecutions(workflowId);
-      set({ executions, isLoading: false });
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to fetch executions', isLoading: false });
-    }
-  },
-
-  fetchNodeRuns: async (executionId: string) => {
-    set({ isLoading: true, error: null });
-    try {
-      const dbRuns = await window.electronAPI.db.getWorkflowNodeRuns(executionId);
-      // 保留状态中正在运行、且尚未写入数据库的临时节点执行记录
-      const currentRunning = get().nodeRuns.filter(
-        (r) => r.execution_id === executionId && r.status === 'running' && !dbRuns.some((d) => d.node_id === r.node_id)
-      );
-      set({ nodeRuns: [...dbRuns, ...currentRunning], isLoading: false });
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to fetch node runs', isLoading: false });
-    }
-  },
-
-  runWorkflow: async (workflowId: string, projectId: string, triggerSource: string, input?: Record<string, unknown>) => {
-    set({ error: null, nodeTrace: {}, activeExecutionId: null, processedSeqs: new Set<number>() });
-    try {
-      const executionId = await window.electronAPI.workflow.runWorkflow(workflowId, projectId, triggerSource, input);
-      set({
-        currentExecution: {
-          id: executionId,
-          workflow_id: workflowId,
-          project_id: projectId,
-          trigger_source: triggerSource as WorkflowExecution['trigger_source'],
-          status: 'running',
-          input: input || {},
-          started_at: Date.now(),
-        },
-      });
-      return executionId;
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to run workflow' });
-      throw err;
-    }
-  },
-
-  stopWorkflow: async (executionId: string) => {
-    set({ error: null });
-    try {
-      await window.electronAPI.workflow.stopWorkflow(executionId);
-      const current = get().currentExecution;
-      if (current && current.id === executionId) {
-        set({
-          currentExecution: {
-            ...current,
-            status: 'stopped',
-            ended_at: Date.now(),
-          } as WorkflowExecution,
-          nodeRuns: get().nodeRuns.map((r) =>
-            r.status === 'running'
-              ? { ...r, status: 'stopped', ended_at: Date.now() }
-              : r
-          ),
-        });
-      }
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to stop workflow' });
-      throw err;
-    }
-  },
-
-  subscribeToExecution: (executionId: string) => {
-    if (get().activeExecutionId !== executionId) {
-      set({
-        activeExecutionId: executionId,
-        nodeTrace: {},
-        processedSeqs: new Set<number>(),
-      });
-    }
-
-    const processEvent = (data: WorkflowStreamEvent) => {
-      if (data.seq !== undefined) {
-        const seqs = get().processedSeqs;
-        if (seqs.has(data.seq)) return;
-        seqs.add(data.seq);
-      }
-
-      if (data.type === 'workflow_start') {
-        const current = get().currentExecution;
-        set({
-          currentExecution: {
-            id: executionId,
-            workflow_id: data.workflowId,
-            project_id: current?.project_id || '',
-            trigger_source: 'editor',
-            status: 'running',
-            input: current?.input || {},
-            started_at: current?.started_at || Date.now(),
-          } as WorkflowExecution,
-        });
-      } else if (data.type === 'workflow_end') {
-        const current = get().currentExecution;
-        set({
-          currentExecution: {
-            ...(current ?? {
-              id: executionId,
-              workflow_id: '',
-              project_id: '',
-              trigger_source: 'editor',
-              input: {},
-              started_at: Date.now(),
-            }),
-            status: data.status,
-            ended_at: Date.now(),
-          } as WorkflowExecution,
-        });
-      } else if (data.type === 'node_start') {
-        const currentRuns = get().nodeRuns;
-        const exists = currentRuns.some((r) => r.node_id === data.nodeId && r.status === 'running');
-        if (!exists) {
-          const newRun: WorkflowNodeRun = {
-            id: `temp-${data.nodeId}-${Date.now()}`,
-            execution_id: executionId,
-            node_id: data.nodeId,
-            node_name: data.nodeName || data.nodeId,
-            status: 'running',
-            started_at: Date.now(),
-            retry_count: 0,
-          };
-          set({ nodeRuns: [...currentRuns, newRun] });
-        }
-      } else if (data.type === 'node_end' || data.type === 'node_error') {
-        get().fetchNodeRuns(executionId).catch(() => {});
-      } else if (data.type === 'node_log') {
-        const arr = get().nodeTrace[data.nodeId] || [];
-        set({
-          nodeTrace: {
-            ...get().nodeTrace,
-            [data.nodeId]: [...arr, data.step],
-          },
-        });
-      }
-    };
-
-    // 1. 获取主进程中可能已积压的历史事件（防止网络/订阅时机竞争导致丢失 start 等关键事件）
-    if (window.electronAPI.workflow.getWorkflowEvents) {
-      window.electronAPI.workflow.getWorkflowEvents(executionId)
-        .then((events) => {
-          events.forEach(processEvent);
-        })
-        .catch((err) => {
-          console.warn('[workflowStore] Failed to fetch historical workflow events:', err);
-        });
-    }
-
-    // 2. 订阅实时事件
-    const unsubscribe = window.electronAPI.workflow.onWorkflowEvent(executionId, (_event: unknown, data: WorkflowStreamEvent) => {
-      processEvent(data);
-    });
-
-    return unsubscribe;
-  },
-
-  // 历史执行记录 — 抽屉面板使用
-  fetchHistoryExecutions: async (workflowId: string) => {
-    set({ isLoading: true, error: null });
-    try {
-      const list = await window.electronAPI.workflow.listExecutions(workflowId);
-      set({ historyExecutions: list, isLoading: false });
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to fetch history', isLoading: false });
-    }
-  },
-
-  deleteHistoryExecution: async (executionId: string, _workflowId: string) => {
-    try {
-      await window.electronAPI.workflow.deleteExecution(executionId);
       set((state) => ({
-        historyExecutions: state.historyExecutions.filter((e) => e.id !== executionId),
+        workflows: state.workflows.filter((workflow) => workflow.id !== id),
+        currentWorkflow: state.currentWorkflow?.id === id ? null : state.currentWorkflow,
       }));
-    } catch (err: unknown) {
-      set({ error: err instanceof Error ? err.message : 'Failed to delete execution' });
-      throw err;
+      if (projectId) await get().fetchWorkflows(projectId);
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  exportHistoryExecution: async (executionId: string) => {
-    return window.electronAPI.workflow.exportExecution(executionId);
-  },
+  setCurrentWorkflow: (workflow) => set({ currentWorkflow: workflow ? normalizeWorkflow(workflow) : null }),
+
+  addStage: () => updateCurrentStages(set, (stages) => {
+    const id = crypto.randomUUID();
+    const previous = stages[stages.length - 1];
+    const connected = previous?.terminal
+      ? stages.map((stage) => stage.id === previous.id ? {
+          ...stage,
+          terminal: false,
+          routes: [{ id: crypto.randomUUID(), targetStageId: id, condition: '' }],
+        } : stage)
+      : stages;
+    return [...connected, {
+    id,
+    name: '',
+    taskDescription: '',
+    acceptanceCriteria: '',
+    gateEnabled: true,
+    terminal: true,
+    routes: [],
+  }];
+  }),
+
+  removeStage: (stageId) => updateCurrentStages(set, (stages) => stages
+    .filter((stage) => stage.id !== stageId)
+    .map((stage) => ({
+      ...stage,
+      routes: (stage.routes ?? []).filter((route) => route.targetStageId !== stageId),
+    }))),
+
+  updateStage: (stageId, data) => updateCurrentStages(
+    set,
+    (stages) => stages.map((stage) => stage.id === stageId ? { ...stage, ...data } : stage),
+  ),
+
+  moveStageUp: (stageId) => updateCurrentStages(set, (stages) => {
+    const index = stages.findIndex((stage) => stage.id === stageId);
+    if (index <= 0) return stages;
+    const next = [...stages];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    return next;
+  }),
+
+  moveStageDown: (stageId) => updateCurrentStages(set, (stages) => {
+    const index = stages.findIndex((stage) => stage.id === stageId);
+    if (index < 0 || index >= stages.length - 1) return stages;
+    const next = [...stages];
+    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    return next;
+  }),
+
+  reorderStages: (fromIndex, toIndex) => updateCurrentStages(set, (stages) => {
+    if (fromIndex < 0 || fromIndex >= stages.length || toIndex < 0 || toIndex >= stages.length || fromIndex === toIndex) {
+      return stages;
+    }
+    const next = [...stages];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+  }),
 }));

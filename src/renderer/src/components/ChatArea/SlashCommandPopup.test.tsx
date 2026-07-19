@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
+import type { SlashCommand } from '@shared/types';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import {
@@ -52,12 +53,14 @@ interface TestHarnessHandle {
 function TestHarness({
   refSetter,
   commands,
+  pathContext,
   hasMcpWarning,
   mcpWarningMessage,
   loading,
 }: {
   refSetter?: (h: TestHarnessHandle) => void;
-  commands?: import('../../../../shared/types').SlashCommand[];
+  commands?: SlashCommand[];
+  pathContext?: string[];
   hasMcpWarning?: boolean;
   mcpWarningMessage?: string;
   loading?: 'idle' | 'pending' | 'slow' | 'ready' | 'error';
@@ -188,6 +191,7 @@ function TestHarness({
           onInsert={handleSlashInsert}
           onClose={() => setSlashOpen(false)}
           commands={commands}
+          pathContext={pathContext}
           hasMcpWarning={hasMcpWarning}
           mcpWarningMessage={mcpWarningMessage}
           loading={loading}
@@ -257,7 +261,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/context ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/context ');
     expect(screen.queryByText('/goal')).toBeNull();
   });
 
@@ -272,7 +276,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Tab' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal ');
     expect(screen.queryByText('/context')).toBeNull();
     // v1.1 polish: Tab must NOT fire the Enter-only onSelect (dispatch) path.
     expect(handleSlashSelectMock).not.toHaveBeenCalled();
@@ -289,7 +293,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal ');
     // v1.1 polish: Enter calls onInsert (not onSelect) per component behavior
     // at SlashCommandPopup.tsx:169 — (onInsert ?? onSelect)('/' + selectedValue)
     expect(handleSlashInsertMock).toHaveBeenCalledWith('/goal');
@@ -534,7 +538,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     });
-    expect(harness?.getInputVal()).toBe('/goal');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal');
     expect(screen.getAllByText('/goal').length).toBeGreaterThanOrEqual(1);
     expect(document.activeElement).toBe(textarea);
     // Regular Enter: slashRef.handleKeyDown consumes it, inserts /goal + ' '
@@ -544,7 +548,7 @@ describe('SlashCommandPopup', () => {
     act(() => {
       fireEvent.keyDown(textarea, { key: 'Enter' });
     });
-    expect(harness?.getInputVal()).toBe('/goal ');
+    expect((harness as unknown as TestHarnessHandle).getInputVal()).toBe('/goal ');
     expect(document.querySelector('[cmdk-item]')).toBeNull();
   });
 
@@ -580,7 +584,7 @@ describe('SlashCommandPopup', () => {
 });
 
 describe('Phase 6 source badges + warnings', () => {
-  const goalSlashCmd: import('../../../../shared/types').SlashCommand = {
+  const goalSlashCmd: SlashCommand = {
     name: 'goal',
     description: '设置 session 目标',
     source: 'system',
@@ -588,7 +592,7 @@ describe('Phase 6 source badges + warnings', () => {
     sourceLabel: 'system',
     badge: '[system]',
   };
-  const mcpCmd: import('../../../../shared/types').SlashCommand = {
+  const mcpCmd: SlashCommand = {
     name: 'arxiv_search',
     description: 'Search arxiv papers',
     source: 'mcp',
@@ -596,15 +600,7 @@ describe('Phase 6 source badges + warnings', () => {
     sourceLabel: 'mcp:arxiv',
     badge: '[mcp:arxiv_search]',
   };
-  const workflowCmd: import('../../../../shared/types').SlashCommand = {
-    name: 'pr-review',
-    description: 'PR review workflow',
-    source: 'workflow',
-    target: 'pr-review',
-    sourceLabel: 'workflow',
-    badge: '[workflow]',
-  };
-  const skillProjectCmd: import('../../../../shared/types').SlashCommand = {
+  const skillProjectCmd: SlashCommand = {
     name: 'code-review',
     description: 'Code review skill',
     source: 'skill:project',
@@ -612,7 +608,7 @@ describe('Phase 6 source badges + warnings', () => {
     sourceLabel: 'skill:project',
     badge: '[skill:project]',
   };
-  const cmdSystemCmd: import('../../../../shared/types').SlashCommand = {
+  const cmdSystemCmd: SlashCommand = {
     name: 'refactor',
     description: 'Refactor command',
     source: 'cmd:system',
@@ -642,15 +638,6 @@ describe('Phase 6 source badges + warnings', () => {
     expect(screen.queryByText('Search arxiv papers')).toBeNull();
   });
 
-  it('renders source badge for workflow', () => {
-    render(<TestHarness commands={[workflowCmd]} />);
-    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
-    act(() => {
-      fireEvent.change(textarea, { target: { value: '/pr' } });
-    });
-    expect(screen.getByText('[workflow]')).toBeTruthy();
-  });
-
   it('renders source badge for skill:project', () => {
     render(<TestHarness commands={[skillProjectCmd]} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
@@ -658,6 +645,119 @@ describe('Phase 6 source badges + warnings', () => {
       fireEvent.change(textarea, { target: { value: '/co' } });
     });
     expect(screen.getByText('[skill:project]')).toBeTruthy();
+  });
+
+  it('renders Skill source labels for qualified Skill rows', () => {
+    render(<TestHarness commands={[{
+      name: 'apps/web:deploy',
+      qualifiedName: 'apps/web:deploy',
+      skillName: 'deploy',
+      description: 'Deploy the web app',
+      source: 'skill:project',
+      target: 'project:apps/web:deploy',
+      sourceLabel: 'Project Skill: apps/web',
+      badge: '[skill:project]',
+      skillSourceKind: 'project-additional',
+      sourcePath: '/repo/apps/web/.cdf/skills',
+      skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+      modelDiscovery: 'full',
+      userInvocable: true,
+    }]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/apps' } });
+    });
+
+    expect(screen.getByText('/apps/web:deploy')).toBeTruthy();
+    expect(screen.getByText('Project Skill: apps/web')).toBeTruthy();
+  });
+
+  it('renders argument hints for slash command rows', () => {
+    render(<TestHarness commands={[{
+      name: 'deploy',
+      description: 'Deploy the app',
+      argumentHint: '<env>',
+      source: 'skill:project',
+      target: 'project:deploy',
+      sourceLabel: 'Project Skill',
+      badge: '[skill:project]',
+    }]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/dep' } });
+    });
+
+    expect(screen.getByText('/deploy')).toBeTruthy();
+    expect(screen.getByText('<env>')).toBeTruthy();
+  });
+
+  it('renders Nested Project Skill source labels for nested Skill rows', () => {
+    render(<TestHarness commands={[{
+      name: 'apps/web:deploy',
+      qualifiedName: 'apps/web:deploy',
+      skillName: 'deploy',
+      description: 'Deploy the web app',
+      source: 'skill:project',
+      target: 'project-nested:apps/web:deploy',
+      sourceLabel: 'Nested Project Skill: apps/web',
+      badge: '[skill:project]',
+      skillSourceKind: 'project-nested',
+      sourcePath: '/repo/apps/web/.cdf/skills',
+      skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+      modelDiscovery: 'full',
+      userInvocable: true,
+    }]} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/apps' } });
+    });
+
+    expect(screen.getByText('/apps/web:deploy')).toBeTruthy();
+    expect(screen.getByText('Nested Project Skill: apps/web')).toBeTruthy();
+  });
+
+  it('ranks nested Skill rows first when Path Mention context matches', () => {
+    render(<TestHarness commands={[
+      {
+        name: 'deploy',
+        qualifiedName: 'deploy',
+        skillName: 'deploy',
+        description: 'Deploy the project',
+        source: 'skill:project',
+        target: 'project:deploy',
+        sourceLabel: 'Project Skill',
+        badge: '[skill:project]',
+        skillSourceKind: 'project',
+        sourcePath: '/repo/.cdf/skills',
+        skillPath: '/repo/.cdf/skills/deploy/SKILL.md',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      },
+      {
+        name: 'apps/web:deploy',
+        qualifiedName: 'apps/web:deploy',
+        skillName: 'deploy',
+        description: 'Deploy the web app',
+        source: 'skill:project',
+        target: 'project-nested:apps/web:deploy',
+        sourceLabel: 'Nested Project Skill: apps/web',
+        badge: '[skill:project]',
+        skillSourceKind: 'project-nested',
+        sourcePath: '/repo/apps/web/.cdf/skills',
+        skillPath: '/repo/apps/web/.cdf/skills/deploy/SKILL.md',
+        modelDiscovery: 'full',
+        userInvocable: true,
+      },
+    ]} pathContext={['apps/web/src/App.tsx']} />);
+    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '/deploy' } });
+    });
+
+    const rows = Array.from(
+      document.querySelectorAll('[cmdk-item]')
+    ).map((node) => node.textContent ?? '');
+    expect(rows[0]).toContain('/apps/web:deploy');
   });
 
   it('renders source badge for cmd:system', () => {
@@ -707,7 +807,7 @@ describe('Phase 6 source badges + warnings', () => {
   });
 
   it('preserves D-04 — opens with top row highlighted even with 5+ commands', () => {
-    const all = [goalSlashCmd, mcpCmd, workflowCmd, skillProjectCmd, cmdSystemCmd];
+    const all = [goalSlashCmd, mcpCmd, skillProjectCmd, cmdSystemCmd];
     render(<TestHarness commands={all} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
@@ -717,28 +817,8 @@ describe('Phase 6 source badges + warnings', () => {
     expect(firstItem.getAttribute('data-selected')).toBe('true');
   });
 
-  it('key prop includes source — duplicate names render as 2 separate rows', () => {
-    const systemGoal = { ...goalSlashCmd, source: 'system' as const };
-    const workflowGoal: import('../../../../shared/types').SlashCommand = {
-      name: 'goal',
-      description: 'Goal workflow',
-      source: 'workflow',
-      target: 'goal',
-      sourceLabel: 'workflow',
-      badge: '[workflow]',
-    };
-    render(<TestHarness commands={[systemGoal, workflowGoal]} />);
-    const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
-    act(() => {
-      fireEvent.change(textarea, { target: { value: '/go' } });
-    });
-    // Both rows should be in the document
-    expect(screen.getByText('[system]')).toBeTruthy();
-    expect(screen.getByText('[workflow]')).toBeTruthy();
-  });
-
   it('data-source attribute matches command source for testing', () => {
-    render(<TestHarness commands={[goalSlashCmd, mcpCmd, workflowCmd]} />);
+    render(<TestHarness commands={[goalSlashCmd, mcpCmd]} />);
     const textarea = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
     act(() => {
       fireEvent.change(textarea, { target: { value: '/' } });
@@ -783,16 +863,15 @@ describe('Phase 6 handleSlashSelect routing (light integration)', () => {
 // -----------------------------------------------------------------
 
 describe('Phase 8 polish', () => {
-  // D-01..D-04: 7-color source badge palette. Each Command.Source maps to a
+  // D-01..D-04: 6-color source badge palette. Each Command.Source maps to a
   // distinct text-* class via SOURCE_TEXT_COLOR lookup map. The Badge is the
   // sibling <span> /{name}, so we look for it as the child element of
   // [cmdk-item] that is not the [font-mono] slash span.
   it('applies distinct text-* color class per CommandSource (D-01..D-04)', () => {
-    const all: import('../../../../shared/types').SlashCommand[] = [
+    const all: SlashCommand[] = [
       { name: 'goal', description: '', source: 'system', target: 'goal', sourceLabel: 'system', badge: '[system]' },
       { name: 'review-global', description: '', source: 'skill:global', target: 'review-global', sourceLabel: 'skill:global', badge: '[skill:global]' },
       { name: 'review-project', description: '', source: 'skill:project', target: 'review-project', sourceLabel: 'skill:project', badge: '[skill:project]' },
-      { name: 'pr-flow', description: '', source: 'workflow', target: 'pr-flow', sourceLabel: 'workflow', badge: '[workflow]' },
       { name: 'arxiv', description: '', source: 'mcp', target: 'arxiv', sourceLabel: 'mcp:arxiv', badge: '[mcp:arxiv]' },
       { name: 'sys-cmd', description: '', source: 'cmd:system', target: 'sys-cmd', sourceLabel: 'cmd:system', badge: '[cmd:system]' },
       { name: 'proj-cmd', description: '', source: 'cmd:project', target: 'proj-cmd', sourceLabel: 'cmd:project', badge: '[cmd:project]' },
@@ -801,7 +880,6 @@ describe('Phase 8 polish', () => {
       ['goal', /text-blue-400/],
       ['review-global', /text-violet-300/],
       ['review-project', /text-purple-400/],
-      ['pr-flow', /text-green-400/],
       ['arxiv', /text-amber-400/],
       ['sys-cmd', /--color-text-muted/],
       ['proj-cmd', /--color-text-secondary/],
@@ -832,7 +910,7 @@ describe('Phase 8 polish', () => {
   // from BOTH the query and the name before comparison.
   it('filters emoji with and without U+FE0F variation selector (D-05d)', () => {
     // Command name has the U+FE0F VS16 attached (party🎉︎).
-    const partyWithSelector: import('../../../../shared/types').SlashCommand = {
+    const partyWithSelector: SlashCommand = {
       name: 'party\u{1F389}️',
       description: '',
       source: 'system',
@@ -904,7 +982,7 @@ describe('Phase 8 polish', () => {
 
   // ===== 08.2 D-09: frontmatter.userInvocable: false hides the command =====
   it('filters out commands with frontmatter.userInvocable === false (D-09)', () => {
-    const all: import('../../../../shared/types').SlashCommand[] = [
+    const all: SlashCommand[] = [
       // Visible: userInvocable explicitly true
       {
         name: 'visible-true',
@@ -953,7 +1031,7 @@ describe('Phase 8 polish', () => {
   //       entry). Slash input still dispatches via the dispatcher; this
   //       filter only affects popup visibility.
   it('filters out commands with hideFromPopup === true (08.2 polish)', () => {
-    const all: import('../../../../shared/types').SlashCommand[] = [
+    const all: SlashCommand[] = [
       // Visible: hideFromPopup undefined / false
       {
         name: 'goal',

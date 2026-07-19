@@ -1,9 +1,12 @@
-import { Component, Suspense, lazy, useMemo, useState, useEffect, type ErrorInfo, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useMemo, useRef, useState, useEffect, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar/Sidebar';
+import sidebarStyles from './components/Sidebar/Sidebar.module.css';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { ModelSettings } from './components/Settings/ModelSettings';
+import { AISubscriptionSettings } from './components/Settings/AISubscriptionSettings';
 import { ToolSettings } from './components/Settings/ToolSettings';
+import { ResearchSettings } from './components/Settings/ResearchSettings';
 import { SystemSettings } from './components/Settings/SystemSettings';
 import { AgentLibrary } from './components/AgentLibrary/AgentLibrary';
 import { PluginsPanel } from './components/PluginsPanel/PluginsPanel';
@@ -15,34 +18,37 @@ import { useI18nStore } from './stores/i18nStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSessionStore } from './stores/sessionStore';
 import { useWorkflowStore } from './stores/workflowStore';
-import { Workflow } from '../shared/types';
-import { PanelLeft } from 'lucide-react';
+import { useWorkflowRunStore } from './stores/workflowRunStore';
+
+import { Workflow } from '@shared/types';
+import { PanelLeft, PanelRight, SlidersHorizontal } from 'lucide-react';
+import { useFileStore } from './stores/fileStore';
 import { Toaster } from 'sonner';
 import type { TaskPanelProps } from './components/TaskPanel/TaskPanel';
+import { FilePanel } from './components/FilePanel/FilePanel';
+import { SceneWorkspace } from './components/SceneWorkspace/SceneWorkspace';
+import { normalizeProjectScene } from './scenes/sceneRouting';
+import { Popover, PopoverContent, PopoverTrigger } from './components/ui/popover';
 
 const loadTaskPanel = () => import('./components/TaskPanel/TaskPanel').then((mod) => ({ default: mod.TaskPanel }));
 
-function TaskPanelFallback({ isOpen, width }: Pick<TaskPanelProps, 'isOpen' | 'width'>) {
+function TaskPanelFallback({ isOpen }: Pick<TaskPanelProps, 'isOpen'>) {
   const { t } = useTranslation();
+  if (!isOpen) return null;
   return (
-    <aside
-      className={`h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)] shrink-0 transition-all duration-300 ease-in-out ${
-        isOpen ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
-      }`}
-      style={{ width: isOpen ? width : 0 }}
-    >
-      <div className="h-full flex items-center justify-center text-xs text-[var(--color-text-muted)]">
+    <div className="w-[360px] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)]">
+      <div className="h-24 flex items-center justify-center text-xs text-[var(--color-text-muted)]">
         {t('taskPanel.loading')}
       </div>
-    </aside>
+    </div>
   );
 }
 
 class TaskPanelErrorBoundary extends Component<
-  { children: ReactNode; isOpen: boolean; width: number; message: string; onRetry: () => void },
+  { children: ReactNode; isOpen: boolean; message: string; onRetry: () => void },
   { hasError: boolean; wasOpen: boolean }
 > {
-  constructor(props: { children: ReactNode; isOpen: boolean; width: number; message: string; onRetry: () => void }) {
+  constructor(props: { children: ReactNode; isOpen: boolean; message: string; onRetry: () => void }) {
     super(props);
     this.state = { hasError: false, wasOpen: props.isOpen };
   }
@@ -68,35 +74,53 @@ class TaskPanelErrorBoundary extends Component<
 
   render() {
     if (!this.state.hasError) return this.props.children;
+    if (!this.props.isOpen) return null;
     return (
-      <aside
-        className={`h-full bg-[var(--color-bg-sidebar)] border-l border-[var(--color-danger)]/30 shrink-0 transition-all duration-300 ease-in-out ${
-          this.props.isOpen ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden border-l-0 pointer-events-none'
-        }`}
-        style={{ width: this.props.isOpen ? this.props.width : 0 }}
-      >
-        <div className="h-full flex items-center justify-center px-4 text-xs text-[var(--color-danger)] text-center">
+      <div className="w-[360px] rounded-[var(--radius-lg)] border border-[var(--color-danger)]/30 bg-[var(--color-bg-surface)]">
+        <div className="h-24 flex items-center justify-center px-4 text-xs text-[var(--color-danger)] text-center">
           {this.props.message}
         </div>
-      </aside>
+      </div>
     );
   }
+}
+
+function FilePanelToggleButton() {
+  const { t } = useTranslation();
+  const filePanelOpen = useFileStore((s) => s.filePanelOpen);
+  const toggleFilePanel = useFileStore((s) => s.toggleFilePanel);
+  return (
+    <button
+      onClick={toggleFilePanel}
+      className={`absolute top-[4px] right-[8px] z-[var(--z-topbar)] flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border no-drag transition-[background-color,border-color,color] ${
+        filePanelOpen
+          ? 'bg-[var(--color-bg-active)] text-[var(--color-text-primary)] border-[var(--color-border)]'
+          : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-transparent'
+      }`}
+      title={t('filePanel.togglePanel', '文件面板')}
+      aria-label={t('filePanel.togglePanel', '文件面板')}
+    >
+      <PanelRight className="w-4 h-4" />
+    </button>
+  );
 }
 
 export default function App() {
   const { t } = useTranslation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen } = useProjectStore();
-  const { setTheme } = useTheme();
+  const { activeView, setActiveView, taskPanelOpen, setTaskPanelOpen, projects, currentProjectId } = useProjectStore();
+  const { theme, setTheme } = useTheme();
   const pendingApproval = useSessionStore((state) => state.pendingApproval);
-  const [taskPanelWidth, setTaskPanelWidth] = useState(340);
   const [taskPanelMounted, setTaskPanelMounted] = useState(false);
+  const activityAutoOpenedRef = useRef(false);
   const [taskPanelRetryKey, setTaskPanelRetryKey] = useState(0);
   const TaskPanel = useMemo(() => lazy(loadTaskPanel), [taskPanelRetryKey]);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const { setCurrentWorkflow } = useWorkflowStore();
   const isEditingWorkflow = activeView === 'workflows' && !!editingWorkflow;
+  const currentProject = projects.find((project) => project.id === currentProjectId);
+  const currentScene = normalizeProjectScene(currentProject?.scene);
 
   useEffect(() => {
     // Initialize theme from persistent store
@@ -118,7 +142,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    return window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
+      useSessionStore.getState().handleMessagesChanged(sessionId);
+    });
+  }, []);
+
+  useEffect(() => {
+    return window.electronAPI.conversation.onRunEvent((envelope) => {
+      useSessionStore.getState().handleConversationRunEvent(envelope);
+    });
+  }, []);
+
+  useEffect(() => {
+    const subscribe = window.electronAPI.workflowRun?.onProjectionEvent;
+    if (typeof subscribe !== 'function') return;
+    return subscribe((event) => {
+      useWorkflowRunStore.getState().dispatchProjectionEvent(event);
+    });
+  }, []);
+
+  useEffect(() => {
     if (pendingApproval && activeView === 'chat') {
+      activityAutoOpenedRef.current = true;
       setTaskPanelOpen(true);
     }
   }, [pendingApproval, activeView, setTaskPanelOpen]);
@@ -128,6 +173,11 @@ export default function App() {
       setTaskPanelMounted(true);
     }
   }, [activeView, taskPanelOpen]);
+
+  const handleActivityOpenChange = (open: boolean) => {
+    activityAutoOpenedRef.current = false;
+    setTaskPanelOpen(open);
+  };
 
   return (
     <div className={`flex h-screen bg-[var(--bg-app)] relative ${(sidebarCollapsed || isEditingWorkflow) ? 'sidebar-is-collapsed' : 'sidebar-is-expanded'}`}>
@@ -140,24 +190,33 @@ export default function App() {
         onChangeView={(view) => setActiveView(view)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <div 
-          key={activeView === 'workflows' ? `${activeView}-${editingWorkflow ? 'editor' : 'list'}` : activeView} 
-          className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up"
+      <main className="flex-1 flex min-w-0 overflow-hidden relative">
+        <div
+          key={activeView === 'workflows' ? `${activeView}-${editingWorkflow ? 'editor' : 'list'}` : activeView}
+          className="flex-1 flex flex-col h-full overflow-hidden animate-fade-up min-w-[40%]"
         >
           {activeView === 'settings' && <ModelSettings />}
+          {activeView === 'ai-subscriptions' && <AISubscriptionSettings />}
           {activeView === 'tools' && <ToolSettings />}
+          {activeView === 'research' && <ResearchSettings />}
           {activeView === 'system' && <SystemSettings />}
           {activeView === 'agents' && <AgentLibrary />}
           {activeView === 'plugins' && <PluginsPanel />}
           {activeView === 'chat' && (
-            <ChatArea
-              onOpenSettings={() => setActiveView('settings')}
-              sidebarCollapsed={sidebarCollapsed}
-              onToggleSidebar={() => setSidebarCollapsed(false)}
-              taskPanelOpen={taskPanelOpen}
-              onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
-              onOpenTaskPanel={() => setTaskPanelOpen(true)}
+            <SceneWorkspace
+              scene={currentScene}
+              conversation={(
+                <ChatArea
+                  scene={currentScene}
+                  onOpenSettings={() => setActiveView('settings')}
+                  onOpenPlugins={() => setActiveView('plugins')}
+                  sidebarCollapsed={sidebarCollapsed}
+                  onToggleSidebar={() => setSidebarCollapsed(false)}
+                  taskPanelOpen={taskPanelOpen}
+                  onToggleTaskPanel={() => setTaskPanelOpen(!taskPanelOpen)}
+                  onOpenTaskPanel={() => setTaskPanelOpen(true)}
+                />
+              )}
             />
           )}
           {activeView === 'workflows' && !editingWorkflow && (
@@ -167,8 +226,18 @@ export default function App() {
                 setEditingWorkflow(wf);
               }}
               onCreateWorkflow={() => {
-                setCurrentWorkflow(null);
-                setEditingWorkflow({ id: '', name: '', project_id: '', graph_data: { nodes: [], edges: [] }, status: 'draft', created_at: 0, updated_at: 0 } as Workflow);
+                const workflowProjectId = currentProjectId ?? projects[0]?.id ?? '';
+                const workflow: Workflow = {
+                  id: '',
+                  name: '',
+                  project_id: workflowProjectId,
+                  stages: [],
+                  status: 'draft',
+                  created_at: 0,
+                  updated_at: 0,
+                };
+                setCurrentWorkflow(workflow);
+                setEditingWorkflow(workflow);
               }}
             />
           )}
@@ -182,37 +251,81 @@ export default function App() {
             />
           )}
         </div>
+
+        {activeView === 'chat' && <FilePanel />}
       </main>
 
       {sidebarCollapsed && !isEditingWorkflow && (
         <button
           onClick={() => setSidebarCollapsed(false)}
-          className="absolute top-[5px] left-[78px] w-6 h-6 flex items-center justify-center cursor-pointer z-[9999] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] rounded-full transition-all opacity-60 hover:opacity-100 no-drag after:absolute after:inset-[-8px] after:content-['']"
+          className={sidebarStyles.sidebarCollapseBtn}
           title={t('app.expandSidebar')}
+          aria-label={t('app.expandSidebar')}
         >
           <PanelLeft className="w-4 h-4" />
         </button>
       )}
-      <Toaster richColors position="bottom-right" theme="dark" />
+
+      {activeView === 'chat' && <FilePanelToggleButton />}
+      {activeView === 'chat' && (
+        <Popover open={taskPanelOpen} onOpenChange={handleActivityOpenChange}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`absolute right-11 top-[4px] z-[var(--z-topbar)] flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border no-drag transition-[background-color,border-color,color] ${
+                taskPanelOpen
+                  ? 'border-[var(--color-border)] bg-[var(--color-bg-active)] text-[var(--color-accent)]'
+                  : 'border-transparent text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+              }`}
+              title={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
+              aria-label={taskPanelOpen ? t('chat.hideTaskPanel') : t('chat.showTaskPanel')}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {pendingApproval && (
+                <span
+                  className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-warning)] px-1 text-[10px] font-semibold tabular-nums text-[var(--color-text-inverse)]"
+                  data-testid="activity-approval-count"
+                  aria-label={t('chat.awaitingApproval')}
+                >
+                  1
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {taskPanelMounted && (
+            <PopoverContent
+              forceMount
+              side="bottom"
+              align="end"
+              sideOffset={8}
+              collisionPadding={12}
+              className="z-[var(--z-dropdown)] w-[360px] border-0 bg-transparent p-0 shadow-none data-[state=closed]:invisible data-[state=closed]:pointer-events-none"
+              onOpenAutoFocus={(event) => {
+                if (activityAutoOpenedRef.current) {
+                  event.preventDefault();
+                  activityAutoOpenedRef.current = false;
+                }
+              }}
+            >
+              <TaskPanelErrorBoundary
+                isOpen={taskPanelOpen}
+                message={t('taskPanel.loadFailed')}
+                onRetry={() => setTaskPanelRetryKey((key) => key + 1)}
+              >
+                <Suspense fallback={<TaskPanelFallback isOpen={taskPanelOpen} />}>
+                  <TaskPanel
+                    isOpen={taskPanelOpen}
+                    onClose={() => setTaskPanelOpen(false)}
+                  />
+                </Suspense>
+              </TaskPanelErrorBoundary>
+            </PopoverContent>
+          )}
+        </Popover>
+      )}
+      <Toaster richColors position="bottom-right" theme={theme === 'system' ? 'system' : theme} />
       <ContextModal />
 
-      {taskPanelMounted && (
-        <TaskPanelErrorBoundary
-          isOpen={activeView === 'chat' && taskPanelOpen}
-          width={taskPanelWidth}
-          message={t('taskPanel.loadFailed')}
-          onRetry={() => setTaskPanelRetryKey((key) => key + 1)}
-        >
-          <Suspense fallback={<TaskPanelFallback isOpen={activeView === 'chat' && taskPanelOpen} width={taskPanelWidth} />}>
-            <TaskPanel
-              isOpen={activeView === 'chat' && taskPanelOpen}
-              onClose={() => setTaskPanelOpen(false)}
-              width={taskPanelWidth}
-              onResize={(w) => setTaskPanelWidth(w)}
-            />
-          </Suspense>
-        </TaskPanelErrorBoundary>
-      )}
     </div>
   );
 }

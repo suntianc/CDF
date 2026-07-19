@@ -1,60 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Check, Copy, AlertCircle, AlertTriangle, Info, Lightbulb, AlertOctagon } from 'lucide-react';
+import { AlertBlock, type AlertType } from './markdown/AlertBlock';
+import { CodeBlock } from './markdown/CodeBlock';
+import { textAlignClass } from './markdown/textAlign';
+import { Check, Copy, AlertOctagon } from 'lucide-react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
-interface CodeBlockProps {
-  lang: string;
-  code: string;
-}
-
-export function CodeBlock({ lang, code }: CodeBlockProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy text: ', err);
-    }
-  };
-
-  return (
-    <div className="border border-[var(--color-border)]/50 rounded-lg overflow-hidden font-mono text-xs bg-[var(--color-bg-sidebar)]">
-      <div className="flex justify-between items-center px-4 py-1.5 bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border-b border-[var(--color-border)] select-none">
-        <span className="uppercase text-xs font-bold text-[var(--color-text-secondary)] tracking-wider">
-          {lang || 'code'}
-        </span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className={`transition-all duration-200 text-[11px] font-medium px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 active:scale-90 ${
-            copied 
-              ? 'text-[var(--color-success)] bg-[var(--color-success-dim)]/20' 
-              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
-          }`}
-        >
-          {copied ? (
-            <>
-              <Check className="w-3 h-3 text-[var(--color-success)] animate-pop-in" />
-              <span className="animate-pop-in">已复制</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3 h-3" />
-              <span>复制</span>
-            </>
-          )}
-        </button>
-      </div>
-      <pre className="p-4 overflow-x-auto text-[var(--color-text-primary)] select-text" style={{ background: 'transparent', margin: 0 }}>
-        <code style={{ background: 'transparent', padding: 0, borderRadius: 0 }}>{code}</code>
-      </pre>
-    </div>
-  );
-}
 
 interface MathRendererProps {
   math: string;
@@ -111,16 +62,6 @@ export function MathRenderer({ math, block = false }: MathRendererProps) {
   );
 }
 
-// Tailwind JIT cannot statically detect class names that are built by
-// string interpolation (`text-${align}`). The map below ensures the
-// four alignment utilities are emitted by the build.
-const ALIGN_CLASS: Record<string, string> = {
-  left: 'text-left',
-  center: 'text-center',
-  right: 'text-right',
-  justify: 'text-justify',
-};
-
 function MathFallback({ math, block, errorMessage }: { math: string; block: boolean; errorMessage: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -155,14 +96,14 @@ function MathFallback({ math, block, errorMessage }: { math: string; block: bool
           {math}
         </pre>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-[var(--color-text-muted)] truncate" title={errorMessage}>
+          <span className="text-xs text-[var(--color-text-muted)] truncate" title={errorMessage}>
             {errorMessage}
           </span>
           <button
             type="button"
             onClick={handleCopy}
             aria-label="复制公式源码"
-            className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded transition-colors ${
+            className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded transition-colors ${
               copied
                 ? 'text-[var(--color-success)] bg-[var(--color-success)]/10'
                 : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
@@ -283,12 +224,27 @@ export const renderMarkdownText = (text: string) => {
 
   let currentBlockquoteLines: string[] = [];
   
+  let inCodeBlock = false;
+  let codeBlockLang = '';
+  let currentCodeLines: string[] = [];
+
   let inMathBlock = false;
   let currentMathLines: string[] = [];
 
   let inDetailsBlock = false;
   let currentDetailsLines: string[] = [];
   let detailsSummary = '';
+
+  const flushCodeBlock = (key: string | number) => {
+    if (currentCodeLines.length > 0 || inCodeBlock) {
+      const code = currentCodeLines.join('\n');
+      elements.push(
+        <CodeBlock key={`code-${key}`} lang={codeBlockLang} code={code} />
+      );
+      currentCodeLines = [];
+      codeBlockLang = '';
+    }
+  };
 
   const flushMathBlock = (key: string | number) => {
     if (currentMathLines.length > 0) {
@@ -304,7 +260,7 @@ export const renderMarkdownText = (text: string) => {
     if (currentDetailsLines.length > 0 || detailsSummary) {
       const detailsContent = currentDetailsLines.join('\n');
       elements.push(
-        <details key={`details-${key}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-all">
+        <details key={`details-${key}`} className="border border-[var(--color-border)]/50 bg-[var(--color-bg-sidebar)]/20 px-4 py-2.5 rounded-lg my-3 transition-[background-color,border-color] duration-150">
           {detailsSummary && (
             <summary className="font-semibold cursor-pointer select-none text-sm hover:text-[var(--color-text-primary)] transition-colors py-0.5">
               {detailsSummary}
@@ -370,61 +326,11 @@ export const renderMarkdownText = (text: string) => {
       
       if (alertMatch) {
         const type = alertMatch[1].toUpperCase();
-        const contentLines = currentBlockquoteLines.slice(1);
-        const contentText = contentLines.join('\n');
-        
-        let styleClass = '';
-        let titleClass = '';
-        let titleText = '';
-        let icon: React.ReactNode = null;
-        
-        switch (type) {
-          case 'NOTE':
-            styleClass = 'border-l-2 border-l-sky-500 bg-sky-500/[0.03] dark:bg-sky-400/[0.02]';
-            titleClass = 'text-sky-600 dark:text-sky-400';
-            titleText = 'NOTE';
-            icon = <Info className="w-3.5 h-3.5 shrink-0" />;
-            break;
-          case 'TIP':
-            styleClass = 'border-l-2 border-l-emerald-500 bg-emerald-500/[0.03] dark:bg-emerald-400/[0.02]';
-            titleClass = 'text-emerald-600 dark:text-emerald-400';
-            titleText = 'TIP';
-            icon = <Lightbulb className="w-3.5 h-3.5 shrink-0" />;
-            break;
-          case 'IMPORTANT':
-            styleClass = 'border-l-2 border-l-indigo-500 bg-indigo-500/[0.03] dark:bg-indigo-400/[0.02]';
-            titleClass = 'text-indigo-600 dark:text-indigo-400';
-            titleText = 'IMPORTANT';
-            icon = <AlertCircle className="w-3.5 h-3.5 shrink-0" />;
-            break;
-          case 'WARNING':
-            styleClass = 'border-l-2 border-l-amber-500 bg-amber-500/[0.03] dark:bg-amber-400/[0.02]';
-            titleClass = 'text-amber-600 dark:text-amber-400';
-            titleText = 'WARNING';
-            icon = <AlertTriangle className="w-3.5 h-3.5 shrink-0" />;
-            break;
-          case 'CAUTION':
-          case 'DANGER':
-            styleClass = 'border-l-2 border-l-rose-500 bg-rose-500/[0.03] dark:bg-rose-400/[0.02]';
-            titleClass = 'text-rose-600 dark:text-rose-400';
-            titleText = type;
-            icon = <AlertOctagon className="w-3.5 h-3.5 shrink-0" />;
-            break;
-        }
-
+        const contentText = currentBlockquoteLines.slice(1).join('\n');
         elements.push(
-          <div 
-            key={`alert-${key}`} 
-            className={`pl-4 pr-3 py-2.5 rounded-r-lg my-3 text-sm select-text leading-relaxed ${styleClass}`}
-          >
-            <div className={`flex items-center gap-1.5 font-bold text-xs select-none tracking-wider uppercase mb-1.5 ${titleClass}`}>
-              {icon}
-              <span>{titleText}</span>
-            </div>
-            <div className="text-[var(--color-text-secondary)] text-[13px] leading-relaxed font-normal">
-              {renderMarkdownText(contentText)}
-            </div>
-          </div>
+          <AlertBlock key={`alert-${key}`} type={type as AlertType}>
+            {renderMarkdownText(contentText)}
+          </AlertBlock>
         );
       } else {
         elements.push(
@@ -449,7 +355,7 @@ export const renderMarkdownText = (text: string) => {
                   return (
                      <th
                        key={`th-${i}`}
-                       className={`px-4 py-2.5 ${ALIGN_CLASS[align] ?? ALIGN_CLASS.left} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
+                       className={`px-4 py-2.5 ${textAlignClass(align)} border-r border-[var(--color-border)]/15 last:border-r-0 font-bold uppercase tracking-wider`}
                      >
                        {renderInlineMarkdown(header)}
                      </th>
@@ -468,7 +374,7 @@ export const renderMarkdownText = (text: string) => {
                     return (
                       <td
                         key={`td-${cIndex}`}
-                        className={`px-4 py-2 ${ALIGN_CLASS[align] ?? ALIGN_CLASS.left} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
+                        className={`px-4 py-2 ${textAlignClass(align)} border-r border-[var(--color-border)]/15 last:border-r-0 whitespace-pre-wrap leading-relaxed`}
                       >
                         {renderInlineMarkdown(cell)}
                       </td>
@@ -492,6 +398,7 @@ export const renderMarkdownText = (text: string) => {
     flushList(key);
     flushTable(key);
     flushBlockquote(key);
+    flushCodeBlock(key);
     flushMathBlock(key);
     flushDetailsBlock(key);
   };
@@ -523,7 +430,27 @@ export const renderMarkdownText = (text: string) => {
       detailsSummary = '';
       return;
     }
-    
+
+    // Check if we are inside a code block
+    if (inCodeBlock) {
+      if (trimmedLine.startsWith('```')) {
+        flushCodeBlock(index);
+        inCodeBlock = false;
+      } else {
+        currentCodeLines.push(line);
+      }
+      return;
+    }
+
+    // Check code block start
+    if (trimmedLine.startsWith('```')) {
+      flushAll(index);
+      inCodeBlock = true;
+      codeBlockLang = trimmedLine.slice(3).trim();
+      currentCodeLines = [];
+      return;
+    }
+
     // Check if we are inside a math block
     if (inMathBlock) {
       if (trimmedLine.includes('$$')) {

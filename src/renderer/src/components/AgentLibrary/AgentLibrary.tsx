@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
-import { useProjectStore } from '../../stores/projectStore';
 import { Agent } from '../../../../shared/types';
 import {
   Plus, Trash2, Edit2, X, Bot, Layers, Code, Search
 } from 'lucide-react';
 import { AgentEditDialog } from './AgentEditDialog';
+import { buildModelSelectionGroups } from '../ChatArea/modelSelection/useModelSelectionController';
 import { ProviderIcon } from '../ui/ProviderIcon';
+import { getAgentErrorTranslationKey } from './agentErrorI18n';
 
 const mapProviderTypeToIcon = (type: string): string => {
   if (type === 'glm-overseas') return 'zhipu';
@@ -26,26 +28,30 @@ interface Toast {
 
 export function AgentLibrary() {
   const { t } = useTranslation();
-  const { agents, error, fetchAgents, deleteAgent } = useAgentStore();
+  const { agents, error, fetchAgents, deleteCustomAgent } = useAgentStore();
   const { providers, fetchProviders } = useLLMStore();
-  const { fetchSkills } = useSkillStore();
+  const { entries: aiSubscriptionEntries, fetchEntries: fetchAISubscriptions } = useAISubscriptionStore();
+  const { fetchGlobalSkills } = useSkillStore();
   const { fetchMcpServers } = useMcpServerStore();
-  const { currentProjectId } = useProjectStore();
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const modelGroups = useMemo(
+    () => buildModelSelectionGroups(providers, aiSubscriptionEntries),
+    [aiSubscriptionEntries, providers],
+  );
 
   // Search query state
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (!currentProjectId) return;
-    fetchAgents(currentProjectId);
+    fetchAgents();
     fetchProviders();
-    fetchSkills(currentProjectId);
+    fetchAISubscriptions();
+    fetchGlobalSkills();
     fetchMcpServers();
-  }, [currentProjectId]);
+  }, [fetchAISubscriptions, fetchAgents, fetchProviders, fetchGlobalSkills, fetchMcpServers]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -68,7 +74,7 @@ export function AgentLibrary() {
   const handleDeleteAgent = async (id: string, name: string) => {
     if (confirm(t('agent.deleteConfirm', { name }))) {
       try {
-        await deleteAgent(id);
+        await deleteCustomAgent(id);
         showToast(t('agent.deletedSuccess', { name }), 'success');
       } catch (err) {
         showToast(t('agent.deleteError'), 'error');
@@ -78,14 +84,19 @@ export function AgentLibrary() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden">
-      {/* Header */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
+            {t('sidebar.settings.agentsDesc')}
+          </span>
+        </div>
+      </header>
 
       {/* Content */}
-      <div className="settings-content overflow-y-auto flex-1 px-6 pb-6 pt-3">
+      <div className="settings-content overflow-y-auto flex-1 px-5 pb-6 pt-4">
         {/* 内置的操作 Toolbar 面板 */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 shrink-0">
-          <div className="text-[13px] font-semibold text-[var(--color-text-primary)]">
+          <div className="text-[13px] font-semibold tabular-nums text-[var(--color-text-primary)]">
             {t('agent.listTitle', { count: agents.filter(agent =>
               agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
               (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -93,7 +104,7 @@ export function AgentLibrary() {
           </div>
           <div className="flex items-center gap-2">
             {/* Search box */}
-            <div className="flex items-center gap-2 bg-[var(--color-bg-sidebar)]/80 border border-[var(--color-border)]/50 px-3 py-1.5 rounded-lg w-[240px]">
+            <div className="flex h-8 items-center gap-2 bg-[var(--color-bg-sunken)] border border-[var(--color-border)] px-3 rounded-[var(--radius-sm)] w-[240px] focus-within:border-[var(--color-accent)]">
               <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
               <input
                 type="text"
@@ -117,20 +128,43 @@ export function AgentLibrary() {
         {error && (
           <div className="mb-4 p-3 bg-[var(--color-danger-dim)] border border-[var(--color-danger)]/20 rounded-lg flex items-start gap-2 text-xs text-[var(--color-danger)]">
             <span className="w-4 h-4 shrink-0 mt-0.5">⚠️</span>
-            <span>{error}</span>
+            <span>{t(getAgentErrorTranslationKey(error, 'agent.operationError'))}</span>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="resource-card-grid">
           {agents.filter(agent =>
             agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
+            const isProtected = agent.role !== 'custom';
+            const configuredModelSource = agent.config?.modelSource === 'ai_subscription'
+              ? 'ai_subscription'
+              : provider
+                ? 'llm_provider'
+                : null;
+            const configuredSourceId = configuredModelSource === 'ai_subscription'
+              && typeof agent.config?.sourceId === 'string'
+              ? agent.config.sourceId
+              : provider?.id || '';
+            const configuredModel = typeof agent.config?.model === 'string' ? agent.config.model : '';
+            const modelGroup = modelGroups.find(group => (
+              group.sourceType === configuredModelSource && group.sourceId === configuredSourceId
+            ));
+            const modelCandidate = modelGroup?.candidates.find(candidate => candidate.model === configuredModel);
+            const subscription = configuredModelSource === 'ai_subscription'
+              ? aiSubscriptionEntries.find(entry => entry.id === configuredSourceId)
+              : undefined;
+            const sourceName = modelGroup?.sourceName || subscription?.displayName || provider?.name || configuredSourceId;
+            const modelName = modelCandidate?.label || configuredModel || provider?.default_model || '';
+            const modelSummary = sourceName && modelName
+              ? `${sourceName} (${modelName})`
+              : isProtected ? t('agent.inheritedModelShort') : t('agent.noModel');
             return (
-              <div key={agent.id} className="provider-card flex flex-col justify-between p-5 border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-xl bg-[var(--color-bg-surface)] transition-colors group">
-                <div>
-                  <div className="flex items-center gap-3 mb-3">
+              <div key={agent.id} className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3 mb-2">
                     <div className="provider-icon bg-transparent flex items-center justify-center p-0.5 border-0 shrink-0">
                       {provider ? (
                         <ProviderIcon provider={mapProviderTypeToIcon(provider.provider_type)} size={32} shape="square" />
@@ -139,44 +173,53 @@ export function AgentLibrary() {
                       )}
                     </div>
                     <div className="truncate">
-                      <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">{agent.name}</div>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="font-semibold text-sm text-[var(--color-text-primary)] truncate">{agent.name}</div>
+                        {isProtected && (
+                          <span className="shrink-0 rounded bg-[var(--color-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
+                            {t('agent.protectedBadge')}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-[var(--color-text-secondary)] truncate">
-                        {t('agent.modelLabel')}{provider ? `${provider.name} (${provider.default_model})` : t('agent.noModel')}
+                        {t('agent.modelLabel')}{modelSummary}
                       </div>
                     </div>
                   </div>
 
-                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-4 line-clamp-2 h-8" title={agent.description}>
+                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mb-3 line-clamp-2" title={agent.description}>
                     {agent.description || t('agent.noDescription')}
                   </p>
 
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="px-2 py-0.5 rounded text-[11px] tabular-nums bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
                       <Layers className="w-3 h-3 text-[var(--color-text-muted)]" />
-                      <span>{t('agent.mcpBindings', { count: agent.mcpServerIds?.length || 0 })}</span>
+                      <span>{t('agent.mcpExclusions', { count: agent.mcpServerExclusionIds?.length || 0 })}</span>
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
+                    <span className="px-2 py-0.5 rounded text-[11px] tabular-nums bg-[var(--color-bg-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border)] flex items-center gap-1 font-medium shrink-0">
                       <Code className="w-3 h-3 text-[var(--color-text-muted)]" />
-                      <span>{t('agent.skillBindings', { count: agent.skillNames?.length || 0 })}</span>
+                      <span>{t('agent.skillPreloads', { count: agent.skillNames?.length || 0 })}</span>
                     </span>
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3 mt-2.5">
+                <div className="mt-auto flex shrink-0 justify-end gap-2 border-t border-[var(--color-border)]/30 pt-3">
                   <button
-                    className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                    className="btn btn-secondary btn-sm flex items-center gap-1 cursor-pointer"
                     onClick={() => openEditModal(agent)}
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                     <span>{t('common.edit')}</span>
                   </button>
-                  <button
-                    className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 transition-all"
-                    onClick={() => handleDeleteAgent(agent.id, agent.name)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>{t('common.delete')}</span>
-                  </button>
+                  {!isProtected && (
+                    <button
+                      className="btn btn-danger btn-sm flex items-center gap-1 cursor-pointer"
+                      onClick={() => handleDeleteAgent(agent.id, agent.name)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{t('common.delete')}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -186,8 +229,9 @@ export function AgentLibrary() {
             agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             (agent.description || '').toLowerCase().includes(searchQuery.toLowerCase())
           ).length === 0 && (
-            <div className="col-span-full text-center py-16 bg-[var(--color-bg-surface)] border border-[var(--color-border)] border-dashed rounded-xl text-sm text-[var(--color-text-muted)]">
-              {searchQuery ? t('agent.emptySearch') : t('agent.empty')}
+            <div className="col-span-full flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-6 py-10 text-sm text-[var(--color-text-muted)]">
+              <span>{searchQuery ? t('agent.emptySearch') : t('agent.empty')}</span>
+              {!searchQuery && <button className="btn btn-primary" onClick={openCreateModal}>{t('agent.createAgent')}</button>}
             </div>
           )}
         </div>

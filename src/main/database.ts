@@ -2,7 +2,13 @@ import Database from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { generateSlug } from './deepagent/agent-slug';
+import { createAgentCatalog } from './agent-catalog';
+import log from './logger';
+import {
+  DelegatedAgentRunRepository,
+  initializeDelegatedAgentRunSchema,
+} from './deepagent/delegated-agent-run-repository';
+import { reconcileOrphanWorkflowRunsAtStartup } from './workflow-run/startup-reconciliation';
 
 const dbPath = path.join(app.getPath('userData'), 'cdf.db');
 const db = new Database(dbPath);
@@ -32,6 +38,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
+    scene TEXT NOT NULL DEFAULT 'general',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
@@ -42,6 +49,10 @@ db.exec(`
     name TEXT NOT NULL,
     agent_id TEXT,
     summary TEXT,
+    prompt_snapshot TEXT,
+    skill_snapshot TEXT,
+    workflow_run_id TEXT,
+    workflow_run_status TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -72,6 +83,10 @@ db.exec(`
   );
 `);
 
+// Agent Catalog owns the sole global Agent definitions table. Its schema is
+// deliberately not migrated from the retired project-owned agents model.
+export const agentCatalog = createAgentCatalog(db);
+
 // Safe migration helper - ignores 'duplicate column name' errors
 const safeMigrate = (description: string, sql: string) => {
   try {
@@ -83,9 +98,19 @@ const safeMigrate = (description: string, sql: string) => {
   }
 };
 
+// Safe migration for projects scene
+safeMigrate('projects table (scene)', `ALTER TABLE projects ADD COLUMN scene TEXT NOT NULL DEFAULT 'general';`);
+try {
+  db.prepare(`UPDATE projects SET scene = 'general' WHERE scene IS NULL OR scene = ''`).run();
+} catch (error) {
+  console.error('Failed to backfill projects.scene:', error);
+}
+
 // Safe migration for sessions parent_session_id & summary
 safeMigrate('sessions table (parent_session_id)', `ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`);
 safeMigrate('sessions table (agent_id)', `ALTER TABLE sessions ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`);
+safeMigrate('sessions table (prompt_snapshot)', `ALTER TABLE sessions ADD COLUMN prompt_snapshot TEXT;`);
+safeMigrate('sessions table (skill_snapshot)', `ALTER TABLE sessions ADD COLUMN skill_snapshot TEXT;`);
 
 // Safe migration for llm_providers models
 safeMigrate('llm_providers table (models)', `ALTER TABLE llm_providers ADD COLUMN models TEXT;`);
@@ -93,8 +118,15 @@ safeMigrate('llm_providers table (models)', `ALTER TABLE llm_providers ADD COLUM
 // Safe migration for sessions summary
 safeMigrate('sessions table (summary)', `ALTER TABLE sessions ADD COLUMN summary TEXT;`);
 
+// Safe migration for sessions workflow_run_id & workflow_run_status
+safeMigrate('sessions table (workflow_run_id)', `ALTER TABLE sessions ADD COLUMN workflow_run_id TEXT;`);
+safeMigrate('sessions table (workflow_run_status)', `ALTER TABLE sessions ADD COLUMN workflow_run_status TEXT;`);
+
 // Think duration: store real LLM thinking wall-clock time so historical messages show accurate timing
 safeMigrate('messages table (think_duration_seconds)', `ALTER TABLE messages ADD COLUMN think_duration_seconds INTEGER;`);
+
+// Image data: JSON array of data URL strings for user-pasted images
+safeMigrate('messages table (image_data)', `ALTER TABLE messages ADD COLUMN image_data TEXT;`);
 
 // Tool configs table for built-in tools with API keys
 db.exec(`
@@ -124,22 +156,6 @@ try {
 
 // Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
 db.exec(`
-  CREATE TABLE IF NOT EXISTS agents (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    slug TEXT,
-    description TEXT,
-    provider_id TEXT,
-    system_prompt TEXT,
-    config TEXT,
-    is_default INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE SET NULL
-  );
-
   CREATE TABLE IF NOT EXISTS mcp_servers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -151,7 +167,9 @@ db.exec(`
     updated_at INTEGER NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS agent_mcp_servers (
+  DROP TABLE IF EXISTS agent_mcp_servers;
+
+  CREATE TABLE IF NOT EXISTS agent_mcp_exclusions (
     agent_id TEXT NOT NULL,
     mcp_server_id TEXT NOT NULL,
     PRIMARY KEY (agent_id, mcp_server_id),
@@ -183,6 +201,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS agent_tool_calls (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
+    delegated_run_id TEXT,
     tool_name TEXT NOT NULL,
     input TEXT,
     output TEXT,
@@ -191,53 +210,29 @@ db.exec(`
     approval_status TEXT,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
-    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (delegated_run_id) REFERENCES delegated_agent_runs(id) ON DELETE SET NULL
   );
 `);
 
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN project_id TEXT;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate agents table (project_id):', error);
-  }
-}
+// Existing databases predate first-class Delegated Agent Runs.
+safeMigrate(
+  'agent_tool_calls table (delegated_run_id)',
+  `ALTER TABLE agent_tool_calls ADD COLUMN delegated_run_id TEXT REFERENCES delegated_agent_runs(id) ON DELETE SET NULL;`,
+);
+initializeDelegatedAgentRunSchema(db);
+new DelegatedAgentRunRepository(db).reconcileInterrupted(Date.now());
 
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate agents table (is_default):', error);
-  }
-}
-
-try {
-  db.prepare(`UPDATE agents SET project_id = ? WHERE project_id IS NULL OR project_id = ''`).run('default-project');
-} catch (error) {
-  console.error('Failed to backfill agents.project_id:', error);
-}
-
-// D-03: Add slug column for stable task(name) key
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN slug TEXT`);
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Failed to migrate agents table (slug):', error);
-  }
-}
-
-// D-03: Backfill existing agents' slug from name
-// (generateSlug itself lives in deepagent/agent-slug.ts — the canonical
-// helper. This import is here to avoid duplicating the regex chain.)
-try {
-  const agentsWithoutSlug = db.prepare("SELECT id, name FROM agents WHERE slug IS NULL OR slug = ''").all() as Array<{ id: string; name: string }>;
-  for (const agent of agentsWithoutSlug) {
-    const slug = generateSlug(agent.name);
-    db.prepare('UPDATE agents SET slug = ? WHERE id = ?').run(slug, agent.id);
-  }
-} catch (error) {
-  console.error('Failed to backfill agents.slug:', error);
-}
+// A process restart cannot retain a live Agent run. Close stale rows before
+// enforcing the one-active-run-per-Conversation invariant used by background continuations.
+db.prepare(`UPDATE agent_runs
+  SET status = 'interrupted',
+      error = COALESCE(error, 'Application stopped before the Agent run completed'),
+      ended_at = COALESCE(ended_at, ?),
+      aborted = 1
+  WHERE status IN ('running', 'waiting_approval')`).run(Date.now());
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_one_active_session
+  ON agent_runs(session_id) WHERE status IN ('running', 'waiting_approval')`);
 
 // Insert default project if no projects exist
 try {
@@ -254,9 +249,9 @@ try {
     }
     
     db.prepare(`
-      INSERT INTO projects (id, name, path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(defaultProjectId, defaultProjectName, defaultProjectPath, now, now);
+      INSERT INTO projects (id, name, path, scene, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(defaultProjectId, defaultProjectName, defaultProjectPath, 'general', now, now);
     console.log('Successfully initialized default project:', defaultProjectId);
   }
 } catch (error) {
@@ -395,7 +390,25 @@ try {
   console.error('Failed to initialize default LLM providers:', error);
 }
 
-// ===== Phase 4: Workflow System Tables =====
+// ===== Workflow Skeleton + Workflow Run tables =====
+// The product has not shipped legacy workflow data. If the old graph schema is
+// present, reset it instead of carrying two execution models indefinitely.
+try {
+  const retiredWorkflowColumns = db.prepare(
+    "SELECT name FROM pragma_table_info('workflows') WHERE name IN ('graph_data', 'master_agent_id')"
+  ).all() as Array<{ name: string }>;
+  if (retiredWorkflowColumns.length > 0) {
+    db.exec('DROP TABLE IF EXISTS workflow_run_tasks');
+    db.exec('DROP TABLE IF EXISTS workflow_stage_gates');
+    db.exec('DROP TABLE IF EXISTS workflow_runs');
+    db.exec('DROP TABLE IF EXISTS workflow_node_runs');
+    db.exec('DROP TABLE IF EXISTS workflow_executions');
+    db.exec('DROP TABLE IF EXISTS workflows');
+    log.info(`[DB] Destructive reset: dropped Workflow tables with retired columns (${retiredWorkflowColumns.map((column) => column.name).join(', ')})`);
+  }
+} catch {
+  // A fresh database has no workflows table yet.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflows (
@@ -403,64 +416,102 @@ db.exec(`
     project_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    graph_data TEXT NOT NULL,
+    stages TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'draft',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS workflow_executions (
+  CREATE TABLE IF NOT EXISTS workflow_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
-    trigger_source TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    input TEXT,
-    output TEXT,
+    session_id TEXT NOT NULL,
+    master_agent_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    current_stage_id TEXT NOT NULL,
+    current_stage_index INTEGER NOT NULL DEFAULT 0,
+    total_stages INTEGER NOT NULL,
+    stages TEXT NOT NULL,
+    skeleton_snapshot TEXT,
     error TEXT,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
-    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS workflow_node_runs (
+  CREATE TABLE IF NOT EXISTS workflow_stage_gates (
     id TEXT PRIMARY KEY,
-    execution_id TEXT NOT NULL,
-    node_id TEXT NOT NULL,
-    node_name TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    stage_id TEXT NOT NULL,
+    stage_name TEXT NOT NULL,
+    report TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
-    input TEXT,
-    output TEXT,
-    error TEXT,
-    error_type TEXT,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    started_at INTEGER NOT NULL,
-    ended_at INTEGER,
-    logs TEXT,
-    FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE
+    feedback TEXT,
+    created_at INTEGER NOT NULL,
+    decided_at INTEGER,
+    FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS workflow_run_tasks (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    stage_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planned',
+    dependencies TEXT NOT NULL DEFAULT '[]',
+    delegation_batch_id TEXT,
+    delegation_worker_id TEXT,
+    delegated_run_id TEXT,
+    delegation_agent_slug TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    completed_at INTEGER,
+    FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_id);
-  CREATE INDEX IF NOT EXISTS idx_executions_workflow ON workflow_executions(workflow_id);
-  CREATE INDEX IF NOT EXISTS idx_node_runs_execution ON workflow_node_runs(execution_id);
+  CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_runs_session ON workflow_runs(session_id);
+  CREATE INDEX IF NOT EXISTS idx_stage_gates_run ON workflow_stage_gates(run_id);
+  CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run ON workflow_run_tasks(run_id);
+  CREATE INDEX IF NOT EXISTS idx_workflow_run_tasks_run_stage ON workflow_run_tasks(run_id, stage_id);
 `);
 
+safeMigrate(
+  'workflow_runs table (current_stage_id)',
+  `ALTER TABLE workflow_runs ADD COLUMN current_stage_id TEXT;`,
+);
 try {
-  db.prepare('ALTER TABLE workflow_node_runs ADD COLUMN logs TEXT').run();
-} catch (err) {
-  // Column already exists
+  const legacyRuns = db.prepare(`
+    SELECT id, current_stage_index, stages
+    FROM workflow_runs
+    WHERE current_stage_id IS NULL OR current_stage_id = ''
+  `).all() as Array<{ id: string; current_stage_index: number; stages: string }>;
+  const updateCurrentStageId = db.prepare('UPDATE workflow_runs SET current_stage_id = ? WHERE id = ?');
+  for (const run of legacyRuns) {
+    const stages = JSON.parse(run.stages) as Array<{ id?: string }>;
+    const stage = stages[Math.min(run.current_stage_index, Math.max(stages.length - 1, 0))];
+    if (stage?.id) updateCurrentStageId.run(stage.id, run.id);
+  }
+} catch (error) {
+  console.error('Failed to backfill workflow_runs.current_stage_id:', error);
 }
 
-// 工具调用结构化记录（导出 JSON 用,跨 invokeAgent 累积）
-try { db.exec(`ALTER TABLE workflow_node_runs ADD COLUMN tool_calls TEXT`); } catch {}
+safeMigrate(
+  'workflow_run_tasks table (delegated_run_id)',
+  `ALTER TABLE workflow_run_tasks ADD COLUMN delegated_run_id TEXT;`,
+);
 
-// 工作流配置快照（执行时固化 agents/mcp/skills 引用配置，导出用）
-try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN config_snapshot TEXT`); } catch {}
-// 完整事件流时间线（导出用）
-try { db.exec(`ALTER TABLE workflow_executions ADD COLUMN events_snapshot TEXT`); } catch {}
-
-// 时序执行轨迹(替代 logs[] 的并列结构,带 type + ts)
-try { db.exec(`ALTER TABLE workflow_node_runs ADD COLUMN execution_trace TEXT`); } catch {}
+const workflowReconciliation = reconcileOrphanWorkflowRunsAtStartup(db);
+if (workflowReconciliation.abortedRunCount > 0) {
+  log.info(`[DB] Reconciled ${workflowReconciliation.abortedRunCount} orphaned Workflow Run(s) as aborted.`);
+}
 
 export default db;

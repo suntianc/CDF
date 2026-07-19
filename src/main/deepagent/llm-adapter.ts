@@ -52,11 +52,33 @@ export interface RuntimeProviderModelConfig {
   apiKey?: string;
   apiUrl?: string;
   defaultModel: string;
-  providerType: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'deepseek' | 'zhipu' | 'glm-overseas' | 'minimax' | 'minimax-overseas' | 'moonshot' | 'qwen' | 'xiaomimimo';
+  providerType:
+    | 'openai'
+    | 'anthropic'
+    | 'ollama'
+    | 'custom'
+    | 'deepseek'
+    | 'zhipu'
+    | 'glm-overseas'
+    | 'minimax'
+    | 'minimax-overseas'
+    | 'moonshot'
+    | 'qwen'
+    | 'xiaomimimo';
   model?: string;
   contextLimit?: number;
   /** 节点级 LLM temperature 覆盖,undefined 时维持 provider 默认 */
   temperature?: number;
+  /** Force OpenAI Responses API (legacy OpenAI Responses clients). */
+  useResponsesApi?: boolean;
+  /** Extra body kwargs for OpenAI clients. */
+  modelKwargs?: Record<string, unknown>;
+  /** Extra HTTP headers. */
+  defaultHeaders?: Record<string, string>;
+  /** Optional request transport, used by OAuth-backed providers for token rotation. */
+  fetch?: typeof fetch;
+  /** Request retry limit. OAuth transports own their bounded auth retry policy. */
+  maxRetries?: number;
 }
 
 const LARGE_CODE_OUTPUT_TOKEN_LIMIT = 65_536;
@@ -189,7 +211,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
         return originalInvoke.call(this, input, options);
       }
       console.log(`[ADAPTER] 实例 invoke 被拦截并转换为流式执行`);
-      const messages = BaseChatModel._convertInputToPromptValue(input).toChatMessages();
+      const messages = (BaseChatModel as unknown as { _convertInputToPromptValue(input: unknown): { toChatMessages(): unknown[] } })._convertInputToPromptValue(input).toChatMessages();
       const [, callOptions] = typeof this._separateRunnableConfigFromCallOptionsCompat === 'function'
         ? this._separateRunnableConfigFromCallOptionsCompat(options)
         : [{}, options];
@@ -293,7 +315,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
       const withStreamRunId = (event: Record<string, unknown>): ChatModelStreamEvent => ({
         ...event,
         run_id: streamRunId,
-      } as ChatModelStreamEvent);
+      } as unknown as ChatModelStreamEvent);
 
       let started = false;
       let nextIndex = 0;
@@ -518,14 +540,20 @@ export function createLangChainModel(config: RuntimeProviderModelConfig): BaseCh
     case 'xiaomimimo': {
       const modelConfig: Record<string, unknown> = {
         model: modelName,
-        temperature: 0,
+        temperature: config.temperature !== undefined ? config.temperature : 0,
         streaming: true,
       };
-      if (config.temperature !== undefined) modelConfig.temperature = config.temperature;
+      if (config.maxRetries !== undefined) modelConfig.maxRetries = config.maxRetries;
       if (config.apiKey) modelConfig.apiKey = config.apiKey;
-      if (normalizedApiUrl) {
+      if (config.useResponsesApi) modelConfig.useResponsesApi = true;
+      if (config.modelKwargs) modelConfig.modelKwargs = config.modelKwargs;
+      if (normalizedApiUrl || config.defaultHeaders || config.fetch) {
         modelConfig.configuration = {
-          baseURL: normalizedApiUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/?$/, ''),
+          ...(normalizedApiUrl
+            ? { baseURL: normalizedApiUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/?$/, '') }
+            : {}),
+          ...(config.defaultHeaders ? { defaultHeaders: config.defaultHeaders } : {}),
+          ...(config.fetch ? { fetch: config.fetch } : {}),
         };
       }
       model = new ChatOpenAI(modelConfig);

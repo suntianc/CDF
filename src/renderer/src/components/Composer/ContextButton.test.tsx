@@ -47,7 +47,9 @@ describe('ContextButton', () => {
     mockState.isOpen = true;
     render(<ContextButton />);
     const btn = screen.getByTestId('context-button');
-    // 'bg-[var(--color-info)]' is the active state class (info-tinted)
-    expect(btn.className).toContain('bg-[var(--color-info)]');
+    // 激活态的视觉信号落到 button root：info 色文本 + semibold。
+    // 蓝色背景点改在指示器 span 上，避免整块按钮被填色。
+    expect(btn.className).toContain('text-[var(--color-info)]');
+    expect(btn.className).toContain('font-semibold');
   });
 });

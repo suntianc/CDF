@@ -137,6 +137,23 @@ describe('MarkdownRenderer', () => {
     expect(details?.textContent).toContain('这是详情内容');
   });
 
+  it('should render fenced code blocks with triple backticks', () => {
+    const markdown = '```python\nprint("hello")\n```';
+    const { container } = render(<MarkdownRenderer text={markdown} />);
+    const codeEl = container.querySelector('code');
+    expect(codeEl).toBeTruthy();
+    expect(codeEl?.textContent).toBe('print("hello")');
+    const langLabel = container.querySelector('.uppercase');
+    expect(langLabel?.textContent).toBe('python');
+  });
+
+  it('should not render triple backticks as inline code', () => {
+    const markdown = '```\nsome code\n```';
+    const { container } = render(<MarkdownRenderer text={markdown} />);
+    const inlineCode = container.querySelectorAll('code.px-1\\.5');
+    expect(inlineCode.length).toBe(0);
+  });
+
   it('should render nested blockquotes correctly', () => {
     const markdown = `> 引用一
 > > 嵌套引用二`;

@@ -3,12 +3,16 @@ import { render, waitFor, act, fireEvent, screen } from '@testing-library/react'
 import { toast } from 'sonner';
 import App from './App';
 import { useProjectStore } from './stores/projectStore';
+import { useSessionStore } from './stores/sessionStore';
 
 const { taskPanelRenderSpy, taskPanelMountSpy, shouldThrowTaskPanel } = vi.hoisted(() => ({
   taskPanelRenderSpy: vi.fn(),
   taskPanelMountSpy: vi.fn(),
   shouldThrowTaskPanel: { current: false },
 }));
+
+let messagesChangedListener: ((data: { sessionId: string }) => void) | null = null;
+let runEventListener: ((data: unknown) => void) | null = null;
 
 // Phase 8 — T-08-T9: latent bug fix verification.
 // Phase 6/7 dispatcher.ts and useCommandRegistry.ts call `toast.warning/info/error`,
@@ -20,13 +24,16 @@ vi.mock('@/components/AgentLibrary/AgentLibrary', () => ({
   AgentLibrary: () => null,
 }));
 vi.mock('@/components/PluginsPanel/PluginsPanel', () => ({
-  PluginsPanel: () => null,
+  PluginsPanel: () => <div data-testid="plugins-panel" />,
 }));
 vi.mock('@/components/Settings/ModelSettings', () => ({
-  ModelSettings: () => null,
+  ModelSettings: () => <div data-testid="model-settings" />,
 }));
 vi.mock('@/components/Settings/ToolSettings', () => ({
   ToolSettings: () => null,
+}));
+vi.mock('@/components/Settings/ResearchSettings', () => ({
+  ResearchSettings: () => null,
 }));
 vi.mock('@/components/WorkflowEditor/WorkflowList', () => ({
   WorkflowList: () => null,
@@ -38,15 +45,25 @@ vi.mock('@/components/Sidebar/Sidebar', () => ({
   Sidebar: () => null,
 }));
 vi.mock('@/components/ChatArea/ChatArea', () => ({
-  ChatArea: ({ taskPanelOpen, onToggleTaskPanel, onOpenTaskPanel }: {
+  ChatArea: ({
+    taskPanelOpen,
+    onToggleTaskPanel,
+    onOpenTaskPanel,
+    onOpenSettings,
+    onOpenPlugins,
+  }: {
     taskPanelOpen?: boolean;
     onToggleTaskPanel?: () => void;
     onOpenTaskPanel?: () => void;
+    onOpenSettings?: () => void;
+    onOpenPlugins?: () => void;
   }) => (
-    <div>
+    <div data-testid="conversation-workspace">
       <span data-testid="task-panel-state">{taskPanelOpen ? 'open' : 'closed'}</span>
       <button type="button" onClick={onToggleTaskPanel}>toggle task panel</button>
       <button type="button" onClick={onOpenTaskPanel}>go approve now</button>
+      <button type="button" onClick={onOpenPlugins}>configure plugins</button>
+      <button type="button" onClick={onOpenSettings}>configure models</button>
     </div>
   ),
 }));
@@ -61,12 +78,31 @@ vi.mock('@/components/TaskPanel/TaskPanel', async () => {
       if (shouldThrowTaskPanel.current) {
         throw new Error('task panel render failed');
       }
-      return <aside data-testid="task-panel">{isOpen ? 'open' : 'closed'}</aside>;
+      if (!isOpen) return null;
+      return <div data-testid="task-panel">{isOpen ? 'open' : 'closed'}</div>;
     },
   };
 });
+vi.mock('@/components/FilePanel/FilePanel', () => ({
+  FilePanel: () => <div data-testid="file-panel" />,
+}));
 
 beforeAll(() => {
+  if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(prefers-color-scheme: dark)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  }
   if (typeof globalThis.ResizeObserver === 'undefined') {
     globalThis.ResizeObserver = class {
       observe() {}
@@ -85,6 +121,16 @@ beforeAll(() => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn(),
     },
+    conversation: {
+      onMessagesChanged: (callback: (data: { sessionId: string }) => void) => {
+        messagesChangedListener = callback;
+        return vi.fn();
+      },
+      onRunEvent: (callback: (data: unknown) => void) => {
+        runEventListener = callback;
+        return vi.fn();
+      },
+    },
   };
 });
 
@@ -92,7 +138,15 @@ beforeEach(() => {
   taskPanelRenderSpy.mockClear();
   taskPanelMountSpy.mockClear();
   shouldThrowTaskPanel.current = false;
-  useProjectStore.setState({ activeView: 'chat', taskPanelOpen: false });
+  messagesChangedListener = null;
+  runEventListener = null;
+  useProjectStore.setState({
+    activeView: 'chat',
+    taskPanelOpen: false,
+    currentProjectId: null,
+    projects: [],
+  });
+  useSessionStore.setState({ pendingApproval: null });
 });
 
 describe('App', () => {
@@ -132,26 +186,56 @@ describe('App', () => {
     expect(screen.getByTestId('task-panel').textContent).toBe('open');
 
     fireEvent.click(screen.getByText('toggle task panel'));
-    await waitFor(() => expect(screen.getByTestId('task-panel').textContent).toBe('closed'));
+    await waitFor(() => expect(screen.queryByTestId('task-panel')).toBeNull());
     expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByText('toggle task panel'));
-    await waitFor(() => expect(screen.getByTestId('task-panel').textContent).toBe('open'));
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('task-panel').textContent).toBe('open');
     expect(taskPanelMountSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('collapses TaskPanel error fallback when closed and retries on reopen', async () => {
+  it('opens Activity from its accessible trigger without replacing the Files panel', async () => {
+    render(<App />);
+
+    const trigger = screen.getByRole('button', { name: /Show task panel|显示任务面板/ });
+    expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('file-panel')).toBeTruthy();
+
+    fireEvent.click(trigger);
+
+    await screen.findByTestId('task-panel');
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('file-panel')).toBeTruthy();
+  });
+
+  it('shows a warning count when an approval is pending', async () => {
+    useSessionStore.setState({
+      pendingApproval: {
+        id: 'approval-1',
+        runId: 'run-1',
+        actions: [],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('activity-approval-count').textContent).toBe('1');
+  });
+
+  it('hides TaskPanel error fallback when closed and retries on reopen', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     shouldThrowTaskPanel.current = true;
 
     render(<App />);
     fireEvent.click(screen.getByText('toggle task panel'));
 
-    const failedPanel = await screen.findByText(/Task panel failed to load\.|任务面板加载失败。/);
-    expect(failedPanel.closest('aside')?.style.width).toBe('340px');
+    await screen.findByText(/Task panel failed to load\.|任务面板加载失败。/);
 
     fireEvent.click(screen.getByText('toggle task panel'));
-    await waitFor(() => expect(failedPanel.closest('aside')?.style.width).toBe('0px'));
+    await waitFor(() => expect(screen.queryByText(/Task panel failed to load\.|任务面板加载失败。/)).toBeNull());
 
     shouldThrowTaskPanel.current = false;
     fireEvent.click(screen.getByText('toggle task panel'));
@@ -160,4 +244,119 @@ describe('App', () => {
     expect(screen.getByTestId('task-panel').textContent).toBe('open');
     consoleSpy.mockRestore();
   });
+
+  it('routes welcome configuration entries to their dedicated destinations', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'configure plugins' }));
+    await screen.findByTestId('plugins-panel');
+
+    useProjectStore.setState({ activeView: 'chat' });
+    await screen.findByTestId('conversation-workspace');
+
+    fireEvent.click(screen.getByRole('button', { name: 'configure models' }));
+    await screen.findByTestId('model-settings');
+  });
+
+  it('keeps research project welcome focused on Conversation without Scene navigation', () => {
+    useProjectStore.setState({
+      activeView: 'chat',
+      currentProjectId: 'project-research',
+      projects: [{
+        id: 'project-research',
+        name: 'AI Papers',
+        path: '/tmp/ai-papers',
+        scene: 'research',
+        created_at: 1,
+        updated_at: 1,
+      }],
+    });
+
+    render(<App />);
+
+    expect(screen.queryByRole('tab', { name: /Conversation|对话/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Writing|写作/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Experiments|实验记录/ })).toBeNull();
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+  });
+
+  it('falls back to the general Conversation workspace for unknown Scene values', () => {
+    useProjectStore.setState({
+      activeView: 'chat',
+      currentProjectId: 'project-unknown',
+      projects: [{
+        id: 'project-unknown',
+        name: 'Imported Project',
+        path: '/tmp/imported',
+        scene: 'archival' as never,
+        created_at: 1,
+        updated_at: 1,
+      }],
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
+  });
+
+  it('keeps general projects on the existing Conversation workspace without Scene navigation', () => {
+    useProjectStore.setState({
+      activeView: 'chat',
+      currentProjectId: 'project-general',
+      projects: [{
+        id: 'project-general',
+        name: 'General Project',
+        path: '/tmp/general',
+        scene: 'general',
+        created_at: 1,
+        updated_at: 1,
+      }],
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId('conversation-workspace')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /Paper Library|论文库/ })).toBeNull();
+  });
+  it('delegates durable Conversation refresh events to the store adapter', () => {
+    const handleMessagesChanged = vi.fn();
+    useSessionStore.setState({ handleMessagesChanged });
+    render(<App />);
+
+    act(() => messagesChangedListener?.({ sessionId: 'session-1' }));
+
+    expect(handleMessagesChanged).toHaveBeenCalledWith('session-1');
+  });
+
+  it('does not keep component-local pending refresh state while a stream settles', () => {
+    const handleMessagesChanged = vi.fn();
+    useSessionStore.setState({ handleMessagesChanged, isStreaming: true });
+    render(<App />);
+
+    act(() => messagesChangedListener?.({ sessionId: 'session-1' }));
+
+    expect(handleMessagesChanged).toHaveBeenCalledTimes(1);
+    expect(handleMessagesChanged).toHaveBeenCalledWith('session-1');
+  });
+
+  it('forwards background Conversation run events to the session projection', () => {
+    const handleConversationRunEvent = vi.fn();
+    useSessionStore.setState({ handleConversationRunEvent });
+    render(<App />);
+    const envelope = {
+      sessionId: 'session-1',
+      requestId: 'background-continuation:batch-1',
+      messageId: 'background-continuation-output:batch-1',
+      origin: 'background-capability-continuation',
+      sequence: 1,
+      event: { type: 'message_chunk', text: '流式结果' },
+    };
+
+    act(() => runEventListener?.(envelope));
+
+    expect(handleConversationRunEvent).toHaveBeenCalledWith(envelope);
+  });
+
 });

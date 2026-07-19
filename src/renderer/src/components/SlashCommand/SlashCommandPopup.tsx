@@ -4,6 +4,7 @@ import {
   useImperativeHandle,
   useMemo,
   useState,
+  useRef,
 } from 'react';
 import { Command } from 'cmdk';
 import { AlertCircle } from 'lucide-react';
@@ -17,14 +18,13 @@ const SYSTEM_COMMANDS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '/context', label: '/context' },
 ];
 
-// Phase 8 — D-01..D-04: 7-color source badge palette (VS Code Dark+ style).
+// Phase 8 — D-01..D-04: 6-color source badge palette (VS Code Dark+ style).
 // Static string literals (Tailwind v4 static class scan [VERIFIED: tailwindcss.com]).
 // D-02: text color only — no background/border change. D-04: no new CSS vars.
 const SOURCE_TEXT_COLOR: Record<CommandSource, string> = {
   'system': 'text-blue-400',
   'skill:global': 'text-violet-300',
   'skill:project': 'text-purple-400',
-  'workflow': 'text-green-400',
   'mcp': 'text-amber-400',
   'cmd:system': 'text-[var(--color-text-muted)]',
   'cmd:project': 'text-[var(--color-text-secondary)]',
@@ -38,6 +38,34 @@ const VARIATION_SELECTORS = /[︀-️\u{E0100}-\u{E01EF}]/gu;
 
 const normForFilter = (s: string): string =>
   s.normalize('NFKC').replace(VARIATION_SELECTORS, '').toLowerCase();
+
+function normalizeProjectRelativePath(value: string): string {
+  return value
+    .trim()
+    .replace(/^@+/, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//g, '')
+    .replace(/^\/+/g, '');
+}
+
+function getNestedSkillQualifier(command: SlashCommand): string {
+  if (command.skillSourceKind !== 'project-nested') return '';
+  const qualifiedName = command.qualifiedName ?? command.name;
+  const separatorIndex = qualifiedName.lastIndexOf(':');
+  if (separatorIndex <= 0) return '';
+  return normalizeProjectRelativePath(qualifiedName.slice(0, separatorIndex));
+}
+
+function getNestedSkillPathContextScore(command: SlashCommand, pathContext: string[]): number {
+  const qualifier = getNestedSkillQualifier(command);
+  if (!qualifier) return 0;
+  return pathContext.some((rawPath) => {
+    const normalizedPath = normalizeProjectRelativePath(rawPath);
+    return normalizedPath === qualifier || normalizedPath.startsWith(`${qualifier}/`);
+  })
+    ? 1
+    : 0;
+}
 
 export interface SlashCommandPopupHandle {
   handleKeyDown: (e: { key: string; preventDefault: () => void }) => boolean;
@@ -57,6 +85,8 @@ export interface SlashCommandPopupProps {
   onClose: () => void;
   /** Phase 6: optional registry commands (from useCommandRegistry). If undefined, falls back to SYSTEM_COMMANDS for back-compat. */
   commands?: SlashCommand[];
+  /** Project-relative paths already mentioned in the Composer Input. Used to rank nested Skills. */
+  pathContext?: string[];
   /** Phase 6: when true, render a gray mcp_health_warning row at the top of the popup (C-02). */
   hasMcpWarning?: boolean;
   /** Phase 6: custom message for the mcp_health_warning row. */
@@ -68,7 +98,7 @@ export interface SlashCommandPopupProps {
 export const SlashCommandPopup = forwardRef<
   SlashCommandPopupHandle,
   SlashCommandPopupProps
->(({ query, onSelect, onInsert, onClose, commands, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
+>(({ query, onSelect, onInsert, onClose, commands, pathContext, hasMcpWarning, mcpWarningMessage, loading }, ref) => {
   // Phase 6: when `commands` prop is provided, use it. Otherwise fall back to
   // the Phase 5 SYSTEM_COMMANDS (mapped from `{value, label}` to SlashCommand shape).
   const displayCommands = useMemo<SlashCommand[]>(() => {
@@ -92,10 +122,19 @@ export const SlashCommandPopup = forwardRef<
     // (system commands whose primary entry is a persistent UI button, e.g.
     // `<ContextButton>` for /context). Slash input still dispatches via the
     // dispatcher; this only affects popup visibility.
-    return base.filter(
+    const visible = base.filter(
       (c) => c.frontmatter?.userInvocable !== false && !c.hideFromPopup
     );
-  }, [commands]);
+    if (!pathContext || pathContext.length === 0) return visible;
+    return visible
+      .map((command, index) => ({
+        command,
+        index,
+        score: getNestedSkillPathContextScore(command, pathContext),
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((entry) => entry.command);
+  }, [commands, pathContext]);
 
   // Phase 8 — D-06: pre-normalize every command name into a Map so the
   // per-keystroke filter is O(1) per item (Map.get) instead of re-running
@@ -127,11 +166,26 @@ export const SlashCommandPopup = forwardRef<
     filtered[0]?.name ?? displayCommands[0]?.name ?? ''
   );
 
+  const commandListRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (filtered[0]) {
       setSelectedValue(filtered[0].name);
     }
   }, [query, filtered]);
+
+  useEffect(() => {
+    if (!commandListRef.current) return;
+    const timer = setTimeout(() => {
+      const selectedEl = commandListRef.current?.querySelector('[data-selected="true"]');
+      if (selectedEl) {
+        selectedEl.scrollIntoView({
+          block: 'nearest',
+        });
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [selectedValue]);
 
   useImperativeHandle(
     ref,
@@ -208,7 +262,10 @@ export const SlashCommandPopup = forwardRef<
       label="Slash commands"
       className="w-full"
     >
-      <Command.List className="max-h-64 overflow-y-auto p-0">
+      <Command.List 
+        ref={commandListRef} 
+        className="max-h-64 overflow-y-auto p-0 [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar]:h-0 [scrollbar-width:none] [-ms-overflow-style:none]"
+      >
         {hasMcpWarning && (
           <div
             data-testid="mcp-health-warning"
@@ -246,7 +303,17 @@ export const SlashCommandPopup = forwardRef<
             >
               {c.badge}
             </Badge>
+            {c.source.startsWith('skill:') && c.sourceLabel && (
+              <span className="text-[10px] text-[var(--color-text-muted)] truncate max-w-[120px]">
+                {c.sourceLabel}
+              </span>
+            )}
             <span className="font-mono">/{c.name}</span>
+            {c.argumentHint && (
+              <span className="font-mono text-[11px] text-[var(--color-text-muted)]">
+                {c.argumentHint}
+              </span>
+            )}
             {c.source !== 'mcp' && c.description && (
               <span className="text-[11px] text-[var(--color-text-muted)] truncate max-w-[200px]">
                 {c.description.slice(0, 60)}

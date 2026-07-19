@@ -1,20 +1,17 @@
 import { create } from 'zustand';
+import type { Project } from '@shared/types';
 
-interface Project {
-  id: string;
-  name: string;
-  path: string;
-}
+export type AppView = 'chat' | 'settings' | 'ai-subscriptions' | 'agents' | 'plugins' | 'tools' | 'research' | 'workflows' | 'system';
 
 interface ProjectState {
   projects: Project[];
   currentProjectId: string | null;
   taskPanelOpen: boolean;
-  activeView: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system';
+  activeView: AppView;
   setProjects: (projects: Project[]) => void;
   setCurrentProject: (id: string) => void;
   setTaskPanelOpen: (open: boolean) => void;
-  setActiveView: (view: 'chat' | 'settings' | 'agents' | 'plugins' | 'tools' | 'workflows' | 'system') => void;
+  setActiveView: (view: AppView) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({

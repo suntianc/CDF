@@ -1,4 +1,9 @@
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog, app, shell } from 'electron';
+import { typedHandle } from './typed-ipc';
+import { typedCrud } from './typed-crud';
+import { llmChunkChannel } from '../shared/ipc-contract';
+import { conversationAssistantSegmentMessageId } from '../shared/conversations';
+import log from './logger';
 import store from './store';
 import db from './database';
 import { encryptApiKey, decryptApiKey } from './security';
@@ -13,22 +18,129 @@ import {
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { readDirectory, readFile, getFileInfo, writeFile, createFile, createDirectory, renameEntry, trashEntry, resolveProjectFile } from './services/file-system';
+import { ensureFileWatcher, notifyFileChange, watchDirectory, unwatchDirectory } from './services/file-watcher';
 import {
   listPhysicalSkills,
+  listResolvedSkillViews,
+  listGlobalSkillViews,
   savePhysicalSkill,
   deletePhysicalSkill,
   importPhysicalSkillDirectory,
+  getBuiltInSkillRegistrations,
 } from './deepagent/skill-manager';
+import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/skills';
+import { isRegisteredSceneId, SCENE_REGISTRY } from '../shared/scenes';
+import { createSceneSkillExposureService } from './scene-skill-exposure';
+import { createGlobalSkillSceneExposureFilter } from './global-skill-scene-exposure';
+import { normalizeWorkflowStages, validateWorkflowStages } from '../shared/workflow-routing';
 import { checkMcpServerHealth, disconnectMcpServer } from './deepagent/mcp-connector';
-import { MCPServer } from '../shared/types';
-import { generateSlug } from './deepagent/agent-slug';
-import { ensureUniqueSlug, resolveAgentSlug } from './deepagent/agent-slug';
-import { registerWorkflowIpcHandlers } from './workflow/workflow-runtime';
+import type {
+  AgentRun,
+  AgentToolCall,
+  LLMProvider,
+  LLMStreamEvent,
+  MCPServer,
+  PaperSearchConfigKey,
+  PaperSearchConfigSettings,
+  ProjectScene,
+  Session,
+  Skill,
+} from '../shared/types';
+import { registerWorkflowRunIpcHandlers } from './workflow-run';
 import { collectAllCommands } from './commands/command-registry';
 import { listProjectCommands } from './commands/project-commands';
 import { ensureProjectWatcher } from './commands/chokidar-watcher';
 import { aggregateCurrentSessionContext } from './deepagent/context-aggregator';
 import { registerAtMentionHandlers } from './at-mention/at-mention-handler';
+import { registerKnowledgeBaseHandlers } from './knowledge-base-ipc';
+import {
+  cancelAISubscriptionLogin,
+  connectAISubscriptionWithKey,
+  disconnectAISubscription,
+  getActiveAISubscriptionLoginDescriptors,
+  getAISubscriptionCapabilityRoutes,
+  getAISubscriptionEntries,
+  pollAISubscriptionLogin,
+  refreshAISubscriptionStatus,
+  saveAISubscriptionCapabilityState,
+  startAISubscriptionLogin,
+} from './ai-subscription-store';
+import {
+  getPaperSearchConfigSettings,
+  setPaperSearchConfigValue,
+  unsetPaperSearchConfigValue,
+} from './paper-search-config';
+import { initializeScenePreset } from './scene-presets';
+import {
+  captureConversationSystemContextSnapshot,
+  getOrCaptureConversationSystemContextSnapshot,
+} from './conversation-system-context-snapshot';
+import type {
+  AISubscriptionEntryId,
+  CapabilityId,
+} from '../shared/ai-subscriptions';
+import { backgroundCapabilityJobs } from './capabilities/background-capability-runtime';
+import { conversationRunStreams } from './conversation-run-stream-runtime';
+import { deleteConversation, deleteProject } from './conversation-deletion';
+import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
+import { registerFlowDiagramExportResponseHandler } from './flow-diagram/flow-diagram-export-adapter';
+import {
+  compactConversationWorkingState,
+  getConversationWorkingStateStorageStatus,
+} from './deepagent/conversation-working-state-maintenance';
+import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
+import { createAgentCatalog, type CatalogAgent } from './agent-catalog';
+
+function resolveSceneSkillExposureInput(skill: GlobalSkillReference): SceneSkillExposureInput {
+  if (!skill || (skill.sourceKind !== 'built-in' && skill.sourceKind !== 'user')
+    || typeof skill.name !== 'string' || !skill.name.trim()) {
+    throw new Error('Invalid Global Skill reference');
+  }
+
+  if (skill.sourceKind === 'user') return { sourceKind: 'user', name: skill.name };
+
+  const registration = getBuiltInSkillRegistrations().find(({ name }) => name === skill.name);
+  if (!registration) {
+    throw new Error(`Unknown Built-in Skill: ${skill.name}`);
+  }
+  return {
+    sourceKind: 'built-in',
+    name: registration.name,
+    defaultSceneIds: registration.defaultSceneIds,
+  };
+}
+
+function collectAssistantSegments(
+  requestId: string,
+  events: readonly LLMStreamEvent[],
+): Array<{ id: string; content: string }> {
+  const segments: Array<{ id: string; content: string }> = [];
+  let segmentIndex = 0;
+  let content = '';
+
+  const flush = () => {
+    if (!content.trim()) return;
+    segments.push({
+      id: conversationAssistantSegmentMessageId(requestId, segmentIndex),
+      content,
+    });
+  };
+
+  for (const event of events) {
+    if (event.type === 'message_chunk') {
+      content += event.text;
+      continue;
+    }
+    if (event.type === 'tool_start') {
+      flush();
+      content = '';
+      segmentIndex += 1;
+    }
+  }
+  flush();
+  return segments;
+}
 
 function stripMarkdownFrontmatter(content: string): string {
   if (!content.startsWith('---\n')) return content;
@@ -56,7 +168,106 @@ const getProviderLabel = (type: string): string => {
   }
 };
 
+const normalizeProjectScene = (scene: unknown): ProjectScene => (
+  isRegisteredSceneId(scene) ? scene : 'general'
+);
+
+function normalizeExternalHttpUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('External URL must be a string');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('External URL is invalid');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('External URL must use http or https');
+  }
+
+  return parsed.toString();
+}
+
+const RENDERER_STORE_KEYS = new Set([
+  'theme',
+  'currentProjectId',
+  'sidebarWidth',
+  'sidebarCollapsed',
+  'windowBounds',
+  'language',
+  'approvalMode',
+  'autoSave',
+]);
+
+function assertRendererStoreKey(key: unknown): asserts key is string {
+  if (typeof key !== 'string' || !RENDERER_STORE_KEYS.has(key)) {
+    throw new Error('Store key is not renderer-accessible');
+  }
+}
+
+const PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID = 'paper-search-easyscholar';
+
+function readStoredEasyScholarKey(): string | null {
+  const row = db.prepare('SELECT api_key FROM tool_configs WHERE id = ?')
+    .get(PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID) as { api_key?: string | null } | undefined;
+  if (!row?.api_key) return null;
+  return decryptApiKey(row.api_key);
+}
+
+function clearStoredEasyScholarKey(): void {
+  db.prepare('DELETE FROM tool_configs WHERE id = ?').run(PAPER_SEARCH_EASYSCHOLAR_CONFIG_ID);
+}
+
+function migrateLegacyEasyScholarKey(): void {
+  const storedKey = readStoredEasyScholarKey();
+  if (storedKey) {
+    setPaperSearchConfigValue('EASYSCHOLAR_KEY', storedKey);
+    clearStoredEasyScholarKey();
+  }
+}
+
+function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
+  migrateLegacyEasyScholarKey();
+  return getPaperSearchConfigSettings();
+}
+
 export function registerIpcHandlers() {
+  registerFlowDiagramExportResponseHandler();
+  const sceneSkillExposureService = createSceneSkillExposureService({
+    storage: {
+      get: () => store.get('sceneSkillExposures'),
+      set: (_key, value) => { store.set('sceneSkillExposures', value); },
+    },
+  });
+
+  typedHandle('capability-jobs:list', (_event, projectId) =>
+    backgroundCapabilityJobs.list(projectId)
+  );
+  typedHandle('capability-jobs:command', (_event, projectId, jobId, action) => {
+    switch (action) {
+      case 'cancel':
+        return backgroundCapabilityJobs.cancel(projectId, jobId);
+      case 'stop_tracking':
+        return backgroundCapabilityJobs.stopTracking(projectId, jobId);
+      case 'resume_tracking':
+        return backgroundCapabilityJobs.resumeTracking(projectId, jobId);
+      case 'resubmit':
+        return backgroundCapabilityJobs.resubmit(projectId, jobId);
+    }
+  });
+  typedHandle('conversation:get-active-run', (_event, sessionId) =>
+    conversationRunStreams.getActive(sessionId)
+  );
+  typedHandle('working-state:get-storage-status', () =>
+    getConversationWorkingStateStorageStatus()
+  );
+  typedHandle('working-state:optimize-storage', async () => {
+    await compactConversationWorkingState();
+    return getConversationWorkingStateStorageStatus();
+  });
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (existing) return;
@@ -70,42 +281,9 @@ export function registerIpcHandlers() {
       fs.mkdirSync(defaultProjectPath, { recursive: true });
     }
     db.prepare(`
-      INSERT INTO projects (id, name, path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('default-project', '默认项目', defaultProjectPath, now, now);
-  };
-
-  const ensureDefaultAgentForSession = (projectId: string): string | null => {
-    const existing = db
-      .prepare('SELECT id FROM agents WHERE project_id = ? AND is_default = 1 ORDER BY updated_at DESC LIMIT 1')
-      .get(projectId) as { id: string } | undefined;
-    if (existing) return existing.id;
-
-    const provider = db
-      .prepare('SELECT id FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1')
-      .get() as { id: string } | undefined;
-    const fallbackProvider = provider || (db.prepare('SELECT id FROM llm_providers ORDER BY updated_at DESC LIMIT 1').get() as { id: string } | undefined);
-    const now = Date.now();
-    const id = crypto.randomUUID();
-
-    db.prepare(`
-      INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      projectId,
-      'Master Agent',
-      generateSlug('Master Agent'),
-      '项目默认 Agent',
-      fallbackProvider?.id || null,
-      '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
-      null,
-      1,
-      now,
-      now
-    );
-
-    return id;
+      INSERT INTO projects (id, name, path, scene, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('default-project', '默认项目', defaultProjectPath, 'general', now, now);
   };
 
   const buildProviderHeaders = (providerType: string, apiUrl: string | undefined, decryptedKey?: string) => {
@@ -139,12 +317,91 @@ export function registerIpcHandlers() {
     return { provider, decryptedKey };
   };
 
+  typedHandle('shell:openExternalUrl', async (_, url) => {
+    await shell.openExternal(normalizeExternalHttpUrl(url));
+    return { ok: true };
+  });
+
   // electron-store handlers
-  ipcMain.handle('store:get', (_, key: string) => store.get(key));
-  ipcMain.handle('store:set', (_, key: string, value: unknown) => store.set(key, value));
+  typedHandle('store:get', (_, key) => {
+    assertRendererStoreKey(key);
+    return store.get(key);
+  });
+  typedHandle('store:set', (_, key, value) => {
+    assertRendererStoreKey(key);
+    return store.set(key, value);
+  });
+
+  typedHandle('aiSubscriptions:getEntries', () => getAISubscriptionEntries());
+  typedHandle(
+    'aiSubscriptions:getActiveLogins',
+    () => getActiveAISubscriptionLoginDescriptors()
+  );
+  typedHandle(
+    'aiSubscriptions:setCapabilityEnabled',
+    (_, entryId, capabilityId, enabled) =>
+      saveAISubscriptionCapabilityState(entryId, capabilityId, Boolean(enabled))
+  );
+  typedHandle(
+    'aiSubscriptions:connectWithKey',
+    (_, entryId, subscriptionKey) =>
+      connectAISubscriptionWithKey(entryId, String(subscriptionKey))
+  );
+  typedHandle(
+    'aiSubscriptions:startLogin',
+    async (_, entryId) => {
+      if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
+        throw new Error(`OAuth login is not supported for ${String(entryId)}`);
+      }
+      const result = await startAISubscriptionLogin(entryId);
+      try {
+        await shell.openExternal(normalizeExternalHttpUrl(result.descriptor.verificationUrl));
+      } catch (error) {
+        log.warn('[ai-subscriptions] Failed to open OAuth verification URL', error);
+      }
+      return result;
+    }
+  );
+  typedHandle(
+    'aiSubscriptions:pollLogin',
+    (_, entryId, attemptId) => {
+      if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
+        throw new Error(`OAuth login is not supported for ${String(entryId)}`);
+      }
+      if (typeof attemptId !== 'string' || !attemptId) {
+        throw new Error('OAuth login attempt id is required');
+      }
+      return pollAISubscriptionLogin(entryId, attemptId);
+    }
+  );
+  typedHandle(
+    'aiSubscriptions:cancelLogin',
+    (_, entryId, attemptId) => {
+      if (entryId !== 'codex-oauth' && entryId !== 'xai-oauth') {
+        throw new Error(`OAuth login is not supported for ${String(entryId)}`);
+      }
+      if (typeof attemptId !== 'string' || !attemptId) {
+        throw new Error('OAuth login attempt id is required');
+      }
+      return cancelAISubscriptionLogin(entryId, attemptId);
+    }
+  );
+  typedHandle(
+    'aiSubscriptions:disconnect',
+    (_, entryId) => disconnectAISubscription(entryId)
+  );
+  typedHandle(
+    'aiSubscriptions:getCapabilityRoutes',
+    (_, capabilityId) => getAISubscriptionCapabilityRoutes(capabilityId)
+  );
+  typedHandle(
+    'aiSubscriptions:refreshStatus',
+    (_, entryId) =>
+      refreshAISubscriptionStatus(entryId)
+  );
 
   // Database handlers: Projects
-  ipcMain.handle('db:getProjects', () => {
+  typedHandle('db:getProjects', () => {
     const projects = db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all() as any[];
     return projects.map((p) => {
       const isGit = p.path ? fs.existsSync(path.join(p.path, '.git')) : false;
@@ -152,84 +409,129 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:createProject', (_, name: string, projectPath: string) => {
+  typedHandle('db:createProject', (_, name, projectPath, scene) => {
+    const projectScene = normalizeProjectScene(scene);
     const id = crypto.randomUUID();
     const now = Date.now();
-    db.prepare(
-      'INSERT INTO projects (id, name, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, name, projectPath, now, now);
+    db.transaction(() => {
+      db.prepare(
+        'INSERT INTO projects (id, name, path, scene, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(id, name, projectPath, projectScene, now, now);
+    })();
+    initializeScenePreset({ projectId: id, projectPath, scene: projectScene });
     const isGit = projectPath ? fs.existsSync(path.join(projectPath, '.git')) : false;
-    return { id, name, path: projectPath, created_at: now, updated_at: now, isGit };
+    return { id, name, path: projectPath, scene: projectScene, created_at: now, updated_at: now, isGit };
   });
 
-  ipcMain.handle('db:deleteProject', (_, id: string) => {
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-  });
+  typedHandle('db:deleteProject', (_, projectId) =>
+    deleteProject(db, projectId, conversationWorkingStateLifecycle)
+  );
 
-  ipcMain.handle('db:renameProject', (_, id: string, name: string) => {
+  // 写后合成返回行（write-then-return），按 ADR-0052 排除清单保留手写。
+  typedHandle('db:renameProject', (_, id, name) => {
     const now = Date.now();
     db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id);
     return { id, name, updated_at: now };
   });
 
   // Database handlers: Sessions
-  ipcMain.handle('db:getSessions', (_, projectId: string) => {
-    return db
-      .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
-      .all(projectId);
+  typedCrud({
+    channel: 'db:getSessions',
+    read: (projectId) => {
+      return db
+        .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
+        .all(projectId) as Session[];
+    },
   });
 
-  ipcMain.handle('db:createSession', (_, projectId: string, name: string, parentSessionId?: string, summary?: string, agentId?: string) => {
+  typedHandle('db:createSession', (_, projectId, name, parentSessionId, summary) => {
     const id = crypto.randomUUID();
     const now = Date.now();
     ensureProjectForSession(projectId);
-    // 主聊天入口始终绑定项目默认 Master Agent；其它 Agent 作为 Master Agent 可调用资产。
-    const finalAgentId = ensureDefaultAgentForSession(projectId) || agentId || null;
-    db.prepare(`
-      INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, now, now);
-    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, created_at: now, updated_at: now };
+    // 普通 Conversation 的根始终是受保护的 Master；caller 提供的 Agent 只可作为委派目标。
+    const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as
+      | { path: string; scene: ProjectScene }
+      | undefined;
+    if (!project) throw new Error(`Project with ID ${projectId} not found.`);
+    const master = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene);
+    const finalAgentId = master.agent.id;
+    const systemContext = captureConversationSystemContextSnapshot({
+      projectPath: project.path,
+      sceneId: project.scene,
+      promptSnapshot: master.system_prompt,
+    });
+    const skillSnapshot = JSON.stringify(systemContext.skillSnapshot);
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, agent_id, parent_session_id, summary, prompt_snapshot, skill_snapshot, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, projectId, name, finalAgentId, parentSessionId || null, summary || null, systemContext.promptSnapshot, skillSnapshot, now, now);
+    })();
+    return { id, project_id: projectId, name, agent_id: finalAgentId, parent_session_id: parentSessionId || null, summary: summary || null, prompt_snapshot: systemContext.promptSnapshot, skill_snapshot: skillSnapshot, created_at: now, updated_at: now };
   });
 
-  ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
-  });
+  typedHandle('db:deleteSession', (_, sessionId) =>
+    deleteConversation(db, sessionId, conversationWorkingStateLifecycle)
+  );
 
   // Database handlers: Messages
-  ipcMain.handle('db:getMessages', (_, sessionId: string) => {
-    return db.prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId);
+  typedHandle('db:getMessages', (_, sessionId) => {
+    const rows = db.prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as any[];
+    return rows.map((row) => {
+      if (row.image_data) {
+        try { row.imageBase64 = JSON.parse(row.image_data); } catch { /* ignore */ }
+      }
+      return row;
+    });
   });
 
-  ipcMain.handle('db:saveMessage', (_, message: any) => {
-    const { id, session_id, role, content, tokens, think_duration_seconds } = message;
+  typedHandle('db:saveMessage', (_, message) => {
+    const { id, session_id, role, content, tokens, think_duration_seconds, imageBase64 } = message;
     const now = Date.now();
+
+    let validatedImages: string[] | undefined;
+    if (Array.isArray(imageBase64) && imageBase64.length > 0) {
+      const MAX_IMAGES = 5;
+      const MAX_BYTES = 7 * 1024 * 1024; // ~5MB raw after base64 overhead
+      validatedImages = imageBase64
+        .slice(0, MAX_IMAGES)
+        .filter((item: unknown): item is string =>
+          typeof item === 'string' && item.startsWith('data:image/') && item.length <= MAX_BYTES
+        );
+    }
+    const imageData = validatedImages?.length ? JSON.stringify(validatedImages) : null;
 
     const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
     if (existing) {
       db.prepare(`
-        UPDATE messages SET content = ?, tokens = ? WHERE id = ?
-      `).run(content, tokens || null, id);
+        UPDATE messages SET content = ?, tokens = ?, image_data = COALESCE(?, image_data) WHERE id = ?
+      `).run(content, tokens || null, imageData, id);
     } else {
       db.prepare(`
-        INSERT INTO messages (id, session_id, role, content, created_at, tokens, think_duration_seconds)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, session_id, role, content, now, tokens || null, think_duration_seconds || null);
+        INSERT INTO messages (id, session_id, role, content, created_at, tokens, think_duration_seconds, image_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, session_id, role, content, now, tokens || null, think_duration_seconds || null, imageData);
     }
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, session_id);
-    return { id, session_id, role, content, created_at: now, tokens };
+    return { id, session_id, role, content, created_at: now, tokens, imageBase64 };
   });
 
-  ipcMain.handle('db:updateMessageThinkDuration', (_, id: string, seconds: number) => {
-    db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
+  typedCrud({
+    channel: 'db:updateMessageThinkDuration',
+    write: (id, seconds) => {
+      db.prepare('UPDATE messages SET think_duration_seconds = ? WHERE id = ?').run(seconds, id);
+    },
   });
 
-  ipcMain.handle('db:deleteMessage', (_, id: string) => {
-    db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteMessage',
+    remove: (id) => {
+      db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+    },
   });
 
   // Database handlers: LLM Providers
-  ipcMain.handle('db:getProviders', () => {
+  typedHandle('db:getProviders', () => {
     const providers = db.prepare('SELECT * FROM llm_providers ORDER BY created_at DESC').all() as any[];
     // Security: mask API key so renderer never sees it
     return providers.map(p => {
@@ -248,7 +550,7 @@ export function registerIpcHandlers() {
     });
   });
 
-  ipcMain.handle('db:saveProvider', (_, provider: any) => {
+  typedHandle('db:saveProvider', (_, provider) => {
     let { id, name, provider_type, api_key, api_url, default_model, context_limit, is_active, models } = provider;
     
     // Force standard name for non-custom providers
@@ -290,36 +592,79 @@ export function registerIpcHandlers() {
     return { id, name, provider_type, api_url: normalizedApiUrl, default_model, context_limit, is_active, models, hasKey: !!finalApiKey };
   });
 
-  ipcMain.handle('db:deleteProvider', (_, id: string) => {
-    db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteProvider',
+    remove: (id) => {
+      db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
+    },
   });
 
-  ipcMain.handle('db:setActiveProvider', (_, id: string) => {
+  typedHandle('db:setActiveProvider', (_, id) => {
     db.prepare('UPDATE llm_providers SET is_active = 0').run();
     db.prepare('UPDATE llm_providers SET is_active = 1 WHERE id = ?').run(id);
   });
 
   // LLM Streaming API Call handler (deepagents-driven)
-  ipcMain.handle('llm:chat', (event, requestId: string, payload: any) => {
-    void runLLMChat(event.sender, requestId, payload).catch((error) => {
+  typedHandle('llm:chat', (event, requestId, payload) => {
+    const stream = conversationRunStreams.begin({
+      sessionId: payload.sessionId,
+      requestId,
+      messageId: requestId,
+      origin: 'foreground-message',
+    });
+    const chunkChannel = llmChunkChannel(requestId);
+    const sender = {
+      send: (channel: string, data: unknown) => {
+        // A renderer reload must not terminate work that remains live in main.
+        try {
+          event.sender.send(channel, data);
+        } catch {
+          // The durable stream below remains available to the replacement renderer.
+        }
+        if (channel === chunkChannel) stream.sender.send(channel, data);
+      },
+    };
+
+    void runLLMChat(sender, requestId, payload).then(() => {
+      const snapshot = conversationRunStreams.getActive(payload.sessionId);
+      const segments = collectAssistantSegments(requestId, snapshot?.events ?? []);
+      if (segments.length > 0) {
+        const persistMessage = db.prepare(`INSERT INTO messages (id, session_id, role, content, created_at)
+          VALUES (?, ?, 'assistant', ?, ?)
+          ON CONFLICT(id) DO UPDATE SET content = excluded.content`);
+        const completedAt = Date.now();
+        db.transaction(() => {
+          for (const segment of segments) {
+            persistMessage.run(segment.id, payload.sessionId, segment.content, completedAt);
+          }
+        })();
+      }
+      stream.commit();
+      try {
+        event.sender.send('conversation:messages-changed', { sessionId: payload.sessionId });
+      } catch {
+        // A future renderer load will read the durable message directly.
+      }
+    }).catch((error) => {
+      stream.fail();
       console.error('LLM chat task failed:', error);
     });
     return { ok: true };
   });
 
-  ipcMain.handle('llm:judge', async (_, payload: any) => {
+  typedHandle('llm:judge', async (_, payload) => {
     return runLLMJudge(payload);
   });
 
-  ipcMain.handle('llm:stopChat', async (_, requestId: string) => {
+  typedHandle('llm:stopChat', async (_, requestId) => {
     stopLLMChat(requestId);
   });
 
-  ipcMain.handle('llm:resolveApproval', async (_, requestId: string, resolution: any) => {
+  typedHandle('llm:resolveApproval', async (_, requestId, resolution) => {
     resolveLLMApproval(requestId, resolution);
   });
 
-  ipcMain.handle('llm:testProvider', async (_, providerId: string) => {
+  typedHandle('llm:testProvider', async (_, providerId) => {
     const { provider, decryptedKey } = getProviderWithKey(providerId);
 
     if (provider.provider_type === 'ollama') {
@@ -349,7 +694,7 @@ export function registerIpcHandlers() {
     return { ok: false, message: `HTTP ${response.status}: ${text.slice(0, 120)}` };
   });
 
-  ipcMain.handle('llm:fetchProviderModels', async (_, providerId: string) => {
+  typedHandle('llm:fetchProviderModels', async (_, providerId) => {
     const { provider, decryptedKey } = getProviderWithKey(providerId);
 
     if (provider.provider_type === 'ollama') {
@@ -376,18 +721,18 @@ export function registerIpcHandlers() {
     return Array.isArray(data?.data) ? data.data.map((item: any) => item.id).filter(Boolean) : [];
   });
 
-  ipcMain.handle('llm:fetchOllamaModels', async (_, apiUrl: string) => {
+  typedHandle('llm:fetchOllamaModels', async (_, apiUrl) => {
     return await fetchOllamaModels(apiUrl);
   });
 
-  ipcMain.handle('db:selectDirectory', async () => {
+  typedHandle('db:selectDirectory', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
     });
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('db:selectFile', async () => {
+  typedHandle('db:selectFile', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [
@@ -411,131 +756,99 @@ export function registerIpcHandlers() {
     }
   });
 
-  // ===== Phase 3: Agent Library IPC Handlers =====
+  // ===== Global Agent Library IPC Handlers =====
 
-  ipcMain.handle('db:getAgents', (_, projectId: string) => {
-    const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_default DESC, updated_at DESC').all(projectId) as any[];
-    return agents.map(a => {
-      const mcpServers = db.prepare('SELECT mcp_server_id FROM agent_mcp_servers WHERE agent_id = ?').all(a.id) as any[];
-      const skills = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(a.id) as any[];
-      return {
-        ...a,
-        config: a.config ? JSON.parse(a.config) : null,
-        mcpServerIds: mcpServers.map(s => s.mcp_server_id),
-        skillNames: skills.map(s => s.skill_name),
-      };
-    });
+  const createGlobalAgentCatalog = (createId?: () => string) => createAgentCatalog(db, {
+    createId,
+    initializeSchema: false,
+    listGlobalSkillIds: () => listGlobalSkillViews().map((skill) => skill.id),
+  });
+  const toAgentTransport = (agent: CatalogAgent) => ({
+    ...agent,
+    description: agent.description ?? undefined,
+    provider_id: agent.provider_id ?? undefined,
+    system_prompt: agent.system_prompt ?? undefined,
+    config: agent.config ?? undefined,
   });
 
-  ipcMain.handle('db:saveAgent', (_, agent: any) => {
-    const { id, project_id, name, description, provider_id, system_prompt, config, is_default, mcpServerIds, skillNames } = agent;
-    const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
-    if (!name || typeof name !== 'string' || !ENGLISH_NAME_REGEX.test(name.trim())) {
-      throw new Error('Agent name must contain only English characters, numbers, spaces, hyphens, or underscores.');
-    }
-    const now = Date.now();
-    const configStr = config ? JSON.stringify(config) : null;
+  typedHandle('db:getAgents', () => createGlobalAgentCatalog().list().map(toAgentTransport));
 
-    const runTx = db.transaction(() => {
-      if (is_default) {
-        db.prepare('UPDATE agents SET is_default = 0, updated_at = ? WHERE project_id = ?').run(now, project_id);
-      }
-      const existing = db.prepare('SELECT id, slug, name FROM agents WHERE id = ?').get(id) as
-        | { id: string; slug: string | null; name: string }
-        | undefined;
-      if (existing) {
-        // Slug must be project-unique (PR #5 P2): the new agent-tools
-        // path goes through ensureUniqueSlug, but this UI save path
-        // previously wrote generateSlug(name) directly. Two same-named
-        // agents in a project would then collide on effective_slug at
-        // runtime.ts:584 (`agentRow.slug || generateSlug(name)`),
-        // making `task(name: ...)` ambiguous. Self-collision carve-out:
-        // if the new baseSlug matches our own current effective slug,
-        // keep existing.slug unchanged (avoids spurious -2 on a
-        // no-op rename — e.g. "Code Reviewer" → "Code-Reviewer").
-        const baseSlug = generateSlug(name) || 'agent';
-        const nextSlug =
-          resolveAgentSlug({ slug: existing.slug, name: existing.name }) === baseSlug
-            ? existing.slug
-            : ensureUniqueSlug(project_id, baseSlug, now);
-        db.prepare(`
-          UPDATE agents SET project_id = ?, name = ?, slug = ?, description = ?, provider_id = ?, system_prompt = ?, config = ?, is_default = ?, updated_at = ?
-          WHERE id = ?
-        `).run(project_id, name, nextSlug, description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, id);
-      } else {
-        db.prepare(`
-          INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, project_id, name, ensureUniqueSlug(project_id, generateSlug(name) || 'agent', now), description || null, provider_id || null, system_prompt || null, configStr, is_default ? 1 : 0, now, now);
-      }
+  typedHandle('db:createCustomAgent', (_, agent) => toAgentTransport(
+    createGlobalAgentCatalog(() => agent.id).createCustom({
+      name: agent.name,
+      description: agent.description,
+      provider_id: agent.provider_id,
+      system_prompt: agent.system_prompt,
+      config: agent.config,
+      mcpServerExclusionIds: agent.mcpServerExclusionIds,
+      skillNames: agent.skillNames,
+    }),
+  ));
 
-      db.prepare('DELETE FROM agent_mcp_servers WHERE agent_id = ?').run(id);
-      if (Array.isArray(mcpServerIds)) {
-        // Dedup before insert: see agent-tools.ts:create_agent +
-        // agent-tools.ts:update_agent. The (agent_id, mcp_server_id)
-        // composite PK would otherwise throw on duplicate ids in the
-        // same call.
-        const uniqueMcpIds = Array.from(new Set(mcpServerIds));
-        const insertMcp = db.prepare('INSERT INTO agent_mcp_servers (agent_id, mcp_server_id) VALUES (?, ?)');
-        for (const mcpId of uniqueMcpIds) {
-          insertMcp.run(id, mcpId);
-        }
-      }
+  typedHandle('db:updateCustomAgent', (_, id, agent) => toAgentTransport(
+    createGlobalAgentCatalog().updateCustom(id, agent),
+  ));
 
-      db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(id);
-      if (Array.isArray(skillNames)) {
-        const uniqueSkillNames = Array.from(new Set(skillNames));
-        const insertSkill = db.prepare('INSERT INTO agent_skills (agent_id, skill_name) VALUES (?, ?)');
-        for (const skillId of uniqueSkillNames) {
-          const scope = skillId.includes(':') ? skillId.split(':', 1)[0] : 'project';
-          if (scope === 'global') {
-            insertSkill.run(id, skillId);
-          }
-        }
-      }
-    });
+  typedHandle('db:updateGeneralPurposeAgent', (_, agent) => toAgentTransport(
+    createGlobalAgentCatalog().updateGeneralPurpose(agent),
+  ));
 
-    runTx();
+  typedCrud({ channel: 'db:deleteCustomAgent', remove: (id) => createGlobalAgentCatalog().deleteCustom(id) });
 
-    return { 
-      id, 
-      project_id,
-      name, 
-      description, 
-      provider_id, 
-      system_prompt, 
-      config,
-      is_default: is_default ? 1 : 0,
-      mcpServerIds: mcpServerIds || [],
-      skillNames: skillNames || []
-    };
+  typedHandle('db:getMasterScenePrompts', () => {
+    const catalog = createGlobalAgentCatalog();
+    return SCENE_REGISTRY.map((scene) => ({
+      scene: scene.id,
+      systemPrompt: catalog.getMasterPrompt(scene.id),
+      defaultSystemPrompt: catalog.getSceneDefaultPrompt(scene.id),
+    }));
   });
 
-  ipcMain.handle('db:deleteAgent', (_, id: string) => {
-    db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+  typedHandle('db:saveMasterScenePrompts', (_, changes) => {
+    const catalog = createGlobalAgentCatalog();
+    catalog.saveMasterPrompts(changes);
+    return SCENE_REGISTRY.map((scene) => ({
+      scene: scene.id,
+      systemPrompt: catalog.getMasterPrompt(scene.id),
+      defaultSystemPrompt: catalog.getSceneDefaultPrompt(scene.id),
+    }));
   });
 
   // ===== Phase 3 & Phase 4: Skills Physical IPC Handlers =====
 
-  ipcMain.handle('db:getSkills', (_, projectId: string) => {
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+  typedHandle('db:getSkills', (_, projectId) => {
+    const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as
+      | { path: string; scene?: ProjectScene }
+      | undefined;
     if (!project) {
       return [];
     }
-    return listPhysicalSkills(project.path);
+    const isGlobalSkillExposed = createGlobalSkillSceneExposureFilter(project.scene ?? 'general');
+    return listResolvedSkillViews(project.path, {
+      includeNestedProjectSkills: true,
+      includeSkill: (source, name) => (
+        source.kind !== 'built-in' && source.kind !== 'user'
+      ) || isGlobalSkillExposed({ sourceKind: source.kind, name }),
+    }) as Skill[];
   });
 
-  ipcMain.handle('db:saveSkill', (_, projectId: string, skill: any) => {
+  typedHandle('db:getGlobalSkills', () => {
+    // Product settings bypass Project resolution, so a Project Skill with the
+    // same name can never shadow a Built-in or user-global Skill.
+    return listGlobalSkillViews() as Skill[];
+  });
+
+  typedHandle('db:saveSkill', (_, projectId, skill) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       throw new Error('Project not found');
     }
 
     const scope = skill.scope === 'global' ? 'global' : 'project';
-    return savePhysicalSkill(project.path, scope, skill);
+    return savePhysicalSkill(project.path, scope, skill) as Skill;
   });
 
-  ipcMain.handle('db:deleteSkill', (_, projectId: string, id: string) => {
+  typedHandle('db:deleteSkill', (_, projectId, id) => {
     const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     if (!project) {
       throw new Error('Project not found');
@@ -546,35 +859,65 @@ export function registerIpcHandlers() {
     deletePhysicalSkill(project.path, scopePrefix, skillName);
   });
 
-  ipcMain.handle('db:importSkillDirectory', (_, sourceDir: string) => {
-    return importPhysicalSkillDirectory(sourceDir);
+  typedHandle('db:importSkillDirectory', (_, sourceDir) => {
+    return importPhysicalSkillDirectory(sourceDir) as Skill;
   });
 
-  ipcMain.handle('db:getSkillVersions', () => {
-    // 物理文件系统下不另行留存数据库版本表，返回空数组保持向前兼容
-    return [];
+  typedHandle('skills:getGlobalSceneExposure', (_, skill) => {
+    return sceneSkillExposureService.get(resolveSceneSkillExposureInput(skill));
   });
 
-  ipcMain.handle('db:getAgentRuns', (_, sessionId: string) => {
-    return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId);
+  typedHandle('skills:setGlobalSceneExposure', (_, skill, sceneId, exposed) => {
+    return sceneSkillExposureService.set(
+      resolveSceneSkillExposureInput(skill),
+      sceneId,
+      exposed,
+    );
   });
 
-  ipcMain.handle('db:getAgentToolCalls', (_, runId: string) => {
-    return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId);
+  typedCrud({
+    channel: 'db:getAgentRuns',
+    read: (sessionId) => {
+      return db.prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 20').all(sessionId) as AgentRun[];
+    },
   });
 
-  ipcMain.handle('db:getLatestTodos', (_, sessionId: string) => {
-    return db.prepare(`
-      SELECT atc.* FROM agent_tool_calls atc
-      JOIN agent_runs ar ON atc.run_id = ar.id
-      WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
-      ORDER BY atc.started_at DESC LIMIT 1
-    `).get(sessionId);
+  typedCrud({
+    channel: 'db:getAgentToolCalls',
+    read: (runId) => {
+      return db.prepare('SELECT * FROM agent_tool_calls WHERE run_id = ? ORDER BY started_at ASC').all(runId) as AgentToolCall[];
+    },
+  });
+
+  typedCrud({
+    channel: 'db:getDelegatedAgentRuns',
+    read: (sessionId) => {
+      return new DelegatedAgentRunRepository(db).listForConversation(sessionId);
+    },
+  });
+
+  typedCrud({
+    channel: 'db:getDelegatedToolActions',
+    read: (sessionId) => {
+      return new DelegatedAgentRunRepository(db).createToolActionRepository().listForConversation(sessionId);
+    },
+  });
+
+  typedCrud({
+    channel: 'db:getLatestTodos',
+    read: (sessionId) => {
+      return db.prepare(`
+        SELECT atc.* FROM agent_tool_calls atc
+        JOIN agent_runs ar ON atc.run_id = ar.id
+        WHERE ar.session_id = ? AND atc.tool_name = 'write_todos' AND atc.status = 'success'
+        ORDER BY atc.started_at DESC LIMIT 1
+      `).get(sessionId) as AgentToolCall | undefined;
+    },
   });
 
   // ===== Phase 3: MCP Server IPC Handlers =====
 
-  ipcMain.handle('db:getMcpServers', () => {
+  typedHandle('db:getMcpServers', () => {
     const servers = db.prepare('SELECT * FROM mcp_servers ORDER BY updated_at DESC').all() as any[];
     return servers.map(s => ({
       ...s,
@@ -583,7 +926,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:saveMcpServer', (_, server: any) => {
+  typedHandle('db:saveMcpServer', (_, server) => {
     const { id, name, server_type, config } = server;
     const now = Date.now();
     const configStr = config ? JSON.stringify(config) : null;
@@ -603,11 +946,14 @@ export function registerIpcHandlers() {
     return { id, name, server_type, config, is_connected: false };
   });
 
-  ipcMain.handle('db:deleteMcpServer', (_, id: string) => {
-    db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteMcpServer',
+    remove: (id) => {
+      db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+    },
   });
 
-  ipcMain.handle('db:toggleMcpConnection', async (_, id: string, connected: boolean) => {
+  typedHandle('db:toggleMcpConnection', async (_, id, connected) => {
     db.prepare('UPDATE mcp_servers SET is_connected = ?, updated_at = ? WHERE id = ?').run(connected ? 1 : 0, Date.now(), id);
     // 断开时清理实际连接
     if (!connected) {
@@ -617,7 +963,7 @@ export function registerIpcHandlers() {
 
   // ===== Phase 4: Tool Configs IPC Handlers =====
 
-  ipcMain.handle('db:getToolConfigs', () => {
+  typedHandle('db:getToolConfigs', () => {
     const configs = db.prepare('SELECT * FROM tool_configs ORDER BY updated_at DESC').all() as any[];
     return configs.map(c => ({
       ...c,
@@ -629,7 +975,7 @@ export function registerIpcHandlers() {
     }));
   });
 
-  ipcMain.handle('db:saveToolConfig', (_, config: any) => {
+  typedHandle('db:saveToolConfig', (_, config) => {
     const { id, tool_type, name, api_key, config: configData, is_enabled, is_default } = config;
     const now = Date.now();
 
@@ -664,11 +1010,29 @@ export function registerIpcHandlers() {
     };
   });
 
-  ipcMain.handle('db:deleteToolConfig', (_, id: string) => {
-    db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+  typedCrud({
+    channel: 'db:deleteToolConfig',
+    remove: (id) => {
+      db.prepare('DELETE FROM tool_configs WHERE id = ?').run(id);
+    },
   });
 
-  ipcMain.handle('db:checkMcpHealth', async (_, id: string) => {
+  typedHandle('paper-search:getSettings', () => getSyncedPaperSearchSettings());
+
+  typedHandle('paper-search:saveConfigValue', (_, key, value) => {
+    if (typeof key !== 'string' || typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error('Paper Search CLI config value cannot be empty');
+    }
+    migrateLegacyEasyScholarKey();
+    return setPaperSearchConfigValue(key, value);
+  });
+
+  typedHandle('paper-search:clearConfigValue', (_, key) => {
+    migrateLegacyEasyScholarKey();
+    return unsetPaperSearchConfigValue(key);
+  });
+
+  typedHandle('db:checkMcpHealth', async (_, id) => {
     const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as any;
     if (!server) {
       return { ok: false, message: 'MCP server not found' };
@@ -688,91 +1052,78 @@ export function registerIpcHandlers() {
 
   // ===== Phase 3 & Phase 4: deepagents Runtime IPC Handlers =====
 
-  // Store for deepagent instances (managed per session)
-  const agentInstances = new Map<string, any>();
-
-  ipcMain.handle('deepagents:createAgent', async (_, config: { providerId: string; model: string; systemPrompt?: string; tools?: string[] }) => {
+  // dead seam removed (was `agentInstances` Map, only ever written, never read).
+  // The deepagents:createAgent channel is the only one that referenced it.
+  typedHandle('deepagents:createAgent', async (_, config) => {
     const agentId = crypto.randomUUID();
-    agentInstances.set(agentId, { config });
     return { agentId };
   });
 
   // ===== Phase 4: Workflow CRUD IPC Handlers =====
 
-  ipcMain.handle('db:getWorkflows', (_, projectId: string) => {
-    const rows = db.prepare('SELECT * FROM workflows WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as any[];
-    return rows.map(r => ({
-      ...r,
-      graph_data: r.graph_data ? JSON.parse(r.graph_data) : { nodes: [], edges: [] },
-    }));
+  typedHandle('db:getWorkflows', (_, projectId) => {
+    const rows = db.prepare(`
+      SELECT id, project_id, name, description, stages, status, created_at, updated_at
+      FROM workflows WHERE project_id = ? ORDER BY updated_at DESC
+    `).all(projectId) as any[];
+    return rows.map((row) => ({ ...row, stages: row.stages ? JSON.parse(row.stages) : [] }));
   });
 
-  ipcMain.handle('db:getWorkflow', (_, id: string) => {
-    const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
+  typedHandle('db:getWorkflow', (_, id) => {
+    const row = db.prepare(`
+      SELECT id, project_id, name, description, stages, status, created_at, updated_at
+      FROM workflows WHERE id = ?
+    `).get(id) as any;
     if (!row) return undefined;
-    return {
-      ...row,
-      graph_data: row.graph_data ? JSON.parse(row.graph_data) : { nodes: [], edges: [] },
-    };
+    return { ...row, stages: row.stages ? JSON.parse(row.stages) : [] };
   });
 
-  ipcMain.handle('db:saveWorkflow', (_, workflow: any) => {
-    const { id, project_id, name, description, graph_data, status } = workflow;
+  typedHandle('db:saveWorkflow', (_, workflow) => {
+    const { project_id, name, description, stages: rawStages = [], status } = workflow;
+    const stages = normalizeWorkflowStages(rawStages);
+    const routeErrors = validateWorkflowStages(stages);
+    if (routeErrors.length > 0) {
+      throw new Error(`Invalid Workflow Stage routes: ${routeErrors.join('; ')}`);
+    }
+    const id = workflow.id?.trim() || crypto.randomUUID();
     const now = Date.now();
-    const graphDataStr = graph_data ? JSON.stringify(graph_data) : '{"nodes":[],"edges":[]}';
+    const stagesJson = JSON.stringify(stages);
+    const existing = db.prepare('SELECT created_at FROM workflows WHERE id = ?').get(id) as { created_at: number } | undefined;
 
-    const existing = db.prepare('SELECT id FROM workflows WHERE id = ?').get(id);
     if (existing) {
       db.prepare(`
-        UPDATE workflows SET name = ?, description = ?, graph_data = ?, status = ?, updated_at = ?
+        UPDATE workflows
+        SET name = ?, description = ?, stages = ?, status = ?, updated_at = ?
         WHERE id = ?
-      `).run(name, description || null, graphDataStr, status || 'draft', now, id);
+      `).run(name, description || null, stagesJson, status || 'draft', now, id);
     } else {
       db.prepare(`
-        INSERT INTO workflows (id, project_id, name, description, graph_data, status, created_at, updated_at)
+        INSERT INTO workflows (id, project_id, name, description, stages, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, project_id, name, description || null, graphDataStr, status || 'draft', now, now);
+      `).run(id, project_id, name, description || null, stagesJson, status || 'draft', now, now);
     }
 
-    return { id, project_id, name, description, graph_data: graph_data || { nodes: [], edges: [] }, status: status || 'draft', created_at: now, updated_at: now };
-  });
-
-  ipcMain.handle('db:deleteWorkflow', (_, id: string) => {
-    db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
-  });
-
-  ipcMain.handle('db:getWorkflowExecutions', (_, workflowId: string) => {
-    const rows = db.prepare('SELECT * FROM workflow_executions WHERE workflow_id = ? ORDER BY started_at DESC').all(workflowId) as any[];
-    return rows.map(r => ({
-      ...r,
-      input: r.input ? JSON.parse(r.input) : {},
-      output: r.output ? JSON.parse(r.output) : undefined,
-    }));
-  });
-
-  ipcMain.handle('db:getWorkflowExecution', (_, id: string) => {
-    const row = db.prepare('SELECT * FROM workflow_executions WHERE id = ?').get(id) as any;
-    if (!row) return undefined;
     return {
-      ...row,
-      input: row.input ? JSON.parse(row.input) : {},
-      output: row.output ? JSON.parse(row.output) : undefined,
+      id,
+      project_id,
+      name,
+      description,
+      stages,
+      status: status || 'draft',
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
     };
   });
 
-  ipcMain.handle('db:getWorkflowNodeRuns', (_, executionId: string) => {
-    const rows = db.prepare('SELECT * FROM workflow_node_runs WHERE execution_id = ? ORDER BY started_at').all(executionId) as any[];
-    return rows.map(r => ({
-      ...r,
-      input: r.input ? JSON.parse(r.input) : undefined,
-      output: r.output ? JSON.parse(r.output) : undefined,
-      logs: r.logs ? JSON.parse(r.logs) : undefined,
-      execution_trace: r.execution_trace ? JSON.parse(r.execution_trace) : undefined,
-      tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : undefined,
-    }));
+  typedCrud({
+    channel: 'db:deleteWorkflow',
+    remove: (id) => {
+      db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+    },
   });
 
-  ipcMain.handle('db:openFile', async (_, filePath: string, projectId?: string) => {
+
+  typedHandle('db:openFile', async (_, filePath, projectId) => {
     const { shell } = require('electron');
     const fs = require('fs');
     const path = require('path');
@@ -793,7 +1144,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('db:revealFile', async (_, filePath: string, projectId?: string) => {
+  typedHandle('db:revealFile', async (_, filePath, projectId) => {
     const { shell } = require('electron');
     const fs = require('fs');
     const path = require('path');
@@ -821,31 +1172,140 @@ export function registerIpcHandlers() {
     }
   });
 
-  // ===== Phase 4: Workflow Runtime IPC Handlers =====
-  registerWorkflowIpcHandlers();
+  // ===== File Management IPC Handlers =====
+  typedHandle('fs:readDirectory', async (_, rootPath, dirPath, showHidden) => {
+    try {
+      ensureFileWatcher(rootPath);
+      return { ok: true, data: await readDirectory(rootPath, dirPath, showHidden) };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:readFile', async (_, rootPath, filePath) => {
+    try {
+      return { ok: true, data: await readFile(rootPath, filePath) };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:getFileInfo', async (_, rootPath, filePath) => {
+    try {
+      return { ok: true, data: await getFileInfo(rootPath, filePath) };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:writeFile', async (_, rootPath, filePath, content, expectedContent) => {
+    try {
+      await writeFile(rootPath, filePath, content, expectedContent);
+      notifyFileChange(filePath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:createFile', async (_, rootPath, filePath) => {
+    try {
+      await createFile(rootPath, filePath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:createDirectory', async (_, rootPath, dirPath) => {
+    try {
+      await createDirectory(rootPath, dirPath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:renameEntry', async (_, rootPath, oldPath, newName) => {
+    try {
+      await renameEntry(rootPath, oldPath, newName);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:trashEntry', async (_, rootPath, targetPath) => {
+    try {
+      await trashEntry(rootPath, targetPath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:showItemInFolder', (_, filePath) => {
+    shell.showItemInFolder(filePath);
+    return { ok: true };
+  });
+
+  typedHandle('fs:watchDirectory', (_, rootPath, dirPath) => {
+    try {
+      resolveProjectFile(rootPath, dirPath);
+      watchDirectory(dirPath);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
+    }
+  });
+
+  typedHandle('fs:unwatchDirectory', (_, dirPath) => {
+    unwatchDirectory(dirPath);
+    return { ok: true };
+  });
+
 
   // ===== Phase 08.3 Plan 01: @Mention file candidate IPC (E-01..E-05) =====
   // B-01: enum range = active project root (resolved server-side from projectId).
   // ASVS V4: cross-project enumeration mitigated by DB-validated projectId lookup.
   registerAtMentionHandlers();
 
+  // ===== Knowledge Base IPC =====
+  registerKnowledgeBaseHandlers();
+
   // ===== Phase 6 Plan 02: Slash Command Registry IPC (D-15 O(1) memory read) =====
-  ipcMain.handle('commands:list', async (_evt, projectId: string, agentId: string) => {
+  typedHandle('commands:list', async (_evt, projectId, agentId, sessionId) => {
     try {
-      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as { path: string; scene?: ProjectScene } | undefined;
       if (!project) {
         return { commands: [], conflicts: [], warnings: [] };
       }
       // Lazily start project-scoped chokidar watcher on first call.
       ensureProjectWatcher(project.path);
-      return await collectAllCommands(project.path, agentId);
+      if (sessionId) {
+        const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
+        if (session?.project_id !== projectId) return { commands: [], conflicts: [], warnings: [] };
+      }
+      const skillSnapshot = sessionId
+        ? getOrCaptureConversationSystemContextSnapshot(db, {
+          sessionId,
+          projectPath: project.path,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
+        }).skillSnapshot
+        : captureConversationSystemContextSnapshot({
+          projectPath: project.path,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: '',
+        }).skillSnapshot;
+      return collectAllCommands(project.path, agentId, {}, skillSnapshot);
     } catch (err) {
       console.error('[commands:list] failed:', err);
       return { commands: [], conflicts: [], warnings: [] };
     }
   });
 
-  ipcMain.handle('commands:readProjectCommands', async (_evt, projectId: string) => {
+  typedHandle('commands:readProjectCommands', async (_evt, projectId) => {
     try {
       const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
       if (!project) {
@@ -862,7 +1322,7 @@ export function registerIpcHandlers() {
   // ===== Phase 08.2 Plan 01: commands:readBody — lazy body load (D-06, ASVS V5.1.3) =====
   // Renderer calls this on dispatch for any SlashCommand with bodyPath. The body
   // is the .md file content (post-frontmatter). Path-traversal guarded.
-  ipcMain.handle('commands:readBody', async (_evt, bodyPath: string) => {
+  typedHandle('commands:readBody', async (_evt, bodyPath) => {
     try {
       // ASVS V5.1.3 input validation — defensive checks, never throw
       if (typeof bodyPath !== 'string' || bodyPath.length === 0 || bodyPath.length > 1024) {
@@ -910,11 +1370,75 @@ export function registerIpcHandlers() {
     }
   });
 
+  typedHandle('commands:readSkillBody', async (_evt, projectId, agentId, skillPath, sessionId) => {
+    try {
+      if (
+        typeof projectId !== 'string' ||
+        typeof skillPath !== 'string' ||
+        !projectId ||
+        !skillPath ||
+        skillPath.length > 2048
+      ) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const project = db.prepare('SELECT path, scene FROM projects WHERE id = ?').get(projectId) as { path: string; scene?: ProjectScene } | undefined;
+      if (!project?.path) {
+        return { body: '', mtimeMs: 0 };
+      }
+
+      const resolved = path.resolve(skillPath);
+      if (sessionId) {
+        const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id?: string } | undefined;
+        if (session?.project_id !== projectId) return { body: '', mtimeMs: 0, error: 'Conversation does not belong to this Project' };
+      }
+      const skillSnapshot = sessionId
+        ? getOrCaptureConversationSystemContextSnapshot(db, {
+          sessionId,
+          projectPath: project.path,
+          sceneId: project.scene ?? 'general',
+          promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
+        }).skillSnapshot
+        : null;
+      if (!fs.existsSync(resolved)) {
+        return { body: '', mtimeMs: 0, error: 'Snapshotted Skill source is unavailable' };
+      }
+
+      const realResolved = fs.realpathSync(resolved);
+      const authorizedSkills = skillSnapshot ?? captureConversationSystemContextSnapshot({
+        projectPath: project.path,
+        sceneId: project.scene ?? 'general',
+        promptSnapshot: '',
+      }).skillSnapshot;
+      const isResolvedSkillPath = authorizedSkills.some((skill) => {
+        if (skill.userInvocable !== true || !skill.skillPath) return false;
+        try {
+          return fs.realpathSync(skill.skillPath) === realResolved;
+        } catch {
+          return false;
+        }
+      });
+      if (!isResolvedSkillPath) {
+        console.warn('[commands:readSkillBody] path is not a resolved Skill:', skillPath);
+        return sessionId
+          ? { body: '', mtimeMs: 0, error: 'Skill is not available in this Conversation Snapshot' }
+          : { body: '', mtimeMs: 0 };
+      }
+
+      const stat = fs.statSync(realResolved);
+      const content = fs.readFileSync(realResolved, 'utf-8');
+      return { body: stripMarkdownFrontmatter(content).replace(/^\s+/, ''), mtimeMs: stat.mtimeMs };
+    } catch (err) {
+      console.error('[commands:readSkillBody] failed:', err);
+      return { body: '', mtimeMs: 0 };
+    }
+  });
+
   // ===== Phase 7 Plan 01: /context token breakdown (D-08) =====
   // 08.2 P4: accepts optional `contextLimit` arg so renderer can pin
   // the active provider's limit (P10 mitigation). Falls back to provider
   // lookup → 200_000 default inside the aggregator.
-  ipcMain.handle('context:currentSession', async (_evt, sessionId: string, contextLimit?: number, overriddenModelName?: string) => {
+  typedHandle('context:currentSession', async (_evt, sessionId, contextLimit, overriddenModelName) => {
     try {
       return await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
     } catch (err) {
@@ -924,7 +1448,8 @@ export function registerIpcHandlers() {
           conversation: 0, skills: 0, mcp: 0, workflows: 0,
           systemPrompt: 0, systemTools: 0, customAgents: 0, memoryFiles: 0,
           messages: 0, projectCommandBodies: 0, freeSpace: 0, autocompactBuffer: 0,
-          mcpPerTool: [],
+          mcpPerTool: [], skillsPerSkill: [], workflowsPerWorkflow: [],
+          systemToolsPerTool: [], projectCommandsPerFile: [],
         },
         total: 0,
         modelName: '',
@@ -936,4 +1461,5 @@ export function registerIpcHandlers() {
       };
     }
   });
+  registerWorkflowRunIpcHandlers();
 }

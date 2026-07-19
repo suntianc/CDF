@@ -18,6 +18,9 @@ out/
 # electron-vite
 *.local
 
+# Generated Excalidraw self-hosted assets
+src/renderer/public/excalidraw-assets/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -44,10 +47,16 @@ electron-log-*
 # Local assistant and project planning state
 .antigravitycli/
 .claude/
+.codex/
+.agents/
 .pi/
 .planning/
 .github/skills/
 .impeccable/
+.impeccable-ref/
+
+# Local domain docs / research / spikes (not pushed to remote)
+docs/
 
 # TypeScript cache
 *.tsbuildinfo

@@ -1,46 +1,80 @@
-import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { app } from 'electron';
-import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import { AsyncLocalStorage } from 'async_hooks';
+import type { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import { isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
-import { decryptApiKey } from '../security';
-import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend, registerHarnessProfile } from 'deepagents';
+import log from '../logger';
+import store from '../store';
+import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
-import { loadMcpTools } from './mcp-connector';
-import { resolveAgentSkillsConfig } from './skill-manager';
-import { createDeleteFileTool } from './file-tools';
-import { createTavilyTool, createAnysearchTool, type SearchProviderConfig } from './search-tools';
-import { createBashTool } from './bash-tool';
-import { createFetchTool } from './fetch-tool';
-import { createArxivTool } from './arxiv-tool';
+import {
+  assembleDeepAgentRuntime,
+  resolveRuntimeProviderModelConfig,
+  registerCdfHarnessProfile,
+  extractPathMentionContext,
+} from './runtime-assembly';
+import {
+  getProvider,
+  getAgentMcpServers,
+  getConnectedMcpServers,
+  getAgentSkillNames,
+  normalizeProviderId,
+  resolveInterruptOn,
+  createSpanId,
+  createBuiltInTools,
+  loadRegistryTools,
+  loadMcpTools,
+  getRuntimeToolNames,
+  type ProviderRow,
+} from './shared-infra';
 import { createAgentTools } from './agent-tools';
-import { createWorkflowTools } from '../workflow/tools';
-import { generateSlug } from './agent-slug';
-import { DELEGATED_TASK_RESULT_SCHEMA, type MCPServer, type ChatRuntimeOverrides } from '../../shared/types';
+import { createParallelTaskTool } from './parallel-task-tool';
+import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools } from '../workflow-run';
+import { isTransientRuntimeError } from './runtime-errors';
+import { DelegatedAgentRunRepository } from './delegated-agent-run-repository';
+import {
+  DelegatedAgentRunCoordinator,
+  type DelegatedRuntimeAdapter,
+  type DelegatedRuntimeRequest,
+} from './delegated-agent-run-coordinator';
+import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types';
+import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
+import {
+  captureDelegatedAgentConfigurationSnapshot,
+  type DelegatedAgentConfigurationSnapshot,
+} from './delegated-agent-configuration-snapshot';
+import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
+import { resolveDelegatedModelOverrides } from './delegated-model-selection';
+import { conversationWorkingStateLifecycle } from './conversation-working-state';
+import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
+import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
+import { resolveProjectContext } from './project-context';
+export { isTransientRuntimeError } from './runtime-errors';
+
+// 工作流运行纪律：仅在 Workflow Run 主 Agent 的系统提示词末尾追加，指导其用
+// advance_stage 推进阶段、先规划任务图再派单——避免把多阶段工作流当成一次性任务收尾。
+const WORKFLOW_RUN_PROMPT = `
+
+[工作流运行纪律]
+你正在以主 Agent 身份执行一个多阶段工作流（Workflow Run）。请严格遵守：
+当信息不足以选择当前 Stage 的已编排路线时，调用 report_stage_route_blocker，向用户说明缺失信息并停止本轮；不要展示内部路线控制，不要猜测默认路线。
+- 每完成一个阶段并对照验收标准自检通过后，必须调用 advance_stage 工具提交结构化验收报告（逐条自评 + 产物清单 + 总结）；这会触发阶段门禁并推进到下一阶段。不要只用文字宣布"完成"就停下——不调用 advance_stage 工作流不会前进。
+- 阶段内先用 create_task 一次性规划任务图并用 set_task_dependencies 标注依赖，再用 parallel_tasks 派子 Agent 执行，用 update_task_status / list_tasks 跟踪进度。
+- 阶段游标由主进程在门禁通过后权威推进，你无需自行编号或跳跃阶段。`;
+import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
+import { getCurrentStreamAccumulator } from './stream-accumulator';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
 
-interface RuntimeAgentRow {
-  id: string;
-  project_id: string;
-  name: string;
-  slug?: string | null;  // D-03: task(name) stable key
-  description?: string | null;
-  provider_id?: string | null;
-  system_prompt?: string | null;
-  config?: string | null;
-  is_default: number;
-  created_at: number;
-  updated_at: number;
+interface SubagentStepContext {
+  onStep: (step: ExecutionStep) => void;
 }
 
-interface RuntimeProjectRow {
-  id: string;
-  name: string;
-  path: string;
-}
+export const subagentStepStorage = new AsyncLocalStorage<SubagentStepContext>();
+
+type RuntimeAgentRow = CatalogAgent;
 
 // Phase 7 Plan 01: alias to shared ChatRuntimeOverrides (Gap 2 fix).
 type RuntimeModelOverrides = ChatRuntimeOverrides;
@@ -48,55 +82,11 @@ type RuntimeModelOverrides = ChatRuntimeOverrides;
 interface RuntimeInputMessage {
   id: string;
   content: string;
+  imageBase64?: string[];
 }
+
 
 export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
-
-const DEFAULT_INTERRUPT_ON: NonNullable<Parameters<typeof createDeepAgent>[0]>['interruptOn'] = {
-  write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  delete_file: { allowedDecisions: ['approve', 'reject'] },
-  // Codex P2 #17: gate destructive agent CRUD on user approval, matching
-  // the policy for destructive file ops above. Without this, the model
-  // can call delete_agent and cascade-delete the target's
-  // agent_runs / agent_tool_calls / agent_mcp_servers / agent_skills
-  // (database.ts:176,190) without the user seeing the confirmation flow
-  // that protects `delete_file`. update_agent is gated too because it
-  // can change library state the user might want to vet (is_default
-  // demotion, provider swap, slug rename, etc.).
-  //
-  // Codex P2 (PR #5 maintainer review round 2, id=3381739597): create_agent
-  // is NOT pure additive — when called with `is_default: true` it first
-  // runs `UPDATE agents SET is_default = 0 ...` to demote the project's
-  // current default. That side-effect is the same kind of invariant
-  // mutation update_agent gates, and was previously silently changing the
-  // project's default without any approval flow. Gate create_agent too
-  // (the friction is acceptable: helpers can be auto-approved by the
-  // user's "Allow all for this session" toggle, and the common
-  // "add a helper subagent" flow becomes a single click).
-  // list_agents is read-only — no gate.
-  delete_agent: { allowedDecisions: ['approve', 'reject'] },
-  update_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
-  create_agent: { allowedDecisions: ['approve', 'edit', 'reject'] },
-};
-
-let checkpointSaver: SqliteSaver | null = null;
-
-function getCheckpointSaver(): SqliteSaver {
-  if (!checkpointSaver) {
-    checkpointSaver = SqliteSaver.fromConnString(path.join(app.getPath('userData'), 'deepagents-checkpoints.db'));
-  }
-  return checkpointSaver;
-}
-
-function normalizeProviderId(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') {
-    return null;
-  }
-  return trimmed;
-}
 
 function getFallbackProviderId(): string {
   const provider = db
@@ -111,163 +101,20 @@ function getFallbackProviderId(): string {
   return fallbackProvider.id;
 }
 
-function getProject(projectId: string): RuntimeProjectRow {
-  const project = db.prepare('SELECT id, name, path FROM projects WHERE id = ?').get(projectId) as RuntimeProjectRow | undefined;
-  if (!project) {
-    throw new Error(`Project with ID ${projectId} not found.`);
-  }
-  return project;
-}
-
-function normalizeDefaultAgents(projectId: string): RuntimeAgentRow | null {
-  const defaults = db
-    .prepare('SELECT * FROM agents WHERE project_id = ? AND is_default = 1 ORDER BY updated_at DESC')
-    .all(projectId) as RuntimeAgentRow[];
-
-  if (defaults.length <= 1) return defaults[0] || null;
-
-  const [winner, ...duplicates] = defaults;
-  const unset = db.prepare('UPDATE agents SET is_default = 0, updated_at = ? WHERE id = ?');
-  const now = Date.now();
-  for (const duplicate of duplicates) {
-    unset.run(now, duplicate.id);
-  }
-  return winner;
-}
-
 function providerExists(providerId: string): boolean {
   return !!db.prepare('SELECT id FROM llm_providers WHERE id = ?').get(providerId);
 }
 
-function ensureDefaultAgent(projectId: string): RuntimeAgentRow {
-  const normalized = normalizeDefaultAgents(projectId);
-  if (normalized) {
-    const normalizedProviderId = normalizeProviderId(normalized.provider_id);
-    // 验证 provider 仍然存在，否则 fallback
-    if (normalizedProviderId && providerExists(normalizedProviderId)) {
-      return {
-        ...normalized,
-        provider_id: normalizedProviderId,
-      };
-    }
-
-    const fallbackProviderId = getFallbackProviderId();
-    const now = Date.now();
-    db.prepare('UPDATE agents SET provider_id = ?, updated_at = ? WHERE id = ?').run(fallbackProviderId, now, normalized.id);
-    return {
-      ...normalized,
-      provider_id: fallbackProviderId,
-      updated_at: now,
-    };
-  }
-
-  const fallbackProviderId = getFallbackProviderId();
-
-  const now = Date.now();
-  const agent: RuntimeAgentRow = {
-    id: crypto.randomUUID(),
-    project_id: projectId,
-    name: 'Master Agent',
-    slug: generateSlug('Master Agent'),
-    description: '项目默认 Agent',
-    provider_id: fallbackProviderId,
-    system_prompt: '你是该项目的默认 Master Agent，负责综合使用 Skills、MCP 工具和项目上下文帮助用户完成开发任务。',
-    config: null,
-    is_default: 1,
-    created_at: now,
-    updated_at: now,
-  };
-
-  db.prepare(`
-    INSERT INTO agents (id, project_id, name, slug, description, provider_id, system_prompt, config, is_default, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    agent.id,
-    agent.project_id,
-    agent.name,
-    agent.slug,
-    agent.description,
-    agent.provider_id,
-    agent.system_prompt,
-    agent.config,
-    agent.is_default,
-    agent.created_at,
-    agent.updated_at
-  );
-
-  return agent;
+function getRuntimeAgent(projectId: string): RuntimeAgentRow {
+  const project = resolveProjectContext(db, projectId);
+  const resolved = createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene);
+  const agent = { ...resolved.agent, system_prompt: resolved.system_prompt };
+  const normalizedProviderId = normalizeProviderId(agent.provider_id);
+  return normalizedProviderId && providerExists(normalizedProviderId)
+    ? { ...agent, provider_id: normalizedProviderId }
+    : { ...agent, provider_id: getFallbackProviderId() };
 }
 
-function getAgentSkillNames(agentId: string): string[] {
-  const rows = db.prepare('SELECT skill_name FROM agent_skills WHERE agent_id = ?').all(agentId) as Array<{ skill_name: string }>;
-  return rows.map((row) => row.skill_name);
-}
-
-function getRuntimeAgent(projectId: string, agentId?: string | null): RuntimeAgentRow {
-  if (agentId) {
-    const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?').get(agentId, projectId) as RuntimeAgentRow | undefined;
-    if (agent) {
-      const normalizedProviderId = normalizeProviderId(agent.provider_id);
-      if (normalizedProviderId && providerExists(normalizedProviderId)) {
-        return { ...agent, provider_id: normalizedProviderId };
-      }
-      return { ...agent, provider_id: getFallbackProviderId() };
-    }
-  }
-  return ensureDefaultAgent(projectId);
-}
-
-function getProvider(providerId: string | null | undefined) {
-  const normalizedProviderId = normalizeProviderId(providerId);
-  if (!normalizedProviderId) {
-    throw new Error('默认 Agent 尚未绑定模型提供商。');
-  }
-  let provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(normalizedProviderId) as any;
-  if (!provider) {
-    // 指定的 provider 已被删除，自动 fallback 到活跃 provider
-    provider = db.prepare('SELECT * FROM llm_providers WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1').get() as any;
-    if (!provider) {
-      provider = db.prepare('SELECT * FROM llm_providers ORDER BY updated_at DESC LIMIT 1').get() as any;
-    }
-    if (!provider) {
-      throw new Error('请先在模型设置中配置并激活一个 LLM 提供商。');
-    }
-  }
-  return {
-    ...provider,
-    api_key: provider.api_key ? decryptApiKey(provider.api_key) : undefined,
-  };
-}
-
-function registerCdfHarnessProfile(providerType: string, modelName: string): void {
-  const profile = {
-    generalPurposeSubagent: { enabled: false },
-    excludedTools: [],  // D-15: task tool enabled for subagent delegation
-  };
-
-  const registerSafely = (key: string | null | undefined) => {
-    const trimmed = key?.trim();
-    if (!trimmed || trimmed.split(':').length > 2) return;
-    try {
-      registerHarnessProfile(trimmed, profile);
-    } catch (error) {
-      console.warn(`Failed to register DeepAgents harness profile for "${trimmed}":`, error);
-    }
-  };
-
-  registerSafely(modelName);
-
-  if (providerType === 'anthropic') {
-    registerSafely('anthropic');
-    if (modelName && !modelName.includes(':')) registerSafely(`anthropic:${modelName}`);
-    return;
-  }
-
-  if (providerType !== 'ollama') {
-    registerSafely('openai');
-    if (modelName && !modelName.includes(':')) registerSafely(`openai:${modelName}`);
-  }
-}
 
 function getSessionMessages(sessionId: string) {
   return db.prepare("SELECT id, role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant') ORDER BY created_at ASC").all(sessionId) as Array<{ id: string; role: 'user' | 'assistant'; content: string }>;
@@ -284,8 +131,19 @@ async function hasCheckpoint(sessionId: string, checkpointer: SqliteSaver): Prom
 }
 
 async function buildInputMessages(sessionId: string, currentMessage: RuntimeInputMessage, checkpointer: SqliteSaver) {
+  const currentContent: string | Array<{ type: string; [key: string]: unknown }> =
+    currentMessage.imageBase64?.length
+      ? [
+          ...currentMessage.imageBase64.map((dataUrl) => ({
+            type: 'image_url',
+            image_url: { url: dataUrl },
+          })),
+          { type: 'text', text: currentMessage.content },
+        ]
+      : currentMessage.content;
+
   if (await hasCheckpoint(sessionId, checkpointer)) {
-    return [{ role: 'user' as const, content: currentMessage.content }];
+    return [{ role: 'user' as const, content: currentContent }];
   }
 
   const history = getSessionMessages(sessionId);
@@ -295,36 +153,25 @@ async function buildInputMessages(sessionId: string, currentMessage: RuntimeInpu
       role: message.role,
       content: message.content,
     })),
-    ...(hasCurrent ? [] : [{ role: 'user' as const, content: currentMessage.content }]),
+    ...(hasCurrent ? [] : [{ role: 'user' as const, content: currentContent }]),
   ];
 }
 
-function getAgentMcpServers(agentId: string): MCPServer[] {
-  const rows = db
-    .prepare(`
-      SELECT m.*
-      FROM mcp_servers m
-      INNER JOIN agent_mcp_servers ams ON ams.mcp_server_id = m.id
-      WHERE ams.agent_id = ?
-      ORDER BY m.updated_at DESC
-    `)
-    .all(agentId) as Array<Omit<MCPServer, 'config' | 'is_connected'> & { config: string | null; is_connected: number }>;
 
-  return rows.map((row) => ({
-    ...row,
-    config: row.config ? JSON.parse(row.config) : {},
-    is_connected: !!row.is_connected,
-  }));
-}
-
-function buildProjectContext(project: RuntimeProjectRow): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${project.name}\n项目根目录: ${project.path}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${project.path}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${project.path}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（需要在 Agent 编辑界面绑定后才可见）\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
 }
 
 function getRecoverableToolErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   if (lower.includes('timeout') || lower.includes('timed out')) return 'TIMEOUT';
+  // undici/fetch stream cut (TypeError: terminated)
+  if (lower === 'terminated' || lower.includes('network') || lower.includes('fetch failed')) return 'NETWORK';
   if (lower.includes('rate limit') || lower.includes('429')) return 'RATE_LIMIT';
   if (lower.includes('permission') || lower.includes('unauthorized') || lower.includes('forbidden')) return 'PERMISSION_DENIED';
   if (lower.includes('not found') || lower.includes('enoent')) return 'NOT_FOUND';
@@ -338,29 +185,77 @@ function getRecoverableToolErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function isTransientRuntimeError(error: Error): boolean {
-  const message = error.message.toLowerCase();
-  const name = error.name.toLowerCase();
-  return (
-    name.includes('timeout') ||
-    name.includes('network') ||
-    name.includes('rate') ||
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('rate limit') ||
-    message.includes('429') ||
-    message.includes('500') ||
-    message.includes('502') ||
-    message.includes('503') ||
-    message.includes('504') ||
-    message.includes('econnreset') ||
-    message.includes('econnrefused') ||
-    message.includes('etimedout')
+function normalizeToolAllowlistEntry(value: string): string {
+  const toolName = value.trim().split('(')[0]?.trim() ?? '';
+  const alias = toolName.toLowerCase();
+  switch (alias) {
+    case 'bash':
+      return 'bash';
+    case 'read':
+      return 'read_file';
+    case 'write':
+      return 'write_file';
+    case 'edit':
+      return 'edit_file';
+    case 'glob':
+      return 'glob';
+    case 'grep':
+      return 'grep';
+    case 'ls':
+    case 'list':
+      return 'ls';
+    case 'webfetch':
+    case 'fetch':
+      return 'fetch';
+    default:
+      return alias.replace(/[\s-]+/g, '_');
+  }
+}
+
+function createAllowedToolMatcher(allowedTools?: string[]): ((toolName: string) => boolean) | null {
+  const allowed = new Set(
+    (allowedTools ?? [])
+      .map(normalizeToolAllowlistEntry)
+      .filter(Boolean)
   );
+  if (allowed.size === 0) return null;
+  if (allowed.has('*')) return () => true;
+  return (toolName: string) => allowed.has(normalizeToolAllowlistEntry(toolName));
+}
+
+function createAllowedToolsMiddleware(allowedTools?: string[]) {
+  const isAllowed = createAllowedToolMatcher(allowedTools);
+  if (!isAllowed) return null;
+  const allowedList = allowedTools?.join(', ') || '(none)';
+  return createMiddleware({
+    name: 'AllowedToolsMiddleware',
+    wrapToolCall: async (request, handler) => {
+      const runtimeTool = request as { tool?: { name?: string } };
+      const toolName = request.toolCall?.name || runtimeTool.tool?.name || 'unknown';
+      if (isAllowed(toolName)) return handler(request);
+
+      return new ToolMessage({
+        content: `Tool blocked by allowed-tools (${toolName}). This run allows only: ${allowedList}`,
+        tool_call_id: request.toolCall?.id || crypto.randomUUID(),
+        name: toolName,
+      });
+    },
+  });
+}
+
+function getAllowedToolsMiddlewares(allowedTools?: string[]) {
+  const middleware = createAllowedToolsMiddleware(allowedTools);
+  return middleware ? [middleware] : [];
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error.message === 'Aborted');
+}
+
+function isApprovalInterruptPayloadError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const message = String((error as { message?: unknown }).message ?? '').toLowerCase();
+  return message.includes('actionrequests') && message.includes('reviewconfigs');
 }
 
 function createRecoverableToolErrorMiddleware() {
@@ -404,7 +299,7 @@ function createRecoverableToolErrorMiddleware() {
         }
         return result;
       } catch (error) {
-        if (isAbortError(error) || request.runtime?.signal?.aborted) {
+        if (isAbortError(error) || isGraphInterrupt(error) || isApprovalInterruptPayloadError(error) || request.runtime?.signal?.aborted) {
           throw error;
         }
 
@@ -450,8 +345,54 @@ function formatRecoverableModelErrorObservation(error: Error): string {
   ].join('\n');
 }
 
-function createSubagentResilienceMiddleware() {
+function extractStepOutput(output: unknown): unknown {
+  if (output == null) return output;
+  const obj = output as any;
+  if (obj?.kwargs?.content !== undefined) return obj.kwargs.content;
+  if (typeof obj?.content !== 'undefined') return obj.content;
+  return output;
+}
+
+function createSubagentStepMiddleware() {
+  return createMiddleware({
+    name: 'SubagentStepMiddleware',
+    wrapToolCall: async (request, handler) => {
+      const ctx = subagentStepStorage.getStore();
+      const onStep = ctx?.onStep ?? getCurrentStreamAccumulator()?.onSubagentStep;
+      if (!onStep) return handler(request);
+
+      const toolName: string = request.toolCall?.name || 'unknown';
+      const startedAt = Date.now();
+      const spanId = createSpanId();
+      onStep({ type: 'tool_call', tool: toolName, args: (request.toolCall as any)?.args ?? (request.toolCall as any)?.input, ts: startedAt, spanId });
+
+      try {
+        const result = await handler(request);
+        onStep({
+          type: 'tool_result',
+          tool: toolName,
+          success: true,
+          output: extractStepOutput(result),
+          ts: Date.now(),
+          duration_ms: Date.now() - startedAt,
+          spanId,
+        });
+        return result;
+      } catch (error) {
+        if (!isAbortError(error) && !isGraphInterrupt(error)) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          onStep({ type: 'tool_result', tool: toolName, success: false, error: errMsg, ts: Date.now(), duration_ms: Date.now() - startedAt, spanId });
+        }
+        throw error;
+      }
+    },
+  });
+}
+
+export function createSubagentResilienceMiddleware(...allowedToolSets: Array<string[] | undefined>) {
   return [
+    ...allowedToolSets.flatMap((allowedTools) => getAllowedToolsMiddlewares(allowedTools)),
+    createSubagentStepMiddleware(),
     createRecoverableToolErrorMiddleware(),
     toolRetryMiddleware({
       maxRetries: 2,
@@ -466,112 +407,372 @@ function createSubagentResilienceMiddleware() {
   ];
 }
 
+function createDelegatedToolApprovalMiddleware(
+  coordinator: DelegatedAgentRunCoordinator,
+  delegatedRunId: string,
+  gatedToolNames: Set<string>,
+) {
+  return createMiddleware({
+    name: 'DelegatedToolApprovalMiddleware',
+    wrapToolCall: async (request, handler) => {
+      const runtimeTool = request as { tool?: { name?: string } };
+      const toolName = request.toolCall?.name || runtimeTool.tool?.name || 'unknown';
+      const actionId = request.toolCall?.id || crypto.randomUUID();
+      return coordinator.runToolAction({
+        delegatedRunId,
+        action: {
+          id: actionId,
+          name: toolName,
+          args: (request.toolCall as { args?: unknown })?.args,
+        },
+        requiresApproval: gatedToolNames.has(toolName),
+        execute: async () => handler(request),
+      });
+    },
+  });
+}
+
+
+function createDelegatedProgressCallbacks(request: DelegatedRuntimeRequest) {
+  const onStep = request.onStep;
+  if (!onStep) return undefined;
+
+  let tokenBuffer: string[] = [];
+  const emitText = (text: string) => {
+    if (!text) return;
+    onStep({
+      type: 'text_chunk',
+      ts: Date.now(),
+      content: text,
+      delegatedRunId: request.delegatedRunId,
+    });
+  };
+
+  return [{
+    handleLLMStart() {
+      tokenBuffer = [];
+    },
+    handleLLMNewToken(token: string) {
+      if (token) tokenBuffer.push(token);
+    },
+    handleLLMEnd(output: unknown) {
+      const value = output as {
+        generations?: Array<Array<{
+          text?: unknown;
+          message?: {
+            content?: unknown;
+            tool_calls?: unknown;
+            additional_kwargs?: { tool_calls?: unknown };
+          };
+        }>>;
+      };
+      const generation = value.generations?.[0]?.[0];
+      const toolCalls = generation?.message?.additional_kwargs?.tool_calls
+        ?? generation?.message?.tool_calls;
+      const content = generation?.message?.content;
+      const hasToolCalls = (Array.isArray(toolCalls) && toolCalls.length > 0)
+        || (Array.isArray(content) && content.some((part) => (
+          !!part && typeof part === 'object' && (part as { type?: unknown }).type === 'tool_use'
+        )));
+      if (hasToolCalls) {
+        tokenBuffer = [];
+        return;
+      }
+      if (tokenBuffer.length > 0) {
+        for (const token of tokenBuffer) emitText(token);
+        tokenBuffer = [];
+        return;
+      }
+      if (typeof content === 'string') {
+        emitText(content);
+      } else if (Array.isArray(content)) {
+        for (const part of content) {
+          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+            const text = (part as { text?: unknown }).text;
+            if (typeof text === 'string') emitText(text);
+          }
+        }
+      } else if (typeof generation?.text === 'string') {
+        emitText(generation.text);
+      }
+    },
+  }];
+}
+
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
   currentMessage: RuntimeInputMessage,
-  agentId?: string | null,
   overrides?: RuntimeModelOverrides,
   subagentIds?: string[]  // D-17: agent IDs to configure as subagents
 ) {
-  const project = getProject(projectId);
-  const agentRow = getRuntimeAgent(projectId, agentId);
-  const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
-  const modelName = overrides?.model || provider.default_model;
-  registerCdfHarnessProfile(provider.provider_type, modelName);
-  const model = createLangChainModel({
-    apiKey: provider.api_key,
-    apiUrl: provider.api_url,
-    defaultModel: provider.default_model,
-    providerType: provider.provider_type,
-    model: modelName,
-    contextLimit: provider.context_limit,
+  const releaseWorkingState = conversationWorkingStateLifecycle.beginRuntimeUse();
+  try {
+    return await buildDeepAgentRuntime(
+      projectId,
+      sessionId,
+      currentMessage,
+      overrides,
+      subagentIds,
+      releaseWorkingState,
+    );
+  } catch (error) {
+    releaseWorkingState();
+    throw error;
+  }
+}
+
+async function buildDeepAgentRuntime(
+  projectId: string,
+  sessionId: string,
+  currentMessage: RuntimeInputMessage,
+  overrides: RuntimeModelOverrides | undefined,
+  subagentIds: string[] | undefined,
+  releaseWorkingState: () => void,
+) {
+  const project = resolveProjectContext(db, projectId);
+  const resolvedAgentRow = getRuntimeAgent(projectId);
+  const systemContext = getOrCaptureConversationSystemContextSnapshot(db, {
+    sessionId,
+    projectPath: project.path,
+    sceneId: project.scene,
+    promptSnapshot: resolvedAgentRow.system_prompt ?? '',
   });
+  // Root Conversations are bound to Master. Their durable snapshot, rather
+  // than the current Master record, preserves the exact prompt across turns
+  // and process restarts. Delegated Agents retain their own live prompts.
+  const agentRow = { ...resolvedAgentRow, system_prompt: systemContext.promptSnapshot };
+  const skillSnapshot = systemContext.skillSnapshot;
   const backend = new CompositeBackend(new StateBackend(), {
     "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
   });
-  const checkpointer = getCheckpointSaver();
-  const { skillsSources, permissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
+  const checkpointer = conversationWorkingStateLifecycle.acquireSaver();
+  const agentSkillNames = getAgentSkillNames(agentRow.id);
+  // Capture only this root run's delegation structure. A target's mutable
+  // configuration is resolved later, immediately before each new child run is
+  // persisted, so Catalog edits have an explicit run-creation boundary.
+  const agentCatalog = createAgentCatalog(db, { initializeSchema: false });
+  const delegationTargets = agentCatalog.listDelegationTargets()
+    .map((target) => structuredClone(target));
+  const delegationTargetsById = new Map(delegationTargets.map((target) => [target.id, target]));
+  const captureTargetConfiguration = (
+    stableTarget: CatalogAgent,
+  ): DelegatedAgentConfigurationSnapshot => {
+    const currentTarget = agentCatalog.get(stableTarget.id);
+    if (!currentTarget || currentTarget.role === 'master') {
+      throw new Error(`Delegated target Agent not found: ${stableTarget.slug}`);
+    }
+    return captureDelegatedAgentConfigurationSnapshot({
+      target: currentTarget,
+      targetIdentity: stableTarget,
+      mcpServerExclusionIds: currentTarget.mcpServerExclusionIds,
+      skillNames: currentTarget.skillNames,
+      conversationSkillSnapshot: skillSnapshot,
+    });
+  };
+  const pathContext = extractPathMentionContext(currentMessage.content);
   const messages = await buildInputMessages(sessionId, currentMessage, checkpointer);
+  const allMcpServers = getConnectedMcpServers();
   const mcpServers = getAgentMcpServers(agentRow.id);
-  const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers);
+  const mcpRuntime = await loadMcpTools(agentRow.id, mcpServers, allMcpServers);
+  const mcpApprovalToolNames = new Set(getRuntimeToolNames(mcpRuntime.tools));
   const memory = ['AGENTS.md', 'Claude.md']
     .filter((fileName) => fs.existsSync(path.join(project.path, fileName)))
     .map((fileName) => path.join(project.path, fileName))
     .slice(0, 1);
 
-  const systemPrompt = (agentRow.system_prompt || '') + buildProjectContext(project);
-
-  const builtInTools: any[] = [
-    createFetchTool(),
-    createDeleteFileTool(project.path),
-    createBashTool({ workingDir: project.path }),
-  ];
-
-  // Codex P2 #13: agent CRUD 工具只能给 MASTER,不能 spread 给 subagent。
-  // 否则 delegated subagent 能调 create/update/delete agent,
-  // 包括 delete 自己(parent agent) / 改 active agent / 污染 agent 库。
-  // subagents 收到的 tools 列表(下 line 594)不应该包含这些。
-  const masterAgentTools = createAgentTools(projectId, { activeAgentId: agentRow.id });
-
-  // ---- Tool Registry: 注册新工具只需在此添加一行 ----
-  const TOOL_REGISTRY = [
-    { toolType: 'tavily',    requiresApiKey: true,  create: createTavilyTool },
-    { toolType: 'anysearch', requiresApiKey: true,  create: createAnysearchTool },
-    { toolType: 'arxiv',     requiresApiKey: false, create: createArxivTool },
-  ];
-
-  function loadToolConfig(toolType: string, requiresApiKey: boolean): SearchProviderConfig | null {
-    const row = db.prepare(
-      requiresApiKey
-        ? "SELECT api_key, config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
-        : "SELECT config FROM tool_configs WHERE tool_type = ? AND is_enabled = 1"
-    ).get(toolType) as { api_key?: string | null; config: string | null } | undefined;
-    if (!row) return null;
-    if (requiresApiKey && !row.api_key) return null;
-    return {
-      decryptedKey: row.api_key ? decryptApiKey(row.api_key) : '',
-      config: row.config ? JSON.parse(row.config) : {},
-    };
-  }
+  const builtInTools: any[] = createBuiltInTools(project.path, sessionId);
 
   try {
-    for (const entry of TOOL_REGISTRY) {
-      const config = loadToolConfig(entry.toolType, entry.requiresApiKey);
-      if (config) {
-        const createdTools = entry.create(config);
-        builtInTools.push(...(Array.isArray(createdTools) ? createdTools : [createdTools]));
-      }
-    }
+    builtInTools.push(...loadRegistryTools());
   } catch (err) {
     console.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
   }
 
-  // D-16c: 注册工作流工具 — Master Agent 可通过 Chat 触发工作流执行
+
+  const currentApprovalMode = (store.get('approvalMode') as ApprovalMode) ?? 'strict';
+  // parallel_tasks is added after the shared coordinator is constructed below,
+  // but runtime assembly must know the public capability name up front.
+  const builtInToolNames = [...getRuntimeToolNames(builtInTools), 'parallel_tasks'];
+  console.log('[runtime] built-in tool names:', builtInToolNames.join(', '));
+  const runtimeAssembly = await assembleDeepAgentRuntime(
+    agentRow,
+    undefined,
+    project,
+    agentSkillNames,
+    pathContext,
+    builtInToolNames,
+    overrides,
+    skillSnapshot,
+  );
+  const {
+    model,
+    provider,
+    permissions,
+    skillsRuntime,
+    systemPrompt,
+    assemblyWarnings,
+  } = runtimeAssembly;
+  for (const warning of assemblyWarnings) {
+    console.warn('[runtime] Ignored invalid Skill runtime input:', warning);
+  }
+
+
+  log.info(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, subagentIds=${JSON.stringify(subagentIds)}`);
+
+  // D-06/D-07/D-17: subagentIds can only select from the stable root-run
+  // Target Set; omitted means every captured General-purpose/Custom target.
+  const effectiveSubagentIds = subagentIds?.length
+    ? subagentIds
+    : delegationTargets.map((target) => target.id);
+
+  const subagents: Array<ReturnType<typeof createDelegatedSubagentAdapter>> = [];
+  const delegatedTargets = new Map<string, CatalogAgent>();
+  const delegatedRunRepository = new DelegatedAgentRunRepository(db);
+
+  const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = {
+    run: async (request) => {
+      const snapshot = request.configurationSnapshot;
+      if (!snapshot) {
+        throw new Error(`Delegated target Agent not found: ${request.targetAgentSlug}`);
+      }
+      const target = snapshot.target;
+
+      // Every Delegated Agent Run owns fresh mutable execution state. Agent
+      // configuration is reused, but model/graph/backend/checkpoint/tools are not.
+      const childBackend = new CompositeBackend(new StateBackend(), {
+        "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
+      });
+      const childBuiltInTools = createBuiltInTools(project.path, sessionId);
+      try {
+        childBuiltInTools.push(...loadRegistryTools());
+      } catch (error) {
+        log.warn('[runtime] Failed to load delegated built-in tools from registry:', error);
+      }
+      const targetToolScope = readAgentToolScope(target.config);
+      const childScope = selectDelegatedToolScope({
+        agentConfig: target.config,
+        parentBuiltInToolNames: builtInToolNames,
+        childBuiltInTools,
+        parentMcpServerIds: mcpServers.map((server) => server.id),
+        childMcpServers: allMcpServers.filter(
+          (server) => !snapshot.mcpServerExclusionIds.includes(server.id),
+        ),
+      });
+      const childMcpRuntime = await loadMcpTools(target.id, childScope.mcpServers, allMcpServers);
+      const childSkillNames = snapshot.globalSkillPreloadRefs;
+      const childToolNames = getRuntimeToolNames([
+        ...childMcpRuntime.tools,
+        ...childScope.builtInTools,
+      ]);
+      const childOverrides = resolveDelegatedModelOverrides({
+        targetProviderId: target.provider_id,
+        targetConfig: target.config,
+        parentProviderId: provider.id,
+        parentOverrides: overrides,
+      });
+      const childAssembly = await assembleDeepAgentRuntime(
+        target,
+        provider.id,
+        project,
+        childSkillNames,
+        extractPathMentionContext(request.goal),
+        childToolNames,
+        childOverrides,
+        skillSnapshot,
+      );
+      for (const warning of childAssembly.assemblyWarnings) {
+        log.warn('[runtime] Ignored invalid delegated Agent Skill runtime input:', warning);
+      }
+
+      const childInterruptOn = resolveInterruptOn(
+        currentApprovalMode,
+        getRuntimeToolNames(childMcpRuntime.tools),
+      );
+      const gatedToolNames = new Set(Object.keys(childInterruptOn));
+      const childAgent = createDeepAgent({
+        model: childAssembly.model,
+        backend: childBackend,
+        systemPrompt: childAssembly.systemPrompt || undefined,
+        permissions: childAssembly.permissions,
+        tools: [...childMcpRuntime.tools, ...childScope.builtInTools],
+        middleware: [
+          createDelegatedToolApprovalMiddleware(
+            delegatedRunCoordinator,
+            request.delegatedRunId,
+            gatedToolNames,
+          ),
+          ...createSubagentResilienceMiddleware(
+            overrides?.allowedTools,
+            targetToolScope.mode === 'narrow'
+              ? [
+                  ...(targetToolScope.builtInTools ?? []),
+                  ...getRuntimeToolNames(childMcpRuntime.tools),
+                ]
+              : undefined,
+          ),
+        ],
+        responseFormat: DELEGATED_TASK_RESULT_SCHEMA as unknown as NonNullable<
+          NonNullable<Parameters<typeof createDeepAgent>[0]>['responseFormat']
+        >,
+        checkpointer: new MemorySaver(),
+      });
+      const progressCallbacks = createDelegatedProgressCallbacks(request);
+      const invokeChild = () => childAgent.invoke(
+        request.input as Parameters<typeof childAgent.invoke>[0],
+        {
+          signal: request.signal,
+          callbacks: progressCallbacks,
+          configurable: {
+            thread_id: request.delegatedRunId,
+            checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
+            delegatedRunId: request.delegatedRunId,
+          },
+        },
+      );
+      const childResult = await (request.onStep
+        ? subagentStepStorage.run({ onStep: request.onStep }, invokeChild)
+        : invokeChild()) as unknown as {
+        structuredResponse?: unknown;
+        messages?: Array<{ content?: unknown }>;
+        __interrupt__?: unknown;
+        interrupts?: unknown;
+      };
+      const childInterrupts = childResult.__interrupt__ ?? childResult.interrupts;
+      if (Array.isArray(childInterrupts) && childInterrupts.length > 0) {
+        throw new Error('Delegated tool approval is not available for this run');
+      }
+      const structured = DELEGATED_TASK_RESULT_SCHEMA.safeParse(childResult?.structuredResponse);
+      if (structured.success) return structured.data;
+
+      const messages = Array.isArray(childResult?.messages) ? childResult.messages : [];
+      const lastMessage = messages[messages.length - 1];
+      const content = typeof lastMessage?.content === 'string'
+        ? lastMessage.content
+        : JSON.stringify(lastMessage?.content ?? 'Task completed');
+      return {
+        status: 'success',
+        artifacts: [],
+        summary: content.slice(0, 2_000),
+      } satisfies DelegatedTaskResult;
+    },
+  };
+  const delegatedRunCoordinator = new DelegatedAgentRunCoordinator(
+    delegatedRunRepository,
+    delegatedRuntimeAdapter,
+  );
+
+  // Single and parallel delegation share this coordinator and therefore the
+  // same isolated runtime factory, durable identity, and concurrency window.
   try {
-    const workflowTools = createWorkflowTools(projectId);
-    builtInTools.push(...workflowTools);
-  } catch (err) {
-    console.warn('[RUNTIME] Failed to load workflow tools:', err);
+    builtInTools.push(createParallelTaskTool(projectId, sessionId, {
+      coordinator: delegatedRunCoordinator,
+      delegationTargets,
+      captureConfigurationSnapshot: captureTargetConfiguration,
+    }));
+  } catch (error) {
+    log.warn('[runtime] Failed to load parallel task tool:', error);
   }
-
-  console.log(`[runtime] createDeepAgentRuntime called: projectId=${projectId}, agentId=${agentId}, subagentIds=${JSON.stringify(subagentIds)}`);
-
-  // D-06/D-07/D-17: Build subagents list from subagentIds
-  // 如果没有传入 subagentIds，自动查询该项目下的所有 Agent 作为子代理
-  let effectiveSubagentIds = subagentIds;
-  console.log(`[runtime] effectiveSubagentIds initial: ${JSON.stringify(effectiveSubagentIds)}, !effectiveSubagentIds=${!effectiveSubagentIds}`);
-  if (!effectiveSubagentIds || effectiveSubagentIds.length === 0) {
-    console.log(`[runtime] Entering auto-discover branch`);
-    const allAgents = db.prepare(
-      'SELECT id FROM agents WHERE project_id = ? AND id != ?'
-    ).all(projectId, agentRow.id) as { id: string }[];
-    console.log(`[runtime] Query returned ${allAgents.length} agents`);
-    effectiveSubagentIds = allAgents.map(a => a.id);
-    console.log(`[runtime] Auto-discovered ${effectiveSubagentIds.length} subagents for project ${projectId}`);
-  }
-
-  const subagents: any[] = [];
 
   if (effectiveSubagentIds && effectiveSubagentIds.length > 0) {
     // Basic ID format validation (accept UUIDs and simple test IDs)
@@ -581,52 +782,68 @@ export async function createDeepAgentRuntime(
         console.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
         continue;
       }
-      const agentRow = db.prepare('SELECT * FROM agents WHERE id = ?').get(subId) as RuntimeAgentRow | undefined;
-      if (!agentRow) continue;
+      const targetAgent = delegationTargetsById.get(subId);
+      if (!targetAgent) continue;
 
-      // D-03: slug is the stable key for task(name)
-      const agentSlug = agentRow.slug || generateSlug(agentRow.name);
-
-      const subMcpServers = getAgentMcpServers(agentRow.id);
-      const subMcpRuntime = await loadMcpTools(agentRow.id, subMcpServers);
-      const { skillsSources: subSkillsSources, permissions: _subPermissions } = resolveAgentSkillsConfig(project.path, getAgentSkillNames(agentRow.id));
-
-      const providerRow = getProvider(normalizeProviderId(agentRow.provider_id) || provider.id);
-      const subagentModel = createLangChainModel({
-        apiKey: providerRow.api_key,
-        apiUrl: providerRow.api_url,
-        defaultModel: providerRow.default_model,
-        providerType: providerRow.provider_type,
-        contextLimit: providerRow.context_limit,
-      });
-
-      console.log(`[runtime] Subagent ${agentSlug}: provider_id=${agentRow.provider_id}, default_model=${providerRow?.default_model}, provider_type=${providerRow?.provider_type}`);
-
-      subagents.push({
-        name: agentSlug,  // D-03: slug as stable key
-        description: agentRow.description || '',
-        systemPrompt: agentRow.system_prompt || '',
-        tools: [...subMcpRuntime.tools, ...builtInTools],
-        skills: subSkillsSources.length > 0 ? subSkillsSources : undefined,
-        model: subagentModel,
-        middleware: createSubagentResilienceMiddleware(),
-        responseFormat: DELEGATED_TASK_RESULT_SCHEMA,
-      });
+      // CompiledSubAgent owns only the stable routing identity. Configuration
+      // is captured lazily if this invocation creates a Delegated Agent Run.
+      const agentSlug = targetAgent.slug || generateSlug(targetAgent.name);
+      delegatedTargets.set(agentSlug, targetAgent);
+      subagents.push(createDelegatedSubagentAdapter({
+        coordinator: delegatedRunCoordinator,
+        target: {
+          id: targetAgent.id,
+          slug: agentSlug,
+          name: targetAgent.name,
+          description: targetAgent.description || '',
+          resolveConfigurationSnapshot: () => captureTargetConfiguration(targetAgent),
+        },
+      }));
     }
   }
+
+  const masterAgentTools: any[] = createAgentTools({ activeAgentId: agentRow.id });
+
+  // Workflow Run（运行即会话）：当本 session 是某个 Workflow Run 的宿主、且当前 Agent
+  // 就是该运行的主 Agent 时，注入阶段推进工具 advance_stage（门禁即一次工具审批）。
+  const workflowRun = getRunBySessionId(sessionId);
+  // Workflow root identity is always resolved from the global Agent Catalog.
+  const isWorkflowMasterAgent = !!workflowRun && agentRow.role === 'master';
+  if (isWorkflowMasterAgent) {
+    const runId = workflowRun!.id;
+    const getRun = () => getWorkflowRun(runId);
+    masterAgentTools.push(createAdvanceStageTool({ runId, projectId, getRun }));
+    masterAgentTools.push(createStageRouteBlockerTool({ runId, projectId, getRun }));
+    masterAgentTools.push(...createTaskGraphTools({ runId, getRun }));
+  }
+
+  const interruptOn = resolveInterruptOn(currentApprovalMode, [...mcpApprovalToolNames]);
+  if (isWorkflowMasterAgent) {
+    // 门禁即一次工具审批：advance_stage 始终拦截，无视全局 approvalMode（含 bypass）。
+    (interruptOn as Record<string, unknown>)['advance_stage'] = { allowedDecisions: ['approve', 'reject'] };
+  }
+
+  const effectiveSystemPrompt = isWorkflowMasterAgent
+    ? `${systemPrompt}${WORKFLOW_RUN_PROMPT}`
+    : systemPrompt;
 
   const deepAgent = createDeepAgent({
     model,
     backend,
-    systemPrompt: systemPrompt || undefined,
-    skills: skillsSources,
+    systemPrompt: effectiveSystemPrompt || undefined,
     permissions,
-    // master 独享 agent CRUD 工具(create_agent / update_agent / delete_agent /
-    // list_agents) — P2 #13 修复:不让这些工具 leak 到 subagent。
     tools: [...mcpRuntime.tools, ...builtInTools, ...masterAgentTools],
     subagents: subagents.length > 0 ? subagents : undefined,  // D-06/D-17
-    middleware: [createRecoverableToolErrorMiddleware()],
-    interruptOn: DEFAULT_INTERRUPT_ON,
+    middleware: [
+      ...getAllowedToolsMiddlewares(overrides?.allowedTools),
+      createRecoverableToolErrorMiddleware(),
+      modelRetryMiddleware({
+        maxRetries: 2,
+        retryOn: isTransientRuntimeError,
+        onFailure: isWorkflowMasterAgent ? 'error' : formatRecoverableModelErrorObservation,
+      }),
+    ],
+    interruptOn: Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
     checkpointer,
     memory: memory.length ? memory : undefined,
   });
@@ -636,27 +853,48 @@ export async function createDeepAgentRuntime(
     agent: deepAgent,
     model,
     inputMessages: messages,
+    skillAttributions: skillsRuntime.attributions,
+    queueDelegatedRun: (
+      parentAgentRunId: string,
+      taskToolCallId: string,
+      targetAgentSlug: string,
+      goal: string,
+    ): DelegatedAgentRun | null => {
+      const target = delegatedTargets.get(targetAgentSlug);
+      if (!target) return null;
+      try {
+        const configurationSnapshot = captureTargetConfiguration(target);
+        return delegatedRunCoordinator.queueSingle({
+          parentAgentRunId,
+          targetAgentId: target.id,
+          targetAgentSlug,
+          targetAgentName: target.name,
+          taskToolCallId,
+          goal,
+          configurationSnapshot,
+        });
+      } catch {
+        return null;
+      }
+    },
+    subscribeDelegatedToolApprovals: delegatedRunCoordinator.subscribeToolApprovals.bind(delegatedRunCoordinator),
+    subscribeDelegatedRunChanges: delegatedRunCoordinator.subscribeRunChanges.bind(delegatedRunCoordinator),
+    resolveDelegatedToolApproval: delegatedRunCoordinator.resolveToolApproval.bind(delegatedRunCoordinator),
+    listDelegatedToolApprovalHistory: delegatedRunCoordinator.listToolApprovalHistory.bind(delegatedRunCoordinator),
+    cancelDelegatedRuns: delegatedRunCoordinator.cancelParent.bind(delegatedRunCoordinator),
     cleanup: async () => {
       // MCP 连接由 mcpCache 管理，此处不关闭
+      releaseWorkingState();
     },
   };
 }
 
-export function createRuntimeModel(
+export async function createRuntimeModel(
   projectId: string,
-  agentId?: string | null,
   overrides?: RuntimeModelOverrides
 ) {
-  const agentRow = getRuntimeAgent(projectId, agentId);
-  const provider = getProvider(normalizeProviderId(overrides?.providerId) || agentRow.provider_id);
-  const modelName = overrides?.model || provider.default_model;
-  registerCdfHarnessProfile(provider.provider_type, modelName);
-  return createLangChainModel({
-    apiKey: provider.api_key,
-    apiUrl: provider.api_url,
-    defaultModel: provider.default_model,
-    providerType: provider.provider_type,
-    model: modelName,
-    contextLimit: provider.context_limit,
-  });
+  const agentRow = getRuntimeAgent(projectId);
+  const { config } = await resolveRuntimeProviderModelConfig(agentRow, overrides);
+  registerCdfHarnessProfile(config.providerType, config.model || config.defaultModel, overrides);
+  return createLangChainModel(config);
 }

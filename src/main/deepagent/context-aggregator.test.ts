@@ -11,23 +11,27 @@ import { aggregateCurrentSessionContext, BUILTIN_TOOL_CHARS } from './context-ag
 // Mock the database + mcp-connector so we don't need a real
 // SQLite DB / MCP servers. Each test composes its own row set / behavior.
 //
-// skill-manager is also mocked with a hoisted listPhysicalSkillsMock so
-// the home directory's `~/.cdf/skills` cannot leak into unit tests.
-// Tests that need to exercise the real skill enumeration path use
-// `listPhysicalSkillsMock.mockReturnValue([...])` with explicit rows.
 const {
-  listPhysicalSkillsMock,
   getScopePathMock,
+  getBuiltInSkillDirsMock,
+  resolveAgentSkillConfigOptionsMock,
+  createAgentCatalogMock,
+  resolveMasterMock,
+  storeGetMock,
 } = vi.hoisted(() => {
   const path = require('path');
   const os = require('os');
   return {
-    listPhysicalSkillsMock: vi.fn(() => []),
     getScopePathMock: vi.fn((_p: string, scope: string) =>
       scope === 'global'
-        ? path.join(os.homedir(), '.cdf', 'skills')
+        ? path.join(os.tmpdir(), 'cdf-ctx-agg-empty-global-skills')
         : path.join(_p, '.cdf', 'skills')
     ),
+    getBuiltInSkillDirsMock: vi.fn((): string[] => []),
+    resolveAgentSkillConfigOptionsMock: vi.fn((): any => ({ options: undefined, warnings: [] })),
+    createAgentCatalogMock: vi.fn(),
+    resolveMasterMock: vi.fn(),
+    storeGetMock: vi.fn(() => ({})),
   };
 });
 
@@ -38,12 +42,24 @@ vi.mock('../database', () => ({
 }));
 
 vi.mock('./skill-manager', () => ({
-  listPhysicalSkills: listPhysicalSkillsMock,
   getScopePath: getScopePathMock,
+  getBuiltInSkillDirs: getBuiltInSkillDirsMock,
+  getBuiltInSkillRegistrations: vi.fn(() => []),
+  resolveAgentSkillConfigOptions: resolveAgentSkillConfigOptionsMock,
+}));
+
+vi.mock('../agent-catalog', () => ({
+  createAgentCatalog: createAgentCatalogMock,
 }));
 
 vi.mock('./mcp-connector', () => ({
   loadMcpTools: vi.fn(async () => ({ client: null, tools: [] })),
+}));
+
+vi.mock('../store', () => ({
+  default: {
+    get: storeGetMock,
+  },
 }));
 
 import db from '../database';
@@ -62,11 +78,10 @@ interface FakeQueryPlan {
   // default row for any key not in sessionRows / sessionSingle
   defaultRows?: Record<string, unknown>[];
   defaultSingle?: Record<string, unknown>;
-  // 08.2 polish: dedicated row for the provider lookup
-  // (SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p).
-  // Used when the test wants to control modelName / system_prompt
-  // independently of the project lookup row.
+  // Catalog Master configuration plus provider lookup data. Used when a
+  // test needs to control modelName or the resolved Scene prompt.
   agentRow?: Record<string, unknown>;
+  agentSkillRows?: Array<{ skill_name: string }>;
   // 08.2 polish: dedicated row for the project lookup
   // (SELECT p.name, p.path FROM projects p JOIN sessions s). Used for
   // sizing systemPrompt via buildProjectContext.
@@ -74,26 +89,51 @@ interface FakeQueryPlan {
 }
 
 function installFakeDb(plan: FakeQueryPlan): void {
+  const masterAgent = {
+    id: String(plan.agentRow?.id ?? 'agent-1'),
+    role: 'master' as const,
+    name: 'Master Agent',
+    slug: 'master-agent',
+    description: null,
+    provider_id: plan.agentRow?.provider_id as string | null | undefined ?? 'provider-1',
+    system_prompt: null,
+    config: plan.agentRow?.config as Record<string, unknown> | null | undefined ?? null,
+    created_at: 0,
+    updated_at: 0,
+  };
+  resolveMasterMock.mockReturnValue({
+    agent: masterAgent,
+    system_prompt: String(plan.agentRow?.system_prompt ?? ''),
+  });
+  createAgentCatalogMock.mockReturnValue({ resolveMaster: resolveMasterMock });
   // Each .prepare(sql) returns a prepared statement whose .get()/.all() reads
   // are routed by the SQL string. We only need to discriminate the few
   // distinct SELECT patterns the aggregator uses.
   (db.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
-    // Provider lookup (08.2 P4 NEW): SELECT ... FROM agents a JOIN sessions s JOIN llm_providers p
-    // Must come FIRST because the agent-only SQL also contains "FROM agents a JOIN sessions s".
-    //
-    // Note: the actual SQL starts with `FROM agents a` (not `JOIN agents a`).
-    // The `JOIN llm_providers` token is the discriminator between this query
-    // and the agent-only lookup below.
-    if (/FROM agents a/.test(sql) && /JOIN llm_providers/.test(sql)) {
+    if (/SELECT project_id, prompt_snapshot FROM sessions/.test(sql)) {
       return {
-        get: (sessionId: string) => {
-          if (plan.agentRow !== undefined) return plan.agentRow;
-          if (plan.sessionSingle && sessionId in plan.sessionSingle) {
-            return plan.sessionSingle[sessionId];
+        get: () => ({
+          project_id: String(plan.projectsRow?.project_id ?? 'project-1'),
+          prompt_snapshot: plan.agentRow?.system_prompt ?? null,
+        }),
+        all: () => [],
+      };
+    }
+    if (/SELECT scene FROM projects WHERE id =/.test(sql)) {
+      return {
+        get: () => ({ scene: plan.projectsRow?.scene ?? 'general' }),
+        all: () => [],
+      };
+    }
+    if (/FROM llm_providers/.test(sql)) {
+      return {
+        get: () => plan.agentRow
+          ? {
+            context_limit: plan.agentRow.context_limit,
+            model_name: plan.agentRow.model_name,
+            provider_name: plan.agentRow.provider_name,
           }
-          if (plan.defaultSingle !== undefined) return plan.defaultSingle;
-          return undefined;
-        },
+          : undefined,
         all: () => [],
       };
     }
@@ -102,7 +142,9 @@ function installFakeDb(plan: FakeQueryPlan): void {
     if (/FROM projects p/.test(sql) || (/JOIN projects p/.test(sql) && /JOIN sessions s/.test(sql))) {
       return {
         get: (sessionId: string) => {
-          if (plan.projectsRow !== undefined) return plan.projectsRow;
+          if (plan.projectsRow !== undefined) {
+            return { project_id: 'project-1', ...plan.projectsRow };
+          }
           if (plan.sessionSingle && sessionId in plan.sessionSingle) {
             return plan.sessionSingle[sessionId];
           }
@@ -112,17 +154,10 @@ function installFakeDb(plan: FakeQueryPlan): void {
         all: () => [],
       };
     }
-    // Agent-only lookup (MCP block): SELECT a.id FROM agents a JOIN sessions s
-    if (/FROM agents a/.test(sql) && /JOIN sessions s/.test(sql)) {
+    if (/FROM agent_skills/.test(sql)) {
       return {
-        get: (sessionId: string) => {
-          if (plan.sessionSingle && sessionId in plan.sessionSingle) {
-            return plan.sessionSingle[sessionId];
-          }
-          if (plan.defaultSingle !== undefined) return plan.defaultSingle;
-          return undefined;
-        },
-        all: () => [],
+        get: () => undefined,
+        all: () => plan.agentSkillRows ?? [],
       };
     }
     if (/FROM messages/.test(sql)) {
@@ -158,6 +193,7 @@ function installFakeDb(plan: FakeQueryPlan): void {
         }
         return [];
       },
+      run: () => undefined,
     };
   });
 }
@@ -166,6 +202,14 @@ beforeEach(() => {
   fs.rmSync(tempProjectPath, { recursive: true, force: true });
   fs.mkdirSync(tempProjectPath, { recursive: true });
   vi.clearAllMocks();
+  getScopePathMock.mockImplementation((_p: string, scope: string) =>
+    scope === 'global'
+      ? path.join(os.tmpdir(), 'cdf-ctx-agg-empty-global-skills')
+      : path.join(_p, '.cdf', 'skills')
+  );
+  getBuiltInSkillDirsMock.mockReturnValue([]);
+  resolveAgentSkillConfigOptionsMock.mockReturnValue({ options: undefined, warnings: [] });
+  storeGetMock.mockReturnValue({});
 });
 
 afterEach(() => {
@@ -217,10 +261,6 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     // skill. Reading a 30KB SKILL.md shouldn't cost 7.5k tokens in the
     // breakdown — the LLM only sees the description field at start.
     //
-    // We use the real listPhysicalSkills (driven by the tempProjectPath
-    // directory created in beforeEach) instead of mocking the return
-    // value. That keeps the test exercising the actual skill enumeration
-    // and frontmatter parsing path end-to-end.
     const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'big-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     const tinyDesc = 'Create things.';
@@ -230,34 +270,76 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
       `---\nname: big-skill\ndescription: ${tinyDesc}\n---\n${bigBody}\n`,
       'utf-8'
     );
-    // Skill enumeration also picks up 'myskill' from the global
-    // beforeEach. We only care about big-skill here.
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'project:big-skill',
-        name: 'big-skill',
-        scope: 'project',
-      } as any,
-    ]);
     const result = await aggregateCurrentSessionContext('session-1');
     const bigSkillRow = result.breakdown.skillsPerSkill.find(
       (s) => s.name === 'big-skill'
     );
     expect(bigSkillRow).toBeDefined();
-    // big-skill: description "Create things." (14) + name "big-skill" (9)
-    // + path prefix "/skills/" (8) ≈ 31 chars → ceil(31 * 0.25) = 8 tokens.
-    // The pre-polish number would have been 30014+ / 4 ≈ 7500 tokens.
-    expect(bigSkillRow!.tokens).toBeLessThan(20);
+    // The resolved prompt counts visible metadata + read path, not the 30KB body.
+    expect(bigSkillRow!.tokens).toBeLessThan(100);
   });
 
-  it('skills fallback: malformed SKILL.md (no frontmatter) falls back to file size', async () => {
-    // Defensive: if SKILL.md is missing frontmatter entirely, we cannot
-    // extract description. The aggregator should still report *something*
-    // (the full file size as a worst-case) rather than silently dropping
-    // the skill from the breakdown.
+  it('skills tokens do not include packaged scripts or resources in the always-on discovery cost', async () => {
+    const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'resource-heavy-skill');
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: resource-heavy-skill',
+        'description: Resource-heavy description.',
+        '---',
+        '',
+        '# Resource Heavy Skill',
+      ].join('\n'),
+      'utf-8'
+    );
+    fs.writeFileSync(path.join(skillDir, 'scripts', 'main.js'), 'x'.repeat(30_000), 'utf-8');
+    fs.writeFileSync(path.join(skillDir, 'entrypoints.json'), JSON.stringify({ data: 'y'.repeat(30_000) }), 'utf-8');
+    installFakeDb({
+      defaultSingle: { path: tempProjectPath, id: 'agent-1' },
+    });
+
+    const result = await aggregateCurrentSessionContext('session-1');
+    const skillRow = result.breakdown.skillsPerSkill.find(
+      (s) => s.name === 'resource-heavy-skill'
+    );
+
+    expect(skillRow).toBeDefined();
+    expect(skillRow!.tokens).toBeLessThan(100);
+  });
+
+  it('skills tokens use the shared Skill metadata description limit', async () => {
+    const skillName = 'long-description';
+    const skillDir = path.join(tempProjectPath, '.cdf', 'skills', skillName);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        `name: ${skillName}`,
+        `description: ${'x'.repeat(1100)}`,
+        '---',
+        '',
+        '# Long Description',
+      ].join('\n'),
+      'utf-8'
+    );
+    installFakeDb({
+      defaultSingle: { path: tempProjectPath, id: 'agent-1' },
+    });
+
+    const result = await aggregateCurrentSessionContext('session-1');
+    const skillRow = result.breakdown.skillsPerSkill.find((s) => s.name === skillName);
+
+    expect(skillRow?.tokens).toBeGreaterThan(Math.ceil(1024 * 0.25));
+    expect(skillRow?.tokens).toBeLessThan(Math.ceil(1300 * 0.25));
+  });
+
+  it('skips malformed Skills through the resolved catalog without breaking accounting', async () => {
     const skillDir = path.join(tempProjectPath, '.cdf', 'skills', 'malformed-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     const body = 'no frontmatter here, just body text\n'.repeat(100);
@@ -265,23 +347,42 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     installFakeDb({
       defaultSingle: { path: tempProjectPath, id: 'agent-1' },
     });
-    listPhysicalSkillsMock.mockReturnValueOnce([
-      {
-        id: 'project:malformed-skill',
-        name: 'malformed-skill',
-        scope: 'project',
-      } as any,
-    ]);
     const result = await aggregateCurrentSessionContext('session-1');
     const malformedRow = result.breakdown.skillsPerSkill.find(
       (s) => s.name === 'malformed-skill'
     );
-    expect(malformedRow).toBeDefined();
-    // No frontmatter → fallback to safeFileSize (body is ~3500 chars
-    // → ~875 tokens). The pre-polish number was the same; we just assert
-    // the fallback is non-zero so a future regression that silently
-    // drops malformed skills gets caught.
-    expect(malformedRow!.tokens).toBeGreaterThan(500);
+    expect(malformedRow).toBeUndefined();
+  });
+
+  it('counts every discoverable Project Skill and adds preloaded instructions', async () => {
+    const writeSkill = (name: string, description: string, body = '') => {
+      const skillDir = path.join(tempProjectPath, '.cdf', 'skills', name);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n${body}`,
+        'utf-8'
+      );
+    };
+    writeSkill('review-skill', 'Review description');
+    writeSkill('deploy-skill', 'Deploy description');
+    writeSkill('preloaded-skill', 'Preloaded description', 'P'.repeat(1000));
+    installFakeDb({
+      agentRow: { id: 'agent-1', system_prompt: '', provider_id: 'provider-1', model_name: 'test', context_limit: 200_000 },
+      projectsRow: { name: 'CDF', path: tempProjectPath },
+      agentSkillRows: [{ skill_name: 'project:preloaded-skill' }],
+    });
+
+    const result = await aggregateCurrentSessionContext('session-1');
+    const byName = new Map(result.breakdown.skillsPerSkill.map((row) => [row.name, row]));
+
+    expect(byName.get('review-skill')).toMatchObject({
+      sourceLabel: 'Project Skill',
+      preloaded: false,
+    });
+    expect(byName.get('deploy-skill')).toMatchObject({ preloaded: false });
+    expect(byName.get('preloaded-skill')).toMatchObject({ preloaded: true });
+    expect(byName.get('preloaded-skill')!.tokens).toBeGreaterThan(byName.get('review-skill')!.tokens);
   });
 
   it('freeSpace = max(0, contextLimit - total - autocompactBuffer)', async () => {
@@ -292,7 +393,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     // total = conversation(0) + skills(0) + mcp(0) + workflows(0) +
     //         projectCommandBodies(0) + systemPrompt(0) + systemTools(BUILTIN_CHARS/4) +
     //         customAgents(0) + memoryFiles(0) + messages(0)
-    // 08.2 polish: systemTools is now a real calculation (6 built-in tool
+    // 08.2 polish: systemTools is now a real calculation (built-in tool
     // schemas) and counts toward the total, so the expected freeSpace
     // reflects that.
     const result = await aggregateCurrentSessionContext('session-1', 200_000);
@@ -301,6 +402,9 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     expect(result.breakdown.freeSpace).toBe(200_000 - expectedTotal - 30_000);
     // Sanity: confirm we actually computed the BUILTIN_TOOL_CHARS total
     expect(result.breakdown.systemTools).toBe(expectedSystemTools);
+    expect(result.breakdown.systemToolsPerTool.map((tool) => tool.name)).not.toEqual(
+      expect.arrayContaining(['parse_pdf', 'pdf_parse_status', 'pdf_parse_cancel']),
+    );
   });
 
   it('freeSpace clamps to 0 when total exceeds limit', async () => {
@@ -414,8 +518,8 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
 
   it('systemPrompt + systemTools now report real values (08.2 polish promoted placeholders to real calculations)', async () => {
     // 08.2 polish: systemPrompt now reads agents.system_prompt + the static
-    // buildProjectContext template, and systemTools now sums the 6 built-in
-    // tool schemas (fetch / delete_file / bash / tavily / anysearch / arxiv).
+    // buildProjectContext template, and systemTools now sums the mirrored built-in
+    // tool schemas.
     // Both should be > 0 for a session backed by a real agent row.
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     installFakeDb({
@@ -431,7 +535,7 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     const result = await aggregateCurrentSessionContext('session-1');
     // systemPrompt = safeMath(agent prompt chars + project context template)
     expect(result.breakdown.systemPrompt).toBeGreaterThan(0);
-    // systemTools = safeMath(6 built-in tool schemas)
+    // systemTools = safeMath(mirrored built-in tool schemas)
     expect(result.breakdown.systemTools).toBeGreaterThan(0);
     // The new SQL column selected default_model; expect the real model name.
     expect(result.modelName).toBe('MiniMax-M3');

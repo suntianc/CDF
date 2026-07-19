@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ExecutionStep } from '../../shared/types';
 
 export class LLMStreamAccumulator {
   reasoningText = '';
@@ -9,9 +10,20 @@ export class LLMStreamAccumulator {
   isInPatchedInvoke = false;
   sender?: any;
   channel?: string;
+  onText?: (text: string) => void;
+  onChunk?: (text: string) => void;
+  onSubagentStep?: (step: ExecutionStep) => void;
 
   appendReasoning(text: string): void {
     this.reasoningText += text;
+    if (this.onChunk) {
+      if (!this.hasSentReasoning) {
+        this.hasSentReasoning = true;
+        this.onChunk('<think>');
+      }
+      this.onChunk(text);
+      return;
+    }
     if (this.isInPatchedInvoke && this.sender && this.channel) {
       if (!this.hasSentReasoning) {
         this.hasSentReasoning = true;
@@ -23,6 +35,19 @@ export class LLMStreamAccumulator {
 
   appendText(text: string): void {
     this.normalText += text;
+    if (this.onText) {
+      this.onText(text);
+      return;
+    }
+    if (this.onChunk) {
+      if (this.hasSentReasoning && !this.hasSentReasoningClosed) {
+        this.hasSentReasoningClosed = true;
+        this.onChunk('</think>\n\n');
+      }
+      this.hasSentText = true;
+      this.onChunk(text);
+      return;
+    }
     if (this.isInPatchedInvoke && this.sender && this.channel) {
       if (this.hasSentReasoning && !this.hasSentReasoningClosed) {
         this.sender.send(this.channel, { type: 'message_chunk', text: '</think>\n\n' });

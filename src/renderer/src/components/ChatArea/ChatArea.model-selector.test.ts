@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
-describe('ChatArea model selector direction wiring', () => {
-  const chatAreaSource = fs.readFileSync(
-    path.join(process.cwd(), 'src/renderer/src/components/ChatArea/ChatArea.tsx'),
+describe('Model Selection Surface direction wiring', () => {
+  const modelSelectionSurfaceSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/renderer/src/components/ChatArea/modelSelection/ModelSelectionSurface.tsx'),
     'utf-8'
   );
   const globalsCss = fs.readFileSync(
@@ -13,8 +13,8 @@ describe('ChatArea model selector direction wiring', () => {
   );
 
   it('marks welcome and composer selectors with distinct direction classes', () => {
-    expect(chatAreaSource).toContain('model-selector model-selector--welcome');
-    expect(chatAreaSource).toContain('model-selector model-selector--composer');
+    expect(modelSelectionSurfaceSource).toContain('model-selector model-selector--welcome');
+    expect(modelSelectionSurfaceSource).toContain('model-selector model-selector--composer');
   });
 
   it('opens the welcome selector downward and composer selector upward', () => {
@@ -26,5 +26,13 @@ describe('ChatArea model selector direction wiring', () => {
     const baseRule = globalsCss.match(/\.model-dropdown\s*\{(?<body>[^}]*)\}/s);
 
     expect(baseRule?.groups?.body ?? '').not.toContain('bottom: calc(100% + 6px)');
+  });
+
+  it('keeps the model selector trigger at the specified 12px size', () => {
+    const triggerRule = globalsCss.match(/\.model-selector-trigger\s*\{(?<body>[^}]*)\}/s);
+    const triggerStyles = triggerRule?.groups?.body ?? '';
+
+    expect(triggerStyles).toMatch(/font-size:\s*12px/);
+    expect(triggerStyles).not.toMatch(/font:\s*inherit/);
   });
 });

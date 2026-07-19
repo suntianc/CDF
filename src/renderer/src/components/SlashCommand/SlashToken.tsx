@@ -37,7 +37,7 @@
 import { getSlashTokenIcon } from '@/lib/commands/iconMap';
 import { formatTokenLabel } from '@/lib/commands/formatTokenLabel';
 import { cn } from '@/lib/utils';
-import type { CommandSource } from '../../../shared/types';
+import type { CommandSource } from '@shared/types';
 
 export interface SlashTokenProps {
   name: string;

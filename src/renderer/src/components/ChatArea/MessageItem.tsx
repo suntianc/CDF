@@ -1,10 +1,80 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { FileVideo, FolderOpen, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import {
+  CapabilityJobTimelineEventSchema,
+  type CapabilityJobTimelineEvent,
+} from '@shared/capability-jobs';
+
+import { ImageZoomContext } from './ImageZoomContext';
+export { ImageZoomContext };
+import { createPortal } from 'react-dom';
 import { ToolMessageCard } from './ToolMessageCard';
 import { StreamdownRenderer } from './StreamdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { useTypewriter } from '@/hooks/useTypewriter';
 import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
+import type { SkillAttribution } from '@shared/types';
+
+const CapabilityJobTimelineSchema = CapabilityJobTimelineEventSchema;
+type CapabilityJobTimelineInfo = CapabilityJobTimelineEvent;
+
+function CapabilityJobTimelineCard({ info }: { info: CapabilityJobTimelineInfo }) {
+  const { t } = useTranslation();
+
+  const statusConfig = {
+    completed: {
+      icon: <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] shrink-0" style={{ color: 'var(--color-success)' }} />,
+      labelKey: 'conversation.capabilityJob.completed'
+    },
+    failed: {
+      icon: <XCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0" style={{ color: 'var(--color-danger)' }} />,
+      labelKey: 'conversation.capabilityJob.failed'
+    },
+    canceled: {
+      icon: <AlertCircle className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" style={{ color: 'var(--color-text-muted)' }} />,
+      labelKey: 'conversation.capabilityJob.canceled'
+    }
+  };
+
+  const status = info.status === 'completed' || info.status === 'failed' || info.status === 'canceled'
+    ? info.status
+    : 'completed';
+  const config = statusConfig[status];
+
+  return (
+    <div
+      className="message assistant animate-fade-in"
+      style={{
+        maxWidth: '80%',
+        alignSelf: 'flex-start',
+        textAlign: 'left',
+        marginRight: 'auto',
+        padding: '6px 0 12px 0',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+    >
+      <div className="message-row" style={{ width: '100%', minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          {config.icon}
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
+            {t(config.labelKey)}
+          </span>
+          {info.provider && info.mode && (
+            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t(`taskPanel.jobRoute.${info.provider}`)} · {t(`taskPanel.videoModeValue.${info.mode}`)}
+            </span>
+          )}
+          <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', opacity: 0.6, flexShrink: 0, marginLeft: '4px' }}>
+            #{info.jobId.slice(0, 8)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const formatDuration = (seconds: number): string => {
   if (seconds <= 0) return '< 1 秒';
@@ -44,9 +114,37 @@ interface ThinkBlockProps {
   showCaret?: boolean;
 }
 
+interface SkillAttributionInfo {
+  type: 'skill_attribution';
+  attributions: SkillAttribution[];
+}
+
+
+function SkillAttributionCard({ info }: { info: SkillAttributionInfo }) {
+  const { t } = useTranslation();
+  const attributions = Array.isArray(info.attributions) ? info.attributions : [];
+  if (attributions.length === 0) return null;
+
+  return (
+    <div className="my-1 w-fit rounded-[var(--radius-sm)] border border-[var(--color-border)]/40 bg-[var(--color-bg-sunken)]/20 px-2 py-0.5 text-xs text-[var(--color-text-muted)]">
+      <span className="font-medium">{t('chat.skillAttribution.title')}</span>
+      {attributions.map((item, idx) => (
+        <span
+          key={`${item.phase}:${item.qualifiedName}:${item.skillPath}`}
+          className="font-mono font-semibold text-[var(--color-text-primary)]"
+          title={item.skillPath}
+        >
+          {idx > 0 && ', '}
+          {item.qualifiedName}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = false }: ThinkBlockProps) {
   return (
-    <div className="mb-2.5 flex flex-col transition-all duration-200">
+    <div className="mb-2.5 flex flex-col">
       <button
         type="button"
         onClick={onToggle}
@@ -129,26 +227,36 @@ const parseThinkBlocks = (content: string): ThinkBlocks => {
   return { thinkParts, mainContent: mainContent.trim(), isThinkingFinished };
 };
 
-interface MessageItemProps {
+export interface MessageItemProps {
   message: any;
   isLast: boolean;
   isStreaming: boolean;
 }
 
-export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemProps) => {
-  const isFinished = useMemo(() => checkThinkingFinished(message.content), [message.content]);
+export interface MessageContentRendererProps {
+  content: string;
+  isLast: boolean;
+  isStreaming: boolean;
+  messageId?: string;
+  thinkDurationSeconds?: number;
+  thinkRecent?: boolean;
+}
 
-  // 刚刚生成的消息（2分钟以内创建），在流式或刚结束时默认保持展开，防止意外重装折叠
-  const isRecent = useMemo(() => {
-    return (Date.now() - message.created_at) < 120 * 1000;
-  }, [message.created_at]);
+export const MessageContentRenderer = memo(({
+  content,
+  isLast,
+  isStreaming,
+  messageId,
+  thinkDurationSeconds,
+  thinkRecent = false,
+}: MessageContentRendererProps) => {
+  const isFinished = useMemo(() => checkThinkingFinished(content), [content]);
 
   const [thinkExpanded, setThinkExpanded] = useState(() => {
-    if (isRecent) return true;
+    if (thinkRecent) return true;
     return !isFinished;
   });
 
-  // 计时的 React 状态
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [finalDuration, setFinalDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -172,36 +280,17 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
   useEffect(() => {
     if (isFinished && elapsedSeconds > 0 && finalDuration === null) {
       setFinalDuration(elapsedSeconds);
-      // Persist real think duration so historical reloads show accurate timing
-      if (message.id && !message.think_duration_seconds) {
-        useSessionStore.getState().updateMessageThinkDuration(message.id, elapsedSeconds);
+      if (messageId && !thinkDurationSeconds) {
+        useSessionStore.getState().updateMessageThinkDuration(messageId, elapsedSeconds);
       }
     }
-  }, [isFinished, elapsedSeconds, finalDuration, message.id, message.think_duration_seconds]);
+  }, [isFinished, elapsedSeconds, finalDuration, messageId, thinkDurationSeconds]);
 
-  // === 平滑打字机调度（rAF 驱动，自适应步长） ===
   const { displayedContent, isTypewriting } = useTypewriter(
-    message.content,
+    content,
     isStreaming && isLast
   );
 
-  // Helper to parse tool JSON
-  const toolInfo = useMemo(() => {
-    if (message.role !== 'system') return null;
-    try {
-      const parsed = JSON.parse(message.content);
-      if (parsed && parsed.type === 'tool') {
-        return parsed;
-      }
-    } catch (e) {
-      // Not a JSON tool message, treat as regular system message
-    }
-    return null;
-  }, [message.content, message.role]);
-
-  // Render a non-code markdown segment with at-token substitution.
-  // Caller is responsible for splitting on code blocks so that `@` inside
-  // backticks is never tokenized — markdown code renders literally.
   const renderAtSegment = (segment: string, baseKey: number): React.ReactNode[] => {
     if (!segment) return [];
     const atTokens = parseAtTokens(segment);
@@ -236,18 +325,11 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return parts;
   };
 
-  // Render markdown content with at-token substitution. Walks the string once
-  // with a tiny state machine so:
-  //   1. `@` inside fenced ``` or inline `…` code is never tokenized.
-  //   2. Unbalanced backticks (LLM streamed a stray ` mid-response) do not
-  //      swallow the rest of the message.
-  //   3. Unreasonably large payloads skip the scan and fall through to a
-  //      single StreamdownRenderer to avoid freezing the main thread.
   const AT_TOKEN_SCAN_LIMIT = 50_000;
 
   const renderContentWithAtTokens = (text: string): React.ReactNode => {
     if (!text || typeof text !== 'string') return null;
-    if (!text.includes('@') || text.length > AT_TOKEN_SCAN_LIMIT) {
+    if (!text.includes('@') || text.length > AT_TOKEN_SCAN_LIMIT || parseAtTokens(text).length === 0) {
       return <StreamdownRenderer text={text} isTypewriting={isTypewriting} />;
     }
 
@@ -261,13 +343,11 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       const tick = text.indexOf('`', cursor);
 
       if (!fenceOpen && tick === -1) {
-        // No more code spans — rest is plain prose, scan for at-tokens.
         segments.push(...renderAtSegment(text.slice(cursor), key++));
         break;
       }
 
       if (fenceOpen && (tick === -1 || cursor === tick)) {
-        // Fenced code block: advance until the matching closing ``` (or EOS).
         const close = text.indexOf('```', cursor + 3);
         const end = close === -1 ? len : close + 3;
         segments.push(
@@ -278,16 +358,14 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       }
 
       if (!fenceOpen && tick !== -1) {
-        // Prose gap before the inline backtick: scan for at-tokens.
         if (tick > cursor) {
           segments.push(...renderAtSegment(text.slice(cursor, tick), key++));
         }
-        // Inline code: advance to the matching closing ` (same length) or EOS.
         const tickLen = countBackticks(text, tick);
         const closer = findInlineCodeClose(text, tick, tickLen);
         const end = closer === -1 ? len : closer + tickLen;
         segments.push(
-          <StreamdownRenderer key={`code-${key++}`} text={text.slice(cursor, end)} isTypewriting={isTypewriting} />
+          <StreamdownRenderer key={`code-${key++}`} text={text.slice(tick, end)} isTypewriting={isTypewriting} />
         );
         cursor = end;
         continue;
@@ -318,11 +396,10 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     return -1;
   }
 
-  const renderMessageContent = (content: string) => {
-    if (!content) return null;
+  const renderMessageContent = (contentString: string) => {
+    if (!contentString) return null;
 
-    // 清洗多余的 </think> 标签（例如由于主进程补发与大模型输出重叠产生的冗余闭合标签）
-    let cleanContent = content;
+    let cleanContent = contentString;
     const thinkCount = (cleanContent.match(/<think>/g) || []).length;
     const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
     if (thinkEndCount > thinkCount) {
@@ -347,7 +424,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         const getThinkingTime = () => {
           if (!finished) return elapsedSeconds;
           if (finalDuration !== null) return finalDuration;
-          if (message.think_duration_seconds) return message.think_duration_seconds;
+          if (thinkDurationSeconds) return thinkDurationSeconds;
           return null;
         };
 
@@ -380,7 +457,6 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       );
     }
 
-    // Finished path: folded think block + main, both routed through StreamdownRenderer.
     const firstThink = cleanContent.indexOf('<think>');
     if (firstThink === -1) {
       return (
@@ -390,29 +466,17 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       );
     }
 
-    // Delegate to the shared parser, then split its pre/post/main
-    // segments into the three pieces the folded block needs:
-    //   - preContentTrimmed  → main rendered above the fold
-    //   - postContentTrimmed → main rendered below the fold
-    //   - foldedContent      → the think trace, concatenated
     const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
     const foldedContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
 
-    // Locate the segments around the first <think> fence so the folded
-    // block sits between pre-content and post-content.
     const firstClose = cleanContent.indexOf('</think>', firstThink);
     const preContentTrimmed = cleanContent.substring(0, firstThink).trim();
     const postContentTrimmed = (firstClose === -1
       ? ''
       : cleanContent.substring(firstClose + 8)
     ).trim();
-    void mainContent; // pre/post already slice the right segments
 
-    const resolvedSeconds = finalDuration ?? message.think_duration_seconds ?? null;
-    // Honest header: if the LLM is still emitting the trace (the
-    // unclosed-`<think>` case), do not claim "思考完成". The folded
-    // block appears for any message with a non-empty think trace, so
-    // it can render while the stream is still in progress.
+    const resolvedSeconds = finalDuration ?? thinkDurationSeconds ?? null;
     const headerText = isThinkingFinished
       ? resolvedSeconds !== null
         ? `思考完成 (用时 ${formatDuration(resolvedSeconds)})`
@@ -441,28 +505,253 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
     );
   };
 
+  return <>{renderMessageContent(displayedContent)}</>;
+}, (prevProps, nextProps) => {
+  if (nextProps.isLast && nextProps.isStreaming) {
+    return false;
+  }
+  return prevProps.content === nextProps.content &&
+         prevProps.isLast === nextProps.isLast &&
+         prevProps.isStreaming === nextProps.isStreaming &&
+         prevProps.messageId === nextProps.messageId &&
+         prevProps.thinkDurationSeconds === nextProps.thinkDurationSeconds &&
+         prevProps.thinkRecent === nextProps.thinkRecent;
+});
+
+export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemProps) => {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lightboxUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxUrl(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [lightboxUrl]);
+  const isRecent = useMemo(() => {
+    return (Date.now() - message.created_at) < 120 * 1000;
+  }, [message.created_at]);
+
+  const toolInfo = useMemo(() => {
+    if (message.role !== 'system') return null;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.type === 'tool') {
+        return parsed;
+      }
+    } catch (e) {
+    }
+    return null;
+  }, [message.content, message.role]);
+
+  const skillAttributionInfo = useMemo<SkillAttributionInfo | null>(() => {
+    if (message.role !== 'system') return null;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.type === 'skill_attribution' && Array.isArray(parsed.attributions)) {
+        return parsed as SkillAttributionInfo;
+      }
+    } catch (e) {
+    }
+    return null;
+  }, [message.content, message.role]);
+
+  const capabilityJobInfo = useMemo<CapabilityJobTimelineInfo | null>(() => {
+    if (message.role !== 'assistant') return null;
+    try {
+      const parsed: unknown = JSON.parse(message.content);
+      const result = CapabilityJobTimelineSchema.safeParse(parsed);
+      return result.success ? result.data : null;
+    } catch {
+      return null;
+    }
+  }, [message.content, message.role]);
+
   if (toolInfo) {
     return <ToolMessageCard toolInfo={toolInfo} createdAt={message.created_at} />;
   }
 
+  if (skillAttributionInfo) {
+    return <SkillAttributionCard info={skillAttributionInfo} />;
+  }
+
+  if (capabilityJobInfo) {
+    return <CapabilityJobTimelineCard info={capabilityJobInfo} />;
+  }
+
+  if (message.role === 'user') {
+    return (
+      <div
+        className="message user animate-fade-in"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '6px',
+          width: '100%',
+          maxWidth: '80%',
+          alignSelf: 'flex-end',
+          padding: '8px 0'
+        }}
+      >
+        {/* 缩略图区域（在气泡上方） */}
+        {message.imageBase64 && message.imageBase64.length > 0 && (
+          <div className="flex gap-2 flex-wrap justify-end mb-1">
+            {message.imageBase64.map((dataUrl: string, idx: number) => (
+              <div
+                key={idx}
+                onClick={() => setLightboxUrl(dataUrl)}
+                className="group relative cursor-zoom-in overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] shadow-sm hover:border-[var(--color-border-strong)] transition-all bg-[var(--color-bg-surface)]"
+                style={{
+                  width: '80px',
+                  height: '80px',
+                  boxSizing: 'border-box'
+                }}
+              >
+                <img
+                  src={dataUrl}
+                  alt={`uploaded_image_${idx + 1}`}
+                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 用户气泡本体 */}
+        <div
+          className="message-row"
+          style={{
+            wordBreak: 'break-word'
+          }}
+        >
+          <ImageZoomContext.Provider value={setLightboxUrl}>
+            <MessageContentRenderer
+              content={message.content}
+              isLast={isLast}
+              isStreaming={isStreaming}
+              messageId={message.id}
+              thinkDurationSeconds={message.think_duration_seconds}
+              thinkRecent={isRecent}
+            />
+          </ImageZoomContext.Provider>
+        </div>
+
+        {/* 辅助信息与时间（在气泡下方，靠右） */}
+        <div
+          style={{
+            fontSize: '11px',
+            color: 'var(--color-text-muted)',
+            fontFamily: 'var(--font-mono)',
+            marginRight: '4px',
+            marginTop: '2px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            userSelect: 'none'
+          }}
+        >
+          <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          {message.tokens && message.tokens > 0 && (
+            <>
+              <span style={{ opacity: 0.5 }}>·</span>
+              <span>{message.tokens} tokens</span>
+            </>
+          )}
+        </div>
+
+        {/* Preview Lightbox (Portal) */}
+        {lightboxUrl && createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center"
+            style={{ background: 'var(--color-overlay-scrim)' }}
+            onClick={() => setLightboxUrl(null)}
+          >
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={lightboxUrl}
+                alt="preview"
+                className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
+                style={{ borderRadius: 'var(--radius-lg)' }}
+              />
+              <button
+                className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
+                style={{
+                  background: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-muted)',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
+                onClick={() => setLightboxUrl(null)}
+                aria-label="Close preview"
+              >
+                &times;
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
+    <div className={`message assistant`}>
       <div className="message-row">
-        {renderMessageContent(displayedContent)}
+        <ImageZoomContext.Provider value={setLightboxUrl}>
+          <MessageContentRenderer
+            content={message.content}
+            isLast={isLast}
+            isStreaming={isStreaming}
+            messageId={message.id}
+            thinkDurationSeconds={message.think_duration_seconds}
+            thinkRecent={isRecent}
+          />
+        </ImageZoomContext.Provider>
         <div className="message-time">
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {message.tokens && message.tokens > 0 ? ` · ${message.tokens} tokens` : ''}
         </div>
       </div>
+
+      {/* Preview Lightbox (Portal) */}
+      {lightboxUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ background: 'var(--color-overlay-scrim)' }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxUrl}
+              alt="preview"
+              className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
+              style={{ borderRadius: 'var(--radius-lg)' }}
+            />
+            <button
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
+              style={{
+                background: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text-muted)',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
+              onClick={() => setLightboxUrl(null)}
+              aria-label="Close preview"
+            >
+              &times;
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }, (prevProps, nextProps) => {
-  // During active streaming of the last message, content changes on every
-  // chunk. We MUST re-render when the message object changes (each chunk
-  // produces a new object via .map() in sessionStore). For non-streaming
-  // historical messages, content is stable so identity comparison is fine.
   if (nextProps.isLast && nextProps.isStreaming) {
-    // Always re-render the actively-streaming message — content is updating
     return false;
   }
   return prevProps.message === nextProps.message &&

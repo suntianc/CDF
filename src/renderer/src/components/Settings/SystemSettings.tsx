@@ -1,13 +1,166 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useI18nStore } from '@/stores/i18nStore';
 import { useTranslation } from 'react-i18next';
-import { Sliders, Globe, Palette, Info } from 'lucide-react';
+import { Globe, HardDrive, Palette, RefreshCw, Save } from 'lucide-react';
+import type { ConversationWorkingStateStorageStatus } from '@shared/conversation-working-state';
 import { CustomSelect } from '../ui/CustomSelect';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 10 || Number.isInteger(value) ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
 
 export function SystemSettings() {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { currentLanguage, setLanguage } = useI18nStore();
+  const [autoSave, setAutoSave] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<ConversationWorkingStateStorageStatus | null>(null);
+  const [storageLoading, setStorageLoading] = useState(true);
+  const [showStorageSkeleton, setShowStorageSkeleton] = useState(false);
+  const [storageLoadFailed, setStorageLoadFailed] = useState(false);
+  const [showOptimizeConfirmation, setShowOptimizeConfirmation] = useState(false);
+  const [optimizationRunning, setOptimizationRunning] = useState(false);
+  const [optimizationCompleted, setOptimizationCompleted] = useState(false);
+  const [optimizationRequestFailed, setOptimizationRequestFailed] = useState(false);
+  const storagePollTimer = useRef<number | null>(null);
+  const mounted = useRef(true);
+
+  const applyStorageStatus = useCallback((status: ConversationWorkingStateStorageStatus) => {
+    if (!mounted.current) return false;
+    setStorageStatus(status);
+    setStorageLoadFailed(false);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    window.electronAPI.store.get('autoSave').then((v: unknown) => {
+      if (typeof v === 'boolean') setAutoSave(v);
+    });
+  }, []);
+
+  const refreshStorageStatus = useCallback(async () => {
+    setStorageLoading(true);
+    setStorageLoadFailed(false);
+    setOptimizationCompleted(false);
+    setOptimizationRequestFailed(false);
+    try {
+      applyStorageStatus(await window.electronAPI.workingState.getStorageStatus());
+    } catch {
+      if (mounted.current) setStorageLoadFailed(true);
+    } finally {
+      if (mounted.current) setStorageLoading(false);
+    }
+  }, [applyStorageStatus]);
+
+  useEffect(() => {
+    void refreshStorageStatus();
+  }, [refreshStorageStatus]);
+
+  useEffect(() => {
+    mounted.current = true;
+    const stopStorageObservation = () => {
+      mounted.current = false;
+      if (storagePollTimer.current !== null) {
+        window.clearInterval(storagePollTimer.current);
+        storagePollTimer.current = null;
+      }
+    };
+
+    window.addEventListener('beforeunload', stopStorageObservation);
+    return () => {
+      window.removeEventListener('beforeunload', stopStorageObservation);
+      stopStorageObservation();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storageLoading || storageStatus) {
+      setShowStorageSkeleton(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowStorageSkeleton(true), 300);
+    return () => window.clearTimeout(timer);
+  }, [storageLoading, storageStatus]);
+
+  const handleAutoSaveToggle = (checked: boolean) => {
+    setAutoSave(checked);
+    window.electronAPI.store.set('autoSave', checked);
+  };
+
+  const handleOptimizeStorage = async () => {
+    setShowOptimizeConfirmation(false);
+    setOptimizationRunning(true);
+    setOptimizationCompleted(false);
+    setOptimizationRequestFailed(false);
+
+    let operationFinished = false;
+    let pollInFlight = false;
+    const pollStatus = async () => {
+      if (operationFinished || pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const status = await window.electronAPI.workingState.getStorageStatus();
+        if (!operationFinished) applyStorageStatus(status);
+      } catch {
+        // A transient polling failure must not replace the last usable status.
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
+    const optimization = window.electronAPI.workingState.optimizeStorage();
+    void pollStatus();
+    storagePollTimer.current = window.setInterval(() => void pollStatus(), 250);
+
+    try {
+      const result = await optimization;
+      operationFinished = true;
+      if (!applyStorageStatus(result)) return;
+      if (result.phase === 'failed' || result.blockedReason) return;
+      setOptimizationCompleted(result.phase === 'normal');
+
+      try {
+        const refreshedStatus = await window.electronAPI.workingState.getStorageStatus();
+        if (!applyStorageStatus(refreshedStatus)) return;
+        setOptimizationCompleted(
+          refreshedStatus.phase === 'normal' && !refreshedStatus.blockedReason
+        );
+      } catch {
+        // The optimization result remains authoritative if the follow-up refresh is unavailable.
+      }
+    } catch {
+      operationFinished = true;
+      if (mounted.current) setOptimizationRequestFailed(true);
+    } finally {
+      operationFinished = true;
+      if (storagePollTimer.current !== null) {
+        window.clearInterval(storagePollTimer.current);
+        storagePollTimer.current = null;
+      }
+      if (mounted.current) setOptimizationRunning(false);
+    }
+  };
 
   const languageOptions = [
     { value: 'zh-CN', label: t('sidebar.language.zh-CN', '简体中文') },
@@ -20,27 +173,61 @@ export function SystemSettings() {
     { value: 'system', label: t('theme.system', '跟随系统') }
   ];
 
+  const storageStatusText = (() => {
+    if (optimizationRequestFailed) {
+      return t('settings.workingState.failure.COMPACTION_FAILED', '存储优化失败');
+    }
+    if (storageLoadFailed) {
+      return t('settings.workingState.unavailable', '无法获取存储状态');
+    }
+    if (!storageStatus) return '—';
+    if (storageStatus.blockedReason) {
+      return t(`settings.workingState.blocked.${storageStatus.blockedReason}`, '正在使用中');
+    }
+    if (optimizationCompleted) {
+      return t('settings.workingState.completed', '优化完成');
+    }
+    if (storageStatus.phase === 'failed') {
+      return t(
+        `settings.workingState.failure.${storageStatus.failureReason ?? 'COMPACTION_FAILED'}`,
+        '存储状态异常'
+      );
+    }
+    if (storageStatus.phase === 'optimizing' && storageStatus.maintenancePhase) {
+      return t(
+        `settings.workingState.maintenancePhase.${storageStatus.maintenancePhase}`,
+        '正在优化'
+      );
+    }
+    return t(`settings.workingState.phase.${storageStatus.phase}`, '正常');
+  })();
+
+  const optimizationFailed = optimizationRequestFailed || storageStatus?.phase === 'failed';
+  const optimizeLabel = optimizationRunning
+    ? t('settings.workingState.optimizingAction', '正在优化存储')
+    : optimizationFailed
+      ? t('settings.workingState.retry', '重试优化')
+      : t('settings.workingState.optimize', '优化存储');
+  const optimizeDisabled = storageLoading
+    || storageLoadFailed
+    || !storageStatus
+    || optimizationRunning
+    || storageStatus.phase === 'analyzing'
+    || storageStatus.phase === 'optimizing'
+    || Boolean(storageStatus.blockedReason);
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-app)] overflow-hidden animate-fade-up">
-      {/* Topbar */}
-      <div className="main-topbar shrink-0 h-9 border-b-0" />
-
-      {/* Settings Content Container */}
-      <div className="settings-content !pt-3 max-w-2xl space-y-6 px-6">
-        {/* Header Title */}
-        <div className="flex flex-col gap-1 shrink-0 pb-4 border-b border-[var(--color-border)]/30">
-          <h1 className="text-lg font-bold text-[var(--color-text-primary)] flex items-center gap-2.5">
-            <Sliders className="w-5 h-5 text-[var(--color-accent)]" />
-            <span>{t('sidebar.settings.system', '系统设置')}</span>
-          </h1>
-          <p className="text-xs text-[var(--color-text-secondary)]">
+      <header className="main-topbar shrink-0 h-10 flex items-center justify-between">
+        <div className="main-topbar-left">
+          <span className="text-xs text-[var(--color-text-muted)] font-normal">
             {t('sidebar.settings.systemDesc', '配置系统的语言、主题外观及其他全局性参数')}
-          </p>
+          </span>
         </div>
+      </header>
 
-        {/* Long form container */}
+      <div className="settings-content !pt-3 max-w-2xl space-y-6 px-6">
         <div className="space-y-6">
-          {/* Row 1: Language Settings */}
           <div className="flex items-center justify-between py-3 border-b border-[var(--color-border)]/20">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] mt-0.5">
@@ -64,7 +251,6 @@ export function SystemSettings() {
             </div>
           </div>
 
-          {/* Row 2: Theme Settings */}
           <div className="flex items-center justify-between py-3 border-b border-[var(--color-border)]/20">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] mt-0.5">
@@ -88,20 +274,163 @@ export function SystemSettings() {
             </div>
           </div>
 
-          {/* Row 3: Future settings placeholder */}
-          <div className="flex items-start gap-3 py-3 opacity-70">
-            <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] mt-0.5">
-              <Info className="w-4 h-4" />
+          <div className="flex items-center justify-between py-3 border-b border-[var(--color-border)]/20">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] mt-0.5">
+                <Save className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  {t('settings.autoSave.label', '文件自动保存')}
+                </span>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {t('settings.autoSave.desc', '编辑文件后自动保存更改，无需手动按 Cmd/Ctrl+S')}
+                </span>
+              </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-[var(--color-text-secondary)]">
-                {t('settings.more.title', '更多高级设置')}
-              </span>
-              <span className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-                {t('settings.more.placeholderDesc', '后续更新中，这里将逐步添加：全局快捷键配置、网络代理设置、日志保存级别、本地缓存数据一键导出与清理等通用面板选项。')}
-              </span>
-            </div>
+            <button
+              role="switch"
+              aria-checked={autoSave}
+              aria-label={t('settings.autoSave.label', '文件自动保存')}
+              onClick={() => handleAutoSaveToggle(!autoSave)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ${
+                autoSave ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-border)]'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 mt-0.5 ${
+                  autoSave ? 'translate-x-4 ml-0.5' : 'translate-x-0 ml-0.5'
+                }`}
+              />
+            </button>
           </div>
+
+          <section
+            role="group"
+            aria-label={t('settings.workingState.title', '会话存储')}
+            className="flex items-start gap-3 py-3"
+          >
+            <div className="p-2 rounded-lg bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] mt-0.5">
+              <HardDrive className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  {t('settings.workingState.title', '会话存储')}
+                </span>
+                <TooltipProvider delayDuration={500}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t('settings.workingState.refresh', '刷新存储状态')}
+                        disabled={storageLoading}
+                        onClick={() => void refreshStorageStatus()}
+                        className="group flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-app)] disabled:opacity-40 disabled:cursor-default"
+                      >
+                        <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] group-hover:text-[var(--color-text-primary)] group-hover:bg-[var(--color-bg-hover)] group-active:bg-[var(--color-bg-active)] transition-colors duration-150">
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t('settings.workingState.refresh', '刷新存储状态')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              {(!storageLoading || storageStatus) && (
+                <p role="status" aria-live="polite" className={`mt-0.5 text-xs ${
+                  storageLoadFailed || storageStatus?.phase === 'failed'
+                    ? 'text-[var(--color-danger)]'
+                    : 'text-[var(--color-text-muted)]'
+                }`}>
+                  {storageStatusText}
+                </p>
+              )}
+
+              {storageLoading && (
+                <span
+                  role="status"
+                  aria-label={t('settings.workingState.loading', '正在加载存储状态')}
+                  className="sr-only"
+                />
+              )}
+
+              {showStorageSkeleton && (
+                <div className="grid grid-cols-2 gap-4 mt-3" aria-hidden="true">
+                  <span className="h-8 rounded-[var(--radius-sm)] bg-[var(--color-bg-hover)]" />
+                  <span className="h-8 rounded-[var(--radius-sm)] bg-[var(--color-bg-hover)]" />
+                </div>
+              )}
+
+              {(!storageLoading || storageStatus) && (
+                <>
+                  <dl className="grid grid-cols-2 gap-4 mt-3">
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-[var(--color-text-muted)]">
+                        {t('settings.workingState.currentUsage', '当前占用')}
+                      </dt>
+                      <dd className="mt-1 text-xs font-medium text-[var(--color-text-primary)] tabular-nums">
+                        {storageStatus ? formatBytes(storageStatus.physicalBytes) : '—'}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-[var(--color-text-muted)]">
+                        {t('settings.workingState.estimatedReclaimable', '预计可释放')}
+                      </dt>
+                      <dd className="mt-1 text-xs font-medium text-[var(--color-text-primary)] tabular-nums">
+                        {storageStatus ? formatBytes(storageStatus.estimatedReclaimableBytes) : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      type="button"
+                      disabled={optimizeDisabled}
+                      onClick={() => setShowOptimizeConfirmation(true)}
+                    >
+                      {optimizeLabel}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+
+          <Dialog open={showOptimizeConfirmation} onOpenChange={setShowOptimizeConfirmation}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {t('settings.workingState.confirm.title', '优化会话存储？')}
+                </DialogTitle>
+                <DialogDescription className="space-y-2">
+                  <span className="block">
+                    {t(
+                      'settings.workingState.confirm.duration',
+                      '此操作可能需要一些时间。'
+                    )}
+                  </span>
+                  <span className="block font-medium text-[var(--color-text-primary)]">
+                    {t(
+                      'settings.workingState.confirm.doNotClose',
+                      '优化完成前请勿关闭 CDF。'
+                    )}
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">
+                    {t('common.cancel', '取消')}
+                  </Button>
+                </DialogClose>
+                <Button type="button" onClick={() => void handleOptimizeStorage()}>
+                  {t('settings.workingState.confirm.action', '立即优化')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>

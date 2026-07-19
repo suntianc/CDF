@@ -178,7 +178,7 @@ export function GoalSystemBubble({ sessionId }: GoalSystemBubbleProps) {
         </span>
         <span
           className={cn(
-            "text-[9px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full shrink-0 border border-current",
+            "text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full shrink-0 border border-current",
             state.iconColor
           )}
         >
