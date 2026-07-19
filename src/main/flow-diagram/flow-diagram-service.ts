@@ -81,6 +81,11 @@ export interface CreateFlowDiagramServiceOptions {
   stateRoot: string;
   revisionStore?: FlowDiagramRevisionStore;
   replaceFile?: (filePath: string, bytes: Buffer) => Promise<void>;
+  replaceFileIfUnchanged?: (
+    filePath: string,
+    bytes: Buffer,
+    expectedBytes: Buffer | null,
+  ) => Promise<void>;
   renderExport?: (
     scene: ExcalidrawScene,
     format: FlowDiagramExportFormat,
@@ -219,9 +224,15 @@ function temporaryPathFor(targetPath: string): string {
   );
 }
 
-export async function replaceFileAtomically(filePath: string, bytes: Buffer): Promise<void> {
+export async function replaceFileAtomicallyIfUnchanged(
+  filePath: string,
+  bytes: Buffer,
+  expectedBytes: Buffer | null,
+): Promise<void> {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporaryPath = temporaryPathFor(filePath);
+  const backupPath = `${temporaryPath}.previous`;
+  let capturedCurrent = false;
   try {
     const handle = await fs.promises.open(temporaryPath, 'wx', 0o600);
     try {
@@ -230,9 +241,100 @@ export async function replaceFileAtomically(filePath: string, bytes: Buffer): Pr
     } finally {
       await handle.close();
     }
-    await fs.promises.rename(temporaryPath, filePath);
+
+    if (expectedBytes) {
+      try {
+        await fs.promises.rename(filePath, backupPath);
+        capturedCurrent = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new FlowDiagramOperationError(
+            'SOURCE_CHANGED',
+            'The Flow Diagram changed before the operation could be applied.',
+          );
+        }
+        throw error;
+      }
+      if (!fs.readFileSync(backupPath).equals(expectedBytes)) {
+        try {
+          await fs.promises.link(backupPath, filePath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
+        throw new FlowDiagramOperationError(
+          'SOURCE_CHANGED',
+          'The Flow Diagram changed before the operation could be applied.',
+        );
+      }
+    }
+
+    try {
+      await fs.promises.link(temporaryPath, filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new FlowDiagramOperationError(
+          'SOURCE_CHANGED',
+          'The Flow Diagram changed before the operation could be applied.',
+        );
+      }
+      throw error;
+    }
   } finally {
+    if (capturedCurrent && !fs.existsSync(filePath) && fs.existsSync(backupPath)) {
+      try {
+        await fs.promises.link(backupPath, filePath);
+      } catch {
+        // Preserve the operation error; a concurrently-created target is never overwritten.
+      }
+    }
     await fs.promises.rm(temporaryPath, { force: true });
+    await fs.promises.rm(backupPath, { force: true });
+  }
+}
+
+async function removeFileAtomicallyIfUnchanged(
+  filePath: string,
+  expectedBytes: Buffer,
+): Promise<void> {
+  const backupPath = `${temporaryPathFor(filePath)}.remove`;
+  let capturedCurrent = false;
+  try {
+    try {
+      await fs.promises.rename(filePath, backupPath);
+      capturedCurrent = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new FlowDiagramOperationError(
+          'SOURCE_CHANGED',
+          'The Flow Diagram changed before the operation could be completed.',
+        );
+      }
+      throw error;
+    }
+    if (!fs.readFileSync(backupPath).equals(expectedBytes)) {
+      try {
+        await fs.promises.link(backupPath, filePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+      throw new FlowDiagramOperationError(
+        'SOURCE_CHANGED',
+        'The Flow Diagram changed before the operation could be completed.',
+      );
+    }
+  } finally {
+    if (capturedCurrent && !fs.existsSync(filePath) && fs.existsSync(backupPath)) {
+      // A matching captured file is intentionally removed; mismatches were restored above.
+      const captured = fs.readFileSync(backupPath);
+      if (!captured.equals(expectedBytes)) {
+        try {
+          await fs.promises.link(backupPath, filePath);
+        } catch {
+          // A concurrently-created target is never overwritten.
+        }
+      }
+    }
+    await fs.promises.rm(backupPath, { force: true });
   }
 }
 
@@ -259,12 +361,6 @@ async function writeNewFileAtomically(filePath: string, bytes: Buffer): Promise<
 
 function cloneScene(scene: ExcalidrawScene): ExcalidrawScene {
   return structuredClone(scene);
-}
-
-function sourceMatches(filePath: string, expectedBytes: Buffer | null): boolean {
-  if (!fs.existsSync(filePath)) return expectedBytes === null;
-  if (!expectedBytes) return false;
-  return fs.readFileSync(filePath).equals(expectedBytes);
 }
 
 function activeElementById(
@@ -507,7 +603,24 @@ export function createFlowDiagramService(
   const projectPath = path.resolve(options.projectPath);
   const revisionStore = options.revisionStore
     ?? createFlowDiagramRevisionStore(projectPath, options.stateRoot);
-  const replaceFile = options.replaceFile ?? replaceFileAtomically;
+  const replaceFileIfUnchanged = options.replaceFileIfUnchanged ?? (
+    options.replaceFile
+      ? async (filePath: string, bytes: Buffer, expectedBytes: Buffer | null) => {
+          if (
+            (expectedBytes === null && fs.existsSync(filePath))
+            || (expectedBytes !== null && (
+              !fs.existsSync(filePath) || !fs.readFileSync(filePath).equals(expectedBytes)
+            ))
+          ) {
+            throw new FlowDiagramOperationError(
+              'SOURCE_CHANGED',
+              'The Flow Diagram changed before the operation could be applied.',
+            );
+          }
+          await options.replaceFile!(filePath, bytes);
+        }
+      : replaceFileAtomicallyIfUnchanged
+  );
   const renderExport = options.renderExport ?? renderFlowDiagramExport;
   const notify = (filePath: string) => options.notifyFileChange?.(filePath);
 
@@ -606,27 +719,8 @@ export function createFlowDiagramService(
         return failure(action, error, 'INVALID_OPERATION');
       }
       const candidateBytes = serializeFlowDiagramScene(candidate.scene);
-      if (!sourceMatches(target, originalBytes)) {
-        try {
-          await revisionStore.consumeLatest(target, revisionToken);
-        } catch (cleanupError) {
-          return failure(
-            action,
-            new FlowDiagramOperationError('REVISION_FAILED', safeMessage(cleanupError)),
-            'REVISION_FAILED',
-          );
-        }
-        return failure(
-          action,
-          new FlowDiagramOperationError(
-            'SOURCE_CHANGED',
-            'The Flow Diagram changed before the Agent edit could be applied.',
-          ),
-          'SOURCE_CHANGED',
-        );
-      }
       try {
-        await replaceFile(target, candidateBytes);
+        await replaceFileIfUnchanged(target, candidateBytes, originalBytes);
         notify(target);
         return success(action, {
           ...fileData(projectPath, target),
@@ -634,9 +728,11 @@ export function createFlowDiagramService(
         });
       } catch (error) {
         try {
-          if (sourceMatches(target, candidateBytes)) {
-            await replaceFileAtomically(target, originalBytes);
-          }
+          await replaceFileIfUnchanged(target, originalBytes, candidateBytes);
+        } catch {
+          // A concurrent source is preserved; default replacement never exposes partial bytes.
+        }
+        try {
           await revisionStore.consumeLatest(target, revisionToken);
         } catch (cleanupError) {
           return failure(
@@ -645,11 +741,13 @@ export function createFlowDiagramService(
             'REVISION_FAILED',
           );
         }
-        return failure(
-          action,
-          new FlowDiagramOperationError('WRITE_FAILED', safeMessage(error)),
-          'WRITE_FAILED',
-        );
+        return error instanceof FlowDiagramOperationError
+          ? failure(action, error, 'WRITE_FAILED')
+          : failure(
+              action,
+              new FlowDiagramOperationError('WRITE_FAILED', safeMessage(error)),
+              'WRITE_FAILED',
+            );
       }
     }
 
@@ -666,30 +764,29 @@ export function createFlowDiagramService(
         }
         parseFlowDiagramScene(revision.sourceBytes);
         rollbackBytes = revision.sourceBytes;
-        if (!sourceMatches(target, currentBytes)) {
-          throw new FlowDiagramOperationError(
-            'SOURCE_CHANGED',
-            'The Flow Diagram changed before rollback could be applied.',
-          );
-        }
-        await replaceFile(target, revision.sourceBytes);
+        await replaceFileIfUnchanged(target, revision.sourceBytes, currentBytes);
         await revisionStore.consumeLatest(target, revision.token);
         notify(target);
         return success(action, fileData(projectPath, target));
       } catch (error) {
-        if (rollbackBytes && sourceMatches(target, rollbackBytes)) {
+        if (rollbackBytes) {
           try {
-            if (currentBytes) await replaceFileAtomically(target, currentBytes);
-            else await fs.promises.rm(target, { force: true });
-          } catch {
-            return failure(
-              action,
-              new FlowDiagramOperationError(
+            if (currentBytes) {
+              await replaceFileIfUnchanged(target, currentBytes, rollbackBytes);
+            } else {
+              await removeFileAtomicallyIfUnchanged(target, rollbackBytes);
+            }
+          } catch (restoreError) {
+            if (!(restoreError instanceof FlowDiagramOperationError && restoreError.code === 'SOURCE_CHANGED')) {
+              return failure(
+                action,
+                new FlowDiagramOperationError(
+                  'ROLLBACK_RESTORE_FAILED',
+                  'Rollback failed and the previous source could not be restored.',
+                ),
                 'ROLLBACK_RESTORE_FAILED',
-                'Rollback failed and the previous source could not be restored.',
-              ),
-              'ROLLBACK_RESTORE_FAILED',
-            );
+              );
+            }
           }
         }
         return failure(action, error, 'ROLLBACK_FAILED');
