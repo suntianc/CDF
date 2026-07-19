@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildAISubscriptionEntries } from '@shared/ai-subscriptions';
 import i18n from '../../i18n';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useSkillStore } from '../../stores/skillStore';
@@ -30,6 +32,7 @@ beforeEach(async () => {
       context_limit: 8192, is_active: 1, created_at: 0, updated_at: 0,
     }], activeProvider: null, isLoading: false, error: null,
   });
+  useAISubscriptionStore.setState({ entries: [], isLoading: false, error: null, loginDescriptors: {} });
   useSkillStore.setState({ skills: [globalSkill], isLoading: false, error: null });
   useMcpServerStore.setState({ mcpServers: [], isLoading: false, error: null });
 });
@@ -48,6 +51,58 @@ describe('AgentEditDialog', () => {
 
     expect(screen.getByRole('button', { name: /preload review/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /preload project-review/i })).toBeNull();
+  });
+
+  it('hydrates a new Custom Agent model after sources finish loading without resetting its draft', () => {
+    const createCustomAgent = vi.fn(async () => {});
+    useLLMStore.setState({ providers: [], activeProvider: null });
+    useAISubscriptionStore.setState({ entries: [] });
+    useAgentStore.setState({ createCustomAgent });
+
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
+    const nameInput = screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Late Source Agent' } });
+
+    act(() => useAISubscriptionStore.setState({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connected' } },
+      }),
+    }));
+
+    expect(nameInput.value).toBe('Late Source Agent');
+    expect(screen.getByRole('button', { name: /GPT-5\.6 Sol.*Balanced/ })).toBeTruthy();
+    fireEvent.click(screen.getByText('Save'));
+    expect(createCustomAgent).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Late Source Agent',
+      provider_id: null,
+      config: expect.objectContaining({
+        modelSource: 'ai_subscription', sourceId: 'codex-oauth', model: 'gpt-5.6-sol',
+      }),
+    }));
+  });
+
+  it('waits for all model sources before choosing the default for a new Custom Agent', () => {
+    useLLMStore.setState({ providers: [], activeProvider: null, isLoading: true });
+    useAISubscriptionStore.setState({ entries: [], isLoading: true });
+
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
+
+    act(() => useAISubscriptionStore.setState({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connected' } },
+      }),
+      isLoading: false,
+    }));
+    expect(screen.getByRole('button', { name: 'Select model' })).toBeTruthy();
+
+    act(() => useLLMStore.setState({
+      providers: [{
+        id: 'provider-late', name: 'Late local model', provider_type: 'ollama', default_model: 'llama3',
+        context_limit: 8192, is_active: 1, created_at: 0, updated_at: 1,
+      }],
+      isLoading: false,
+    }));
+    expect(screen.getByRole('button', { name: 'llama3' })).toBeTruthy();
   });
 
   it('creates a Custom Agent without a Project transport field', () => {
@@ -87,6 +142,115 @@ describe('AgentEditDialog', () => {
     fireEvent.click(screen.getByText('Save'));
     expect(updateGeneralPurposeAgent).toHaveBeenCalledWith(expect.objectContaining({
       config: expect.objectContaining({ toolScope: { mode: 'inherit' } }),
+    }));
+  });
+
+  it('offers connected AI subscription models as Agent LLM choices', () => {
+    useAISubscriptionStore.setState({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connected' } },
+      }),
+    });
+    useAgentStore.setState({
+      agents: [{
+        id: 'general-1', role: 'general-purpose', name: 'General-purpose', slug: 'general-purpose',
+        provider_id: undefined, system_prompt: 'Delegate safely', config: { toolScope: { mode: 'inherit' } },
+        created_at: 0, updated_at: 0,
+      }],
+    });
+
+    render(<AgentEditDialog isOpen agentId="general-1" onClose={vi.fn()} showToast={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Inherit invoking Agent model' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Model' }));
+
+    expect(screen.getByRole('option', { name: 'Codex OAuth • GPT-5.6 Sol' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Codex OAuth • GPT-5.6 Terra' })).toBeTruthy();
+  });
+
+  it('preserves unsaved Agent fields and an unavailable model selection after refreshing config', async () => {
+    const updateGeneralPurposeAgent = vi.fn(async () => {});
+    const connectedEntries = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connected' } },
+    });
+    const fetchEntries = vi.fn(async () => {
+      useAISubscriptionStore.setState({
+        entries: buildAISubscriptionEntries({
+          entries: { 'codex-oauth': { status: 'logged_out' } },
+        }),
+      });
+    });
+    useAISubscriptionStore.setState({ entries: connectedEntries, fetchEntries });
+    useLLMStore.setState({ fetchProviders: vi.fn(async () => {}) });
+    useAgentStore.setState({
+      agents: [{
+        id: 'general-1', role: 'general-purpose', name: 'General-purpose', slug: 'general-purpose',
+        provider_id: undefined, system_prompt: 'Delegate safely',
+        description: 'Saved description',
+        config: {
+          modelSource: 'ai_subscription', sourceId: 'codex-oauth', model: 'gpt-5.6-sol',
+          toolScope: { mode: 'inherit' },
+        },
+        created_at: 0, updated_at: 0,
+      }],
+      updateGeneralPurposeAgent,
+    });
+
+    render(<AgentEditDialog isOpen agentId="general-1" onClose={vi.fn()} showToast={vi.fn()} />);
+    const description = screen.getByPlaceholderText(/Brief description/i) as HTMLTextAreaElement;
+    fireEvent.change(description, { target: { value: 'Unsaved description' } });
+    fireEvent.click(screen.getByRole('button', { name: /GPT-5\.6 Sol/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh config' }));
+
+    await waitFor(() => expect(fetchEntries).toHaveBeenCalledOnce());
+    expect(description.value).toBe('Unsaved description');
+    expect(screen.getByRole('menu', { name: 'gpt-5.6-sol' })).toBeTruthy();
+
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(screen.getByText('Save'));
+    expect(updateGeneralPurposeAgent).toHaveBeenCalledWith(expect.objectContaining({
+      description: 'Unsaved description',
+      provider_id: null,
+      config: expect.objectContaining({
+        modelSource: 'ai_subscription',
+        sourceId: 'codex-oauth',
+        model: 'gpt-5.6-sol',
+      }),
+    }));
+  });
+
+  it('persists an Agent AI subscription selection for delegated runtime resolution', () => {
+    const updateGeneralPurposeAgent = vi.fn(async () => {});
+    useAISubscriptionStore.setState({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connected' } },
+      }),
+    });
+    useAgentStore.setState({
+      agents: [{
+        id: 'general-1', role: 'general-purpose', name: 'General-purpose', slug: 'general-purpose',
+        provider_id: undefined, system_prompt: 'Delegate safely', config: { toolScope: { mode: 'inherit' } },
+        created_at: 0, updated_at: 0,
+      }],
+      updateGeneralPurposeAgent,
+    });
+
+    render(<AgentEditDialog isOpen agentId="general-1" onClose={vi.fn()} showToast={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Inherit invoking Agent model' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Model' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Codex OAuth • GPT-5.6 Sol' }));
+    fireEvent.click(screen.getByRole('button', { name: /GPT-5\.6 Sol.*Balanced/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Reasoning depth/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Deep' }));
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(updateGeneralPurposeAgent).toHaveBeenCalledWith(expect.objectContaining({
+      provider_id: null,
+      config: expect.objectContaining({
+        modelSource: 'ai_subscription',
+        sourceId: 'codex-oauth',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+      }),
     }));
   });
 

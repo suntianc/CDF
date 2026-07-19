@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildAISubscriptionEntries } from '@shared/ai-subscriptions';
 import i18n from '../../i18n';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -42,6 +44,10 @@ beforeEach(async () => {
     error: null,
     fetchProviders: vi.fn(async () => {}),
   });
+  useAISubscriptionStore.setState({
+    entries: [], isLoading: false, error: null, loginDescriptors: {},
+    fetchEntries: vi.fn(async () => {}),
+  });
   useSkillStore.setState({
     skills: [],
     isLoading: false,
@@ -69,6 +75,29 @@ describe('AgentLibrary', () => {
     expect(screen.getByText('General-purpose')).toBeTruthy();
     expect(screen.getByText('Evidence Reviewer')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
+  });
+
+  it('shows the configured AI subscription and concrete model on an Agent card', () => {
+    useAgentStore.setState({
+      agents: [{
+        id: 'custom-subscription', role: 'custom', name: 'Codex Reviewer', slug: 'codex-reviewer',
+        config: { modelSource: 'ai_subscription', sourceId: 'codex-oauth', model: 'gpt-5.6-sol' },
+        created_at: 0, updated_at: 0,
+      }],
+    });
+    useAISubscriptionStore.setState({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connected' } },
+      }),
+    });
+
+    render(<AgentLibrary />);
+
+    expect(screen.getByText((_, element) => (
+      typeof element?.className === 'string'
+      && element.className.includes('text-xs')
+      && element.textContent?.replace(/\s+/g, '') === 'Model:CodexOAuth(GPT-5.6Sol)'
+    ))).toBeTruthy();
   });
 
   it('does not reload or filter the global catalog when the selected Project changes', async () => {

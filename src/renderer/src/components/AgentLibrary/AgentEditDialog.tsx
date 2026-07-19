@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
@@ -8,11 +9,16 @@ import {
   AGENT_BUILT_IN_TOOL_NAMES,
   type AgentToolScopeConfig,
 } from '../../../../shared/agents';
+import type { ReasoningEffort } from '../../../../shared/ai-subscriptions';
 import type { SceneId } from '../../../../shared/scenes';
 import {
   X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
 } from 'lucide-react';
-import { CustomSelect } from '../ui/CustomSelect';
+import { ModelSelectionSurface } from '../ChatArea/modelSelection/ModelSelectionSurface';
+import {
+  buildModelSelectionGroups,
+  type ModelSourceType,
+} from '../ChatArea/modelSelection/useModelSelectionController';
 import { getAgentErrorTranslationKey } from './agentErrorI18n';
 
 interface AgentEditDialogProps {
@@ -42,6 +48,21 @@ function getSkillDisplayName(skill: { name: string; qualifiedName?: string | nul
   return skill.qualifiedName?.trim() || skill.name;
 }
 
+function readReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  switch (value) {
+    case 'none':
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+    case 'ultra':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEditDialogProps) {
   const { t } = useTranslation();
   const {
@@ -56,15 +77,21 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     fetchMasterScenePrompts,
     saveMasterScenePrompts,
   } = useAgentStore();
-  const { providers } = useLLMStore();
+  const { providers, isLoading: providersLoading } = useLLMStore();
+  const {
+    entries: aiSubscriptionEntries,
+    isLoading: aiSubscriptionsLoading,
+  } = useAISubscriptionStore();
   const { skills } = useSkillStore();
   const { mcpServers } = useMcpServerStore();
 
   // Form State
   const [formName, setFormName] = useState('');
   const [formDesc, setFormDesc] = useState('');
-  const [formProviderId, setFormProviderId] = useState('');
+  const [formModelSource, setFormModelSource] = useState<ModelSourceType | ''>('');
+  const [formSourceId, setFormSourceId] = useState('');
   const [formModel, setFormModel] = useState('');
+  const [formReasoningEffort, setFormReasoningEffort] = useState<ReasoningEffort>();
   const [formSystemPrompt, setFormSystemPrompt] = useState('');
   const [formMcpExclusionIds, setFormMcpExclusionIds] = useState<string[]>([]);
   const [formSkillIds, setFormSkillIds] = useState<string[]>([]);
@@ -90,9 +117,14 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLTextAreaElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const formInitializationKeyRef = useRef<string | null>(null);
   const editingAgent = agentId ? agents.find(agent => agent.id === agentId) : undefined;
   const isMasterAgent = editingAgent?.role === 'master';
   const isProtectedAgent = editingAgent !== undefined && editingAgent.role !== 'custom';
+  const modelGroups = useMemo(
+    () => buildModelSelectionGroups(providers, aiSubscriptionEntries),
+    [aiSubscriptionEntries, providers],
+  );
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -159,30 +191,75 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   // Initialize/Reset form states when agentId changes
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      formInitializationKeyRef.current = null;
+      return;
+    }
 
-    if (agentId) {
-      const agent = agents.find(a => a.id === agentId);
-      if (agent) {
-        setFormName(agent.name);
-        setFormDesc(agent.description || '');
-        const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
-        setFormProviderId(agent.provider_id || (agent.role !== 'custom' ? '' : activeProvider?.id || ''));
-        setFormModel(typeof agent.config?.model === 'string' ? agent.config.model : '');
-        setFormSystemPrompt(agent.system_prompt || '');
-        setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
-        setFormSkillIds(agent.skillNames || []);
-        const toolScope = readToolScopeFromConfig(agent.config);
-        setFormToolScopeMode(toolScope.mode);
-        setFormBuiltInTools(toolScope.builtInTools ?? []);
-        setFormToolScopeMcpServerIds(toolScope.mcpServerIds ?? []);
-      }
+    const initializationKey = agentId || '__create__';
+    if (formInitializationKeyRef.current === initializationKey) return;
+    const agent = agentId ? agents.find(candidate => candidate.id === agentId) : undefined;
+    if (agentId && !agent) return;
+    formInitializationKeyRef.current = initializationKey;
+
+    if (agent) {
+      setFormName(agent.name);
+      setFormDesc(agent.description || '');
+      const configuredModelSource = agent.config?.modelSource === 'ai_subscription'
+        ? 'ai_subscription'
+        : agent.config?.modelSource === 'llm_provider' || agent.provider_id
+          ? 'llm_provider'
+          : '';
+      const configuredSourceId = configuredModelSource
+        && typeof agent.config?.sourceId === 'string'
+        ? agent.config.sourceId
+        : agent.provider_id || '';
+      const configuredGroup = modelGroups.find(group => (
+        group.sourceType === configuredModelSource && group.sourceId === configuredSourceId
+      ));
+      const activeProvider = providers.find(provider => provider.is_active === 1);
+      const activeProviderGroup = modelGroups.find(group => (
+        group.sourceType === 'llm_provider' && group.sourceId === activeProvider?.id
+      ));
+      const hasConfiguredSelection = Boolean(configuredModelSource && configuredSourceId);
+      const selectedGroup = configuredGroup
+        || (!hasConfiguredSelection && agent.role === 'custom'
+          ? activeProviderGroup || modelGroups[0]
+          : undefined);
+      const selectedSourceType = selectedGroup?.sourceType || configuredModelSource;
+      const selectedSourceId = selectedGroup?.sourceId || configuredSourceId;
+      const configuredModel = typeof agent.config?.model === 'string' ? agent.config.model : '';
+      const selectedModel = configuredModel || selectedGroup?.candidates[0]?.model || '';
+      const selectedCandidate = selectedGroup?.candidates.find(candidate => candidate.model === selectedModel);
+      const configuredReasoningEffort = readReasoningEffort(agent.config?.reasoningEffort);
+      const preservesReasoningEffort = configuredReasoningEffort && (
+        !selectedCandidate
+        || selectedCandidate.reasoning?.supportedEfforts.includes(configuredReasoningEffort)
+      );
+      setFormModelSource(selectedSourceType);
+      setFormSourceId(selectedSourceId);
+      setFormModel(selectedModel);
+      setFormReasoningEffort(preservesReasoningEffort ? configuredReasoningEffort : undefined);
+      setFormSystemPrompt(agent.system_prompt || '');
+      setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
+      setFormSkillIds(agent.skillNames || []);
+      const toolScope = readToolScopeFromConfig(agent.config);
+      setFormToolScopeMode(toolScope.mode);
+      setFormBuiltInTools(toolScope.builtInTools ?? []);
+      setFormToolScopeMcpServerIds(toolScope.mcpServerIds ?? []);
     } else {
       setFormName('');
       setFormDesc('');
-      const activeProvider = providers.find(p => p.is_active === 1) || providers[0];
-      setFormProviderId(activeProvider?.id || '');
-      setFormModel('');
+      const activeProvider = providers.find(provider => provider.is_active === 1);
+      const selectedGroup = providersLoading || aiSubscriptionsLoading
+        ? undefined
+        : modelGroups.find(group => (
+            group.sourceType === 'llm_provider' && group.sourceId === activeProvider?.id
+          )) || modelGroups[0];
+      setFormModelSource(selectedGroup?.sourceType || '');
+      setFormSourceId(selectedGroup?.sourceId || '');
+      setFormModel(selectedGroup?.candidates[0]?.model || '');
+      setFormReasoningEffort(undefined);
       setFormSystemPrompt('');
       setFormMcpExclusionIds([]);
       setFormSkillIds([]);
@@ -191,7 +268,42 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       setFormToolScopeMcpServerIds([]);
     }
     setSkillDropdownOpen(false);
-  }, [isOpen, agentId, agents, providers]);
+  }, [
+    agentId,
+    agents,
+    aiSubscriptionsLoading,
+    isOpen,
+    modelGroups,
+    providers,
+    providersLoading,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isOpen
+      || agentId
+      || formSourceId
+      || providersLoading
+      || aiSubscriptionsLoading
+      || modelGroups.length === 0
+    ) return;
+    const activeProvider = providers.find(provider => provider.is_active === 1);
+    const selectedGroup = modelGroups.find(group => (
+      group.sourceType === 'llm_provider' && group.sourceId === activeProvider?.id
+    )) || modelGroups[0];
+    setFormModelSource(selectedGroup.sourceType);
+    setFormSourceId(selectedGroup.sourceId);
+    setFormModel(selectedGroup.candidates[0]?.model || '');
+    setFormReasoningEffort(undefined);
+  }, [
+    agentId,
+    aiSubscriptionsLoading,
+    formSourceId,
+    isOpen,
+    modelGroups,
+    providers,
+    providersLoading,
+  ]);
 
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,7 +335,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
       return;
     }
 
-    if (!formProviderId && !isProtectedAgent) {
+    if (!formSourceId && !isProtectedAgent) {
       showToast(t('agent.providerRequired'), 'error');
       return;
     }
@@ -242,14 +354,25 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
           }
         : { mode: 'inherit' },
     };
-    if (formModel) nextConfig.model = formModel;
-    else delete nextConfig.model;
+    if (formModelSource && formSourceId) {
+      nextConfig.modelSource = formModelSource;
+      nextConfig.sourceId = formSourceId;
+      if (formModel) nextConfig.model = formModel;
+      else delete nextConfig.model;
+      if (formReasoningEffort) nextConfig.reasoningEffort = formReasoningEffort;
+      else delete nextConfig.reasoningEffort;
+    } else {
+      delete nextConfig.modelSource;
+      delete nextConfig.sourceId;
+      delete nextConfig.model;
+      delete nextConfig.reasoningEffort;
+    }
 
     const payload = {
       id,
       name: formName,
       description: formDesc,
-      provider_id: formProviderId || null,
+      provider_id: formModelSource === 'llm_provider' ? formSourceId : null,
       system_prompt: formSystemPrompt,
       config: nextConfig,
       mcpServerExclusionIds: formMcpExclusionIds,
@@ -305,14 +428,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     server.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())
   );
   const visibleMcpCount = mcpServers.filter(server => !formMcpExclusionIds.includes(server.id)).length;
-  const selectedProvider = providers.find(provider => provider.id === formProviderId);
-  const modelOptions = selectedProvider
-    ? [
-        { value: '', label: t('agent.providerDefaultModel', { model: selectedProvider.default_model }) },
-        ...Array.from(new Set([selectedProvider.default_model, ...(selectedProvider.models ?? [])]))
-          .map(model => ({ value: model, label: model })),
-      ]
-    : [];
+  const selectedModelGroup = modelGroups.find(group => (
+    group.sourceType === formModelSource && group.sourceId === formSourceId
+  ));
+  const selectedModelCandidate = selectedModelGroup?.candidates.find(candidate => candidate.model === formModel);
 
   const getSkillSourceLabel = (skill: { scope: string; sourceLabel?: string | null }) =>
     skill.sourceLabel || (skill.scope === 'project' ? t('agent.skillSourceProject') : t('agent.skillSourceGlobal'));
@@ -489,40 +608,39 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
                 {t('agent.providerLabel')}
                 {!isProtectedAgent && <span className="text-[var(--color-danger)]"> *</span>}
               </label>
-              <CustomSelect
-                value={formProviderId}
-                onChange={(val) => {
-                  setFormProviderId(val);
-                  setFormModel('');
+              <ModelSelectionSurface
+                variant="welcome"
+                modelGroups={modelGroups}
+                selectedSourceType={formModelSource || 'llm_provider'}
+                selectedSourceId={formSourceId}
+                selectedModel={formModel}
+                currentModelLabel={selectedModelCandidate?.label || formModel}
+                currentProviderType={selectedModelCandidate?.providerType}
+                onSelectModel={(sourceType, sourceId, model) => {
+                  setFormModelSource(sourceType);
+                  setFormSourceId(sourceId);
+                  setFormModel(model);
+                  setFormReasoningEffort(undefined);
                 }}
-                options={[
-                  ...(isProtectedAgent ? [{ value: '', label: t('agent.inheritInvokingModel') }] : []),
-                  ...providers.map(p => ({
-                    value: p.id,
-                    label: `${p.name} (${p.default_model})`
-                  })),
-                ]}
-                placeholder={providers.length === 0 ? t('agent.providerEmptyPlaceholder') : t('agent.providerPlaceholder')}
-                disabled={providers.length === 0 && !isProtectedAgent}
+                selectedReasoningEffort={formReasoningEffort}
+                onSelectReasoningEffort={setFormReasoningEffort}
+                inheritOption={isProtectedAgent ? {
+                  selected: !formSourceId,
+                  label: t('agent.inheritInvokingModel'),
+                  onSelect: () => {
+                    setFormModelSource('');
+                    setFormSourceId('');
+                    setFormModel('');
+                    setFormReasoningEffort(undefined);
+                  },
+                } : undefined}
               />
-              {isProtectedAgent && !formProviderId && (
+              {isProtectedAgent && !formSourceId && (
                 <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
                   {t('agent.inheritedModelHint')}
                 </p>
               )}
             </div>
-
-            {formProviderId && (
-              <div className="form-group">
-                <label className="form-label">{t('agent.modelOverrideLabel')}</label>
-                <CustomSelect
-                  value={formModel}
-                  onChange={setFormModel}
-                  options={modelOptions}
-                  placeholder={t('agent.providerDefaultModel', { model: selectedProvider?.default_model ?? '' })}
-                />
-              </div>
-            )}
           </div>
 
           {/* Right Column - Ability & Prompt Config (60%) */}

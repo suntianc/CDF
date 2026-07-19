@@ -35,4 +35,27 @@ describe('Delegated Agent model selection', () => {
       model: 'child-model',
     });
   });
+
+  it('uses an explicit target AI subscription model instead of treating it as an LLM provider', () => {
+    expect(resolveDelegatedModelOverrides({
+      targetProviderId: null,
+      targetConfig: {
+        modelSource: 'ai_subscription',
+        sourceId: 'codex-oauth',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+      },
+      parentProviderId: 'provider-parent',
+      parentOverrides: {
+        modelSource: 'llm_provider',
+        sourceId: 'provider-parent',
+        model: 'parent-model',
+      },
+    })).toEqual({
+      modelSource: 'ai_subscription',
+      sourceId: 'codex-oauth',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    });
+  });
 });

@@ -160,6 +160,40 @@ describe('ModelSelectionSurface', () => {
     expect(onSelectModel).toHaveBeenCalledWith('ai_subscription', 'minimax-token-plan', 'MiniMax-M2.7');
   });
 
+  it('offers an optional inherited Agent selection inside the shared model menu', () => {
+    const providers = [
+      provider({ id: 'provider-1', name: 'OpenAI', default_model: 'gpt-4.1' }),
+    ];
+    const onSelectInherit = vi.fn();
+
+    render(
+      <ModelSelectionSurface
+        variant="welcome"
+        modelGroups={buildModelSelectionGroups(providers)}
+        selectedSourceType="llm_provider"
+        selectedSourceId=""
+        selectedModel=""
+        currentModelLabel=""
+        onSelectModel={() => {}}
+        inheritOption={{
+          selected: true,
+          label: 'Inherit invoking Agent model',
+          onSelect: onSelectInherit,
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inherit invoking Agent model' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Model' }));
+
+    const inheritOption = screen.getByRole('option', { name: 'Inherit invoking Agent model' });
+    expect(inheritOption.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('option', { name: 'OpenAI • gpt-4.1' })).toBeTruthy();
+
+    fireEvent.click(inheritOption);
+    expect(onSelectInherit).toHaveBeenCalledOnce();
+  });
+
   it('offers settings when no providers are available', () => {
     const onOpenSettings = vi.fn();
 

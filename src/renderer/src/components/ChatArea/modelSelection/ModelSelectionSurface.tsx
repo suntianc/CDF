@@ -38,6 +38,11 @@ export interface ModelSelectionSurfaceProps {
   onOpenSettings?: () => void;
   selectedReasoningEffort?: ReasoningEffort;
   onSelectReasoningEffort?: (effort?: ReasoningEffort) => void;
+  inheritOption?: {
+    selected: boolean;
+    label: string;
+    onSelect: () => void;
+  };
 }
 
 
@@ -57,6 +62,7 @@ export function ModelSelectionSurface({
   onOpenSettings,
   selectedReasoningEffort,
   onSelectReasoningEffort,
+  inheritOption,
 }: ModelSelectionSurfaceProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -68,13 +74,15 @@ export function ModelSelectionSurface({
     : 'model-selector model-selector--composer';
 
 
-  const activeCandidate = modelGroups
-    .flatMap((group) => group.candidates)
-    .find((candidate) => (
-      candidate.sourceType === selectedSourceType &&
-      candidate.sourceId === selectedSourceId &&
-      candidate.model === selectedModel
-    ));
+  const activeCandidate = inheritOption?.selected
+    ? undefined
+    : modelGroups
+        .flatMap((group) => group.candidates)
+        .find((candidate) => (
+          candidate.sourceType === selectedSourceType &&
+          candidate.sourceId === selectedSourceId &&
+          candidate.model === selectedModel
+        ));
   const reasoning = activeCandidate?.reasoning;
   const controlLabel = reasoning
     ? t(reasoning.control === 'agent_count' ? 'chat.reasoningEffort.agentCountLabel' : 'chat.reasoningEffort.depthLabel')
@@ -84,7 +92,9 @@ export function ModelSelectionSurface({
     : reasoning?.defaultEffort
       ? t(`chat.reasoningEffort.efforts.${reasoning.defaultEffort}`)
       : '';
-  const triggerLabel = activeCandidate?.label || currentModelLabel || t('chat.selectModel');
+  const triggerLabel = inheritOption?.selected
+    ? inheritOption.label
+    : activeCandidate?.label || currentModelLabel || t('chat.selectModel');
   const triggerAriaLabel = reasoning && selectedEffortDisplay
     ? `${triggerLabel} · ${selectedEffortDisplay}`
     : triggerLabel;
@@ -137,7 +147,7 @@ export function ModelSelectionSurface({
             aria-haspopup="listbox"
             aria-expanded={open}
           >
-            {(activeCandidate || triggerProviderType) && (
+            {!inheritOption?.selected && (activeCandidate || triggerProviderType) && (
               <ProviderIcon
                 provider={triggerProviderType || 'openai'}
                 size={14}
@@ -159,7 +169,7 @@ export function ModelSelectionSurface({
           sideOffset={6}
           className="w-52 max-h-[360px] overflow-y-auto p-1 bg-[var(--color-bg-surface)] border border-[var(--color-border-strong)] rounded-md shadow-md"
         >
-          {modelGroups.length === 0 ? (
+          {modelGroups.length === 0 && !inheritOption ? (
             <DropdownMenuItem
               role="button"
               aria-label={t('chat.noProvidersAvailable')}
@@ -178,6 +188,28 @@ export function ModelSelectionSurface({
                   <span>{t('chat.modelSelection.label')}</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-[240px] max-h-[320px] overflow-y-auto bg-[var(--color-bg-surface)] border border-[var(--color-border-strong)]">
+                  {inheritOption && (
+                    <>
+                      <DropdownMenuItem
+                        role="option"
+                        aria-selected={inheritOption.selected}
+                        aria-label={inheritOption.label}
+                        className={`flex items-center gap-2.5 px-2 py-1.5 rounded cursor-pointer transition-colors focus:bg-[var(--color-bg-hover)] ${inheritOption.selected ? 'bg-[var(--color-bg-hover)]/50 font-medium' : ''}`}
+                        onClick={() => {
+                          inheritOption.onSelect();
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="flex-1 min-w-0 truncate text-xs text-[var(--color-text-primary)]">
+                          {inheritOption.label}
+                        </span>
+                        {inheritOption.selected && (
+                          <Check className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0 self-center" />
+                        )}
+                      </DropdownMenuItem>
+                      {modelGroups.length > 0 && <DropdownMenuSeparator className="my-1 border-[var(--color-border)]" />}
+                    </>
+                  )}
                   {modelGroups.map((group, groupIndex) => (
                     <div key={group.id}>
                       {groupIndex > 0 && <DropdownMenuSeparator className="my-1 border-[var(--color-border)]" />}

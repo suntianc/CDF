@@ -7,30 +7,62 @@ interface ResolveDelegatedModelOverridesInput {
   parentOverrides?: ChatRuntimeOverrides;
 }
 
-function readExplicitModel(config: ResolveDelegatedModelOverridesInput['targetConfig']): string | null {
-  let parsed: Record<string, unknown> = {};
-  if (config && typeof config === 'object') {
-    parsed = config;
-  } else if (typeof config === 'string') {
-    try {
-      const value = JSON.parse(config) as unknown;
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        parsed = value as Record<string, unknown>;
-      }
-    } catch {
-      return null;
-    }
+function readTargetConfig(config: ResolveDelegatedModelOverridesInput['targetConfig']): Record<string, unknown> {
+  if (config && typeof config === 'object') return config;
+  if (typeof config !== 'string') return {};
+  try {
+    const value = JSON.parse(config) as unknown;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
   }
-  return typeof parsed.model === 'string' && parsed.model.trim()
-    ? parsed.model.trim()
-    : null;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readReasoningEffort(value: unknown): ChatRuntimeOverrides['reasoningEffort'] {
+  switch (value) {
+    case 'none':
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+    case 'ultra':
+      return value;
+    default:
+      return undefined;
+  }
 }
 
 export function resolveDelegatedModelOverrides(
   input: ResolveDelegatedModelOverridesInput,
 ): ChatRuntimeOverrides | undefined {
-  const explicitProviderId = input.targetProviderId?.trim() || null;
-  const explicitModel = readExplicitModel(input.targetConfig);
+  const targetConfig = readTargetConfig(input.targetConfig);
+  const configuredModelSource = targetConfig.modelSource === 'ai_subscription'
+    ? 'ai_subscription'
+    : targetConfig.modelSource === 'llm_provider'
+      ? 'llm_provider'
+      : null;
+  const configuredSourceId = readNonEmptyString(targetConfig.sourceId);
+  const explicitModel = readNonEmptyString(targetConfig.model);
+
+  if (configuredModelSource === 'ai_subscription' && configuredSourceId) {
+    const reasoningEffort = readReasoningEffort(targetConfig.reasoningEffort);
+    return {
+      modelSource: 'ai_subscription',
+      sourceId: configuredSourceId,
+      ...(explicitModel ? { model: explicitModel } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+    };
+  }
+
+  const explicitProviderId = input.targetProviderId?.trim()
+    || (configuredModelSource === 'llm_provider' ? configuredSourceId : null);
   if (!explicitProviderId && !explicitModel) return input.parentOverrides;
 
   const providerId = explicitProviderId ?? input.parentProviderId;

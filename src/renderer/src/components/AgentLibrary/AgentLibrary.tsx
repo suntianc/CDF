@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../../stores/agentStore';
+import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
@@ -9,6 +10,7 @@ import {
   Plus, Trash2, Edit2, X, Bot, Layers, Code, Search
 } from 'lucide-react';
 import { AgentEditDialog } from './AgentEditDialog';
+import { buildModelSelectionGroups } from '../ChatArea/modelSelection/useModelSelectionController';
 import { ProviderIcon } from '../ui/ProviderIcon';
 import { getAgentErrorTranslationKey } from './agentErrorI18n';
 
@@ -28,12 +30,17 @@ export function AgentLibrary() {
   const { t } = useTranslation();
   const { agents, error, fetchAgents, deleteCustomAgent } = useAgentStore();
   const { providers, fetchProviders } = useLLMStore();
+  const { entries: aiSubscriptionEntries, fetchEntries: fetchAISubscriptions } = useAISubscriptionStore();
   const { fetchGlobalSkills } = useSkillStore();
   const { fetchMcpServers } = useMcpServerStore();
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const modelGroups = useMemo(
+    () => buildModelSelectionGroups(providers, aiSubscriptionEntries),
+    [aiSubscriptionEntries, providers],
+  );
 
   // Search query state
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,9 +48,10 @@ export function AgentLibrary() {
   useEffect(() => {
     fetchAgents();
     fetchProviders();
+    fetchAISubscriptions();
     fetchGlobalSkills();
     fetchMcpServers();
-  }, [fetchAgents, fetchProviders, fetchGlobalSkills, fetchMcpServers]);
+  }, [fetchAISubscriptions, fetchAgents, fetchProviders, fetchGlobalSkills, fetchMcpServers]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -131,6 +139,28 @@ export function AgentLibrary() {
           ).map((agent) => {
             const provider = providers.find(p => p.id === agent.provider_id);
             const isProtected = agent.role !== 'custom';
+            const configuredModelSource = agent.config?.modelSource === 'ai_subscription'
+              ? 'ai_subscription'
+              : provider
+                ? 'llm_provider'
+                : null;
+            const configuredSourceId = configuredModelSource === 'ai_subscription'
+              && typeof agent.config?.sourceId === 'string'
+              ? agent.config.sourceId
+              : provider?.id || '';
+            const configuredModel = typeof agent.config?.model === 'string' ? agent.config.model : '';
+            const modelGroup = modelGroups.find(group => (
+              group.sourceType === configuredModelSource && group.sourceId === configuredSourceId
+            ));
+            const modelCandidate = modelGroup?.candidates.find(candidate => candidate.model === configuredModel);
+            const subscription = configuredModelSource === 'ai_subscription'
+              ? aiSubscriptionEntries.find(entry => entry.id === configuredSourceId)
+              : undefined;
+            const sourceName = modelGroup?.sourceName || subscription?.displayName || provider?.name || configuredSourceId;
+            const modelName = modelCandidate?.label || configuredModel || provider?.default_model || '';
+            const modelSummary = sourceName && modelName
+              ? `${sourceName} (${modelName})`
+              : isProtected ? t('agent.inheritedModelShort') : t('agent.noModel');
             return (
               <div key={agent.id} className="provider-card resource-square-card flex flex-col p-4 border border-transparent hover:border-[var(--color-border)] rounded-[var(--radius-md)] bg-[var(--color-bg-surface)] transition-colors group">
                 <div className="min-w-0 flex-1">
@@ -152,9 +182,7 @@ export function AgentLibrary() {
                         )}
                       </div>
                       <div className="text-xs text-[var(--color-text-secondary)] truncate">
-                        {t('agent.modelLabel')}{provider
-                          ? `${provider.name} (${provider.default_model})`
-                          : isProtected ? t('agent.inheritedModelShort') : t('agent.noModel')}
+                        {t('agent.modelLabel')}{modelSummary}
                       </div>
                     </div>
                   </div>
