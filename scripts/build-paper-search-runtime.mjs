@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { buildSync } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,24 +19,16 @@ if (typeof binEntry !== 'string' || binEntry.length === 0) {
 }
 
 const entry = path.join(packageDir, binEntry);
-const esbuildBin = path.join(
-  rootDir,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'esbuild.cmd' : 'esbuild',
-);
 
 fs.mkdirSync(outDir, { recursive: true });
-execFileSync(esbuildBin, [
-  entry,
-  '--bundle',
-  '--platform=node',
-  '--format=cjs',
-  `--outfile=${outFile}`,
-  '--external:readline/promises',
-], {
-  cwd: rootDir,
-  stdio: 'inherit',
+buildSync({
+  entryPoints: [entry],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: outFile,
+  external: ['readline/promises'],
+  logLevel: 'info',
 });
 
 const bundled = fs.readFileSync(outFile, 'utf-8');
