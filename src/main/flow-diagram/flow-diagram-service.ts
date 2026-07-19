@@ -231,8 +231,6 @@ export async function replaceFileAtomicallyIfUnchanged(
 ): Promise<void> {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporaryPath = temporaryPathFor(filePath);
-  const backupPath = `${temporaryPath}.previous`;
-  let capturedCurrent = false;
   try {
     const handle = await fs.promises.open(temporaryPath, 'wx', 0o600);
     try {
@@ -242,12 +240,11 @@ export async function replaceFileAtomicallyIfUnchanged(
       await handle.close();
     }
 
-    if (expectedBytes) {
+    if (expectedBytes === null) {
       try {
-        await fs.promises.rename(filePath, backupPath);
-        capturedCurrent = true;
+        await fs.promises.link(temporaryPath, filePath);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
           throw new FlowDiagramOperationError(
             'SOURCE_CHANGED',
             'The Flow Diagram changed before the operation could be applied.',
@@ -255,23 +252,14 @@ export async function replaceFileAtomicallyIfUnchanged(
         }
         throw error;
       }
-      if (!fs.readFileSync(backupPath).equals(expectedBytes)) {
-        try {
-          await fs.promises.link(backupPath, filePath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        }
-        throw new FlowDiagramOperationError(
-          'SOURCE_CHANGED',
-          'The Flow Diagram changed before the operation could be applied.',
-        );
-      }
+      return;
     }
 
+    let currentBytes: Buffer;
     try {
-      await fs.promises.link(temporaryPath, filePath);
+      currentBytes = fs.readFileSync(filePath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new FlowDiagramOperationError(
           'SOURCE_CHANGED',
           'The Flow Diagram changed before the operation could be applied.',
@@ -279,16 +267,17 @@ export async function replaceFileAtomicallyIfUnchanged(
       }
       throw error;
     }
-  } finally {
-    if (capturedCurrent && !fs.existsSync(filePath) && fs.existsSync(backupPath)) {
-      try {
-        await fs.promises.link(backupPath, filePath);
-      } catch {
-        // Preserve the operation error; a concurrently-created target is never overwritten.
-      }
+    if (!currentBytes.equals(expectedBytes)) {
+      throw new FlowDiagramOperationError(
+        'SOURCE_CHANGED',
+        'The Flow Diagram changed before the operation could be applied.',
+      );
     }
+    // CDF mutations for this Project hold the shared coordinator lock. rename is
+    // the single atomic publication step, so readers never observe partial bytes.
+    await fs.promises.rename(temporaryPath, filePath);
+  } finally {
     await fs.promises.rm(temporaryPath, { force: true });
-    await fs.promises.rm(backupPath, { force: true });
   }
 }
 
@@ -296,46 +285,25 @@ async function removeFileAtomicallyIfUnchanged(
   filePath: string,
   expectedBytes: Buffer,
 ): Promise<void> {
-  const backupPath = `${temporaryPathFor(filePath)}.remove`;
-  let capturedCurrent = false;
+  let currentBytes: Buffer;
   try {
-    try {
-      await fs.promises.rename(filePath, backupPath);
-      capturedCurrent = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new FlowDiagramOperationError(
-          'SOURCE_CHANGED',
-          'The Flow Diagram changed before the operation could be completed.',
-        );
-      }
-      throw error;
-    }
-    if (!fs.readFileSync(backupPath).equals(expectedBytes)) {
-      try {
-        await fs.promises.link(backupPath, filePath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      }
+    currentBytes = fs.readFileSync(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new FlowDiagramOperationError(
         'SOURCE_CHANGED',
         'The Flow Diagram changed before the operation could be completed.',
       );
     }
-  } finally {
-    if (capturedCurrent && !fs.existsSync(filePath) && fs.existsSync(backupPath)) {
-      // A matching captured file is intentionally removed; mismatches were restored above.
-      const captured = fs.readFileSync(backupPath);
-      if (!captured.equals(expectedBytes)) {
-        try {
-          await fs.promises.link(backupPath, filePath);
-        } catch {
-          // A concurrently-created target is never overwritten.
-        }
-      }
-    }
-    await fs.promises.rm(backupPath, { force: true });
+    throw error;
   }
+  if (!currentBytes.equals(expectedBytes)) {
+    throw new FlowDiagramOperationError(
+      'SOURCE_CHANGED',
+      'The Flow Diagram changed before the operation could be completed.',
+    );
+  }
+  await fs.promises.unlink(filePath);
 }
 
 async function writeNewFileAtomically(filePath: string, bytes: Buffer): Promise<void> {
