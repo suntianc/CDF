@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { useWorkflowRunStore } from '../../stores/workflowRunStore';
+import {
+  useWorkflowRunStore,
+  WORKFLOW_RUN_MODEL_REQUIRED_ERROR,
+} from '../../stores/workflowRunStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { Workflow } from '../../../../shared/types';
 import { Plus, Trash2, GitBranch, Clock, Play, Info, Edit } from 'lucide-react';
@@ -77,7 +80,10 @@ export function WorkflowList({ onSelectWorkflow, onCreateWorkflow }: WorkflowLis
       await startRun(workflow.id, currentProjectId);
       showToast(t('workflow.list.workflowStarted'), 'success');
     } catch (err: any) {
-      showToast(err.message || t('workflow.list.runFailed'), 'error');
+      const message = err?.message === WORKFLOW_RUN_MODEL_REQUIRED_ERROR
+        ? t('workflow.list.runRequiresModel')
+        : err.message || t('workflow.list.runFailed');
+      showToast(message, 'error');
     }
   };
 

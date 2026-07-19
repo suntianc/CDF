@@ -934,6 +934,7 @@
       "statusChanged": "Workflow {{status}}",
       "statusChangeFailed": "Failed to change status",
       "runRequiresStage": "Add at least one Stage before starting a Workflow Run.",
+      "runRequiresModel": "Configure an available model before starting a Workflow Run.",
       "startingWorkflow": "Starting Workflow Run...",
       "workflowStarted": "Workflow Run started",
       "runFailed": "Failed to start Workflow Run",

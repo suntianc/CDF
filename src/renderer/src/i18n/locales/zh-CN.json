@@ -934,6 +934,7 @@
       "statusChanged": "工作流{{status}}",
       "statusChangeFailed": "修改状态失败",
       "runRequiresStage": "启动工作流运行前至少添加一个阶段。",
+      "runRequiresModel": "请先配置一个可用模型，再启动工作流运行。",
       "startingWorkflow": "正在启动工作流运行...",
       "workflowStarted": "工作流运行已启动",
       "runFailed": "启动工作流运行失败",

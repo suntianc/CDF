@@ -36,6 +36,20 @@ export interface ModelSelectionGroup {
   candidates: ModelSelectionCandidate[];
 }
 
+export function resolveDefaultModelSelectionCandidate(
+  candidates: ReadonlyArray<ModelSelectionCandidate>,
+  masterProvider: LLMProvider | null,
+): ModelSelectionCandidate | null {
+  const masterCandidate = masterProvider
+    ? candidates.find((candidate) => (
+      candidate.sourceType === 'llm_provider' &&
+      candidate.sourceId === masterProvider.id &&
+      candidate.model === masterProvider.default_model
+    ))
+    : null;
+  return masterCandidate ?? candidates[0] ?? null;
+}
+
 export interface UseModelSelectionControllerOptions {
   activeSessionId: string | null;
   providers: ReadonlyArray<LLMProvider>;
@@ -60,6 +74,12 @@ export function getModelCandidates(
     ...(provider.models ?? []),
     selectedModel,
   ].filter((model): model is string => Boolean(model))));
+}
+
+function isSelectableLLMProvider(provider: LLMProvider): boolean {
+  if (provider.hasKey !== false) return true;
+  if (provider.provider_type !== 'ollama') return false;
+  return !provider.id.startsWith('default-') || provider.updated_at > provider.created_at;
 }
 
 function llmProviderCandidates(provider: LLMProvider): ModelSelectionCandidate[] {
@@ -100,13 +120,15 @@ export function buildModelSelectionGroups(
       };
     });
 
-  const providerGroups = providers.map((provider) => ({
-    id: `llm_provider:${provider.id}`,
-    sourceType: 'llm_provider' as const,
-    sourceId: provider.id,
-    sourceName: provider.name,
-    candidates: llmProviderCandidates(provider),
-  }));
+  const providerGroups = providers
+    .filter(isSelectableLLMProvider)
+    .map((provider) => ({
+      id: `llm_provider:${provider.id}`,
+      sourceType: 'llm_provider' as const,
+      sourceId: provider.id,
+      sourceName: provider.name,
+      candidates: llmProviderCandidates(provider),
+    }));
 
   const aiSubscriptionGroups = aiSubscriptionCandidates.reduce<ModelSelectionGroup[]>((groups, candidate) => {
     let group = groups.find((item) => item.sourceId === candidate.sourceId);
@@ -139,10 +161,9 @@ export function useModelSelectionController({
 }: UseModelSelectionControllerOptions) {
   const targetId = activeSessionId || '';
   const override = sessionModelOverrides[targetId] ?? null;
-  const selectedSourceType: ModelSourceType = override?.sourceType ?? 'llm_provider';
-  const selectedSourceId = override?.sourceId || override?.providerId || '';
-  const selectedProviderId = selectedSourceType === 'llm_provider' ? selectedSourceId : '';
-  const selectedModel = override?.model || '';
+  const storedSourceType: ModelSourceType = override?.sourceType ?? 'llm_provider';
+  const storedSourceId = override?.sourceId || override?.providerId || '';
+  const storedModel = override?.model || '';
 
   const modelGroups = useMemo(
     () => buildModelSelectionGroups(providers, aiSubscriptionEntries),
@@ -153,30 +174,27 @@ export function useModelSelectionController({
     [modelGroups]
   );
 
-  const selectedProvider = useMemo(
-    () => selectedSourceType === 'llm_provider'
-      ? providers.find((provider) => provider.id === selectedSourceId) ?? null
-      : null,
-    [providers, selectedSourceId, selectedSourceType]
-  );
-  const selectedCandidate = useMemo(() => (
-    selectedSourceId && selectedModel
+  const storedCandidate = useMemo(() => (
+    storedSourceId && storedModel
       ? modelCandidates.find((candidate) => (
-        candidate.sourceType === selectedSourceType &&
-        candidate.sourceId === selectedSourceId &&
-        candidate.model === selectedModel
+        candidate.sourceType === storedSourceType &&
+        candidate.sourceId === storedSourceId &&
+        candidate.model === storedModel
       )) ?? null
       : null
-  ), [modelCandidates, selectedModel, selectedSourceId, selectedSourceType]);
-  const masterCandidate = useMemo(() => {
-    if (!masterProvider) return null;
-    return modelCandidates.find((candidate) => (
-      candidate.sourceType === 'llm_provider' &&
-      candidate.sourceId === masterProvider.id &&
-      candidate.model === masterProvider.default_model
-    )) ?? null;
-  }, [masterProvider, modelCandidates]);
-  const currentCandidate = selectedCandidate || masterCandidate;
+  ), [modelCandidates, storedModel, storedSourceId, storedSourceType]);
+  const defaultCandidate = useMemo(
+    () => resolveDefaultModelSelectionCandidate(modelCandidates, masterProvider),
+    [masterProvider, modelCandidates]
+  );
+  const currentCandidate = storedCandidate || defaultCandidate;
+  const selectedSourceType: ModelSourceType = currentCandidate?.sourceType ?? storedSourceType;
+  const selectedSourceId = currentCandidate?.sourceId ?? storedSourceId;
+  const selectedProviderId = selectedSourceType === 'llm_provider' ? selectedSourceId : '';
+  const selectedModel = currentCandidate?.model ?? storedModel;
+  const selectedProvider = selectedSourceType === 'llm_provider'
+    ? providers.find((provider) => provider.id === selectedSourceId) ?? null
+    : null;
   const currentProvider = currentCandidate?.sourceType === 'llm_provider'
     ? providers.find((provider) => provider.id === currentCandidate.sourceId) ?? masterProvider
     : null;
@@ -188,36 +206,36 @@ export function useModelSelectionController({
     : undefined;
 
   useEffect(() => {
-    if (!selectedSourceId || modelCandidates.length === 0) return;
+    if (!storedSourceId || modelCandidates.length === 0) return;
     const sourceCandidates = modelCandidates.filter((candidate) => (
-      candidate.sourceType === selectedSourceType &&
-      candidate.sourceId === selectedSourceId
+      candidate.sourceType === storedSourceType &&
+      candidate.sourceId === storedSourceId
     ));
     if (sourceCandidates.length > 0) return;
     setSessionModelOverride(targetId, '', '', 'llm_provider');
   }, [
     modelCandidates,
-    selectedSourceId,
-    selectedSourceType,
+    storedSourceId,
+    storedSourceType,
     setSessionModelOverride,
     targetId,
   ]);
 
   useEffect(() => {
-    if (!selectedSourceId || !selectedModel || modelCandidates.length === 0) return;
+    if (!storedSourceId || !storedModel || modelCandidates.length === 0) return;
     const sourceCandidates = modelCandidates.filter((candidate) => (
-      candidate.sourceType === selectedSourceType &&
-      candidate.sourceId === selectedSourceId
+      candidate.sourceType === storedSourceType &&
+      candidate.sourceId === storedSourceId
     ));
     if (sourceCandidates.length === 0) return;
-    if (sourceCandidates.some((candidate) => candidate.model === selectedModel)) return;
+    if (sourceCandidates.some((candidate) => candidate.model === storedModel)) return;
     const fallback = sourceCandidates[0];
     setSessionModelOverride(targetId, fallback.sourceId, fallback.model, fallback.sourceType);
   }, [
     modelCandidates,
-    selectedModel,
-    selectedSourceId,
-    selectedSourceType,
+    storedModel,
+    storedSourceId,
+    storedSourceType,
     setSessionModelOverride,
     targetId,
   ]);

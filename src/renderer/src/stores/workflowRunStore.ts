@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AgentApprovalRequest, WorkflowRun, WorkflowStageGate, WorkflowRunTask } from '../../../shared/types';
+import type { AgentApprovalRequest, ChatRuntimeOverrides, WorkflowRun, WorkflowStageGate, WorkflowRunTask } from '../../../shared/types';
 import type { WorkflowRunProjectionEvent } from '../../../shared/types';
 import {
   normalizeAcceptanceCriteria,
@@ -7,8 +7,48 @@ import {
   initialProjectionState,
   type WorkflowRunProjectionState,
 } from '../components/WorkflowRunView/workflowRunProjection';
+import {
+  buildModelSelectionGroups,
+  resolveDefaultModelSelectionCandidate,
+} from '../components/ChatArea/modelSelection/useModelSelectionController';
 import { useSessionStore } from './sessionStore';
 import { useProjectStore } from './projectStore';
+import { useAgentStore } from './agentStore';
+import { useAISubscriptionStore } from './aiSubscriptionStore';
+import { useLLMStore } from './llmStore';
+
+export const WORKFLOW_RUN_MODEL_REQUIRED_ERROR = 'WORKFLOW_RUN_MODEL_REQUIRED';
+
+async function resolveWorkflowRunModelOverrides(): Promise<ChatRuntimeOverrides | null> {
+  const pendingLoads: Promise<void>[] = [];
+  if (useLLMStore.getState().providers.length === 0) {
+    pendingLoads.push(useLLMStore.getState().fetchProviders());
+  }
+  if (useAgentStore.getState().agents.length === 0) {
+    pendingLoads.push(useAgentStore.getState().fetchAgents());
+  }
+  if (useAISubscriptionStore.getState().entries.length === 0) {
+    pendingLoads.push(useAISubscriptionStore.getState().fetchEntries());
+  }
+  await Promise.all(pendingLoads);
+
+  const providers = useLLMStore.getState().providers;
+  const agents = useAgentStore.getState().agents;
+  const subscriptionEntries = useAISubscriptionStore.getState().entries;
+  const masterAgent = agents.find((agent) => agent.role === 'master') ?? null;
+  const masterProvider = providers.find((provider) => provider.id === masterAgent?.provider_id) ?? null;
+  const candidates = buildModelSelectionGroups(providers, subscriptionEntries)
+    .flatMap((group) => group.candidates);
+  const candidate = resolveDefaultModelSelectionCandidate(candidates, masterProvider);
+  if (!candidate) return null;
+
+  return {
+    modelSource: candidate.sourceType,
+    sourceId: candidate.sourceId,
+    providerId: candidate.sourceType === 'llm_provider' ? candidate.sourceId : undefined,
+    model: candidate.model,
+  };
+}
 
 function isWorkflowStageApproval(approval: AgentApprovalRequest | null): boolean {
   return approval?.actions.length === 1 && approval.actions[0].name === 'advance_stage';
@@ -51,12 +91,23 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
   startRun: async (workflowId, projectId) => {
     set({ isLoading: true, error: null });
     try {
+      const modelOverrides = await resolveWorkflowRunModelOverrides();
+      if (!modelOverrides?.modelSource || !modelOverrides.sourceId || !modelOverrides.model) {
+        throw new Error(WORKFLOW_RUN_MODEL_REQUIRED_ERROR);
+      }
+
       const result = await window.electronAPI.workflowRun.start(workflowId, projectId);
-      
+
       const sessionStore = useSessionStore.getState();
+      sessionStore.setSessionModelOverride(
+        result.sessionId,
+        modelOverrides.sourceId,
+        modelOverrides.model,
+        modelOverrides.modelSource,
+      );
       await sessionStore.fetchSessions(projectId);
-      sessionStore.selectSession(result.sessionId);
-      
+      await sessionStore.selectSession(result.sessionId);
+
       const projectStore = useProjectStore.getState();
       projectStore.setActiveView('chat');
 
@@ -71,7 +122,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
 验收标准：
 ${criteriaList}`;
 
-      await sessionStore.sendMessage(projectId, content, undefined, result.sessionId);
+      await sessionStore.sendMessage(projectId, content, modelOverrides, result.sessionId);
 
       await get().loadRunForSession(result.sessionId);
       set({ isGraphView: true });

@@ -2,7 +2,10 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LLMProvider } from '@shared/types';
 import { buildAISubscriptionEntries } from '@shared/ai-subscriptions';
-import { useModelSelectionController } from './useModelSelectionController';
+import {
+  buildModelSelectionGroups,
+  useModelSelectionController,
+} from './useModelSelectionController';
 
 function provider(overrides: Partial<LLMProvider> & Pick<LLMProvider, 'id' | 'name' | 'default_model'>): LLMProvider {
   return {
@@ -52,6 +55,36 @@ describe('useModelSelectionController', () => {
     expect(setSessionModelOverride).toHaveBeenCalledWith('session-1', 'provider-2', 'claude-sonnet', 'llm_provider');
   });
 
+  it('selects the first available model when the Master provider is not selectable', () => {
+    const setSessionModelOverride = vi.fn();
+    const providers = [
+      provider({
+        id: 'default-openai',
+        name: 'OpenAI',
+        default_model: 'gpt-4o',
+        hasKey: false,
+      }),
+    ];
+    const aiSubscriptionEntries = buildAISubscriptionEntries({
+      entries: { 'codex-oauth': { status: 'connected' } },
+    });
+
+    const { result } = renderHook(() => useModelSelectionController({
+      activeSessionId: 'session-1',
+      providers,
+      aiSubscriptionEntries,
+      sessionModelOverrides: {},
+      masterProvider: providers[0],
+      setSessionModelOverride,
+    }));
+
+    expect(result.current.selectedSourceType).toBe('ai_subscription');
+    expect(result.current.selectedSourceId).toBe('codex-oauth');
+    expect(result.current.selectedModel).toBe('gpt-5.6-sol');
+    expect(result.current.currentModelLabel).toBe('GPT-5.6 Sol');
+    expect(setSessionModelOverride).not.toHaveBeenCalled();
+  });
+
   it('uses the welcome draft model override and writes selections to the welcome target', () => {
     const setSessionModelOverride = vi.fn();
     const providers = [
@@ -79,6 +112,49 @@ describe('useModelSelectionController', () => {
     });
 
     expect(setSessionModelOverride).toHaveBeenCalledWith('', 'provider-1', 'gpt-4.1', 'llm_provider');
+  });
+
+  it('hides unconfigured provider placeholders without hiding connected OAuth models', () => {
+    const providers = [
+      provider({
+        id: 'default-openai',
+        name: 'OpenAI',
+        default_model: 'gpt-4o',
+        hasKey: false,
+      }),
+      provider({
+        id: 'configured-anthropic',
+        name: 'Anthropic',
+        default_model: 'claude-sonnet',
+        hasKey: true,
+      }),
+      provider({
+        id: 'default-ollama',
+        name: 'Ollama',
+        default_model: 'llama3',
+        provider_type: 'ollama',
+        hasKey: false,
+      }),
+      provider({
+        id: 'local-ollama',
+        name: 'Local Ollama',
+        default_model: 'qwen3',
+        provider_type: 'ollama',
+        hasKey: false,
+      }),
+    ];
+    const aiSubscriptionEntries = buildAISubscriptionEntries({
+      entries: {
+        'codex-oauth': { status: 'connected' },
+        'xai-oauth': { status: 'logged_out' },
+      },
+    });
+
+    expect(buildModelSelectionGroups(providers, aiSubscriptionEntries).map((group) => group.id)).toEqual([
+      'llm_provider:configured-anthropic',
+      'llm_provider:local-ollama',
+      'ai_subscription:codex-oauth',
+    ]);
   });
 
   it('groups LLM Provider and connected AI subscription text candidates by concrete source', () => {

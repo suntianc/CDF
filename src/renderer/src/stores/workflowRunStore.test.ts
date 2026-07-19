@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkflowRunStore } from './workflowRunStore';
 import { useSessionStore } from './sessionStore';
+import { useAgentStore } from './agentStore';
+import { useAISubscriptionStore } from './aiSubscriptionStore';
+import { useLLMStore } from './llmStore';
+import { useProjectStore } from './projectStore';
 import type { WorkflowRun, WorkflowStageGate } from '../../../shared/types';
+import { buildAISubscriptionEntries } from '../../../shared/ai-subscriptions';
 import { initialProjectionState } from '../components/WorkflowRunView/workflowRunProjection';
 
 // ---- helpers ----
@@ -83,10 +88,91 @@ beforeEach(() => {
     error: null,
     _requestSeq: 0,
   });
-  useSessionStore.setState({ pendingApproval: null });
+  useSessionStore.setState({ pendingApproval: null, sessionModelOverrides: {} });
+  useAgentStore.setState({ agents: [] });
+  useAISubscriptionStore.setState({ entries: [] });
+  useLLMStore.setState({ providers: [], activeProvider: null });
+  useProjectStore.setState({ currentProjectId: 'proj-1' });
 });
 
 // ---- tests ----
+
+describe('workflowRunStore.startRun', () => {
+  it('selects an available default model before sending the first Workflow message', async () => {
+    const run = makeRun({ session_id: 'workflow-session' });
+    const firstStage = {
+      id: 'stage-1',
+      name: 'Stage 1',
+      taskDescription: 'Task 1',
+      acceptanceCriteria: 'criterion 1',
+      gateEnabled: true,
+    };
+    vi.mocked(window.electronAPI.workflowRun.start).mockResolvedValue({
+      runId: run.id,
+      sessionId: run.session_id,
+      firstStage,
+    });
+    vi.mocked(window.electronAPI.workflowRun.getRunBySession).mockResolvedValue(run);
+    vi.mocked(window.electronAPI.workflowRun.getStageGates).mockResolvedValue([]);
+    vi.mocked(window.electronAPI.workflowRun.getTasks).mockResolvedValue([]);
+
+    useAgentStore.setState({
+      agents: [{
+        id: 'master-agent',
+        role: 'master',
+        name: 'Master Agent',
+        provider_id: 'default-openai',
+        created_at: 1_000,
+        updated_at: 1_000,
+      }],
+    });
+    useLLMStore.setState({
+      providers: [{
+        id: 'default-openai',
+        name: 'OpenAI',
+        provider_type: 'openai',
+        default_model: 'gpt-4o',
+        context_limit: 128_000,
+        is_active: 1,
+        models: [],
+        hasKey: false,
+        created_at: 1_000,
+        updated_at: 1_000,
+      }],
+      activeProvider: null,
+    });
+    useAISubscriptionStore.setState({
+      entries: buildAISubscriptionEntries({
+        entries: { 'codex-oauth': { status: 'connected' } },
+      }),
+    });
+
+    const sendMessage = vi.fn(async () => ({ ok: true as const }));
+    useSessionStore.setState({
+      fetchSessions: vi.fn(async () => {}),
+      selectSession: vi.fn(async () => {}),
+      sendMessage,
+    });
+
+    await useWorkflowRunStore.getState().startRun('wf-1', 'proj-1');
+
+    expect(useSessionStore.getState().sessionModelOverrides[run.session_id]).toMatchObject({
+      sourceType: 'ai_subscription',
+      sourceId: 'codex-oauth',
+      model: 'gpt-5.6-sol',
+    });
+    expect(sendMessage).toHaveBeenCalledWith(
+      'proj-1',
+      expect.stringContaining('Stage 1'),
+      expect.objectContaining({
+        modelSource: 'ai_subscription',
+        sourceId: 'codex-oauth',
+        model: 'gpt-5.6-sol',
+      }),
+      run.session_id,
+    );
+  });
+});
 
 describe('workflowRunStore.loadRunForSession', () => {
   it('loads a run and its gates/tasks when session has a run', async () => {
