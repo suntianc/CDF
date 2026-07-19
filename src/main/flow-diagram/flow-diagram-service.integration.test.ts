@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -106,6 +107,10 @@ function writeScene(filePath: string, value: ExcalidrawScene): Buffer {
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+function hashBytes(bytes: Buffer): string {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
 }
 
 describe('FlowDiagramService integration', () => {
@@ -268,6 +273,31 @@ describe('FlowDiagramService integration', () => {
     expect(git(projectPath, 'diff', '--cached', '--binary')).toBe(beforeIndex);
     expect(git(projectPath, 'status', '--porcelain')).not.toContain('cdf-state');
     expect(fs.existsSync(path.join(stateRoot, 'flow-diagram-revisions'))).toBe(true);
+  });
+
+  it('records and rolls back revisions when internal snapshot paths exceed legacy Windows limits', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    const original = writeScene(filePath, scene([rectangle('one')]));
+    const targetStateRootLength = 90;
+    const paddingLength = Math.max(8, targetStateRootLength - root.length - 'state-'.length - 1);
+    const longStateRoot = path.join(root, `state-${'x'.repeat(paddingLength)}`);
+    const longPathService = createFlowDiagramService({ projectPath, stateRoot: longStateRoot });
+
+    expect(await longPathService.execute({
+      action: 'edit',
+      file_path: filePath,
+      operations: [{ op: 'add', elements: [rectangle('two')] }],
+    })).toMatchObject({ ok: true });
+    const snapshot = fs.readdirSync(longStateRoot, { recursive: true })
+      .find((entry) => entry.toString().endsWith('.excalidraw'));
+    expect(snapshot).toBeDefined();
+    expect(path.join(longStateRoot, snapshot!.toString()).length).toBeGreaterThan(260);
+
+    expect(await longPathService.execute({
+      action: 'rollback',
+      file_path: filePath,
+    })).toMatchObject({ ok: true });
+    expect(fs.readFileSync(filePath)).toEqual(original);
   });
 
   it('updates and deletes exact stable ids without regenerating untouched content or broken bindings', async () => {
@@ -502,7 +532,7 @@ describe('FlowDiagramService integration', () => {
 
   it('preserves an external source change that arrives during rollback preparation', async () => {
     const filePath = path.join(projectPath, 'diagram.excalidraw');
-    writeScene(filePath, scene([rectangle('current')]));
+    const current = writeScene(filePath, scene([rectangle('current')]));
     const external = Buffer.from(`${JSON.stringify(scene([rectangle('external')]), null, 2)}\n`);
     const previous = Buffer.from(`${JSON.stringify(scene([rectangle('previous')]), null, 2)}\n`);
     const consumeLatest = vi.fn();
@@ -513,7 +543,11 @@ describe('FlowDiagramService integration', () => {
         record: vi.fn(async () => 'unused'),
         peekLatest: vi.fn(async () => {
           fs.writeFileSync(filePath, external);
-          return { token: 'rollback', sourceBytes: previous };
+          return {
+            token: 'rollback',
+            sourceBytes: previous,
+            appliedSourceHash: hashBytes(current),
+          };
         }),
         consumeLatest,
       },
@@ -568,6 +602,18 @@ describe('FlowDiagramService integration', () => {
   it('keeps successful edits until an explicit rollback restores the latest applicable revision', async () => {
     const filePath = path.join(projectPath, 'diagram.excalidraw');
     const original = writeScene(filePath, scene([rectangle('one')]));
+    git(projectPath, 'init');
+    git(projectPath, 'config', 'user.email', 'test@cdf.local');
+    git(projectPath, 'config', 'user.name', 'CDF Test');
+    git(projectPath, 'add', 'diagram.excalidraw');
+    git(projectPath, 'commit', '-m', 'baseline');
+    fs.writeFileSync(path.join(projectPath, 'staged.txt'), 'staged');
+    git(projectPath, 'add', 'staged.txt');
+    fs.writeFileSync(path.join(projectPath, 'dirty.txt'), 'dirty');
+    const beforeHead = git(projectPath, 'rev-parse', 'HEAD');
+    const beforeBranch = git(projectPath, 'branch', '--show-current');
+    const beforeIndex = git(projectPath, 'diff', '--cached', '--binary');
+    const beforeStatus = git(projectPath, 'status', '--porcelain');
 
     await service.execute({
       action: 'edit',
@@ -588,15 +634,43 @@ describe('FlowDiagramService integration', () => {
     });
     expect(JSON.stringify(rollback)).not.toMatch(/commit|revisionRoot|cdf-state/i);
     expect(fs.readFileSync(filePath)).toEqual(original);
+    expect(git(projectPath, 'rev-parse', 'HEAD')).toBe(beforeHead);
+    expect(git(projectPath, 'branch', '--show-current')).toBe(beforeBranch);
+    expect(git(projectPath, 'diff', '--cached', '--binary')).toBe(beforeIndex);
+    expect(git(projectPath, 'status', '--porcelain')).toBe(beforeStatus);
     expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
       ok: false,
       error: { code: 'NO_REVISION' },
     });
   });
 
-  it('restores a deleted source from the latest applicable revision', async () => {
+  it('refuses to roll back over user edits made after the latest Agent edit', async () => {
     const filePath = path.join(projectPath, 'diagram.excalidraw');
     const original = writeScene(filePath, scene([rectangle('one')]));
+    await service.execute({
+      action: 'edit',
+      file_path: filePath,
+      operations: [{ op: 'add', elements: [rectangle('agent')] }],
+    });
+    const agentEdited = fs.readFileSync(filePath);
+    const userEdited = writeScene(filePath, scene([rectangle('user')]));
+
+    expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
+      ok: false,
+      error: { code: 'SOURCE_CHANGED' },
+    });
+    expect(fs.readFileSync(filePath)).toEqual(userEdited);
+
+    fs.writeFileSync(filePath, agentEdited);
+    expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
+      ok: true,
+    });
+    expect(fs.readFileSync(filePath)).toEqual(original);
+  });
+
+  it('refuses to resurrect a source deleted after the latest Agent edit', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    writeScene(filePath, scene([rectangle('one')]));
     await service.execute({
       action: 'edit',
       file_path: filePath,
@@ -605,10 +679,10 @@ describe('FlowDiagramService integration', () => {
     fs.unlinkSync(filePath);
 
     expect(await service.execute({ action: 'rollback', file_path: filePath })).toMatchObject({
-      ok: true,
-      action: 'rollback',
+      ok: false,
+      error: { code: 'SOURCE_CHANGED' },
     });
-    expect(fs.readFileSync(filePath)).toEqual(original);
+    expect(fs.existsSync(filePath)).toBe(false);
   });
 
   it('restores the current source if consuming a rollback revision fails', async () => {
@@ -617,7 +691,11 @@ describe('FlowDiagramService integration', () => {
     const previous = Buffer.from(`${JSON.stringify(scene([rectangle('previous')]), null, 2)}\n`);
     const failingStore = {
       record: vi.fn(async () => 'unused'),
-      peekLatest: vi.fn(async () => ({ token: 'latest', sourceBytes: previous })),
+      peekLatest: vi.fn(async () => ({
+        token: 'latest',
+        sourceBytes: previous,
+        appliedSourceHash: hashBytes(current),
+      })),
       consumeLatest: vi.fn(async () => { throw new Error('manifest write failed'); }),
     };
     const rollbackService = createFlowDiagramService({

@@ -5,6 +5,7 @@ import path from 'path';
 
 interface RevisionStackEntry {
   snapshot: string;
+  appliedSourceHash: string;
   createdAt: number;
 }
 
@@ -15,15 +16,16 @@ interface RevisionManifest {
 export interface FlowDiagramRevision {
   token: string;
   sourceBytes: Buffer;
+  appliedSourceHash: string;
 }
 
 export interface FlowDiagramRevisionStore {
-  record(filePath: string, sourceBytes: Buffer): Promise<string>;
+  record(filePath: string, sourceBytes: Buffer, appliedSourceBytes: Buffer): Promise<string>;
   peekLatest(filePath: string): Promise<FlowDiagramRevision | null>;
   consumeLatest(filePath: string, token: string): Promise<void>;
 }
 
-function sha256(value: string): string {
+function sha256(value: string | Buffer): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
@@ -64,18 +66,21 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
   }
 
   private ensureRepository(): void {
-    if (fs.existsSync(path.join(this.repositoryPath, '.git'))) return;
-    fs.mkdirSync(this.repositoryPath, { recursive: true, mode: 0o700 });
-    runGit(this.repositoryPath, ['init', '--quiet']);
-    runGit(this.repositoryPath, ['config', 'user.name', 'CDF Flow Diagram Revisions']);
-    runGit(this.repositoryPath, ['config', 'user.email', 'flow-diagrams@cdf.local']);
-    fs.writeFileSync(
-      path.join(this.repositoryPath, '.gitignore'),
-      'revision-stack.json\nrevision-stack.json.tmp-*\n',
-      'utf8',
-    );
-    runGit(this.repositoryPath, ['add', '.gitignore']);
-    runGit(this.repositoryPath, ['commit', '--quiet', '-m', 'Initialize Flow Diagram revisions']);
+    const gitPath = path.join(this.repositoryPath, '.git');
+    if (!fs.existsSync(gitPath)) {
+      fs.mkdirSync(this.repositoryPath, { recursive: true, mode: 0o700 });
+      runGit(this.repositoryPath, ['init', '--quiet']);
+      runGit(this.repositoryPath, ['config', 'user.name', 'CDF Flow Diagram Revisions']);
+      runGit(this.repositoryPath, ['config', 'user.email', 'flow-diagrams@cdf.local']);
+      fs.writeFileSync(
+        path.join(this.repositoryPath, '.gitignore'),
+        'revision-stack.json\nrevision-stack.json.tmp-*\n',
+        'utf8',
+      );
+      runGit(this.repositoryPath, ['add', '.gitignore']);
+      runGit(this.repositoryPath, ['commit', '--quiet', '-m', 'Initialize Flow Diagram revisions']);
+    }
+    runGit(this.repositoryPath, ['config', 'core.longpaths', 'true']);
   }
 
   private fileKey(filePath: string): string {
@@ -101,12 +106,18 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
             typeof record.snapshot !== 'string'
             || !record.snapshot.startsWith(`snapshots/${key}/`)
             || path.posix.normalize(record.snapshot) !== record.snapshot
+            || typeof record.appliedSourceHash !== 'string'
+            || !/^[a-f0-9]{64}$/.test(record.appliedSourceHash)
             || typeof record.createdAt !== 'number'
             || !Number.isFinite(record.createdAt)
           ) {
             throw new Error();
           }
-          return { snapshot: record.snapshot, createdAt: record.createdAt };
+          return {
+            snapshot: record.snapshot,
+            appliedSourceHash: record.appliedSourceHash,
+            createdAt: record.createdAt,
+          };
         });
       }
       return validated;
@@ -132,7 +143,11 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
     return resolved;
   }
 
-  async record(filePath: string, sourceBytes: Buffer): Promise<string> {
+  async record(
+    filePath: string,
+    sourceBytes: Buffer,
+    appliedSourceBytes: Buffer,
+  ): Promise<string> {
     this.ensureRepository();
     const key = this.fileKey(filePath);
     const snapshotName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.excalidraw`;
@@ -157,7 +172,11 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
       const stack = manifest.files[key] ?? [];
       manifest.files[key] = [
         ...stack,
-        { snapshot: snapshotRelativePath, createdAt: Date.now() },
+        {
+          snapshot: snapshotRelativePath,
+          appliedSourceHash: sha256(appliedSourceBytes),
+          createdAt: Date.now(),
+        },
       ];
       writeJsonAtomically(this.manifestPath, manifest);
       return snapshotRelativePath;
@@ -182,6 +201,7 @@ class GitFlowDiagramRevisionStore implements FlowDiagramRevisionStore {
     return {
       token: latest.snapshot,
       sourceBytes: fs.readFileSync(this.resolveSnapshotPath(latest.snapshot)),
+      appliedSourceHash: latest.appliedSourceHash,
     };
   }
 

@@ -217,6 +217,10 @@ function fileData(projectPath: string, filePath: string): Record<string, unknown
   };
 }
 
+function hashBytes(bytes: Buffer): string {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
 function temporaryPathFor(targetPath: string): string {
   return path.join(
     path.dirname(targetPath),
@@ -661,9 +665,16 @@ export function createFlowDiagramService(
       } catch (error) {
         return failure(action, error, 'INVALID_SCENE');
       }
+      let candidate: ReturnType<typeof applyOperations>;
+      try {
+        candidate = applyOperations(original, input.operations ?? []);
+      } catch (error) {
+        return failure(action, error, 'INVALID_OPERATION');
+      }
+      const candidateBytes = serializeFlowDiagramScene(candidate.scene);
       let revisionToken: string;
       try {
-        revisionToken = await revisionStore.record(target, originalBytes);
+        revisionToken = await revisionStore.record(target, originalBytes, candidateBytes);
       } catch (error) {
         return failure(
           action,
@@ -671,22 +682,6 @@ export function createFlowDiagramService(
           'REVISION_FAILED',
         );
       }
-      let candidate: ReturnType<typeof applyOperations>;
-      try {
-        candidate = applyOperations(original, input.operations ?? []);
-      } catch (error) {
-        try {
-          await revisionStore.consumeLatest(target, revisionToken);
-        } catch (cleanupError) {
-          return failure(
-            action,
-            new FlowDiagramOperationError('REVISION_FAILED', safeMessage(cleanupError)),
-            'REVISION_FAILED',
-          );
-        }
-        return failure(action, error, 'INVALID_OPERATION');
-      }
-      const candidateBytes = serializeFlowDiagramScene(candidate.scene);
       try {
         await replaceFileIfUnchanged(target, candidateBytes, originalBytes);
         notify(target);
@@ -731,6 +726,12 @@ export function createFlowDiagramService(
           );
         }
         parseFlowDiagramScene(revision.sourceBytes);
+        if (!currentBytes || hashBytes(currentBytes) !== revision.appliedSourceHash) {
+          throw new FlowDiagramOperationError(
+            'SOURCE_CHANGED',
+            'The Flow Diagram changed after the latest Agent edit; rollback was not applied.',
+          );
+        }
         rollbackBytes = revision.sourceBytes;
         await replaceFileIfUnchanged(target, revision.sourceBytes, currentBytes);
         await revisionStore.consumeLatest(target, revision.token);
