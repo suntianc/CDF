@@ -150,11 +150,21 @@ function removeFileFamilyBestEffort(family: SqliteFileFamily): void {
 }
 
 function fsyncFile(filePath: string): void {
-  const descriptor = fs.openSync(filePath, 'r');
+  const sync = (flags: 'r' | 'r+'): void => {
+    const descriptor = fs.openSync(filePath, flags);
+    try {
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  };
   try {
-    fs.fsyncSync(descriptor);
-  } finally {
-    fs.closeSync(descriptor);
+    sync('r');
+  } catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EPERM') {
+      throw error;
+    }
+    sync('r+');
   }
 }
 

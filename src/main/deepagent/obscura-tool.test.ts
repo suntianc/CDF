@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createObscuraBrowserTool, createObscuraCliRunner, resolveObscuraExecutablePath } from './obscura-tool';
 
@@ -201,13 +202,13 @@ describe('createObscuraCliRunner', () => {
 describe('resolveObscuraExecutablePath', () => {
   it('resolves bundled Obscura executables by platform and architecture', () => {
     expect(resolveObscuraExecutablePath('darwin', 'arm64', '/app/resources')).toBe(
-      '/app/resources/obscura/darwin-arm64/obscura',
+      path.join('/app/resources', 'obscura', 'darwin-arm64', 'obscura'),
     );
     expect(resolveObscuraExecutablePath('darwin', 'x64', '/app/resources')).toBe(
-      '/app/resources/obscura/darwin-x64/obscura',
+      path.join('/app/resources', 'obscura', 'darwin-x64', 'obscura'),
     );
     expect(resolveObscuraExecutablePath('win32', 'x64', 'C:\\CDF\\resources')).toBe(
-      'C:\\CDF\\resources/obscura/win32-x64/obscura.exe',
+      path.join('C:\\CDF\\resources', 'obscura', 'win32-x64', 'obscura.exe'),
     );
     expect(() => resolveObscuraExecutablePath('linux', 'x64', '/app/resources')).toThrow(
       'Obscura is not bundled for linux-x64.',

@@ -10,6 +10,12 @@ import {
 } from './paper-search-config';
 import { PAPER_SEARCH_CONFIG_KEYS } from '../shared/types';
 
+function expectOwnerOnlyMode(filePath: string): void {
+  if (process.platform !== 'win32') {
+    expect((fs.statSync(filePath).mode & 0o777).toString(8)).toBe('600');
+  }
+}
+
 describe('paper-search config sync', () => {
   let tempDir: string;
 
@@ -73,7 +79,7 @@ describe('paper-search config sync', () => {
       HTTP_PROXY: 'http://127.0.0.1:7890',
       EASYSCHOLAR_KEY: 'sk-easy-scholar-secret',
     });
-    expect((fs.statSync(configPath).mode & 0o777).toString(8)).toBe('600');
+    expectOwnerOnlyMode(configPath);
     expect(process.env.EASYSCHOLAR_KEY).toBeUndefined();
   });
 
@@ -96,7 +102,7 @@ describe('paper-search config sync', () => {
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({
       CROSSREF_MAILTO: 'cdf@example.com',
     });
-    expect((fs.statSync(configPath).mode & 0o777).toString(8)).toBe('600');
+    expectOwnerOnlyMode(configPath);
   });
 
   it('reports existing values for settings input echo', () => {

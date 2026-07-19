@@ -83,7 +83,9 @@ async function loadFirstFrameSource(
 ): Promise<{ bytes: Buffer; mimeType?: string }> {
   if (deps.loadInputSource) return deps.loadInputSource(source, projectPath);
   let parsed: URL | null = null;
-  try { parsed = new URL(source); } catch { parsed = null; }
+  if (!path.isAbsolute(source)) {
+    try { parsed = new URL(source); } catch { parsed = null; }
+  }
   if (parsed) {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error('First-frame URL must use http or https');

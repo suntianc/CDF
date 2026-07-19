@@ -63,6 +63,16 @@ describe('single delegation + real deepagents contract', () => {
     for (const db of databases.splice(0)) db.close();
   });
 
+  it('accepts Windows absolute permission globs', () => {
+    expect(() => createDeepAgent({
+      model: new ScriptedMasterModel({}),
+      permissions: [{
+        operations: ['read', 'write'],
+        paths: ['C:\\CDF\\project\\*', 'C:\\CDF\\project\\**\\*'],
+      }],
+    })).not.toThrow();
+  });
+
   it('completes through the production CompiledSubAgent adapter', async () => {
     const db = new Database(':memory:');
     databases.push(db);

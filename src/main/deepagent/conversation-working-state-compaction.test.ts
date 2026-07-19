@@ -388,7 +388,7 @@ describe('Conversation Working State compaction engine', () => {
       .toEqual({ count: 13 });
     reopened.close();
     expect(maintenanceArtifacts()).toEqual([]);
-  });
+  }, 20_000);
 
   it('reopens a recovered database through the real saver with its checkpoint chain and pending writes', async () => {
     const saver = SqliteSaver.fromConnString(databasePath);

@@ -63,7 +63,7 @@ export function resolveCdfFilePath(url: string): string {
   const parsed = new URL(url);
   const raw = parsed.host ? `/${parsed.host}${parsed.pathname}` : parsed.pathname;
   let filePath = decodeURIComponent(raw);
-  if (process.platform === 'win32' && filePath.startsWith('/')) {
+  if (/^\/[A-Za-z]:\//.test(filePath)) {
     filePath = filePath.slice(1);
   }
   return filePath;

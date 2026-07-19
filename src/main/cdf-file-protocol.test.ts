@@ -29,6 +29,10 @@ describe('resolveCdfFilePath', () => {
   it('decodes percent-encoded path segments (spaces, unicode)', () => {
     expect(resolveCdfFilePath('cdf-file:///Users/s/My%20Video.mp4')).toBe('/Users/s/My Video.mp4');
   });
+
+  it('removes only the URL slash before a Windows drive path', () => {
+    expect(resolveCdfFilePath('cdf-file:///C:/Users/s/My%20Video.mp4')).toBe('C:/Users/s/My Video.mp4');
+  });
 });
 
 describe('parseRangeHeader', () => {

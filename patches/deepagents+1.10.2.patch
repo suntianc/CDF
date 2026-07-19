@@ -1,0 +1,32 @@
+diff --git a/node_modules/deepagents/dist/index.cjs b/node_modules/deepagents/dist/index.cjs
+--- a/node_modules/deepagents/dist/index.cjs
++++ b/node_modules/deepagents/dist/index.cjs
+@@ -868,8 +868,10 @@
+ */
+ function validatePath(raw) {
+ 	if (typeof raw !== "string" || raw.length === 0) throw new Error("path must be a non-empty string");
+-	if (!raw.startsWith("/")) throw new Error(`path must be absolute: ${JSON.stringify(raw)}`);
+-	const segments = raw.split("/").filter((s) => s.length > 0);
++	const normalized = raw.replace(/\\/g, "/");
++	const absolute = /^[A-Za-z]:\//.test(normalized) ? `/${normalized}` : normalized;
++	if (!absolute.startsWith("/")) throw new Error(`path must be absolute: ${JSON.stringify(raw)}`);
++	const segments = absolute.split("/").filter((s) => s.length > 0);
+ 	if (segments.includes("..")) throw new Error(`path must not contain "..": ${JSON.stringify(raw)}`);
+ 	if (segments.includes("~")) throw new Error(`path must not contain "~": ${JSON.stringify(raw)}`);
+ 	return `/${segments.join("/")}`;
+diff --git a/node_modules/deepagents/dist/index.js b/node_modules/deepagents/dist/index.js
+--- a/node_modules/deepagents/dist/index.js
++++ b/node_modules/deepagents/dist/index.js
+@@ -836,8 +836,10 @@
+ */
+ function validatePath(raw) {
+ 	if (typeof raw !== "string" || raw.length === 0) throw new Error("path must be a non-empty string");
+-	if (!raw.startsWith("/")) throw new Error(`path must be absolute: ${JSON.stringify(raw)}`);
+-	const segments = raw.split("/").filter((s) => s.length > 0);
++	const normalized = raw.replace(/\\/g, "/");
++	const absolute = /^[A-Za-z]:\//.test(normalized) ? `/${normalized}` : normalized;
++	if (!absolute.startsWith("/")) throw new Error(`path must be absolute: ${JSON.stringify(raw)}`);
++	const segments = absolute.split("/").filter((s) => s.length > 0);
+ 	if (segments.includes("..")) throw new Error(`path must not contain "..": ${JSON.stringify(raw)}`);
+ 	if (segments.includes("~")) throw new Error(`path must not contain "~": ${JSON.stringify(raw)}`);
+ 	return `/${segments.join("/")}`;
