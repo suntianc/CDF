@@ -101,10 +101,18 @@ export function FilePanel() {
   }, [mainWidth, filePanelOpen, filePanelMode, previewFile, setFilePanelWidth]);
 
   useEffect(() => {
-    if (!currentProject?.path) return;
-    if (rootPath === currentProject.path) return;
-    setRootPath(currentProject.path);
-  }, [currentProject?.path, rootPath, setRootPath]);
+    if (!currentProject?.path || rootPath === currentProject.path) return;
+    let cancelled = false;
+    void (async () => {
+      const store = useFileStore.getState();
+      const activeFile = store.openTabs[store.activeTabIndex];
+      if (activeFile && !await flushProjectFile(activeFile.path)) return;
+      if (!cancelled) setRootPath(currentProject.path);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.path, dirtyTabs, rootPath, setRootPath]);
 
   useEffect(() => {
     if (!filePanelOpen || !rootPath) return;

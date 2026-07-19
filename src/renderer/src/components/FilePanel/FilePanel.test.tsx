@@ -305,9 +305,24 @@ describe('Editable Flow Diagram workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /关闭 release\.excalidraw|Close release\.excalidraw/ }));
     await waitFor(() => expect(useFileStore.getState().openTabs).toHaveLength(2));
 
+    act(() => useProjectStore.setState({
+      currentProjectId: 'project-2',
+      projects: [
+        ...useProjectStore.getState().projects,
+        {
+          id: 'project-2',
+          name: 'Second Project',
+          path: '/tmp/cdf-project-2',
+          scene: 'general',
+          created_at: 2,
+          updated_at: 2,
+        },
+      ],
+    }));
+    await waitFor(() => expect(useFileStore.getState().rootPath).toBe(PROJECT_PATH));
+
     fireEvent.click(screen.getByRole('button', { name: /保留 Agent 版本|Keep Agent version/ }));
-    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
-    expect(excalidrawProps.current?.viewModeEnabled).toBe(false);
+    await waitFor(() => expect(useFileStore.getState().rootPath).toBe('/tmp/cdf-project-2'));
   });
 
   it('follows the CDF theme and language', async () => {

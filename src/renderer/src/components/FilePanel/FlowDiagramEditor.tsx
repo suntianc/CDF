@@ -57,6 +57,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const lastQueuedContentRef = useRef<string | null>(null);
   const queuedDiskContentRef = useRef<string | null>(null);
   const externalReloadVersionRef = useRef(0);
+  const externalReloadPromiseRef = useRef<Promise<boolean> | null>(null);
   const externalPendingPreservationRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -131,6 +132,11 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   }, [filePath, persist, setTabDirty]);
 
   const flushPendingSave = useCallback(async (): Promise<boolean> => {
+    while (externalReloadPromiseRef.current) {
+      const reload = externalReloadPromiseRef.current;
+      if (!await reload) return false;
+      if (externalReloadPromiseRef.current === reload) externalReloadPromiseRef.current = null;
+    }
     if (conflictedContentRef.current) return false;
     while (true) {
       if (saveTimerRef.current) {
@@ -205,8 +211,10 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     const unsubscribe = window.electronAPI.fs.onDirectoryChange((_event, data) => {
       if (data.path.replace(/\\/g, '/') !== filePath.replace(/\\/g, '/')) return;
       const version = ++externalReloadVersionRef.current;
-      const generationAtNotification = editGenerationRef.current;
-      void (async () => {
+      const previousReload = externalReloadPromiseRef.current ?? Promise.resolve(true);
+      const reload = previousReload.then(async () => {
+        if (externalReloadVersionRef.current !== version) return true;
+        const generationAtNotification = editGenerationRef.current;
         const pendingAtNotification = pendingContentRef.current;
         if (pendingAtNotification) {
           externalPendingPreservationRef.current ??= pendingAtNotification;
@@ -218,7 +226,19 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
         pendingContentRef.current = null;
         await saveQueueRef.current;
         const result = await window.electronAPI.fs.readFile(rootPath, filePath);
-        if (externalReloadVersionRef.current !== version || !result.ok || 'binary' in result.data) return;
+        if (externalReloadVersionRef.current !== version) return true;
+        if (!result.ok || 'binary' in result.data) {
+          const preserved = pendingContentRef.current ?? externalPendingPreservationRef.current;
+          externalPendingPreservationRef.current = null;
+          pendingContentRef.current = null;
+          if (preserved && !conflictedContentRef.current) {
+            conflictedContentRef.current = preserved;
+            setConflictedContent(preserved);
+          }
+          setTabDirty(filePath, conflictedContentRef.current !== null);
+          setSaveState(conflictedContentRef.current ? 'dirty' : 'error');
+          return false;
+        }
         try {
           const diagram = await restoreFlowDiagram(result.data.content);
           const restoredContent = serializeFlowDiagram(
@@ -232,7 +252,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
             const preserved = pendingAfterWait ?? externalPendingPreservationRef.current;
             externalPendingPreservationRef.current = null;
             if (preserved && preserved !== restoredContent) scheduleSave(preserved);
-            return;
+            return true;
           }
 
           const preservedContent = editedWhileWaiting
@@ -257,10 +277,24 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
           setTabContent(filePath, result.data.content);
           setDiagramRevision((current) => current + 1);
           setLoadState({ status: 'ready', diagram });
+          return conflictedContentRef.current === null;
         } catch {
+          const preserved = pendingContentRef.current ?? externalPendingPreservationRef.current;
+          externalPendingPreservationRef.current = null;
+          pendingContentRef.current = null;
+          if (preserved && !conflictedContentRef.current) {
+            conflictedContentRef.current = preserved;
+            setConflictedContent(preserved);
+          }
+          setTabDirty(filePath, conflictedContentRef.current !== null);
           setLoadState({ status: 'invalid', reason: 'invalid' });
+          return false;
         }
-      })();
+      });
+      externalReloadPromiseRef.current = reload;
+      void reload.finally(() => {
+        if (externalReloadPromiseRef.current === reload) externalReloadPromiseRef.current = null;
+      });
     });
     return () => {
       externalReloadVersionRef.current += 1;
@@ -298,6 +332,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       setConflictedContent(null);
       setDiagramRevision((current) => current + 1);
       setLoadState({ status: 'ready', diagram });
+      editGenerationRef.current += 1;
       scheduleSave(conflictedContent);
     } catch {
       setLoadState({ status: 'invalid', reason: 'invalid' });
