@@ -58,6 +58,13 @@ describe('FileTypeIcon', () => {
     expect(fill).toBe('#ff5722')
   })
 
+  it('renders a dedicated icon for Excalidraw files', () => {
+    const { container } = render(<FileTypeIcon filename="release.excalidraw" />)
+    const svg = container.querySelector('svg')
+    expect(svg).toBeTruthy()
+    expect(svg?.getAttribute('class')).toContain('lucide-shapes')
+  })
+
   it('renders lucide fallback for unknown extensions', () => {
     const { container } = render(<FileTypeIcon filename="data.xyz" />)
     const svg = container.querySelector('svg')

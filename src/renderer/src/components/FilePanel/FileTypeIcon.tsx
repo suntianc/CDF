@@ -1,4 +1,4 @@
-import { File } from 'lucide-react'
+import { File, Shapes } from 'lucide-react'
 import {
   TypeScriptIcon, JavaScriptIcon, ReactIcon, ReactTsIcon,
   JsonIcon, MarkdownIcon, CssIcon, SassIcon, HtmlIcon, XmlIcon,
@@ -10,6 +10,10 @@ import {
 
 type IconComponent = React.FC<{ className?: string }>
 
+const ExcalidrawIcon: IconComponent = ({ className }) => (
+  <Shapes className={`${className ?? ''} text-[var(--color-text-secondary)]`} />
+)
+
 const EXT_ICON: Record<string, IconComponent> = {
   ts:       TypeScriptIcon,
   tsx:      ReactTsIcon,
@@ -18,6 +22,7 @@ const EXT_ICON: Record<string, IconComponent> = {
   mjs:      JavaScriptIcon,
   cjs:      JavaScriptIcon,
   json:     JsonIcon,
+  excalidraw: ExcalidrawIcon,
   md:       MarkdownIcon,
   mdx:      MarkdownIcon,
   css:      CssIcon,

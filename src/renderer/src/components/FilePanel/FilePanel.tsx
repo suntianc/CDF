@@ -326,8 +326,10 @@ export function FilePanel() {
       {filePanelOpen && (
         <div
           ref={resizeRef}
+          role="separator"
+          aria-orientation="vertical"
           onMouseDown={handleResizeStart}
-          className="absolute left-0 top-0 bottom-0 w-[1px] cursor-col-resize transition-colors hover:bg-[var(--color-accent)] focus-visible:bg-[var(--color-accent)] focus-visible:outline-none before:absolute before:inset-y-0 before:-left-[3px] before:w-[8px] before:content-['']"
+          className="absolute left-0 top-0 bottom-0 z-20 w-[1px] cursor-col-resize transition-colors hover:bg-[var(--color-accent)] focus-visible:bg-[var(--color-accent)] focus-visible:outline-none before:absolute before:inset-y-0 before:-left-[3px] before:w-[8px] before:content-['']"
         />
       )}
     </div>

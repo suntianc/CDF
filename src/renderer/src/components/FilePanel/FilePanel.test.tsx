@@ -191,6 +191,24 @@ afterEach(() => {
 });
 
 describe('Editable Flow Diagram workspace', () => {
+  it('keeps the panel resize handle above the Excalidraw canvas and resizes by dragging', async () => {
+    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
+    render(<main><FilePanel /></main>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
+    await screen.findByTestId('official-excalidraw');
+
+    const resizeHandle = screen.getByRole('separator');
+    expect(resizeHandle.className).toContain('z-20');
+
+    fireEvent.mouseDown(resizeHandle, { clientX: 600 });
+    fireEvent.mouseMove(document, { clientX: 500 });
+    fireEvent.mouseUp(document);
+
+    expect(useFileStore.getState().filePanelWidth).toBe(700);
+    clientWidth.mockRestore();
+  });
+
   it('opens a standard document in the official editor and reuses its path-based tab', async () => {
     render(<main><FilePanel /></main>);
 
