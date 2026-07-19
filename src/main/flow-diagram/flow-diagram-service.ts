@@ -261,6 +261,12 @@ function cloneScene(scene: ExcalidrawScene): ExcalidrawScene {
   return structuredClone(scene);
 }
 
+function sourceMatches(filePath: string, expectedBytes: Buffer | null): boolean {
+  if (!fs.existsSync(filePath)) return expectedBytes === null;
+  if (!expectedBytes) return false;
+  return fs.readFileSync(filePath).equals(expectedBytes);
+}
+
 function activeElementById(
   scene: ExcalidrawScene,
   id: string,
@@ -599,8 +605,28 @@ export function createFlowDiagramService(
         }
         return failure(action, error, 'INVALID_OPERATION');
       }
+      const candidateBytes = serializeFlowDiagramScene(candidate.scene);
+      if (!sourceMatches(target, originalBytes)) {
+        try {
+          await revisionStore.consumeLatest(target, revisionToken);
+        } catch (cleanupError) {
+          return failure(
+            action,
+            new FlowDiagramOperationError('REVISION_FAILED', safeMessage(cleanupError)),
+            'REVISION_FAILED',
+          );
+        }
+        return failure(
+          action,
+          new FlowDiagramOperationError(
+            'SOURCE_CHANGED',
+            'The Flow Diagram changed before the Agent edit could be applied.',
+          ),
+          'SOURCE_CHANGED',
+        );
+      }
       try {
-        await replaceFile(target, serializeFlowDiagramScene(candidate.scene));
+        await replaceFile(target, candidateBytes);
         notify(target);
         return success(action, {
           ...fileData(projectPath, target),
@@ -608,7 +634,7 @@ export function createFlowDiagramService(
         });
       } catch (error) {
         try {
-          if (!fs.readFileSync(target).equals(originalBytes)) {
+          if (sourceMatches(target, candidateBytes)) {
             await replaceFileAtomically(target, originalBytes);
           }
           await revisionStore.consumeLatest(target, revisionToken);
@@ -629,7 +655,7 @@ export function createFlowDiagramService(
 
     if (action === 'rollback') {
       const currentBytes = fs.existsSync(target) ? fs.readFileSync(target) : null;
-      let sourceWasReplaced = false;
+      let rollbackBytes: Buffer | null = null;
       try {
         const revision = await revisionStore.peekLatest(target);
         if (!revision) {
@@ -639,13 +665,19 @@ export function createFlowDiagramService(
           );
         }
         parseFlowDiagramScene(revision.sourceBytes);
+        rollbackBytes = revision.sourceBytes;
+        if (!sourceMatches(target, currentBytes)) {
+          throw new FlowDiagramOperationError(
+            'SOURCE_CHANGED',
+            'The Flow Diagram changed before rollback could be applied.',
+          );
+        }
         await replaceFile(target, revision.sourceBytes);
-        sourceWasReplaced = true;
         await revisionStore.consumeLatest(target, revision.token);
         notify(target);
         return success(action, fileData(projectPath, target));
       } catch (error) {
-        if (sourceWasReplaced) {
+        if (rollbackBytes && sourceMatches(target, rollbackBytes)) {
           try {
             if (currentBytes) await replaceFileAtomically(target, currentBytes);
             else await fs.promises.rm(target, { force: true });

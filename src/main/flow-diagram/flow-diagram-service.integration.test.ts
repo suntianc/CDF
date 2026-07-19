@@ -473,6 +473,60 @@ describe('FlowDiagramService integration', () => {
     }
   });
 
+  it('preserves an external source change that arrives during edit preparation', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    writeScene(filePath, scene([rectangle('original')]));
+    const external = Buffer.from(`${JSON.stringify(scene([rectangle('external')]), null, 2)}\n`);
+    const consumeLatest = vi.fn(async () => undefined);
+    const guardedService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      revisionStore: {
+        record: vi.fn(async () => {
+          fs.writeFileSync(filePath, external);
+          return 'prepared';
+        }),
+        peekLatest: vi.fn(),
+        consumeLatest,
+      },
+    });
+
+    expect(await guardedService.execute({
+      action: 'edit',
+      file_path: filePath,
+      operations: [{ op: 'add', elements: [rectangle('agent')] }],
+    })).toMatchObject({ ok: false, error: { code: 'SOURCE_CHANGED' } });
+    expect(fs.readFileSync(filePath)).toEqual(external);
+    expect(consumeLatest).toHaveBeenCalledWith(filePath, 'prepared');
+  });
+
+  it('preserves an external source change that arrives during rollback preparation', async () => {
+    const filePath = path.join(projectPath, 'diagram.excalidraw');
+    writeScene(filePath, scene([rectangle('current')]));
+    const external = Buffer.from(`${JSON.stringify(scene([rectangle('external')]), null, 2)}\n`);
+    const previous = Buffer.from(`${JSON.stringify(scene([rectangle('previous')]), null, 2)}\n`);
+    const consumeLatest = vi.fn();
+    const guardedService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      revisionStore: {
+        record: vi.fn(async () => 'unused'),
+        peekLatest: vi.fn(async () => {
+          fs.writeFileSync(filePath, external);
+          return { token: 'rollback', sourceBytes: previous };
+        }),
+        consumeLatest,
+      },
+    });
+
+    expect(await guardedService.execute({
+      action: 'rollback',
+      file_path: filePath,
+    })).toMatchObject({ ok: false, error: { code: 'SOURCE_CHANGED' } });
+    expect(fs.readFileSync(filePath)).toEqual(external);
+    expect(consumeLatest).not.toHaveBeenCalled();
+  });
+
   it('does not modify the source when revision creation, validation, or replacement fails', async () => {
     const filePath = path.join(projectPath, 'diagram.excalidraw');
     const original = writeScene(filePath, scene([rectangle('one')]));
