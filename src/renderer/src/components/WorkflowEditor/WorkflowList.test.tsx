@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAISubscriptionEntries } from '@shared/ai-subscriptions';
+import type { LLMProvider } from '@shared/providers';
 import type { Workflow, WorkflowRun } from '@shared/types';
 import { useAgentStore } from '../../stores/agentStore';
 import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
@@ -136,7 +137,6 @@ describe('WorkflowList model selection', () => {
         id: 'system-master-agent',
         role: 'master',
         name: 'Master Agent',
-        provider_id: null,
         created_at: 1_000,
         updated_at: 1_000,
       }],
@@ -207,7 +207,7 @@ describe('WorkflowList model selection', () => {
     const modelSourcesReady = new Promise<void>((resolve) => {
       releaseModelSources = resolve;
     });
-    const loadedProvider = {
+    const loadedProvider: LLMProvider = {
       id: 'provider-1',
       name: 'OpenAI',
       provider_type: 'custom',

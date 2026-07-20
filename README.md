@@ -184,7 +184,7 @@ We highly welcome proposals, design ideas, and pull requests for custom Scenes a
 
 - [x] **General Agent Scene**
 - [x] **Basic Research Scene**
-- [ ] **v1.0 Capabilities Refinement & Polishing (In Progress)**
+- [x] **v1.0 Capabilities Refinement & Polishing**
 - [ ] **Design Scenes (In Progress)**
 - [ ] **To Be Planned...**
 
