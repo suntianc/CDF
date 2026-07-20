@@ -22,6 +22,14 @@ import {
 export const CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED =
   'CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED' as const;
 
+/**
+ * DeepAgent 运行时的 checkpoint 命名空间。
+ *
+ * 与本模块拥有的 SqliteSaver 配套：root 与 delegated 运行时读写 checkpointer 时
+ * 统一使用此命名空间。作为 checkpoint 的单一来源置于 working-state 域。
+ */
+export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
+
 export const STARTUP_RECONCILIATION_FAILED =
   CONVERSATION_WORKING_STATE_FAILURE_REASONS.STARTUP_RECONCILIATION_FAILED;
 

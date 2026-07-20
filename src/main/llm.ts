@@ -2,9 +2,9 @@ import { Command } from '@langchain/langgraph';
 import db from './database';
 import log from './logger';
 import { getOllamaBaseUrl, takeModelReasoningCapture, takeModelTextCapture } from './deepagent/llm-adapter';
-import { DELEGATED_TASK_RESULT_SCHEMA, DEEPAGENT_CHECKPOINT_NAMESPACE, createDeepAgentRuntime, createRuntimeModel, subagentStepStorage } from './deepagent/runtime';
+import { DELEGATED_TASK_RESULT_SCHEMA, createDeepAgentRuntime, createRuntimeModel, subagentStepStorage } from './deepagent/runtime';
 import { isTransientRuntimeError } from './deepagent/runtime-errors';
-import { CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED } from './deepagent/conversation-working-state';
+import { CONVERSATION_WORKING_STATE_MAINTENANCE_LOCKED, DEEPAGENT_CHECKPOINT_NAMESPACE } from './deepagent/conversation-working-state';
 import { createStreamAccumulator, LLMStreamAccumulator, runWithStreamAccumulator } from './deepagent/stream-accumulator';
 import type {
   AgentApprovalResolution,

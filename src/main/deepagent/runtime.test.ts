@@ -62,6 +62,7 @@ vi.mock('./conversation-working-state', () => ({
     beginRuntimeUse: beginRuntimeUseMock,
     acquireSaver: acquireWorkingStateSaverMock,
   },
+  DEEPAGENT_CHECKPOINT_NAMESPACE: '',
 }));
 
 vi.mock('deepagents', () => ({

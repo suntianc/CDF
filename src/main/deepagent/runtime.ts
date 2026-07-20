@@ -46,7 +46,7 @@ import {
 } from './delegated-agent-configuration-snapshot';
 import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
-import { conversationWorkingStateLifecycle } from './conversation-working-state';
+import { conversationWorkingStateLifecycle, DEEPAGENT_CHECKPOINT_NAMESPACE } from './conversation-working-state';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
 import { resolveProjectContext } from './project-context';
@@ -83,9 +83,6 @@ interface RuntimeInputMessage {
   content: string;
   imageBase64?: string[];
 }
-
-
-export const DEEPAGENT_CHECKPOINT_NAMESPACE = '';
 
 function getFallbackProviderId(): string {
   const provider = db
