@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// builder-util Arch enum: ia32=0, x64=1, armv7l=2, arm64=3, universal=4.
 const ARCH_NAMES = new Map([
-  [0, 'x64'],
-  [1, 'ia32'],
-  [2, 'x64'],
-  [3, 'armv7l'],
-  [4, 'arm64'],
+  [0, 'ia32'],
+  [1, 'x64'],
+  [2, 'armv7l'],
+  [3, 'arm64'],
+  [4, 'universal'],
 ]);
 
 function archName(arch) {

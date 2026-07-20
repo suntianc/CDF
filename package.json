@@ -104,6 +104,7 @@
   "build": {
     "appId": "com.cdf.app",
     "productName": "CDF",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist"
     },
@@ -129,16 +130,24 @@
       "node_modules/@mozilla/readability/**/*"
     ],
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.png"
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        "nsis",
+        "msi"
+      ],
       "icon": "resources/icon.png"
     },
     "linux": {
-      "target": "AppImage",
+      "target": [
+        "deb",
+        "rpm"
+      ],
       "icon": "resources/icon.png"
     }
   },
