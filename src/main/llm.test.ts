@@ -6,29 +6,36 @@ const {
   modelCaptureMock,
   queueDelegatedRunMock,
   subagentStepContextRef,
-} = vi.hoisted(() => ({
-  createDeepAgentRuntimeMock: vi.fn(),
-  dbPrepareMock: vi.fn(),
-  modelCaptureMock: new WeakMap<object, { reasoningText: string; normalText: string }>(),
-  queueDelegatedRunMock: vi.fn(),
-  subagentStepContextRef: { current: null as { onStep: (step: unknown) => void } | null },
-}));
+  subagentStepStorageMock,
+} = vi.hoisted(() => {
+  const subagentStepContextRef = { current: null as { onStep: (step: unknown) => void } | null };
+  return {
+    createDeepAgentRuntimeMock: vi.fn(),
+    dbPrepareMock: vi.fn(),
+    modelCaptureMock: new WeakMap<object, { reasoningText: string; normalText: string }>(),
+    queueDelegatedRunMock: vi.fn(),
+    subagentStepContextRef,
+    subagentStepStorageMock: {
+      run: async (context: { onStep: (step: unknown) => void }, callback: () => unknown) => {
+        const previous = subagentStepContextRef.current;
+        subagentStepContextRef.current = context;
+        try {
+          return await callback();
+        } finally {
+          subagentStepContextRef.current = previous;
+        }
+      },
+      getStore: () => subagentStepContextRef.current,
+    },
+  };
+});
 
 vi.mock('./deepagent/runtime', () => ({
-  DEEPAGENT_CHECKPOINT_NAMESPACE: '',
   createDeepAgentRuntime: createDeepAgentRuntimeMock,
-  subagentStepStorage: {
-    run: async (context: { onStep: (step: unknown) => void }, callback: () => unknown) => {
-      const previous = subagentStepContextRef.current;
-      subagentStepContextRef.current = context;
-      try {
-        return await callback();
-      } finally {
-        subagentStepContextRef.current = previous;
-      }
-    },
-    getStore: () => subagentStepContextRef.current,
-  },
+}));
+
+vi.mock('./deepagent/subagent-step-storage', () => ({
+  subagentStepStorage: subagentStepStorageMock,
 }));
 
 vi.mock('./deepagent/llm-adapter', () => ({

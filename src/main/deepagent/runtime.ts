@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { AsyncLocalStorage } from 'async_hooks';
 import type { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
@@ -62,16 +61,11 @@ const WORKFLOW_RUN_PROMPT = `
 - 每完成一个阶段并对照验收标准自检通过后，必须调用 advance_stage 工具提交结构化验收报告（逐条自评 + 产物清单 + 总结）；这会触发阶段门禁并推进到下一阶段。不要只用文字宣布"完成"就停下——不调用 advance_stage 工作流不会前进。
 - 阶段内先用 create_task 一次性规划任务图并用 set_task_dependencies 标注依赖，再用 parallel_tasks 派子 Agent 执行，用 update_task_status / list_tasks 跟踪进度。
 - 阶段游标由主进程在门禁通过后权威推进，你无需自行编号或跳跃阶段。`;
-import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides, type ExecutionStep } from '../../shared/types';
+import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides } from '../../shared/types';
 import { getCurrentStreamAccumulator } from './stream-accumulator';
+import { subagentStepStorage } from './subagent-step-storage';
 // Re-export for DelegatedTaskResultSchema consumers (types.ts)
 export { DELEGATED_TASK_RESULT_SCHEMA };
-
-interface SubagentStepContext {
-  onStep: (step: ExecutionStep) => void;
-}
-
-export const subagentStepStorage = new AsyncLocalStorage<SubagentStepContext>();
 
 type RuntimeAgentRow = CatalogAgent;
 

@@ -852,7 +852,7 @@ describe('createDeepAgentRuntime', () => {
     );
 
     const context = { onStep: (step: ExecutionStep) => steps.push(step) };
-    const { subagentStepStorage } = await import('./runtime');
+    const { subagentStepStorage } = await import('./subagent-step-storage');
     await subagentStepStorage.run(context, async () => {
       await stepMiddleware.wrapToolCall(
         {
