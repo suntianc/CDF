@@ -64,8 +64,6 @@ const WORKFLOW_RUN_PROMPT = `
 import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides } from '../../shared/types';
 import { getCurrentStreamAccumulator } from './stream-accumulator';
 import { subagentStepStorage } from './subagent-step-storage';
-// Re-export for DelegatedTaskResultSchema consumers (types.ts)
-export { DELEGATED_TASK_RESULT_SCHEMA };
 
 type RuntimeAgentRow = CatalogAgent;
 
