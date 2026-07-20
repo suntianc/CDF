@@ -126,6 +126,20 @@ CDF adheres strictly to **offline-first** architecture and secure desktop sandbo
 *   **Package Manager** `pnpm` `@11.5.1`
 *   **OS Support** macOS / Windows / Linux (desktop environments)
 
+### Packaged Capability Support
+
+CDF packages are available for the platforms below, but the optional **Obscura browser-assisted page reader** is bundled only where a matching native binary exists:
+
+| Package | CDF application | Bundled Obscura |
+| :--- | :---: | :---: |
+| macOS x86_64 DMG | ✓ | ✓ |
+| macOS ARM64 DMG | ✓ | ✓ |
+| Windows x86_64 NSIS / MSI | ✓ | ✓ |
+| Windows ARM64 NSIS / MSI | ✓ | Not bundled |
+| Linux x86_64 DEB / RPM | ✓ | Not bundled |
+
+> On Windows ARM64 and Linux x86_64, CDF remains available, but invoking Obscura reports that no binary is bundled for the current platform. Other application capabilities are unaffected.
+
 ### Build & Run Locally
 
 Because CDF depends on native database modules (`better-sqlite3`), running tests and development environments requires rebuilding modules for target runtimes:

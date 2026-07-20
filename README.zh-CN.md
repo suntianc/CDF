@@ -126,6 +126,20 @@ CDF 坚守**本地优先**与**安全沙箱**的桌面工程实践，核心技�
 *   **Package Manager** `pnpm` `@11.5.1`
 *   **OS Support** macOS / Windows / Linux 桌面环境
 
+### 安装包能力支持
+
+CDF 主应用提供以下平台安装包，但可选的 **Obscura 浏览器辅助单页读取能力**仅在存在对应原生二进制时随包提供：
+
+| 安装包 | CDF 主应用 | 内置 Obscura |
+| :--- | :---: | :---: |
+| macOS x86_64 DMG | ✓ | ✓ |
+| macOS ARM64 DMG | ✓ | ✓ |
+| Windows x86_64 NSIS / MSI | ✓ | ✓ |
+| Windows ARM64 NSIS / MSI | ✓ | 未提供 |
+| Linux x86_64 DEB / RPM | ✓ | 未提供 |
+
+> 在 Windows ARM64 和 Linux x86_64 上，CDF 主应用仍可使用；调用 Obscura 时会明确提示当前平台未内置对应二进制，其他应用能力不受影响。
+
 ### 本地构建与运行
 
 由于本项目依赖原生数据库模块 `better-sqlite3`，在开发和测试之间切换时需要注意原生 ABI 的重新编译：
