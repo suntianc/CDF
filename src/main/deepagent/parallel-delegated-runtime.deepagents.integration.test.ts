@@ -242,10 +242,12 @@ vi.mock('./runtime-assembly', () => ({
   registerCdfHarnessProfile: vi.fn(),
   extractPathMentionContext: vi.fn(() => []),
 }));
-vi.mock('./shared-infra', () => ({
-  getProvider: vi.fn(),
+vi.mock('./mcp-visibility', () => ({
   getAgentMcpServers: vi.fn(() => []),
   getConnectedMcpServers: vi.fn(() => []),
+}));
+vi.mock('./shared-infra', () => ({
+  getProvider: vi.fn(),
   getAgentSkillNames: vi.fn(() => []),
   normalizeProviderId: vi.fn((value?: string | null) => value ?? null),
   resolveInterruptOn: vi.fn(() => ({

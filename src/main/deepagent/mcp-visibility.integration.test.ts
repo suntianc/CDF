@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
 
 import db from '../database';
 import { createAgentCatalog } from '../agent-catalog';
-import { getAgentMcpServers } from './shared-infra';
+import { getAgentMcpServers } from './mcp-visibility';
 
 const PROJECT_ID = 'project-mcp-visibility';
 

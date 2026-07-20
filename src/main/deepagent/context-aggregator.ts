@@ -18,7 +18,7 @@ import path from 'path';
 import db from '../database';
 import { getBuiltInSkillDirs, getScopePath } from './skill-manager';
 import { loadMcpTools } from './mcp-connector';
-import { getAgentMcpServers, getConnectedMcpServers } from './shared-infra';
+import { getAgentMcpServers, getConnectedMcpServers } from './mcp-visibility';
 import type { MCPServer } from '../../shared/types';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
 import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';

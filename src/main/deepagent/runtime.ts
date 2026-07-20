@@ -17,8 +17,6 @@ import {
 } from './runtime-assembly';
 import {
   getProvider,
-  getAgentMcpServers,
-  getConnectedMcpServers,
   getAgentSkillNames,
   normalizeProviderId,
   resolveInterruptOn,
@@ -29,6 +27,7 @@ import {
   getRuntimeToolNames,
   type ProviderRow,
 } from './shared-infra';
+import { getAgentMcpServers, getConnectedMcpServers } from './mcp-visibility';
 import { createAgentTools } from './agent-tools';
 import { createParallelTaskTool } from './parallel-task-tool';
 import { getRunBySessionId, getWorkflowRun, createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools } from '../workflow-run';
