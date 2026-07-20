@@ -23,7 +23,7 @@ vi.mock('../ai-subscription-credentials', () => ({
 }));
 
 describe('generateMusic', () => {
-  it('creates a local music artifact from MiniMax music-2.6 hex audio', async () => {
+  it('creates a local music artifact from MiniMax music-3.0 hex audio', async () => {
     const writeArtifact = vi.fn().mockResolvedValue('/tmp/project/artifacts/music-1.mp3');
     const httpPostJson = vi.fn().mockResolvedValue({
       status: 200,
@@ -47,7 +47,7 @@ describe('generateMusic', () => {
 
     expect(result).toEqual({
       ok: true,
-      model: 'music-2.6',
+      model: 'music-3.0',
       routeId: 'minimax-token-plan',
       artifacts: [{ path: '/tmp/project/artifacts/music-1.mp3', mimeType: 'audio/mpeg' }],
       displayMarkdown: '[indie folk, rainy night](/tmp/project/artifacts/music-1.mp3)',
@@ -57,7 +57,7 @@ describe('generateMusic', () => {
       'https://api.minimaxi.com/v1/music_generation',
       expect.objectContaining({ Authorization: 'Bearer sk-token' }),
       expect.objectContaining({
-        model: 'music-2.6',
+        model: 'music-3.0',
         prompt: 'indie folk, rainy night',
         lyrics: '[verse]\nwalking alone\n[chorus]\ncoffee shop lights',
         stream: false,
@@ -87,7 +87,7 @@ describe('generateMusic', () => {
     expect(result.ok).toBe(true);
     expect(httpPostJson.mock.calls[0][2]).toEqual(
       expect.objectContaining({
-        model: 'music-2.6',
+        model: 'music-3.0',
         is_instrumental: true,
         prompt: 'ambient piano',
       })
@@ -109,7 +109,7 @@ describe('generateMusic', () => {
     expect(result.error).toMatch(/lyrics/i);
   });
 
-  it('rejects models outside the music-2.6 allowlist', async () => {
+  it('rejects models outside the music-3.0 allowlist', async () => {
     const result = await generateMusic(
       { prompt: 'x', lyrics: 'y', model: 'music-cover' as any },
       {
@@ -184,9 +184,9 @@ describe('writeMusicArtifact', () => {
 });
 
 describe('createGenerateMusicTool', () => {
-  it('exposes generate_music tool for music-2.6 only', () => {
+  it('exposes generate_music tool for music-3.0 only', () => {
     const musicTool = createGenerateMusicTool('/tmp/project');
     expect(musicTool.name).toBe('generate_music');
-    expect(musicTool.description).toMatch(/music-2\.6/i);
+    expect(musicTool.description).toMatch(/music-3\.0/i);
   });
 });

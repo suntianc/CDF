@@ -53,7 +53,7 @@ const DEFAULT_MODEL: MusicModel = MINIMAX_TOKEN_PLAN_MUSIC_MODELS[0];
 const MUSIC_ALLOWLIST = new Set<string>(MINIMAX_TOKEN_PLAN_MUSIC_MODELS);
 
 /**
- * Music generation via MiniMax Token Plan (music-2.6 only).
+ * Music generation via MiniMax Token Plan (music-3.0 only).
  * @see https://platform.minimaxi.com/docs/api-reference/music-generation
  */
 export async function generateMusic(
@@ -64,7 +64,7 @@ export async function generateMusic(
   if (!MUSIC_ALLOWLIST.has(model)) {
     return {
       ok: false,
-      error: `Model ${model} is not in the Token Plan music allowlist (music-2.6 only)`,
+      error: `Model ${model} is not in the Token Plan music allowlist (music-3.0 only)`,
       code: 'MODEL_NOT_ALLOWED',
     };
   }
@@ -250,7 +250,7 @@ export function createGenerateMusicTool(projectPath: string) {
     {
       name: 'generate_music',
       description:
-        'Generate a song with MiniMax Token Plan music-2.6 only (not cover models). ' +
+        'Generate a song with MiniMax Token Plan music-3.0 only (not cover models). ' +
         'Provide prompt (style/mood) and lyrics (use \\n and structure tags like [verse]/[chorus]). ' +
         'For instrumental-only set is_instrumental=true (prompt required, lyrics optional). ' +
         'Returns a local audio path; include displayMarkdown or [title](path) in your reply.',
@@ -260,7 +260,7 @@ export function createGenerateMusicTool(projectPath: string) {
           .string()
           .optional()
           .describe('Lyrics with \\n line breaks; structure tags like [verse], [chorus] supported'),
-        model: z.literal('music-2.6').optional().describe('Only music-2.6 is allowed on Token Plan in CDF'),
+        model: z.literal('music-3.0').optional().describe('Only music-3.0 is allowed on Token Plan in CDF'),
         is_instrumental: z.boolean().optional().describe('Generate instrumental only (no vocals)'),
         lyrics_optimizer: z
           .boolean()

@@ -50,7 +50,6 @@ electron-log-*
 .codex/
 .agents/
 .pi/
-.planning/
 .github/skills/
 .impeccable/
 .impeccable-ref/

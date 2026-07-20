@@ -8,6 +8,18 @@ CDF is a local-first desktop Agent workstation where users organize tasks, conte
 A local desktop workspace for directing Agents, inspecting their process, approving actions, and preserving artifacts.
 _Avoid_: chat page, SaaS dashboard
 
+**Project**:
+A local workspace rooted at a user-selected directory, with an immutable Scene and Project-owned files, instructions, Skills, knowledge, and artifacts. It hosts execution context but does not own Agent definitions.
+_Avoid_: Agent container, Agent Library, mutable Scene workspace
+
+**Project Context**:
+The runtime package of a Project's identity, root directory, immutable Scene, instructions, Project Skills, local resources, and Project-scoped capability context supplied to root and delegated executions. It excludes Agent definitions, Master Agent Prompts, Conversation Snapshots, and mutable Agent Run state.
+_Avoid_: Agent configuration, Conversation state, global settings
+
+**Agent Library**:
+The app-wide management surface for the global Agent catalog, independent of Project selection and Project lifecycle. It manages the protected Master and Default General-purpose identities plus user-created Custom Agents.
+_Avoid_: Project Agent list, Scene Agent list
+
 **Conversation**:
 The user-visible exchange in a session, including user prompts, Agent responses, tool activity, approvals, and process status.
 _Avoid_: chat log, message list
@@ -21,12 +33,16 @@ The immutable Master Agent Prompt captured when a Conversation is created. Later
 _Avoid_: live Master prompt, Project prompt setting, per-run prompt refresh
 
 **Conversation Skill Snapshot**:
-The immutable set of Skill identities and discovery metadata exposed when a Conversation is created. Later Scene Skill Exposure changes affect only new Conversations, preserving the existing Conversation's system-context shape and prompt-cache stability.
+The immutable set of Skill identities and discovery metadata exposed when a Conversation is created. Later Scene Skill Exposure changes affect only new Conversations, and Agent Skill Preloads can select only Skills already present in the snapshot, preserving the existing Conversation's system-context shape and prompt-cache stability.
 _Avoid_: live Skill catalog, Project-wide visibility, copied Skill package
 
 **Agent**:
-A Project-scoped, reusable identity and configuration for model-guided work, including its role and capability preferences. An Agent is not a running process and does not own mutable execution state.
-_Avoid_: runtime, worker, Agent Run
+An app-wide, reusable identity and configuration for model-guided work, including its role and capability preferences. Its definition is shared across Projects; it is associated with a Project only when participating in an execution and does not own mutable execution state.
+_Avoid_: Project-owned Agent, runtime, worker, Agent Run
+
+**Agent Role**:
+The immutable classification of an Agent as Master, Default General-purpose, or Custom. Role determines protected identity and root-versus-delegation eligibility; it is never inferred from Project ownership, default selection, or mutable configuration.
+_Avoid_: is_default, Project role, editable Agent type
 
 **Agent Run**:
 One execution initiated by a Conversation instruction, ending in completion, failure, interruption by loss of its live execution context, or explicit termination; waiting for approval remains in progress. A Conversation may host many sequential Agent Runs but at most one in progress, and cannot be deleted while one is in progress.
@@ -41,36 +57,44 @@ The aggregate state in which every unfinished branch of an Agent Run is waiting 
 _Avoid_: pending approval count, hidden approval
 
 **Delegated Agent Run**:
-A child execution initiated by an Agent Run against a target Agent to perform scoped work, with a stable identity and isolated mutable execution state independent of how it was launched. Its identity and outcome remain part of Conversation history even though live continuation is process-bound; single and parallel delegation are launch forms of the same concept.
+A child execution initiated by an Agent Run against a target Agent to perform scoped work, freezing that Agent's current global configuration and the parent's Project Context once at creation into isolated mutable execution state. Its identity and outcome remain part of Conversation history even if the Agent definition is later edited or deleted; single and parallel delegation are launch forms of the same concept.
 _Avoid_: subagent, task subagent, parallel worker
+
+**Delegated Agent Configuration Snapshot**:
+The immutable, process-lifetime configuration captured when a Delegated Agent Run is created, allowing queued and active work to survive edits or deletion of its target Agent definition. It is not restart recovery state: after an application restart, a new Delegated Agent Run resolves the target Agent's latest configuration.
+_Avoid_: Conversation Agent catalog snapshot, persisted subagent definition, live Agent lookup
 
 **Delegated Run Status**:
 The lifecycle state of a Delegated Agent Run: queued, running, waiting for approval, completed, failed, cancelled by termination of its parent Agent Run, or interrupted by loss of its live execution context. A Delegated Agent Run cannot be cancelled independently.
 _Avoid_: generic stopped status, worker status, child stop
+
+**Delegation Target Set**:
+The stable set of global Agent identities exposed as delegation targets when a parent Agent Run starts. Agent Catalog changes appear in the next parent Agent Run, while each selected target's current configuration is frozen only when its Delegated Agent Run is created.
+_Avoid_: live Agent catalog, Conversation Agent snapshot, Project Agent list
 
 **Delegation Concurrency Window**:
 The four Delegated Agent Runs a parent Agent Run may keep active at once, including runs waiting for approval. Additional delegated runs remain queued until an active run reaches a terminal state.
 _Avoid_: unlimited delegation, model-call concurrency only
 
 **Default General-purpose Agent**:
-The always-available, system-reserved Agent identity used as a delegation target when no specialized Agent is required. It remains available alongside user-created Agents, cannot be removed or renamed, and may be launched through either single or parallel delegation; it is not itself a Delegated Agent Run.
-_Avoid_: general-purpose subagent, default worker, fallback-only Agent
+The single global, always-available, system-reserved Agent identity used as a delegation target when no specialized Agent is required. It is shared across Projects, cannot be removed or renamed, and receives the active Project Context only when launched through single or parallel delegation; it is not itself a Delegated Agent Run.
+_Avoid_: Project-owned Agent, general-purpose subagent, default worker, fallback-only Agent
 
 **Master Agent**:
-The persistent, protected Agent identity that leads every Conversation and Workflow Run in a Project. Its fixed identity does not vary by Scene: Agent management permits editing or resetting only its complete prompt, while every other Master Agent configuration field is read-only and deletion is forbidden; user-created Agents remain fully configurable but cannot replace it as the root execution identity.
-_Avoid_: optional default Agent, Scene-specific Agent identity, runtime projection, Research Agent, Delegated Agent
+The single global, persistent, protected Agent identity that leads every Conversation and Workflow Run. It is the only Agent whose prompt varies by Scene: Agent management permits editing or resetting one independent complete prompt per Scene, while every other configuration field is read-only and deletion is forbidden.
+_Avoid_: Project-owned Master, optional default Agent, Scene-specific Agent identity, runtime projection, Research Agent, Delegated Agent
 
 **Custom Agent**:
-A user-created, fully configurable Agent identity used only as a delegation target for the Master Agent. When invoked it produces a Delegated Agent Run; it never becomes the root Agent of a Conversation or Workflow Run.
-_Avoid_: root Agent, Workflow master, Delegated Agent Run, direct Conversation Agent
+A user-created, app-wide Agent identity with a globally unique name and delegation key, used only as a delegation target for the Master Agent. Its complete configuration is shared across Projects, and each invocation combines it with the parent execution's Project Context to produce a Delegated Agent Run; it never becomes the root Agent of a Conversation or Workflow Run.
+_Avoid_: duplicate Agent name, Project-specific Agent, Project override, root Agent, Workflow master, Delegated Agent Run, direct Conversation Agent
 
 **Scene Default Prompt**:
-The current product-authored complete system prompt supplied to a Master Agent for one Project Scene. General and Research have distinct defaults; reset restores the latest default for the Project's immutable Scene.
+The product-authored complete system prompt that every supported Scene must define and that supplies the reset value for that Scene's Master Agent Prompt. Scene registration and default-prompt registration are one invariant; resetting one Scene does not affect any other Scene.
 _Avoid_: hidden base layer, mandatory prompt prefix, original Project prompt
 
 **Master Agent Prompt**:
-The complete, user-editable system prompt stored for one Project's Master Agent. It begins from that Project Scene's default but may replace any part of it and is not automatically merged with product changes.
-_Avoid_: additive instructions, prompt overlay, immutable Scene prompt
+One of the complete, independently user-editable system prompts stored by the global Master Agent, selected by the active Project's Scene when a new Conversation or Workflow Run is created. Each begins from its Scene Default Prompt, may replace any part of it, and is neither a shared base-plus-overlay nor automatically merged with product changes.
+_Avoid_: Project-owned prompt, additive instructions, prompt overlay, immutable Scene prompt
 
 **Global Skill**:
 A CDF Built-in Skill or user-global Skill managed outside any one Project and made available across Projects through product-level configuration. Global Skills require Scene Skill Exposure because they are not inherently scoped to one Project Scene; dormant Enterprise sources are outside the first delivery.
@@ -125,8 +149,8 @@ The subset of its parent Agent Run's available tools that a target Agent may use
 _Avoid_: tool grant, child-only tool, MCP addition, per-MCP-tool binding
 
 **Delegated Run Continuation**:
-The resumption of a paused Delegated Agent Run while its hosting application process remains alive. Restoring persisted Conversation or Agent context after a restart starts a new execution rather than reviving the prior execution or its pending approval.
-_Avoid_: task resurrection, process recovery
+The resumption of a paused Delegated Agent Run with its captured configuration while the hosting application process remains alive. After a restart, the prior execution is interrupted; any later delegation from the restored Conversation starts a new run from the target Agent's latest configuration while preserving that Conversation's Prompt and Skill Snapshots.
+_Avoid_: task resurrection, process recovery, Agent catalog snapshot
 
 **Delegated Failure Isolation**:
 The rule that failure of one Delegated Agent Run terminates only that execution while sibling delegated executions continue. The parent delegation aggregates all child outcomes unless the parent Agent Run itself is terminated.
@@ -212,8 +236,16 @@ _Avoid_: mode, template, theme, workspace type, sidebar layout
 The main working surface shown for the selected Project, determined by its Scene. The general Scene's workspace is the existing Conversation workspace; other Scenes add specialized panels around or alongside the Conversation.
 _Avoid_: main view, page, layout mode
 
+**Editable Flow Diagram**:
+A user-visible, Project-owned Excalidraw document composed of independently editable shapes, text, and connectors that serves as the shared source for Agent generation and user editing. Subsequent Agent changes apply to the current document rather than regenerating a separate copy; the capability is available across Scenes.
+_Avoid_: Scientific Figure, generated image, flattened flowchart, hidden artifact, Research Scene tool
+
+**Flow Diagram Revision**:
+A durable snapshot of an Editable Flow Diagram captured immediately before an Agent modifies it and retained independently of the user's Project version control. It is available to Agent operations and automatic recovery without exposing version management or manual rollback controls to the user.
+_Avoid_: Project commit, copied backup file, Excalidraw undo entry, user-facing version history, full-Project snapshot
+
 **Research Workflow**:
-The Research Scene progression from collecting papers into the Knowledge Base, through conducting and recording experiments, to authoring and finally reviewing a Manuscript. Computational experiments may be run within CDF, while observations from physical experiments enter through user-provided records.
+The Research Scene progression from collecting papers into the Knowledge Base, through source-grounded reading, to user authoring and finally Agent-assisted review of a Manuscript.
 _Avoid_: chat workflow, Workflow Skeleton, literature review only
 
 **Skill**:
@@ -225,8 +257,8 @@ A Skill distributed and maintained as part of CDF, with behavior, security, and 
 _Avoid_: bundled third-party dependency, runtime-installed Skill, copied upstream Skill
 
 **Skill Preload**:
-An Agent-level emphasis that loads a selected Skill's full instructions at Agent startup. It does not grant or deny access to the Skill.
-_Avoid_: binding, whitelist, permission
+An Agent-level emphasis that loads a selected Global Skill's full instructions at Agent startup. Project Skills cannot be stored in an app-wide Agent configuration; they remain discoverable from the active Project at runtime, and preload does not grant or deny access to any Skill.
+_Avoid_: Project Skill binding, whitelist, permission
 
 **MCP Server Exclusion**:
 An Agent-level rule that hides specific MCP servers from an Agent. Configured MCP servers are visible to every Agent by default; an exclusion is the exception, not a grant. MCP tools have no progressive disclosure or partial-visibility states.
@@ -421,7 +453,7 @@ A built-in strategy-only Skill that guides an Agent from Paper Entries to full t
 _Avoid_: RAG system, semantic search, vector retrieval, paper importer
 
 **Manuscript**:
-A user-authored academic draft presented to CDF for analysis or evaluation. It is the work being reviewed, whereas Paper Entries are reference sources that may support the review.
+A user-authored academic draft presented to CDF for analysis or evaluation. CDF may analyze it and propose revisions but does not author or directly modify it; Paper Entries remain reference sources that may support the review.
 _Avoid_: Paper Entry, collected paper, reference paper
 
 **Manuscript Snapshot**:
@@ -503,14 +535,6 @@ _Avoid_: final copy, automatic edit, authorial decision
 **Style Revision Report**:
 A durable Markdown artifact that presents source-located original passages beside Revision Proposals and their rationale, allowing the user to choose what to apply without changing the Manuscript.
 _Avoid_: rewritten Manuscript, automatic patch, detector report
-
-**Writing Project**:
-A Scene-specific panel that manages the outline, drafts, and citation references for an academic document (survey or paper) being authored with Agent assistance.
-_Avoid_: document editor, word processor
-
-**Experiment Record**:
-A Scene-specific panel that tracks code reproduction attempts, datasets, run configurations, and execution results tied to a research project.
-_Avoid_: lab notebook, run log
 
 **Crawler Skill**:
 A built-in Skill that encodes crawling strategy — target description, extraction rules, link discovery, pagination, and anti-scraping handling — by orchestrating the Obscura Browser Tool's structured read operations. The Skill carries strategy and instructions only, no execution logic and no wrapper scripts; page fetching and extraction run through the tool, not shell.

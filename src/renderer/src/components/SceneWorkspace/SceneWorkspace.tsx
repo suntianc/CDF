@@ -1,12 +1,12 @@
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Beaker, BookOpen, FileText, MessageSquare, RefreshCw, Search } from 'lucide-react';
+import { BookOpen, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import type { KnowledgeEntrySummary, ProjectScene } from '@shared/types';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 
-type ResearchPanel = 'conversation' | 'papers' | 'writing' | 'experiments';
+type ResearchPanel = 'conversation' | 'papers';
 
 interface SceneWorkspaceProps {
   scene: ProjectScene;
@@ -20,8 +20,6 @@ const researchPanels: Array<{
 }> = [
   { id: 'conversation', labelKey: 'sceneWorkspace.conversation', icon: MessageSquare },
   { id: 'papers', labelKey: 'sceneWorkspace.paperLibrary', icon: BookOpen },
-  { id: 'writing', labelKey: 'sceneWorkspace.writing', icon: FileText },
-  { id: 'experiments', labelKey: 'sceneWorkspace.experiments', icon: Beaker },
 ];
 
 export function SceneWorkspace({ scene, conversation }: SceneWorkspaceProps) {
@@ -78,10 +76,8 @@ function ResearchSceneWorkspace({ conversation }: { conversation: ReactNode }) {
           <div role="tabpanel" className="absolute inset-0">
             {conversation}
           </div>
-        ) : activePanel === 'papers' ? (
-          <PaperLibraryPanel />
         ) : (
-          <ResearchEmptyPanel panel={activePanel} />
+          <PaperLibraryPanel />
         )}
       </div>
     </div>
@@ -523,23 +519,4 @@ function matchesPaperKeyword(paper: PaperLibraryItem, keyword: string): boolean 
     ...paper.authors,
     ...paper.tags,
   ].some((value) => value.toLowerCase().includes(needle));
-}
-
-function ResearchEmptyPanel({ panel }: { panel: Exclude<ResearchPanel, 'conversation'> }) {
-  const { t } = useTranslation();
-  return (
-    <div
-      role="tabpanel"
-      className="flex h-full items-center justify-center bg-[var(--color-bg-app)] px-6"
-    >
-      <div className="max-w-[360px] rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-surface)] px-5 py-4 text-center">
-        <div className="text-sm font-medium text-[var(--color-text-primary)]">
-          {t(`sceneWorkspace.${panel}EmptyTitle`)}
-        </div>
-        <div className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
-          {t(`sceneWorkspace.${panel}EmptyDescription`)}
-        </div>
-      </div>
-    </div>
-  );
 }

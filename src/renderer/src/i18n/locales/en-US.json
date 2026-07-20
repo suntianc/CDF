@@ -730,8 +730,6 @@
     "researchTabs": "Research workspace",
     "conversation": "Conversation",
     "paperLibrary": "Paper Library",
-    "writing": "Writing",
-    "experiments": "Experiments",
     "papersEmptyTitle": "Paper Library is empty",
     "papersEmptyDescription": "Ask an Agent in the Conversation panel to collect papers into the project Knowledge Base. After collection, use Paper Reading Skill for source-grounded full-text reading.",
     "paperCount": "{{count}} Paper Entries",
@@ -756,11 +754,7 @@
     "paperJcrQuartile": "JCR {{value}}{{suffix}}",
     "paperIndexing": "{{value}}{{suffix}}",
     "openPdf": "Open PDF",
-    "invalidFrontmatter": "Invalid frontmatter",
-    "writingEmptyTitle": "Writing workspace is empty",
-    "writingEmptyDescription": "Outline, drafts, and citation workflows will be added in a later issue.",
-    "experimentsEmptyTitle": "Experiment records are empty",
-    "experimentsEmptyDescription": "Reproduction runs, datasets, and result tracking will be added in a later issue."
+    "invalidFrontmatter": "Invalid frontmatter"
   },
   "goal": {
     "label": {

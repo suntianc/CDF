@@ -63,6 +63,20 @@ describe('SceneWorkspace Paper Library', () => {
     expect(screen.queryByRole('tab', { name: /论文库|Paper Library/ })).toBeNull();
   });
 
+  it('exposes only Conversation and Paper Library research workspaces', () => {
+    render(
+      <SceneWorkspace
+        scene="research"
+        conversation={<div data-testid="conversation-workspace">Conversation</div>}
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: /对话|Conversation/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /论文库|Paper Library/ })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /写作|Writing/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /实验记录|Experiments/ })).toBeNull();
+  });
+
   it('shows Paper Entries from the project Knowledge Base', async () => {
     knowledgeListMock.mockResolvedValue([
       paperEntry(),

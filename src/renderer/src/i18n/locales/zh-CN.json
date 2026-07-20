@@ -730,8 +730,6 @@
     "researchTabs": "科研工作台",
     "conversation": "对话",
     "paperLibrary": "论文库",
-    "writing": "写作",
-    "experiments": "实验记录",
     "papersEmptyTitle": "论文库为空",
     "papersEmptyDescription": "在对话面板中让 Agent 收集论文，并写入项目知识库。收集后可用 Paper Reading Skill 做带来源定位的全文阅读。",
     "paperCount": "{{count}} 个 Paper Entry",
@@ -756,11 +754,7 @@
     "paperJcrQuartile": "JCR {{value}}{{suffix}}",
     "paperIndexing": "{{value}}{{suffix}}",
     "openPdf": "打开 PDF",
-    "invalidFrontmatter": "frontmatter 异常",
-    "writingEmptyTitle": "写作工作区为空",
-    "writingEmptyDescription": "大纲、草稿和引用工作流将在后续 issue 中实现。",
-    "experimentsEmptyTitle": "实验记录为空",
-    "experimentsEmptyDescription": "复现实验、数据集和结果追踪将在后续 issue 中实现。"
+    "invalidFrontmatter": "frontmatter 异常"
   },
   "goal": {
     "label": {

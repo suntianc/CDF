@@ -104,9 +104,11 @@ describe('Research Scene integration', () => {
     expect(researchConversation.promptSnapshot).toContain('paper-collection');
     expect(researchConversation.promptSnapshot).toContain('Knowledge Base');
     expect(researchConversation.promptSnapshot).toContain('paper-reading');
-    expect(researchConversation.promptSnapshot).toContain('computational experiments');
-    expect(researchConversation.promptSnapshot).toContain('physical experiment');
-    expect(researchConversation.promptSnapshot).toContain('Manuscript');
+    expect(researchConversation.promptSnapshot).not.toContain('execute and record computational experiments');
+    expect(researchConversation.promptSnapshot).toContain('User-provided experimental evidence');
+    expect(researchConversation.promptSnapshot).toContain('the user authors the Manuscript');
+    expect(researchConversation.promptSnapshot).toContain('Do not author Manuscript content');
+    expect(researchConversation.promptSnapshot).not.toContain('write the Manuscript');
     expect(researchConversation.promptSnapshot).toContain('manuscript-review');
     expect(researchConversation.promptSnapshot).toContain('Summary');
     expect(researchConversation.promptSnapshot).toContain('Review Simulation');
