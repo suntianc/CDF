@@ -204,13 +204,6 @@ CDF stands on the shoulders of the open-source community. Our deepest gratitude 
     *   [`Marker`](https://github.com/VikParuchuri/marker) for robust local PDF markdown extraction.
     *   [`scientific-agent-skills`](https://github.com/K-Dense-AI/scientific-agent-skills) and [`humanizer`](https://github.com/blader/humanizer) for inspiring manuscript review techniques.
 
----
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=suntianc/CDF&type=Date)](https://star-history.com/#suntianc/CDF&Date)
-
----
 <p align="center">
   <b>CDF • Local Field Desk AI Workspace</b>
 </p>

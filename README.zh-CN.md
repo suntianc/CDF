@@ -204,13 +204,6 @@ CDF 的诞生承蒙开源社区众多卓越项目垫起的基石。在此向以�
     *   [`Marker`](https://github.com/VikParuchuri/marker) 为本地 PDF 解析提供了卓越的排版提取路径。
     *   [`scientific-agent-skills`](https://github.com/K-Dense-AI/scientific-agent-skills) 与 [`humanizer`](https://github.com/blader/humanizer) 启发并构成了学术润色与审稿技能的基底。
 
----
-
-## Star 增长历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=suntianc/CDF&type=Date)](https://star-history.com/#suntianc/CDF&Date)
-
----
 <p align="center">
   <b>CDF • Local Field Desk AI Workspace</b>
 </p>
