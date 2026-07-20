@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 interface PackageJson {
+  author?: {
+    name?: string;
+    email?: string;
+  };
   build?: {
     artifactName?: string;
     mac?: { target?: string[] };
@@ -53,8 +57,13 @@ function readReleaseWorkflow(): ReleaseWorkflow {
 
 describe('release packaging', () => {
   it('matches the Nezha platform, architecture, and installer target set', () => {
-    const build = readPackageJson().build;
+    const packageJson = readPackageJson();
+    const build = packageJson.build;
 
+    expect(packageJson.author).toEqual({
+      name: 'suntianc',
+      email: 'suntc8985@gmail.com',
+    });
     expect(build?.artifactName).toBe('${productName}-${version}-${os}-${arch}.${ext}');
     expect(build?.mac?.target).toEqual(['dmg']);
     expect(build?.win?.target).toEqual(['nsis', 'msi']);
