@@ -25,6 +25,7 @@ import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
 import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 import { createAgentCatalog } from '../agent-catalog';
+import { buildProjectContext } from './project-context';
 
 export interface MCPToolDetail {
   tool: string;
@@ -203,13 +204,12 @@ function estimateResolvedSkillContextChars(
 }
 
 // === System-prompt estimate ===============================================
-// runtime.ts:296 (buildProjectContext) appends a fixed CJK block describing
-// the project name, root path, and Skill conventions. We replicate the
-// template here (keeping parameters dynamic) so the aggregator can size the
-// bytes that the LLM actually receives. Update both sites in lockstep if
-// the runtime template changes.
+// runtime.ts appends the fixed CJK project-context block (buildProjectContext).
+// Reuse that single source so the aggregator sizes the exact bytes the LLM
+// receives — a hand-copied replica here had already drifted (curly vs straight
+// quotes) and mis-estimated the token budget.
 function buildProjectContextString(projectName: string, projectPath: string): string {
-  return `\n\n[项目上下文]\n当前选中项目名称: ${projectName}\n项目根目录: ${projectPath}\n所有文件工具（ls、read_file、write_file、edit_file、glob、grep、delete_file）请使用绝对路径，例如 \`${projectPath}/src/main.ts\`。\nbash 工具也使用绝对路径，当前工作目录为项目根目录。\n\n## Skills 创建规范\n- 创建项目级 Skill 时，请写入 \`${projectPath}/.cdf/skills/{skill名称}/SKILL.md\`（项目级 skills 对该项目所有 Agent 自动可见）\n- SKILL.md 格式：以 \`---\` 开头的前置元数据，包含 \`name\` 和 \`description\` 字段，随后是 Markdown 正文\n- 全局 Skill 写入 \`~/.cdf/skills/{skill名称}/SKILL.md\`（对所有项目默认可见）\n- Agent 选择 Skill 只表示预加载或强调，不表示访问授权\n当你需要查看、确认、搜索或继续分析项目时，必须在当前轮次继续调用合适的文件工具；不要只回复”我先看看/我再确认/继续搜索”就结束。`;
+  return buildProjectContext({ name: projectName, path: projectPath });
 }
 
 // === Built-in tool schemas (08.2 polish) =================================
@@ -397,17 +397,135 @@ const MANAGE_FLOW_DIAGRAM_META = {
   description: 'Create and safely manage Project-owned editable Excalidraw Flow Diagrams.',
 };
 
+const OBSCURA_BROWSE_META = {
+  name: 'obscura_browse',
+  description:
+    'Render a browser-backed web page with Obscura and return extracted page content. Use this for pages that need JavaScript rendering or a browser environment. Besides page content, format also supports structured single-page reads: discovered links, the cookie jar, referenced asset URLs, and the raw unrendered response body.',
+};
+const OBSCURA_BROWSE_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    url: { type: 'string' },
+    format: { type: 'string', enum: ['markdown', 'text', 'html', 'links', 'cookies', 'assets', 'original'] },
+    waitUntil: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle'] },
+    selector: { type: 'string' },
+  },
+  required: ['url'],
+};
+
+const GENERATE_IMAGE_META = {
+  name: 'generate_image',
+  description:
+    'Generate or edit an image. Text-to-image uses prompt only; image-to-image (edit) uses prompt plus input_images as source image references. Uses connected MiniMax Token Plan, Codex OAuth, or xAI Grok OAuth. Returns local artifact paths plus displayMarkdown.',
+};
+const GENERATE_IMAGE_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    prompt: { type: 'string' },
+    operation: { type: 'string', enum: ['generate', 'edit'] },
+    route_hint: { type: 'string', enum: ['auto', 'minimax-token-plan', 'codex-oauth', 'xai-oauth'] },
+    input_images: { type: 'array' },
+    aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'] },
+  },
+  required: ['prompt'],
+};
+
+const GENERATE_VIDEO_META = {
+  name: 'generate_video',
+  description:
+    'Queue explicit text-to-video or first-frame image-to-video generation through connected providers. Queued work has not incurred provider cost; the Project task panel reports the frozen route, mode, provider states, tracking controls, and final local MP4 artifact.',
+};
+const GENERATE_VIDEO_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    mode: { type: 'string', enum: ['text', 'first-frame'] },
+    prompt: { type: 'string' },
+    images: { type: 'array' },
+    route_hint: { type: 'string', enum: ['auto', 'xai-oauth', 'minimax-token-plan'] },
+    duration: { type: 'number' },
+    aspect_ratio: { type: 'string', enum: ['16:9', '9:16', '1:1'] },
+    resolution: { type: 'string', enum: ['480p', '720p', '768P', '1080P'] },
+  },
+  required: ['mode', 'prompt'],
+};
+
+const MANAGE_BACKGROUND_JOBS_META = {
+  name: 'manage_background_jobs',
+  description:
+    'List or inspect Project background jobs, cancel queued work, stop/resume local tracking, or explicitly resubmit an unknown provider submission. Resubmission can create a duplicate charge.',
+};
+const MANAGE_BACKGROUND_JOBS_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: ['list', 'get', 'cancel', 'stop_tracking', 'resume_tracking', 'resubmit'] },
+    job_id: { type: 'string' },
+  },
+  required: ['action'],
+};
+
+const SYNTHESIZE_SPEECH_META = {
+  name: 'synthesize_speech',
+  description:
+    'Synthesize speech from text using MiniMax Token Plan Speech 2.8 (speech-2.8-hd or speech-2.8-turbo only). Returns a local audio artifact path. Link it in your reply as [label](path) so the user can open the file. Prefer displayMarkdown from the tool result.',
+};
+const SYNTHESIZE_SPEECH_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    text: { type: 'string' },
+    model: { type: 'string', enum: ['speech-2.8-hd', 'speech-2.8-turbo'] },
+    voice_id: { type: 'string' },
+    speed: { type: 'number' },
+    emotion: { type: 'string' },
+  },
+  required: ['text'],
+};
+
+const GENERATE_MUSIC_META = {
+  name: 'generate_music',
+  description:
+    'Generate a song with MiniMax Token Plan music-3.0 only (not cover models). Provide prompt (style/mood) and lyrics (use \\n and structure tags like [verse]/[chorus]). For instrumental-only set is_instrumental=true. Returns a local audio path; include displayMarkdown or [title](path) in your reply.',
+};
+const GENERATE_MUSIC_SCHEMA: unknown = {
+  type: 'object',
+  properties: {
+    prompt: { type: 'string' },
+    lyrics: { type: 'string' },
+    model: { type: 'string', enum: ['music-3.0'] },
+    is_instrumental: { type: 'boolean' },
+  },
+};
+
+// Every tool createBuiltInTools() mounts unconditionally must appear here, or the
+// system-prompt token estimate silently under-counts. A consistency test in
+// context-aggregator.test.ts locks this set against createBuiltInTools.
 const BUILTIN_TOOL_BUDGET: ReadonlyArray<{ meta: { name: string; description: string }; schema: unknown }> = [
   { meta: FETCH_META, schema: FETCH_SCHEMA },
   { meta: DELETE_FILE_META, schema: DELETE_FILE_SCHEMA },
   { meta: BASH_META, schema: BASH_SCHEMA },
+  { meta: OBSCURA_BROWSE_META, schema: OBSCURA_BROWSE_SCHEMA },
   { meta: KNOWLEDGE_SEARCH_META, schema: KNOWLEDGE_SEARCH_SCHEMA },
   { meta: KNOWLEDGE_CREATE_META, schema: KNOWLEDGE_CREATE_SCHEMA },
+  { meta: MANAGE_FLOW_DIAGRAM_META, schema: MANAGE_FLOW_DIAGRAM_SCHEMA },
+  { meta: GENERATE_IMAGE_META, schema: GENERATE_IMAGE_SCHEMA },
+  { meta: GENERATE_VIDEO_META, schema: GENERATE_VIDEO_SCHEMA },
+  { meta: MANAGE_BACKGROUND_JOBS_META, schema: MANAGE_BACKGROUND_JOBS_SCHEMA },
+  { meta: SYNTHESIZE_SPEECH_META, schema: SYNTHESIZE_SPEECH_SCHEMA },
+  { meta: GENERATE_MUSIC_META, schema: GENERATE_MUSIC_SCHEMA },
+  // Search tools are mounted conditionally by TOOL_REGISTRY when configured.
   { meta: TAVILY_META, schema: TAVILY_SCHEMA },
   { meta: ANYSEARCH_META, schema: ANYSEARCH_SCHEMA },
   { meta: ARXIV_META, schema: ARXIV_SCHEMA },
-  { meta: MANAGE_FLOW_DIAGRAM_META, schema: MANAGE_FLOW_DIAGRAM_SCHEMA },
 ];
+
+// Tool names always mounted by createBuiltInTools() (the unconditional builtins).
+// Exported so a consistency test can assert BUILTIN_TOOL_BUDGET covers them.
+export const UNCONDITIONAL_BUILTIN_TOOL_NAMES: readonly string[] = [
+  'delete_file', 'bash', 'fetch', 'obscura_browse', 'knowledge_search', 'knowledge_create',
+  'manage_flow_diagram', 'generate_image', 'generate_video', 'manage_background_jobs',
+  'synthesize_speech', 'generate_music',
+];
+
+export const BUILTIN_TOOL_BUDGET_NAMES: readonly string[] = BUILTIN_TOOL_BUDGET.map((t) => t.meta.name);
 
 // Pre-compute character length of every built-in tool's name+description+schema
 // once at module load. Avoids re-serializing on every modal open.

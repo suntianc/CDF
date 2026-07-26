@@ -195,6 +195,9 @@ describe('createChildSpan', () => {
 
 describe('createBuiltInTools', () => {
   it('returns the built-in Agent Tools', () => {
+    // NOTE: keep this list in sync with UNCONDITIONAL_BUILTIN_TOOL_NAMES and
+    // BUILTIN_TOOL_BUDGET in context-aggregator.ts (see #227) — otherwise the
+    // system-prompt token estimate under-counts newly added builtins.
     const tools = createBuiltInTools('/tmp/workspace');
     expect(Array.isArray(tools)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual([

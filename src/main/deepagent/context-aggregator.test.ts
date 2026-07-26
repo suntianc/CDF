@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { aggregateCurrentSessionContext, BUILTIN_TOOL_CHARS } from './context-aggregator';
+import {
+  aggregateCurrentSessionContext,
+  BUILTIN_TOOL_CHARS,
+  BUILTIN_TOOL_BUDGET_NAMES,
+  UNCONDITIONAL_BUILTIN_TOOL_NAMES,
+} from './context-aggregator';
 
 // Mock the database + mcp-connector so we don't need a real
 // SQLite DB / MCP servers. Each test composes its own row set / behavior.
@@ -616,5 +621,16 @@ describe('context-aggregator — 08.2 P4 11-category extension', () => {
     });
     const result = await aggregateCurrentSessionContext('session-1', undefined, 'my-overridden-model');
     expect(result.modelName).toBe('my-overridden-model');
+  });
+});
+
+describe('BUILTIN_TOOL_BUDGET coverage (#227)', () => {
+  it('includes every tool createBuiltInTools mounts unconditionally', () => {
+    // If a builtin tool is missing here the system-prompt token estimate silently
+    // under-counts (the pre-fix budget was missing 6 of the 12 builtins).
+    const missing = UNCONDITIONAL_BUILTIN_TOOL_NAMES.filter(
+      (name) => !BUILTIN_TOOL_BUDGET_NAMES.includes(name)
+    );
+    expect(missing).toEqual([]);
   });
 });
