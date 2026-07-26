@@ -345,4 +345,146 @@ describe('AgentEditDialog', () => {
     expect((screen.getByPlaceholderText(/Enter detailed system prompt/i) as HTMLTextAreaElement).value)
       .toBe('Saved general');
   });
+
+  // #236 safety net: pin form hydration, tool-scope/MCP interactions and
+  // validation behavior before consolidating the form state into a reducer.
+  const mcpServer = (id: string, name: string) => ({
+    id, name, server_type: 'stdio' as const, config: {}, is_connected: true, created_at: 0, updated_at: 0,
+  });
+
+  it('hydrates an existing Custom Agent form and saves the unchanged configuration back', () => {
+    const updateCustomAgent = vi.fn(async () => {});
+    useMcpServerStore.setState({ mcpServers: [mcpServer('mcp-alpha', 'alpha')] });
+    useAgentStore.setState({
+      agents: [{
+        id: 'custom-1', role: 'custom', name: 'Review Agent', slug: 'review-agent',
+        description: 'Reviews PRs', provider_id: 'provider-1', system_prompt: 'Review carefully',
+        mcpServerExclusionIds: ['mcp-alpha'], skillNames: ['global:review'],
+        config: {
+          modelSource: 'llm_provider', sourceId: 'provider-1', model: 'llama3',
+          toolScope: { mode: 'narrow', builtInTools: ['read_file', 'grep'], mcpServerIds: ['mcp-alpha'] },
+        },
+        created_at: 0, updated_at: 0,
+      }],
+      updateCustomAgent,
+    });
+
+    render(<AgentEditDialog isOpen agentId="custom-1" onClose={vi.fn()} showToast={vi.fn()} />);
+
+    expect((screen.getByPlaceholderText(/Full-stack refactoring assistant/i) as HTMLInputElement).value).toBe('Review Agent');
+    expect((screen.getByPlaceholderText(/Brief description/i) as HTMLTextAreaElement).value).toBe('Reviews PRs');
+    expect((screen.getByPlaceholderText(/Enter detailed system prompt/i) as HTMLTextAreaElement).value).toBe('Review carefully');
+    expect((screen.getByRole('checkbox', { name: 'Allow read_file' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: 'Allow write_todos' }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole('checkbox', { name: 'Allow alpha MCP server' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: 'alpha visible to this Agent' }) as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(updateCustomAgent).toHaveBeenCalledWith('custom-1', expect.objectContaining({
+      name: 'Review Agent',
+      description: 'Reviews PRs',
+      provider_id: 'provider-1',
+      system_prompt: 'Review carefully',
+      mcpServerExclusionIds: ['mcp-alpha'],
+      skillNames: ['global:review'],
+      config: expect.objectContaining({
+        modelSource: 'llm_provider', sourceId: 'provider-1', model: 'llama3',
+        toolScope: { mode: 'narrow', builtInTools: ['read_file', 'grep'], mcpServerIds: ['mcp-alpha'] },
+      }),
+    }));
+  });
+
+  it('saves a narrow tool scope assembled through the checkbox controls', () => {
+    const createCustomAgent = vi.fn(async () => {});
+    useMcpServerStore.setState({ mcpServers: [mcpServer('mcp-alpha', 'alpha')] });
+    useAgentStore.setState({ createCustomAgent });
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: 'Scoped Agent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use selected tools only' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Allow write_todos' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Allow alpha MCP server' }));
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(createCustomAgent).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        toolScope: { mode: 'narrow', builtInTools: ['write_todos'], mcpServerIds: ['mcp-alpha'] },
+      }),
+    }));
+  });
+
+  it('excludes MCP servers via the visibility toggles and filters them by search', () => {
+    const createCustomAgent = vi.fn(async () => {});
+    useMcpServerStore.setState({ mcpServers: [mcpServer('mcp-alpha', 'alpha'), mcpServer('mcp-beta', 'beta')] });
+    useAgentStore.setState({ createCustomAgent });
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
+
+    expect(screen.getByText('MCP servers visible (2/2)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'alpha visible to this Agent' }));
+    expect(screen.getByText('MCP servers visible (1/2)')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('Search MCP servers...'), { target: { value: 'be' } });
+    expect(screen.queryByRole('checkbox', { name: 'alpha visible to this Agent' })).toBeNull();
+    expect(screen.getByRole('checkbox', { name: 'beta visible to this Agent' })).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: 'Filter Agent' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+    expect(createCustomAgent).toHaveBeenCalledWith(expect.objectContaining({
+      mcpServerExclusionIds: ['mcp-alpha'],
+    }));
+  });
+
+  it('rejects a blank name, a non-English name, and a missing model source', () => {
+    const createCustomAgent = vi.fn(async () => {});
+    const showToast = vi.fn();
+    useAgentStore.setState({ createCustomAgent });
+    const view = render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={showToast} />);
+
+    // A fully empty name is already blocked by the input's native `required`;
+    // the store-level guard fires for whitespace-only names.
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: '   ' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+    expect(showToast).toHaveBeenLastCalledWith('Agent name cannot be empty', 'error');
+
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: '评审代理' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+    expect(showToast).toHaveBeenLastCalledWith(
+      'Agent name must use English (may include digits, spaces, hyphens or underscores)',
+      'error',
+    );
+    expect(createCustomAgent).not.toHaveBeenCalled();
+    view.unmount();
+
+    useLLMStore.setState({ providers: [], activeProvider: null });
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={showToast} />);
+    fireEvent.change(screen.getByPlaceholderText(/Full-stack refactoring assistant/i), {
+      target: { value: 'No Source Agent' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+    expect(showToast).toHaveBeenLastCalledWith(
+      "Please add and activate an LLM brain on the 'Model config' page first!",
+      'error',
+    );
+    expect(createCustomAgent).not.toHaveBeenCalled();
+  });
+
+  it('clears the skill search query when the dropdown closes', () => {
+    render(<AgentEditDialog isOpen agentId={null} onClose={vi.fn()} showToast={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('Manage Skill preload'));
+    fireEvent.change(screen.getByPlaceholderText('Search skills...'), { target: { value: 'rev' } });
+    fireEvent.click(screen.getByText('Manage Skill preload'));
+    fireEvent.click(screen.getByText('Manage Skill preload'));
+
+    expect((screen.getByPlaceholderText('Search skills...') as HTMLInputElement).value).toBe('');
+  });
 });
