@@ -21,6 +21,8 @@ const {
   importPhysicalSkillDirectoryMock,
   initializeScenePresetMock,
   shellOpenExternalMock,
+  shellOpenPathMock,
+  shellShowItemInFolderMock,
   startAISubscriptionLoginMock,
   pollAISubscriptionLoginMock,
   deleteConversationMock,
@@ -72,6 +74,8 @@ const {
   importPhysicalSkillDirectoryMock: vi.fn(),
   initializeScenePresetMock: vi.fn(),
   shellOpenExternalMock: vi.fn(async () => undefined),
+  shellOpenPathMock: vi.fn(async () => ''),
+  shellShowItemInFolderMock: vi.fn(),
   startAISubscriptionLoginMock: vi.fn(),
   pollAISubscriptionLoginMock: vi.fn(),
   deleteConversationMock: vi.fn(),
@@ -104,6 +108,8 @@ vi.mock('electron', () => ({
   },
   shell: {
     openExternal: shellOpenExternalMock,
+    openPath: shellOpenPathMock,
+    showItemInFolder: shellShowItemInFolderMock,
   },
 }));
 
@@ -287,6 +293,35 @@ describe('IPC handlers', () => {
   it('builds dynamic event channel names through the shared factories', () => {
     expect(llmChunkChannel('req-1')).toBe('llm:chunk-req-1');
     expect(parallelTaskStepChannel('session-9')).toBe('agent:parallel-task-step-session-9');
+  });
+
+  it('rejects fs:readFile when rootPath is not a registered project root (#205)', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(),
+      all: vi.fn(() => (sql.includes('FROM projects') ? [{ path: '/registered/project' }] : [])),
+      run: vi.fn(),
+    }));
+    registerIpcHandlers();
+    const handler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'fs:readFile')?.[1];
+    expect(handler).toBeTypeOf('function');
+    // /etc exists but is not a registered project — must be refused before touching disk.
+    const result = await handler!({}, '/etc', '/etc/passwd');
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('EACCES');
+  });
+
+  it('rejects db:openFile for an absolute path outside the project root (#206)', async () => {
+    dbPrepareMock.mockImplementation((sql: string) => ({
+      get: vi.fn(() => (sql.includes('FROM projects') ? { path: '/registered/project' } : undefined)),
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    }));
+    registerIpcHandlers();
+    const handler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'db:openFile')?.[1];
+    expect(handler).toBeTypeOf('function');
+    const result = await handler!({}, '/etc/passwd', 'proj-1');
+    expect(result.success).toBe(false);
+    expect(shellOpenPathMock).not.toHaveBeenCalled();
   });
 
   it('exposes only safe Conversation storage status through IPC', () => {

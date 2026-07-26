@@ -234,6 +234,25 @@ function getSyncedPaperSearchSettings(): PaperSearchConfigSettings {
   return getPaperSearchConfigSettings();
 }
 
+// fs:* handlers confine access via resolveProjectFile(rootPath, …), but rootPath itself
+// arrives from the renderer. Without this guard a compromised renderer could pass
+// rootPath='/' and read/write anywhere (e.g. ~/.ssh). Require it to be a registered
+// project root; the renderer only ever passes currentProject.path.
+function normalizeRootForCompare(p: string): string {
+  try {
+    return fs.realpathSync(path.resolve(p));
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+function isRegisteredProjectRoot(rootPath: string): boolean {
+  if (!rootPath) return false;
+  const target = normalizeRootForCompare(rootPath);
+  const rows = db.prepare('SELECT path FROM projects').all() as { path: string }[];
+  return rows.some((r) => r.path && normalizeRootForCompare(r.path) === target);
+}
+
 export function registerIpcHandlers() {
   registerFlowDiagramExportResponseHandler();
   const sceneSkillExposureService = createSceneSkillExposureService({
@@ -1123,57 +1142,58 @@ export function registerIpcHandlers() {
   });
 
 
+  // Confine open/reveal to files inside the given project's root. Absolute paths outside
+  // the project (or missing projectId) are rejected so the renderer can't ask the shell to
+  // open arbitrary local files/executables.
+  function resolveProjectOwnedPath(
+    filePath: string,
+    projectId: string | undefined
+  ): { path: string } | { error: string } {
+    if (!projectId) return { error: 'projectId is required' };
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as
+      | { path: string }
+      | undefined;
+    if (!project) return { error: `Unknown project: ${projectId}` };
+    try {
+      const abs = path.isAbsolute(filePath) ? filePath : path.join(project.path, filePath);
+      return { path: resolveProjectFile(project.path, abs) };
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  }
+
   typedHandle('db:openFile', async (_, filePath, projectId) => {
-    const { shell } = require('electron');
-    const fs = require('fs');
-    const path = require('path');
-    
-    let absolutePath = filePath;
-    if (!path.isAbsolute(filePath) && projectId) {
-      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
-      if (project) {
-        absolutePath = path.join(project.path, filePath);
-      }
+    const resolved = resolveProjectOwnedPath(filePath, projectId);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    if (!fs.existsSync(resolved.path)) {
+      return { success: false, error: `File not found: ${resolved.path}` };
     }
-    
-    if (fs.existsSync(absolutePath)) {
-      await shell.openPath(absolutePath);
-      return { success: true };
-    } else {
-      return { success: false, error: `File not found: ${absolutePath}` };
-    }
+    await shell.openPath(resolved.path);
+    return { success: true };
   });
 
   typedHandle('db:revealFile', async (_, filePath, projectId) => {
-    const { shell } = require('electron');
-    const fs = require('fs');
-    const path = require('path');
-    
-    let absolutePath = filePath;
-    if (!path.isAbsolute(filePath) && projectId) {
-      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
-      if (project) {
-        absolutePath = path.join(project.path, filePath);
-      }
-    }
-    
-    if (fs.existsSync(absolutePath)) {
-      shell.showItemInFolder(absolutePath);
+    const resolved = resolveProjectOwnedPath(filePath, projectId);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    if (fs.existsSync(resolved.path)) {
+      shell.showItemInFolder(resolved.path);
       return { success: true };
-    } else {
-      if (projectId) {
-        const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
-        if (project && fs.existsSync(project.path)) {
-          shell.openPath(project.path);
-          return { success: true, warning: 'Opened project folder as file does not exist yet' };
-        }
-      }
-      return { success: false, error: `File not found: ${absolutePath}` };
     }
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as
+      | { path: string }
+      | undefined;
+    if (project && fs.existsSync(project.path)) {
+      shell.openPath(project.path);
+      return { success: true, warning: 'Opened project folder as file does not exist yet' };
+    }
+    return { success: false, error: `File not found: ${resolved.path}` };
   });
 
   // ===== File Management IPC Handlers =====
   typedHandle('fs:readDirectory', async (_, rootPath, dirPath, showHidden) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       ensureFileWatcher(rootPath);
       return { ok: true, data: await readDirectory(rootPath, dirPath, showHidden) };
@@ -1183,6 +1203,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:readFile', async (_, rootPath, filePath) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       return { ok: true, data: await readFile(rootPath, filePath) };
     } catch (err: any) {
@@ -1191,6 +1214,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:getFileInfo', async (_, rootPath, filePath) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       return { ok: true, data: await getFileInfo(rootPath, filePath) };
     } catch (err: any) {
@@ -1199,6 +1225,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:writeFile', async (_, rootPath, filePath, content, expectedContent) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       await writeFile(rootPath, filePath, content, expectedContent);
       notifyFileChange(filePath);
@@ -1209,6 +1238,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:createFile', async (_, rootPath, filePath) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       await createFile(rootPath, filePath);
       return { ok: true };
@@ -1218,6 +1250,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:createDirectory', async (_, rootPath, dirPath) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       await createDirectory(rootPath, dirPath);
       return { ok: true };
@@ -1227,6 +1262,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:renameEntry', async (_, rootPath, oldPath, newName) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       await renameEntry(rootPath, oldPath, newName);
       return { ok: true };
@@ -1236,6 +1274,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:trashEntry', async (_, rootPath, targetPath) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       await trashEntry(rootPath, targetPath);
       return { ok: true };
@@ -1250,6 +1291,9 @@ export function registerIpcHandlers() {
   });
 
   typedHandle('fs:watchDirectory', (_, rootPath, dirPath) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
     try {
       resolveProjectFile(rootPath, dirPath);
       watchDirectory(dirPath);
