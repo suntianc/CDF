@@ -43,7 +43,7 @@ import {
   resumeWorkflowRunFromInput,
 } from './runtime';
 import { createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools, isAdvanceStageInterrupt } from './tools';
-import { createTask, getPendingTasks, getStageGate, getTask, listRunTasks, setTaskDependencies, updateTaskStatus, listStageGates, createStageGate, resolveStageGate } from './db';
+import { createTask, getPendingTasks, getStageGate, getTask, listRunTasks, setTaskDependencies, updateTaskStatus, listStageGates, createStageGate, resolveStageGate, abortWorkflowRun } from './db';
 import type { WorkflowStageReport, WorkflowRun } from '../../shared/types';
 
 const PROJECT_ID = 'test-project-1';
@@ -535,6 +535,34 @@ describe('handleAdvanceStageInterrupt', () => {
     expect(() => resolveGateFromExternal(gate.id, { decision: 'approve' })).toThrow('already resolved');
     await expect(pending).resolves.toEqual({ resume: { decisions: [{ type: 'approve' }] } });
     expect(getStageGate(gate.id)?.status).toBe('approved');
+  });
+
+  it('rejects still-pending gates when a run is aborted (#212)', () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const gate = createStageGate(run.id, run.current_stage_id!, 'S', {
+      acceptanceSelfCheck: [], artifacts: [], summary: 'x',
+    });
+    expect(getStageGate(gate.id)?.status).toBe('pending');
+
+    abortWorkflowRun(run.id);
+
+    expect(getWorkflowRun(run.id)?.status).toBe('aborted');
+    expect(getStageGate(gate.id)?.status).toBe('rejected');
+  });
+
+  it('does not revive a terminal run when a dangling gate is resolved (#212)', () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const gate = createStageGate(run.id, run.current_stage_id!, 'S', {
+      acceptanceSelfCheck: [], artifacts: [], summary: 'x',
+    });
+    // Simulate the pre-fix dangling state: run already aborted while the gate stayed pending
+    // and no in-memory waiter exists (restart/reload path).
+    db.prepare("UPDATE workflow_runs SET status = 'aborted' WHERE id = ?").run(run.id);
+
+    resolveGateFromExternal(gate.id, { decision: 'approve' });
+
+    expect(getWorkflowRun(run.id)?.status).toBe('aborted');
+    expect(getStageGate(gate.id)?.status).toBe('rejected');
   });
 
   it('supports rejection, rework, and a later accepted route without selecting the rejected proposal', async () => {

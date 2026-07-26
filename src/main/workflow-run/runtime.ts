@@ -303,10 +303,22 @@ export async function handleAdvanceStageInterrupt(
  * 同时解析 DB 记录与 pending 的 LLM wait。
  * 专用 API 必须桥接到同一个 pending resolution，不产生两个独立审批事实源。
  */
+const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'aborted', 'failed']);
+
 export function resolveGateFromExternal(gateId: string, resolution: StageGateResolution): void {
   const gate = getStageGate(gateId);
   if (!gate) throw new Error(`Stage gate not found: ${gateId}`);
   if (gate.status !== 'pending') throw new Error(`Stage gate ${gateId} already resolved`);
+
+  // A terminal run (aborted/failed/completed) must never be revived by a late gate
+  // decision. Claim the dangling gate as rejected and stop — no cursor advance, no resume.
+  const gateRun = getWorkflowRun(gate.run_id);
+  if (gateRun && TERMINAL_RUN_STATUSES.has(gateRun.status)) {
+    const rejectedGate = resolveStageGate(gate.id, 'rejected', resolution.feedback ?? '运行已结束');
+    pendingGateResolutions.delete(gateId);
+    if (rejectedGate) pushProjectionEvent({ type: 'stage_gate', gate: rejectedGate });
+    return;
+  }
 
   const claimedGate = resolveStageGate(
     gate.id,

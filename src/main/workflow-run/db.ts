@@ -163,6 +163,13 @@ export function advanceStageCursor(runId: string, routeId?: string): WorkflowRun
 
 export function abortWorkflowRun(runId: string): void {
   updateRunStatus(runId, 'aborted');
+  // Reject any still-pending gates so a late resolve-stage-gate can't revive the
+  // aborted run back to 'running' and advance its cursor.
+  db.prepare(
+    `UPDATE workflow_stage_gates
+       SET status = 'rejected', feedback = COALESCE(feedback, '运行已中止'), decided_at = ?
+     WHERE run_id = ? AND status = 'pending'`
+  ).run(Date.now(), runId);
 }
 
 export function getCurrentStage(run: WorkflowRun): WorkflowStage | null {
