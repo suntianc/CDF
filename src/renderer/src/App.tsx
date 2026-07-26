@@ -142,6 +142,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    void useSessionStore.getState().hydrateSessionModelOverrides();
+  }, []);
+
+  useEffect(() => {
     return window.electronAPI.conversation.onMessagesChanged(({ sessionId }) => {
       useSessionStore.getState().handleMessagesChanged(sessionId);
     });

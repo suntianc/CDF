@@ -1165,17 +1165,21 @@ describe('sessionStore selectSession activity errors', () => {
 });
 
 describe('sessionStore model overrides persistence', () => {
+  let storeSetMock: ReturnType<typeof vi.fn>;
+  let storeGetMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
-    localStorage.clear();
+    storeSetMock = vi.fn(async () => undefined);
+    storeGetMock = vi.fn(async () => undefined);
+    window.electronAPI = { store: { get: storeGetMock, set: storeSetMock } } as any;
     useSessionStore.setState({
       sessionModelOverrides: {},
     });
   });
 
-  it('saves model overrides to localStorage and retrieves them', () => {
+  it('persists model overrides to the main process store, not localStorage (#225)', () => {
     useSessionStore.getState().setSessionModelOverride('session-1', 'provider-1', 'gpt-4');
-    
-    // Verify stored state
+
     expect(useSessionStore.getState().sessionModelOverrides['session-1']).toEqual({
       providerId: 'provider-1',
       sourceId: 'provider-1',
@@ -1183,10 +1187,8 @@ describe('sessionStore model overrides persistence', () => {
       model: 'gpt-4',
     });
 
-    // Verify localStorage item
-    const saved = localStorage.getItem('sessionModelOverrides');
-    expect(saved).toBeDefined();
-    expect(JSON.parse(saved!)).toEqual({
+    // Persisted to the main store rather than renderer localStorage.
+    expect(storeSetMock).toHaveBeenCalledWith('sessionModelOverrides', {
       'session-1': {
         providerId: 'provider-1',
         sourceId: 'provider-1',
@@ -1194,6 +1196,18 @@ describe('sessionStore model overrides persistence', () => {
         model: 'gpt-4',
       },
     });
+    expect(localStorage.getItem('sessionModelOverrides')).toBeNull();
+  });
+
+  it('hydrates model overrides from the main store at startup (#225)', async () => {
+    storeGetMock.mockResolvedValueOnce({
+      'session-9': { providerId: 'p9', model: 'm9' },
+    });
+
+    await useSessionStore.getState().hydrateSessionModelOverrides();
+
+    expect(storeGetMock).toHaveBeenCalledWith('sessionModelOverrides');
+    expect(useSessionStore.getState().sessionModelOverrides['session-9']).toEqual({ providerId: 'p9', model: 'm9' });
   });
 
   it('persists a Conversation reasoning effort alongside its model override', () => {
@@ -1213,16 +1227,15 @@ describe('sessionStore model overrides persistence', () => {
       model: 'gpt-5.6-sol',
       reasoningEffort: 'xhigh',
     });
-    expect(JSON.parse(localStorage.getItem('sessionModelOverrides')!))
-      .toEqual({
-        'session-1': {
-          providerId: 'codex-oauth',
-          sourceId: 'codex-oauth',
-          sourceType: 'ai_subscription',
-          model: 'gpt-5.6-sol',
-          reasoningEffort: 'xhigh',
-        },
-      });
+    expect(storeSetMock).toHaveBeenLastCalledWith('sessionModelOverrides', {
+      'session-1': {
+        providerId: 'codex-oauth',
+        sourceId: 'codex-oauth',
+        sourceType: 'ai_subscription',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'xhigh',
+      },
+    });
   });
 
   it('keeps a reasoning effort across model changes so capability normalization can decide its validity', () => {
@@ -1255,6 +1268,7 @@ describe('sessionStore model overrides persistence', () => {
 
   it('keeps the Conversation and runtime projection when authoritative deletion is rejected', async () => {
     window.electronAPI = {
+      store: { get: vi.fn(async () => undefined), set: vi.fn(async () => undefined) },
       db: {
         deleteSession: vi.fn().mockRejectedValue(new Error(
           '[CONVERSATION_DELETE_BLOCKED_ACTIVE_AGENT_RUN] Cannot delete Conversation while an Agent Run is in progress.'
@@ -1290,7 +1304,9 @@ describe('sessionStore model overrides persistence', () => {
   });
 
   it('cleans up overrides when a session is deleted', async () => {
+    const storeSet = vi.fn(async () => undefined);
     window.electronAPI = {
+      store: { get: vi.fn(async () => undefined), set: storeSet },
       db: {
         deleteSession: vi.fn().mockResolvedValue(undefined),
       },
@@ -1318,8 +1334,8 @@ describe('sessionStore model overrides persistence', () => {
 
     expect(useSessionStore.getState().sessionModelOverrides['session-1']).toBeUndefined();
     expect(useSessionStore.getState().conversationRuntimeRegistry.entries['session-1']).toBeUndefined();
-    const saved = localStorage.getItem('sessionModelOverrides');
-    expect(JSON.parse(saved!)).toEqual({});
+    // Deletion mirrors the emptied overrides to the main store, not localStorage.
+    expect(storeSet).toHaveBeenLastCalledWith('sessionModelOverrides', {});
   });
 });
 

@@ -200,6 +200,7 @@ const RENDERER_STORE_KEYS = new Set([
   'language',
   'approvalMode',
   'autoSave',
+  'sessionModelOverrides',
 ]);
 
 function assertRendererStoreKey(key: unknown): asserts key is string {

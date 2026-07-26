@@ -39,6 +39,20 @@ import {
 import type { ReasoningEffort } from '../../../shared/ai-subscriptions';
 import { CONVERSATION_DELETE_ERROR_CODES } from '../../../shared/conversation-deletion';
 
+// Session-level model overrides are durable local business data and belong in the main
+// process store (electron-store), not renderer localStorage (AGENTS.md). Kept in-memory in
+// the Zustand store for fast reads; writes are mirrored to the main store (fire-and-forget)
+// and hydrated once at startup.
+const SESSION_MODEL_OVERRIDES_KEY = 'sessionModelOverrides';
+
+function persistSessionModelOverrides(overrides: unknown): void {
+  // Promise.resolve tolerates a non-thenable return (e.g. in tests) and keeps this
+  // fire-and-forget: a persistence failure must never break the in-memory state update.
+  Promise.resolve(window.electronAPI.store.set(SESSION_MODEL_OVERRIDES_KEY, overrides)).catch((err) => {
+    console.error('Failed to persist sessionModelOverrides to the main store:', err);
+  });
+}
+
 export function estimateTokens(text: string): number {
   if (!text) return 0;
   let englishChars = 0;
@@ -206,6 +220,7 @@ interface SessionState {
     sourceType?: ConversationModelSourceType
   ) => void;
   setSessionReasoningEffort: (sessionId: string, effort?: ReasoningEffort) => void;
+  hydrateSessionModelOverrides: () => Promise<void>;
   fetchSessions: (projectId: string) => Promise<void>;
   createSession: (projectId: string, name: string, parentSessionId?: string, summary?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -441,15 +456,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
   conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
   sessionGoals: new Map(),
   goalJudgeStatus: new Map(),
-  sessionModelOverrides: (() => {
-    try {
-      const saved = localStorage.getItem('sessionModelOverrides');
-      return saved ? JSON.parse(saved) : {};
-    } catch (err) {
-      console.error('Failed to load sessionModelOverrides from localStorage:', err);
-      return {};
-    }
-  })(),
+  // Empty until hydrateSessionModelOverrides loads it from the main store at startup.
+  sessionModelOverrides: {},
 
   viewingSubagentId: null,
   setViewingSubagent: (id) => set({ viewingSubagentId: id, viewingParallelWorker: null }),
@@ -476,11 +484,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
           ...(reasoningEffort ? { reasoningEffort } : {}),
         },
       };
-      try {
-        localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
-      } catch (err) {
-        console.error('Failed to save sessionModelOverrides to localStorage:', err);
-      }
+      persistSessionModelOverrides(nextOverrides);
       return { sessionModelOverrides: nextOverrides };
     });
   },
@@ -499,13 +503,20 @@ export const useSessionStore = create<SessionState>((set, get) => {
         ...state.sessionModelOverrides,
         [sessionId]: nextOverride,
       };
-      try {
-        localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
-      } catch (err) {
-        console.error('Failed to save sessionModelOverrides to localStorage:', err);
-      }
+      persistSessionModelOverrides(nextOverrides);
       return { sessionModelOverrides: nextOverrides };
     });
+  },
+
+  hydrateSessionModelOverrides: async () => {
+    try {
+      const saved = await window.electronAPI.store.get(SESSION_MODEL_OVERRIDES_KEY);
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        set({ sessionModelOverrides: saved as SessionState['sessionModelOverrides'] });
+      }
+    } catch (err) {
+      console.error('Failed to hydrate sessionModelOverrides from the main store:', err);
+    }
   },
 
   // D-02/D-03: setSessionGoal synchronously writes to a NEW Map (immutability for
@@ -591,11 +602,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
         const nextOverrides = { ...state.sessionModelOverrides };
         delete nextOverrides[sessionId];
-        try {
-          localStorage.setItem('sessionModelOverrides', JSON.stringify(nextOverrides));
-        } catch (err) {
-          console.error('Failed to update sessionModelOverrides in localStorage on delete:', err);
-        }
+        persistSessionModelOverrides(nextOverrides);
 
         return {
           sessions: remaining,
