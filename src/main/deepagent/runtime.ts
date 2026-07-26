@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
-import { isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
+import { isGraphInterrupt } from '@langchain/langgraph';
 import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddleware } from 'langchain';
 import db from '../database';
 import log from '../logger';
@@ -35,16 +35,14 @@ import { DelegatedAgentRunRepository } from './delegated-agent-run-repository';
 import {
   DelegatedAgentRunCoordinator,
   type DelegatedRuntimeAdapter,
-  type DelegatedRuntimeRequest,
 } from './delegated-agent-run-coordinator';
 import type { DelegatedAgentRun, DelegatedTaskResult } from '../../shared/types';
 import { createDelegatedSubagentAdapter } from './delegated-subagent-adapter';
+import { createDelegatedRuntimeAdapter } from './delegated-runtime-adapter';
 import {
   captureDelegatedAgentConfigurationSnapshot,
   type DelegatedAgentConfigurationSnapshot,
 } from './delegated-agent-configuration-snapshot';
-import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
-import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle, DEEPAGENT_CHECKPOINT_NAMESPACE } from './conversation-working-state';
 import { ProjectConfinedFilesystemBackend, computeAgentFileRoots } from './project-confined-backend';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
@@ -62,7 +60,7 @@ const WORKFLOW_RUN_PROMPT = `
 - 每完成一个阶段并对照验收标准自检通过后，必须调用 advance_stage 工具提交结构化验收报告（逐条自评 + 产物清单 + 总结）；这会触发阶段门禁并推进到下一阶段。不要只用文字宣布"完成"就停下——不调用 advance_stage 工作流不会前进。
 - 阶段内先用 create_task 一次性规划任务图并用 set_task_dependencies 标注依赖，再用 parallel_tasks 派子 Agent 执行，用 update_task_status / list_tasks 跟踪进度。
 - 阶段游标由主进程在门禁通过后权威推进，你无需自行编号或跳跃阶段。`;
-import { DELEGATED_TASK_RESULT_SCHEMA, type ApprovalMode, type ChatRuntimeOverrides } from '../../shared/types';
+import { type ApprovalMode, type ChatRuntimeOverrides } from '../../shared/types';
 import { getCurrentStreamAccumulator } from './stream-accumulator';
 import { subagentStepStorage } from './subagent-step-storage';
 
@@ -396,98 +394,6 @@ export function createSubagentResilienceMiddleware(...allowedToolSets: Array<str
   ];
 }
 
-function createDelegatedToolApprovalMiddleware(
-  coordinator: DelegatedAgentRunCoordinator,
-  delegatedRunId: string,
-  gatedToolNames: Set<string>,
-) {
-  return createMiddleware({
-    name: 'DelegatedToolApprovalMiddleware',
-    wrapToolCall: async (request, handler) => {
-      const runtimeTool = request as { tool?: { name?: string } };
-      const toolName = request.toolCall?.name || runtimeTool.tool?.name || 'unknown';
-      const actionId = request.toolCall?.id || crypto.randomUUID();
-      return coordinator.runToolAction({
-        delegatedRunId,
-        action: {
-          id: actionId,
-          name: toolName,
-          args: (request.toolCall as { args?: unknown })?.args,
-        },
-        requiresApproval: gatedToolNames.has(toolName),
-        execute: async () => handler(request),
-      });
-    },
-  });
-}
-
-
-function createDelegatedProgressCallbacks(request: DelegatedRuntimeRequest) {
-  const onStep = request.onStep;
-  if (!onStep) return undefined;
-
-  let tokenBuffer: string[] = [];
-  const emitText = (text: string) => {
-    if (!text) return;
-    onStep({
-      type: 'text_chunk',
-      ts: Date.now(),
-      content: text,
-      delegatedRunId: request.delegatedRunId,
-    });
-  };
-
-  return [{
-    handleLLMStart() {
-      tokenBuffer = [];
-    },
-    handleLLMNewToken(token: string) {
-      if (token) tokenBuffer.push(token);
-    },
-    handleLLMEnd(output: unknown) {
-      const value = output as {
-        generations?: Array<Array<{
-          text?: unknown;
-          message?: {
-            content?: unknown;
-            tool_calls?: unknown;
-            additional_kwargs?: { tool_calls?: unknown };
-          };
-        }>>;
-      };
-      const generation = value.generations?.[0]?.[0];
-      const toolCalls = generation?.message?.additional_kwargs?.tool_calls
-        ?? generation?.message?.tool_calls;
-      const content = generation?.message?.content;
-      const hasToolCalls = (Array.isArray(toolCalls) && toolCalls.length > 0)
-        || (Array.isArray(content) && content.some((part) => (
-          !!part && typeof part === 'object' && (part as { type?: unknown }).type === 'tool_use'
-        )));
-      if (hasToolCalls) {
-        tokenBuffer = [];
-        return;
-      }
-      if (tokenBuffer.length > 0) {
-        for (const token of tokenBuffer) emitText(token);
-        tokenBuffer = [];
-        return;
-      }
-      if (typeof content === 'string') {
-        emitText(content);
-      } else if (Array.isArray(content)) {
-        for (const part of content) {
-          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
-            const text = (part as { text?: unknown }).text;
-            if (typeof text === 'string') emitText(text);
-          }
-        }
-      } else if (typeof generation?.text === 'string') {
-        emitText(generation.text);
-      }
-    },
-  }];
-}
-
 export async function createDeepAgentRuntime(
   projectId: string,
   sessionId: string,
@@ -625,138 +531,26 @@ async function buildDeepAgentRuntime(
   const delegatedTargets = new Map<string, CatalogAgent>();
   const delegatedRunRepository = new DelegatedAgentRunRepository(db);
 
-  const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = {
-    run: async (request) => {
-      const snapshot = request.configurationSnapshot;
-      if (!snapshot) {
-        throw new Error(`Delegated target Agent not found: ${request.targetAgentSlug}`);
-      }
-      const target = snapshot.target;
-
-      // Every Delegated Agent Run owns fresh mutable execution state. Agent
-      // configuration is reused, but model/graph/backend/checkpoint/tools are not.
-      const childBackend = new CompositeBackend(new StateBackend(), {
-        "/": new ProjectConfinedFilesystemBackend({
-          rootDir: "/",
-          virtualMode: false,
-          allowedRoots: agentFileRoots,
-          projectRoot: project.path,
-        }),
-      });
-      const childBuiltInTools = createBuiltInTools(project.path, sessionId);
-      try {
-        childBuiltInTools.push(...loadRegistryTools());
-      } catch (error) {
-        log.warn('[runtime] Failed to load delegated built-in tools from registry:', error);
-      }
-      const targetToolScope = readAgentToolScope(target.config);
-      const childScope = selectDelegatedToolScope({
-        agentConfig: target.config,
-        parentBuiltInToolNames: builtInToolNames,
-        childBuiltInTools,
-        parentMcpServerIds: mcpServers.map((server) => server.id),
-        childMcpServers: allMcpServers.filter(
-          (server) => !snapshot.mcpServerExclusionIds.includes(server.id),
-        ),
-      });
-      const childMcpRuntime = await loadMcpTools(target.id, childScope.mcpServers, allMcpServers);
-      const childSkillNames = snapshot.globalSkillPreloadRefs;
-      const childToolNames = getRuntimeToolNames([
-        ...childMcpRuntime.tools,
-        ...childScope.builtInTools,
-      ]);
-      const childOverrides = resolveDelegatedModelOverrides({
-        targetProviderId: target.provider_id,
-        targetConfig: target.config,
-        parentProviderId: provider.id,
-        parentOverrides: overrides,
-      });
-      const childAssembly = await assembleDeepAgentRuntime(
-        target,
-        provider.id,
-        project,
-        childSkillNames,
-        extractPathMentionContext(request.goal),
-        childToolNames,
-        childOverrides,
-        skillSnapshot,
-      );
-      for (const warning of childAssembly.assemblyWarnings) {
-        log.warn('[runtime] Ignored invalid delegated Agent Skill runtime input:', warning);
-      }
-
-      const childInterruptOn = resolveInterruptOn(
-        currentApprovalMode,
-        getRuntimeToolNames(childMcpRuntime.tools),
-      );
-      const gatedToolNames = new Set(Object.keys(childInterruptOn));
-      const childAgent = createDeepAgent({
-        model: childAssembly.model,
-        backend: childBackend,
-        systemPrompt: childAssembly.systemPrompt || undefined,
-        permissions: childAssembly.permissions,
-        tools: [...childMcpRuntime.tools, ...childScope.builtInTools],
-        middleware: [
-          createDelegatedToolApprovalMiddleware(
-            delegatedRunCoordinator,
-            request.delegatedRunId,
-            gatedToolNames,
-          ),
-          ...createSubagentResilienceMiddleware(
-            overrides?.allowedTools,
-            targetToolScope.mode === 'narrow'
-              ? [
-                  ...(targetToolScope.builtInTools ?? []),
-                  ...getRuntimeToolNames(childMcpRuntime.tools),
-                ]
-              : undefined,
-          ),
-        ],
-        responseFormat: DELEGATED_TASK_RESULT_SCHEMA as unknown as NonNullable<
-          NonNullable<Parameters<typeof createDeepAgent>[0]>['responseFormat']
-        >,
-        checkpointer: new MemorySaver(),
-      });
-      const progressCallbacks = createDelegatedProgressCallbacks(request);
-      const invokeChild = () => childAgent.invoke(
-        request.input as Parameters<typeof childAgent.invoke>[0],
-        {
-          signal: request.signal,
-          callbacks: progressCallbacks,
-          configurable: {
-            thread_id: request.delegatedRunId,
-            checkpoint_ns: DEEPAGENT_CHECKPOINT_NAMESPACE,
-            delegatedRunId: request.delegatedRunId,
-          },
-        },
-      );
-      const childResult = await (request.onStep
-        ? subagentStepStorage.run({ onStep: request.onStep }, invokeChild)
-        : invokeChild()) as unknown as {
-        structuredResponse?: unknown;
-        messages?: Array<{ content?: unknown }>;
-        __interrupt__?: unknown;
-        interrupts?: unknown;
-      };
-      const childInterrupts = childResult.__interrupt__ ?? childResult.interrupts;
-      if (Array.isArray(childInterrupts) && childInterrupts.length > 0) {
-        throw new Error('Delegated tool approval is not available for this run');
-      }
-      const structured = DELEGATED_TASK_RESULT_SCHEMA.safeParse(childResult?.structuredResponse);
-      if (structured.success) return structured.data;
-
-      const messages = Array.isArray(childResult?.messages) ? childResult.messages : [];
-      const lastMessage = messages[messages.length - 1];
-      const content = typeof lastMessage?.content === 'string'
-        ? lastMessage.content
-        : JSON.stringify(lastMessage?.content ?? 'Task completed');
-      return {
-        status: 'success',
-        artifacts: [],
-        summary: content.slice(0, 2_000),
-      } satisfies DelegatedTaskResult;
+  // ADR-0061/0062/0063：隔离运行时构造收敛在 delegated-runtime-adapter，
+  // 父→子继承契约是显式的窄接口；coordinator 经延迟解析注入审批门控。
+  const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = createDelegatedRuntimeAdapter(
+    {
+      approvalMode: currentApprovalMode,
+      parentBuiltInToolNames: builtInToolNames,
+      parentMcpServerIds: mcpServers.map((server) => server.id),
+      allMcpServers,
+      skillSnapshot,
+      providerId: provider.id,
+      parentOverrides: overrides,
+      project,
+      agentFileRoots,
+      sessionId,
     },
-  };
+    {
+      resolveApprovalCoordinator: () => delegatedRunCoordinator,
+      createResilienceMiddleware: createSubagentResilienceMiddleware,
+    },
+  );
   const delegatedRunCoordinator = new DelegatedAgentRunCoordinator(
     delegatedRunRepository,
     delegatedRuntimeAdapter,
