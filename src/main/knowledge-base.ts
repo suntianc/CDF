@@ -274,7 +274,9 @@ function collectMarkdownFiles(root: string, currentDir = root): string[] {
 }
 
 function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'relativePath'> {
-  const content = fs.readFileSync(filePath, 'utf-8');
+  // Normalize CRLF so frontmatter detection works for files saved by Windows editors;
+  // otherwise `---\r\n` fails the `---\n` check and the whole frontmatter is parsed as body.
+  const content = fs.readFileSync(filePath, 'utf-8').replace(/\r\n/g, '\n');
   const warnings: string[] = [];
   let invalidFrontmatter = false;
   let frontmatter: Record<string, unknown> = {};
@@ -324,18 +326,39 @@ function parseKnowledgeEntry(filePath: string): Omit<KnowledgeEntrySummary, 'rel
   };
 }
 
-export function listKnowledgeEntries(
-  projectPath: string,
-  _options: KnowledgeEntrySearchOptions = {},
-): KnowledgeEntrySummary[] {
+function collectKnowledgeEntrySummaries(projectPath: string): KnowledgeEntrySummary[] {
   ensureKnowledgeBase(projectPath);
   const root = getKnowledgeBaseRoot(projectPath);
-  return collectMarkdownFiles(root)
-    .map((filePath) => ({
-      relativePath: toPosixPath(path.relative(root, filePath)),
-      ...parseKnowledgeEntry(filePath),
-    }))
-    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return collectMarkdownFiles(root).map((filePath) => ({
+    relativePath: toPosixPath(path.relative(root, filePath)),
+    ...parseKnowledgeEntry(filePath),
+  }));
+}
+
+function applyKnowledgeSearchOptions(
+  entries: KnowledgeEntrySummary[],
+  options: KnowledgeEntrySearchOptions,
+): KnowledgeEntrySummary[] {
+  const tagMatch = options.tagMatch ?? 'all';
+  const filtered = entries
+    .filter((entry) => (
+      matchesTags(entry, options.tags, tagMatch)
+      && matchesKeyword(entry, options.keyword)
+      && matchesDateRange(entry, options)
+    ))
+    .sort((a, b) => compareEntries(a, b, options));
+  return typeof options.limit === 'number' && options.limit >= 0
+    ? filtered.slice(0, options.limit)
+    : filtered;
+}
+
+export function listKnowledgeEntries(
+  projectPath: string,
+  options: KnowledgeEntrySearchOptions = {},
+): KnowledgeEntrySummary[] {
+  // Honors options (filter/sort/limit). With empty options this is the full list sorted
+  // by relativePath, matching the previous behavior.
+  return applyKnowledgeSearchOptions(collectKnowledgeEntrySummaries(projectPath), options);
 }
 
 export function readKnowledgeEntry(projectPath: string, relativePath: string): KnowledgeEntrySummary {
@@ -513,15 +536,7 @@ export function searchKnowledgeEntries(
   projectPath: string,
   options: KnowledgeEntrySearchOptions = {},
 ): KnowledgeEntrySummary[] {
-  const tagMatch = options.tagMatch ?? 'all';
-  const entries = listKnowledgeEntries(projectPath)
-    .filter((entry) => (
-      matchesTags(entry, options.tags, tagMatch)
-      && matchesKeyword(entry, options.keyword)
-      && matchesDateRange(entry, options)
-    ))
-    .sort((a, b) => compareEntries(a, b, options));
-  return typeof options.limit === 'number' && options.limit >= 0 ? entries.slice(0, options.limit) : entries;
+  return applyKnowledgeSearchOptions(collectKnowledgeEntrySummaries(projectPath), options);
 }
 
 export function createKnowledgeSearchTool(projectPath: string) {

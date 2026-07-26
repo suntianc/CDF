@@ -49,6 +49,35 @@ describe('Knowledge Base', () => {
     expect(entries.map((entry) => entry.relativePath)).toEqual(['papers/transformer.md']);
   });
 
+  it('parses frontmatter from CRLF files saved by Windows editors (#217)', () => {
+    ensureKnowledgeBase(projectPath);
+    const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
+    fs.writeFileSync(
+      path.join(knowledgeRoot, 'crlf.md'),
+      '---\r\ntitle: CRLF Notes\r\ntype: note\r\ntags: [win]\r\n---\r\n\r\nBody text.\r\n',
+      'utf-8',
+    );
+
+    const [entry] = listKnowledgeEntries(projectPath);
+
+    expect(entry).toMatchObject({ relativePath: 'crlf.md', title: 'CRLF Notes', tags: ['win'] });
+    // frontmatter was recognized, so no missing-field or invalid-frontmatter warning
+    expect(entry.invalidFrontmatter).toBe(false);
+    expect(entry.warnings).not.toContain('Missing OKF required field: type');
+  });
+
+  it('honors search options passed to listKnowledgeEntries (#217)', () => {
+    ensureKnowledgeBase(projectPath);
+    const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
+    fs.writeFileSync(path.join(knowledgeRoot, 'a.md'), '---\ntitle: Alpha\ntype: note\ntags: [x]\n---\nalpha body', 'utf-8');
+    fs.writeFileSync(path.join(knowledgeRoot, 'b.md'), '---\ntitle: Beta\ntype: note\ntags: [y]\n---\nbeta body', 'utf-8');
+
+    // tag filter is applied (not silently ignored)
+    expect(listKnowledgeEntries(projectPath, { tags: ['x'] }).map((e) => e.relativePath)).toEqual(['a.md']);
+    // limit is applied
+    expect(listKnowledgeEntries(projectPath, { limit: 1 })).toHaveLength(1);
+  });
+
   it('returns parsed metadata, body, and warnings for incomplete hand-authored entries', () => {
     ensureKnowledgeBase(projectPath);
     const knowledgeRoot = path.join(projectPath, '.cdf', 'knowledge');
