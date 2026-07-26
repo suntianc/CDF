@@ -161,6 +161,8 @@ const api = {
     },
   },
   flowDiagram: {
+    saveDocument: (rootPath: string, filePath: string, content: string, expectedContent: string | null) =>
+      typedInvoke('flow-diagram:save-document', rootPath, filePath, content, expectedContent),
     onExportRequest: (callback: (request: FlowDiagramExportRequest) => void) => {
       const listener = (_event: IpcRendererEvent, request: FlowDiagramExportRequest) => callback(request);
       ipcRenderer.on(FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL, listener);
@@ -180,8 +182,8 @@ const api = {
       typedInvoke('fs:getFileInfo', rootPath, filePath),
     onDirectoryChange: (callback: (data: IpcEventPayload<'fs:directoryChange'>) => void) =>
       typedOn('fs:directoryChange', callback),
-    writeFile: (rootPath: string, filePath: string, content: string, expectedContent?: string) =>
-      typedInvoke('fs:writeFile', rootPath, filePath, content, expectedContent),
+    writeFile: (rootPath: string, filePath: string, content: string) =>
+      typedInvoke('fs:writeFile', rootPath, filePath, content),
     createFile: (rootPath: string, filePath: string) =>
       typedInvoke('fs:createFile', rootPath, filePath),
     createDirectory: (rootPath: string, dirPath: string) =>

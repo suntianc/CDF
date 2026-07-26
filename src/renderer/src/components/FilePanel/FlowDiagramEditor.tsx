@@ -73,19 +73,30 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       return saveQueueRef.current;
     }
 
-    const expectedDiskContent = queuedDiskContentRef.current ?? lastDiskContentRef.current ?? undefined;
+    const expectedDiskContent = queuedDiskContentRef.current ?? lastDiskContentRef.current ?? null;
     lastQueuedContentRef.current = contentToSave;
     queuedDiskContentRef.current = contentToSave;
     const operation = saveQueueRef.current.then(async () => {
       setSaveState('saving');
       try {
-        const result = await window.electronAPI.fs.writeFile(
+        const result = await window.electronAPI.flowDiagram.saveDocument(
           rootPath,
           filePath,
           contentToSave,
           expectedDiskContent,
         );
         if (!result.ok) {
+          if (result.error.code === 'SOURCE_CHANGED') {
+            // The document changed externally: preserve this attempt for the
+            // conflict banner instead of silently overwriting either side.
+            if (!conflictedContentRef.current) {
+              conflictedContentRef.current = contentToSave;
+              setConflictedContent(contentToSave);
+            }
+            setTabDirty(filePath, true);
+            setSaveState('dirty');
+            return false;
+          }
           console.error('[FlowDiagramEditor] Save failed:', result.error.message);
           setSaveState('error');
           return false;

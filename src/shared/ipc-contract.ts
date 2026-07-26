@@ -32,6 +32,7 @@ import type {
 } from './conversations';
 import type { ContextAggregate } from './context';
 import type { BinaryFileInfo, DirectoryEntry, FileContent, FileError, FileInfo } from './filesystem';
+import type { FlowDiagramDocumentSaveResult } from './flow-diagrams';
 import type {
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
@@ -257,8 +258,13 @@ export interface IpcInvokeContract {
   };
   'fs:getFileInfo': { args: [rootPath: string, filePath: string]; result: FsData<FileInfo> };
   'fs:writeFile': {
-    args: [rootPath: string, filePath: string, content: string, expectedContent?: string];
+    args: [rootPath: string, filePath: string, content: string];
     result: FsAck;
+  };
+  // Flow Diagram 文档写路径走文档存储：原子 CAS + 场景校验 + 冲突结构化返回。
+  'flow-diagram:save-document': {
+    args: [rootPath: string, filePath: string, content: string, expectedContent: string | null];
+    result: FlowDiagramDocumentSaveResult;
   };
   'fs:createFile': { args: [rootPath: string, filePath: string]; result: FsAck };
   'fs:createDirectory': { args: [rootPath: string, dirPath: string]; result: FsAck };
@@ -442,6 +448,7 @@ export const IPC_INVOKE_CHANNELS = [
   'fs:readFile',
   'fs:getFileInfo',
   'fs:writeFile',
+  'flow-diagram:save-document',
   'fs:createFile',
   'fs:createDirectory',
   'fs:renameEntry',

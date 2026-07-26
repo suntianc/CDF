@@ -138,14 +138,6 @@ describe('FileSystemService', () => {
       expect(fs.readFileSync(filePath, 'utf-8')).toBe('hello');
     });
 
-    it('rejects a stale compare-and-swap save without overwriting disk content', async () => {
-      const filePath = path.join(tmpDir, 'hello.ts');
-      await expect(writeFile(tmpDir, filePath, 'stale edit', 'older content')).rejects.toMatchObject({
-        code: 'ECONFLICT',
-      });
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe('console.log("hello");');
-    });
-
     it('rejects path traversal', async () => {
       await expect(writeFile(tmpDir, '/etc/passwd', 'hack')).rejects.toThrow();
     });

@@ -9,7 +9,7 @@ import {
   type FlowDiagramService,
 } from './flow-diagram-service';
 import type { ExcalidrawScene } from './flow-diagram-scene';
-import { writeFile as writeProjectFile } from '../services/file-system';
+import { createFlowDiagramDocumentStore } from './flow-diagram-document-store';
 
 function scene(elements: Array<Record<string, unknown>> = []): ExcalidrawScene {
   return {
@@ -450,8 +450,8 @@ describe('FlowDiagramService integration', () => {
       operations: [{ op: 'add', elements: [rectangle('agent')] }],
     });
     await revisionStartedPromise;
-    const staleAutosave = writeProjectFile(
-      projectPath,
+    const documentStore = createFlowDiagramDocumentStore({ projectPath });
+    const staleAutosave = documentStore.saveDocument(
       filePath,
       original.toString('utf8'),
       original.toString('utf8'),
@@ -459,7 +459,10 @@ describe('FlowDiagramService integration', () => {
     releaseRevision();
 
     await expect(agentEdit).resolves.toMatchObject({ ok: true });
-    await expect(staleAutosave).rejects.toMatchObject({ code: 'ECONFLICT' });
+    await expect(staleAutosave).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'SOURCE_CHANGED' },
+    });
     expect(fs.readFileSync(filePath, 'utf8')).toContain('"id": "agent"');
   });
 

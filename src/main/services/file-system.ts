@@ -118,21 +118,11 @@ export async function writeFile(
   rootPath: string,
   filePath: string,
   content: string,
-  expectedContent?: string,
 ): Promise<void> {
   await runProjectFileMutation(rootPath, async () => {
     const resolved = resolveProjectFile(rootPath, filePath);
     if (isProtectedPath(resolved)) {
       throw new Error(`Cannot write to protected path: ${filePath}`);
-    }
-    if (expectedContent !== undefined) {
-      const currentContent = await fsp.readFile(resolved, 'utf-8');
-      if (currentContent !== expectedContent) {
-        throw Object.assign(
-          new Error('File changed on disk before this save could be applied.'),
-          { code: 'ECONFLICT' },
-        );
-      }
     }
     await fsp.writeFile(resolved, content, 'utf-8');
   });

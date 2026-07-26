@@ -85,6 +85,7 @@ import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { deleteConversation, deleteProject } from './conversation-deletion';
 import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
 import { registerFlowDiagramExportResponseHandler } from './flow-diagram/flow-diagram-export-adapter';
+import { createFlowDiagramDocumentStore } from './flow-diagram/flow-diagram-document-store';
 import {
   createConversationWorkingStateCompactionRunner,
   findConversationWorkingStateMaintenanceBlocker,
@@ -1247,17 +1248,28 @@ export function registerIpcHandlers() {
     }
   });
 
-  typedHandle('fs:writeFile', async (_, rootPath, filePath, content, expectedContent) => {
+  typedHandle('fs:writeFile', async (_, rootPath, filePath, content) => {
     if (!isRegisteredProjectRoot(rootPath)) {
       return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
     }
     try {
-      await writeFile(rootPath, filePath, content, expectedContent);
+      await writeFile(rootPath, filePath, content);
       notifyFileChange(filePath);
       return { ok: true };
     } catch (err: any) {
       return { ok: false, error: { code: err.code || 'EUNKNOWN', message: err.message } };
     }
+  });
+
+  typedHandle('flow-diagram:save-document', async (_, rootPath, filePath, content, expectedContent) => {
+    if (!isRegisteredProjectRoot(rootPath)) {
+      return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+    }
+    const documentStore = createFlowDiagramDocumentStore({
+      projectPath: rootPath,
+      notifyFileChange,
+    });
+    return documentStore.saveDocument(filePath, content, expectedContent);
   });
 
   typedHandle('fs:createFile', async (_, rootPath, filePath) => {
