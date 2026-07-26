@@ -68,19 +68,22 @@ export function useTypewriter(
   targetRef.current = targetContent;
   streamActiveRef.current = isStreamActive;
 
-  // ── Start the animation loop when stream activates ───────────────────
+  // ── Start / stop the animation loop as the stream activates ──────────
   useEffect(() => {
-    // Cancel any rAF chain left over from a previous activation before
-    // deciding what to do for this one. Without this, a rapid
-    // isStreamActive true → false → true flip can leave the second
-    // activation short-circuited at the `rafRef.current !== null`
-    // guard below, swallowing the new chain entirely.
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
+    // Stream ended. A running rAF chain must be allowed to finish its ease-out
+    // naturally — it reads streamActiveRef and will sync content + clear
+    // isTypewriting once caught up. Cancelling it here (as a previous version did)
+    // is exactly what left isTypewriting stuck true with a partial buffer. If no
+    // chain is running we are already caught up, so hard-sync and clear the flag —
+    // otherwise the message would render forever in its streaming branch.
+    if (!isStreamActive) {
+      if (rafRef.current === null) {
+        setDisplayedContent(targetRef.current);
+        displayedLenRef.current = targetRef.current.length;
+        setIsTypewriting(false);
+      }
+      return;
     }
-
-    if (!isStreamActive) return;
 
     // Honor `prefers-reduced-motion: reduce` by short-circuiting the rAF
     // loop. The user has asked for no motion; the typewriter must not
@@ -96,7 +99,9 @@ export function useTypewriter(
 
     setIsTypewriting(true);
 
-    // Don't start a second loop if one is already running
+    // Ensure exactly one chain is running. A chain already in flight (e.g. from a
+    // rapid true→false→true flip) keeps adapting through the refs, so we must not
+    // start a duplicate — and must not cancel it either.
     if (rafRef.current !== null) return;
 
     const tick = () => {
