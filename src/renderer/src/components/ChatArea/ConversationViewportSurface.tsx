@@ -289,7 +289,7 @@ export function ConversationViewportSurface({
               type="button"
               onClick={onClearError}
               className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-danger)]"
-              aria-label="Dismiss error"
+              aria-label={t('chat.dismissError')}
             >
               <X className="w-3.5 h-3.5" />
             </button>

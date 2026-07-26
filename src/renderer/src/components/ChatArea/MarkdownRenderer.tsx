@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertBlock, type AlertType } from './markdown/AlertBlock';
 import { CodeBlock } from './markdown/CodeBlock';
 import { textAlignClass } from './markdown/textAlign';
@@ -63,6 +64,7 @@ export function MathRenderer({ math, block = false }: MathRendererProps) {
 }
 
 function MathFallback({ math, block, errorMessage }: { math: string; block: boolean; errorMessage: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -84,13 +86,13 @@ function MathFallback({ math, block, errorMessage }: { math: string; block: bool
     <Wrapper
       {...wrapperProps}
       role="img"
-      aria-label={`公式解析失败: ${math}`}
+      aria-label={t('chat.formulaParseFailed', { math })}
       data-testid="math-fallback"
     >
       <div className="border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/[0.06] rounded-md px-3 py-2 font-mono text-xs select-text">
         <div className="flex items-center gap-1.5 text-[var(--color-danger)] font-semibold mb-1.5">
           <AlertOctagon className="w-3.5 h-3.5 shrink-0" />
-          <span>公式无法解析</span>
+          <span>{t('chat.formulaParseError')}</span>
         </div>
         <pre className="whitespace-pre-wrap break-words text-[var(--color-text-primary)] mb-2 leading-relaxed">
           {math}
@@ -102,7 +104,7 @@ function MathFallback({ math, block, errorMessage }: { math: string; block: bool
           <button
             type="button"
             onClick={handleCopy}
-            aria-label="复制公式源码"
+            aria-label={t('chat.copyFormulaSource')}
             className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded transition-colors ${
               copied
                 ? 'text-[var(--color-success)] bg-[var(--color-success)]/10'
@@ -112,12 +114,12 @@ function MathFallback({ math, block, errorMessage }: { math: string; block: bool
             {copied ? (
               <>
                 <Check className="w-3 h-3" />
-                <span>已复制</span>
+                <span>{t('chat.copied')}</span>
               </>
             ) : (
               <>
                 <Copy className="w-3 h-3" />
-                <span>复制源码</span>
+                <span>{t('chat.copySource')}</span>
               </>
             )}
           </button>

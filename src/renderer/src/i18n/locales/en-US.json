@@ -724,7 +724,22 @@
       "phaseModelTriggered": "Model-triggered",
       "phaseExplicitInvocation": "Explicit invocation",
       "phaseModelDiscovery": "Model discovery"
-    }
+    },
+    "retry": "Retry",
+    "sendMessageFailed": "Failed to send message",
+    "toolRejectedByUser": "The user rejected this tool call.",
+    "formulaParseError": "Formula could not be parsed",
+    "copySource": "Copy source",
+    "thinking": {
+      "finishedWithTime": "Thought (took {{duration}})",
+      "finishedWithTokens": "Thought (~{{tokens}} tokens)",
+      "completeWithTime": "Thinking complete (took {{duration}})",
+      "completeWithTokens": "Thinking complete (~{{tokens}} tokens)",
+      "inProgress": "Thinking ({{duration}} elapsed)..."
+    },
+    "formulaParseFailed": "Formula parse failed: {{math}}",
+    "copyFormulaSource": "Copy formula source",
+    "copied": "Copied"
   },
   "sceneWorkspace": {
     "researchTabs": "Research workspace",

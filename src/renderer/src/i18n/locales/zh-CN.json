@@ -724,7 +724,22 @@
       "phaseModelTriggered": "模型触发",
       "phaseExplicitInvocation": "显式调用",
       "phaseModelDiscovery": "模型发现"
-    }
+    },
+    "retry": "重试",
+    "sendMessageFailed": "发送消息失败",
+    "toolRejectedByUser": "用户拒绝了该工具调用。",
+    "formulaParseError": "公式无法解析",
+    "copySource": "复制源码",
+    "thinking": {
+      "finishedWithTime": "已思考（用时 {{duration}}）",
+      "finishedWithTokens": "已思考（约 {{tokens}} tokens）",
+      "completeWithTime": "思考完成（用时 {{duration}}）",
+      "completeWithTokens": "思考完成（约 {{tokens}} tokens）",
+      "inProgress": "思考中（已用时 {{duration}}）..."
+    },
+    "formulaParseFailed": "公式解析失败: {{math}}",
+    "copyFormulaSource": "复制公式源码",
+    "copied": "已复制"
   },
   "sceneWorkspace": {
     "researchTabs": "科研工作台",

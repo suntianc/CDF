@@ -250,6 +250,7 @@ export const MessageContentRenderer = memo(({
   thinkDurationSeconds,
   thinkRecent = false,
 }: MessageContentRendererProps) => {
+  const { t } = useTranslation();
   const isFinished = useMemo(() => checkThinkingFinished(content), [content]);
 
   const [thinkExpanded, setThinkExpanded] = useState(() => {
@@ -431,9 +432,9 @@ export const MessageContentRenderer = memo(({
         const resolvedSeconds = getThinkingTime();
         const headerText = finished
           ? resolvedSeconds !== null
-            ? `已思考 (用时 ${formatDuration(resolvedSeconds)})`
-            : `已思考 (约 ${estimateTokens(thinkContent)} tokens)`
-          : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
+            ? t('chat.thinking.finishedWithTime', { duration: formatDuration(resolvedSeconds) })
+            : t('chat.thinking.finishedWithTokens', { tokens: estimateTokens(thinkContent) })
+          : t('chat.thinking.inProgress', { duration: formatDuration(elapsedSeconds) });
 
         return (
           <ThinkBlock
@@ -479,9 +480,9 @@ export const MessageContentRenderer = memo(({
     const resolvedSeconds = finalDuration ?? thinkDurationSeconds ?? null;
     const headerText = isThinkingFinished
       ? resolvedSeconds !== null
-        ? `思考完成 (用时 ${formatDuration(resolvedSeconds)})`
-        : `思考完成 (约 ${estimateTokens(foldedContent)} tokens)`
-      : `思考中 (已用时 ${formatDuration(elapsedSeconds)})...`;
+        ? t('chat.thinking.completeWithTime', { duration: formatDuration(resolvedSeconds) })
+        : t('chat.thinking.completeWithTokens', { tokens: estimateTokens(foldedContent) })
+      : t('chat.thinking.inProgress', { duration: formatDuration(elapsedSeconds) });
 
     const renderFoldedBlock = () => {
       if (!foldedContent) return null;

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import i18n from '@/i18n';
 import { useProjectStore } from './projectStore';
 import {
   createConversationRuntimeState,
@@ -296,7 +297,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             : errorEntry.error.retrySubmission
               ? {
                   recoverableActions: [{
-                    label: '重试',
+                    label: i18n.t('chat.retry'),
                     action: () => {
                       const retry = errorEntry.error?.retrySubmission;
                       if (!retry) return;
@@ -1242,7 +1243,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
               error: {
                 message: effect.message || '对话请求出错',
                 messageParams: effect.messageParams,
-                recoverableActions: [{ label: '重试', action: () => get().sendMessage(projectId, content, overrides, targetSessionId, options) }],
+                recoverableActions: [{ label: i18n.t('chat.retry'), action: () => get().sendMessage(projectId, content, overrides, targetSessionId, options) }],
               },
             });
           }
@@ -1373,7 +1374,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             pendingApproval: null,
             pendingApprovals: [],
             approvalHistory: [],
-            error: state.error ?? { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
+            error: state.error ?? { message: err.message || i18n.t('chat.sendMessageFailed'), recoverableActions: [{ label: i18n.t('chat.retry'), action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
           }));
         }
       }
@@ -1387,7 +1388,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: { message: err.message || '发送消息失败', recoverableActions: [{ label: '重试', action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
+          error: { message: err.message || i18n.t('chat.sendMessageFailed'), recoverableActions: [{ label: i18n.t('chat.retry'), action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
         });
       }
     }
@@ -1439,7 +1440,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       decisions: selectedApproval.actions.map((action) => ({
         type: decision,
         editedAction: decision === 'edit' ? { name: action.name, args: editedAction } : undefined,
-        message: decision === 'reject' ? '用户拒绝了该工具调用。' : undefined,
+        message: decision === 'reject' ? i18n.t('chat.toolRejectedByUser') : undefined,
       })),
     });
   },
