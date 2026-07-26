@@ -121,4 +121,33 @@ describe('createBashTool', () => {
     expect(result.exitCode).toBe(7);
     expect(result.error).toContain('Command failed');
   });
+
+  it('kills the whole process tree on timeout, not just the shell (#221)', async () => {
+    if (process.platform === 'win32') return;
+    const bash = createBashTool({ workingDir, timeoutMs: 300 });
+    const pidFile = path.join(workingDir, 'grandchild.pid');
+
+    // Background a long-lived grandchild, record its pid, then block so the tool times out.
+    const result = parseToolResult(await (bash as any).invoke({
+      command: `sleep 30 & echo $! > ${pidFile}; sleep 30`,
+    }));
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(-2); // Timeout
+
+    const grandchildPid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    expect(Number.isInteger(grandchildPid)).toBe(true);
+
+    // Poll: the backgrounded grandchild must die with the killed process group.
+    let alive = true;
+    for (let i = 0; i < 40 && alive; i++) {
+      try {
+        process.kill(grandchildPid, 0);
+        await new Promise((r) => setTimeout(r, 50));
+      } catch {
+        alive = false;
+      }
+    }
+    expect(alive).toBe(false);
+  });
 });

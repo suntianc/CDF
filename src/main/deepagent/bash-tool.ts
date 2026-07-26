@@ -1,10 +1,7 @@
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
-import { promisify } from 'util';
 import { tool } from '@langchain/core/tools';
-
-const execAsync = promisify(exec);
 
 interface BashResult {
   stdout: string;
@@ -32,6 +29,100 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /curl.*\|\s*sh/,
   /wget.*\|\s*bash/,
 ];
+
+function truncateOutput(text: string, maxOutputBytes: number, label: string): string {
+  return text.length > maxOutputBytes
+    ? text.slice(0, maxOutputBytes) + `\n... ${label} truncated (size limit)`
+    : text;
+}
+
+/**
+ * Run a command in its own process group so a timeout kills the whole subtree, not just
+ * the shell. `exec`'s timeout only SIGTERMs the direct child, leaking any long-running
+ * descendants the shell spawned.
+ */
+function runInDetachedShell(
+  command: string,
+  opts: { cwd: string; shell: string; timeoutMs: number; maxOutputBytes: number },
+): Promise<BashResult> {
+  const { cwd, shell, timeoutMs, maxOutputBytes } = opts;
+  const posix = process.platform !== 'win32';
+  return new Promise<BashResult>((resolve) => {
+    const child = spawn(command, [], {
+      cwd,
+      env: process.env,
+      shell,
+      windowsHide: true,
+      detached: posix, // new process group on POSIX so we can signal the whole tree
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+
+    const killTree = (signal: NodeJS.Signals) => {
+      if (child.pid === undefined) return;
+      try {
+        // Negative pid targets the whole process group (POSIX). On Windows fall back to
+        // killing the child; spawned descendants there are best-effort.
+        if (posix) process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch {
+        // Process/group already gone.
+      }
+    };
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree('SIGTERM');
+      const escalate = setTimeout(() => killTree('SIGKILL'), 2000);
+      escalate.unref?.();
+    }, timeoutMs);
+
+    child.stdout?.on('data', (chunk) => {
+      if (stdout.length <= maxOutputBytes) stdout += String(chunk);
+    });
+    child.stderr?.on('data', (chunk) => {
+      if (stderr.length <= maxOutputBytes) stderr += String(chunk);
+    });
+
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ stdout: '', stderr: error.message, exitCode: -3, success: false, error: error.message });
+    });
+
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const outT = truncateOutput(stdout, maxOutputBytes, 'output');
+      const errT = truncateOutput(stderr, maxOutputBytes, 'error');
+      if (timedOut) {
+        resolve({
+          stdout: outT,
+          stderr: errT || `Command timed out after ${timeoutMs}ms`,
+          exitCode: -2,
+          success: false,
+          error: 'Timeout',
+        });
+      } else if (code === 0) {
+        resolve({ stdout: outT, stderr: errT, exitCode: 0, success: true });
+      } else {
+        resolve({
+          stdout: outT,
+          stderr: errT,
+          exitCode: code ?? -3,
+          success: false,
+          error: `Command failed: ${command}`,
+        });
+      }
+    });
+  });
+}
 
 export function createBashTool(options: BashToolOptions = {}) {
   const timeoutMs = options.timeoutMs ?? 30_000;
@@ -87,58 +178,7 @@ export function createBashTool(options: BashToolOptions = {}) {
       };
     }
 
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        timeout: timeoutMs,
-        maxBuffer: maxOutputBytes,
-        cwd: workingDir,
-        env: process.env,
-        shell,
-      } as any);
-
-      // execFile 的 options 走 as any 后 TS 推导为 Buffer 重载；运行时默认 utf8 实为 string
-      let truncatedStdout = String(stdout);
-      let truncatedStderr = String(stderr);
-      if (truncatedStdout.length > maxOutputBytes) {
-        truncatedStdout = truncatedStdout.slice(0, maxOutputBytes) + '\n... output truncated (size limit)';
-      }
-      if (truncatedStderr.length > maxOutputBytes) {
-        truncatedStderr = truncatedStderr.slice(0, maxOutputBytes) + '\n... error truncated (size limit)';
-      }
-
-      return {
-        stdout: truncatedStdout,
-        stderr: truncatedStderr,
-        exitCode: 0,
-        success: true,
-      };
-    } catch (error: any) {
-      if (error.killed && error.signal === 'SIGTERM') {
-        return {
-          stdout: error.stdout ?? '',
-          stderr: error.stderr ?? `Command timed out after ${timeoutMs}ms`,
-          exitCode: -2,
-          success: false,
-          error: 'Timeout',
-        };
-      }
-      if (error.stdout !== undefined || error.stderr !== undefined) {
-        return {
-          stdout: typeof error.stdout === 'string' ? error.stdout : String(error.stdout),
-          stderr: typeof error.stderr === 'string' ? error.stderr : String(error.stderr),
-          exitCode: error.code ?? 1,
-          success: false,
-          error: error.message,
-        };
-      }
-      return {
-        stdout: '',
-        stderr: error.message,
-        exitCode: -3,
-        success: false,
-        error: error.message,
-      };
-    }
+    return runInDetachedShell(command, { cwd: workingDir, shell, timeoutMs, maxOutputBytes });
   }
 
   return tool(
