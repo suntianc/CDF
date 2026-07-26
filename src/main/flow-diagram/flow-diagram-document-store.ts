@@ -6,7 +6,10 @@ import {
   FlowDiagramSceneError,
   parseFlowDiagramScene,
 } from './flow-diagram-scene';
-import type { FlowDiagramDocumentSaveResult } from '../../shared/flow-diagrams';
+import {
+  FLOW_DIAGRAM_SOURCE_CHANGED,
+  type FlowDiagramDocumentSaveResult,
+} from '../../shared/flow-diagrams';
 
 /**
  * Flow Diagram 文档存储：`.excalidraw` 文档一致性的唯一拥有者。
@@ -281,7 +284,10 @@ export function createFlowDiagramDocumentStore(
           notify(target);
           return { ok: true } as const;
         } catch (error) {
-          if (error instanceof FlowDiagramOperationError && error.code === 'SOURCE_CHANGED') {
+          if (
+            error instanceof FlowDiagramOperationError
+            && error.code === FLOW_DIAGRAM_SOURCE_CHANGED
+          ) {
             let currentContent: string | null = null;
             try {
               currentContent = fs.readFileSync(target, 'utf-8');
@@ -290,7 +296,7 @@ export function createFlowDiagramDocumentStore(
             }
             return {
               ok: false as const,
-              error: { code: 'SOURCE_CHANGED', message: error.message, currentContent },
+              error: { code: FLOW_DIAGRAM_SOURCE_CHANGED, message: error.message, currentContent },
             };
           }
           return failureResult(error, 'WRITE_FAILED');

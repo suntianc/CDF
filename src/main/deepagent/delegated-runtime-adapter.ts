@@ -76,6 +76,8 @@ export interface DelegatedRuntimeExecutionDependencies {
   loadMcpTools: typeof loadMcpTools;
   createBuiltInTools: typeof createBuiltInTools;
   loadRegistryTools: typeof loadRegistryTools;
+  /** ADR-0063: 解析子运行审批门控集合；生产默认用 shared-infra 真实现。 */
+  resolveInterruptOn: typeof resolveInterruptOn;
 }
 
 export interface CreateDelegatedRuntimeAdapterOptions {
@@ -202,6 +204,7 @@ export function createDelegatedRuntimeAdapter(
     loadMcpTools,
     createBuiltInTools,
     loadRegistryTools,
+    resolveInterruptOn,
     ...options.dependencies,
   };
 
@@ -265,7 +268,7 @@ export function createDelegatedRuntimeAdapter(
         log.warn('[runtime] Ignored invalid delegated Agent Skill runtime input:', warning);
       }
 
-      const childInterruptOn = resolveInterruptOn(
+      const childInterruptOn = deps.resolveInterruptOn(
         approvalMode,
         getRuntimeToolNames(childMcpRuntime.tools),
       );

@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { reloadProjectFile } from '../../lib/openProjectFile';
 import { registerProjectFileFlush } from '../../lib/projectFileFlush';
 import { useFileStore } from '../../stores/fileStore';
+import { FLOW_DIAGRAM_SOURCE_CHANGED } from '@shared/flow-diagrams';
 import {
   restoreFlowDiagram,
   serializeFlowDiagram,
@@ -86,9 +87,12 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
           expectedDiskContent,
         );
         if (!result.ok) {
-          if (result.error.code === 'SOURCE_CHANGED') {
-            // The document changed externally: preserve this attempt for the
-            // conflict banner instead of silently overwriting either side.
+          if (result.error.code === FLOW_DIAGRAM_SOURCE_CHANGED) {
+            // The document changed externally: the store returns the current
+            // on-disk content so we can relink our CAS baseline without a
+            // second read, then surface the unsaved attempt as a conflict.
+            const currentContent = result.error.currentContent ?? null;
+            if (currentContent != null) lastDiskContentRef.current = currentContent;
             if (!conflictedContentRef.current) {
               conflictedContentRef.current = contentToSave;
               setConflictedContent(contentToSave);

@@ -84,6 +84,7 @@ describe('createDelegatedRuntimeAdapter', () => {
   let createAgentGraphMock: ReturnType<typeof vi.fn>;
   let loadMcpToolsMock: ReturnType<typeof vi.fn>;
   let assembleRuntimeMock: ReturnType<typeof vi.fn>;
+  let resolveInterruptOnMock: ReturnType<typeof vi.fn>;
   let resolveApprovalCoordinatorMock: ReturnType<typeof vi.fn>;
   let options: CreateDelegatedRuntimeAdapterOptions;
 
@@ -101,6 +102,7 @@ describe('createDelegatedRuntimeAdapter', () => {
       systemPrompt: 'assembled child prompt',
       assemblyWarnings: [],
     }));
+    resolveInterruptOnMock = vi.fn(() => ({ mcp_search: { allowedDecisions: ['approve', 'reject'] } }));
     resolveApprovalCoordinatorMock = vi.fn(() => ({
       runToolAction: vi.fn(async ({ execute }: { execute: () => Promise<unknown> }) => execute()),
     }));
@@ -131,6 +133,7 @@ describe('createDelegatedRuntimeAdapter', () => {
           { name: 'write_file' },
         ]) as unknown as never,
         loadRegistryTools: vi.fn(() => []) as unknown as never,
+        resolveInterruptOn: resolveInterruptOnMock as unknown as never,
       },
     };
   });
@@ -245,4 +248,21 @@ describe('createDelegatedRuntimeAdapter', () => {
     await expect(adapter.run(requestFor(snapshotFor(null))))
       .rejects.toThrow('Delegated tool approval is not available for this run');
   });
+
+  it.each(['strict', 'agent_decides', 'bypass'] as const)(
+    'propagates the parent approval mode into the child approval gate (ADR-0063: %s)',
+    async (approvalMode) => {
+      const adapter = createDelegatedRuntimeAdapter({ ...parentContext, approvalMode }, options);
+
+      await adapter.run(requestFor(snapshotFor(null)));
+
+      // The adapter must derive the child gate from the parent's approval mode,
+      // not from a hardcoded default. ADR-0063: child inherits one mode.
+      expect(resolveInterruptOnMock).toHaveBeenCalledTimes(1);
+      expect(resolveInterruptOnMock).toHaveBeenCalledWith(
+        approvalMode,
+        expect.arrayContaining(['mcp_search']),
+      );
+    },
+  );
 });
