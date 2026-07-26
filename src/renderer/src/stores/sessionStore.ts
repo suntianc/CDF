@@ -41,6 +41,11 @@ import {
 } from '../../../shared/types';
 import type { ReasoningEffort } from '../../../shared/ai-subscriptions';
 import { CONVERSATION_DELETE_ERROR_CODES } from '../../../shared/conversation-deletion';
+import {
+  mergeDelegatedTaskRuntime,
+  parseLatestTodosOutput,
+  reconcilePersistedToolMessages,
+} from './session/agentActivity';
 
 // Session-level model overrides are durable local business data and belong in the main
 // process store (electron-store), not renderer localStorage (AGENTS.md). Kept in-memory in
@@ -74,57 +79,6 @@ export function estimateTokens(text: string): number {
     }
   }
   return Math.ceil(englishChars / 4) + Math.ceil(cjkChars * 1.5);
-}
-
-function parsePersistedToolValue(value: string | null | undefined): unknown {
-  if (value === null || value === undefined) return undefined;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-function reconcilePersistedToolMessages(messages: Message[], toolCalls: AgentToolCall[]): Message[] {
-  if (messages.length === 0 || toolCalls.length === 0) return messages;
-
-  const toolCallsById = new Map(toolCalls.map((call) => [call.id, call]));
-  let changed = false;
-
-  const nextMessages = messages.map((message) => {
-    if (message.role !== 'system') return message;
-
-    let content: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(message.content);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return message;
-      content = parsed as Record<string, unknown>;
-    } catch {
-      return message;
-    }
-
-    if (content.type !== 'tool') return message;
-    const call = toolCallsById.get(message.id);
-    if (!call || call.status === 'running') return message;
-
-    const nextContent = {
-      ...content,
-      name: typeof content.name === 'string' ? content.name : call.tool_name,
-      status: call.status === 'success' ? 'success' : 'error',
-      output: call.status === 'success'
-        ? (content.output ?? parsePersistedToolValue(call.output))
-        : content.output,
-      error: call.status === 'success'
-        ? undefined
-        : (content.error ?? call.error ?? 'Tool call did not complete successfully'),
-    };
-    const serialized = JSON.stringify(nextContent);
-    if (serialized === message.content) return message;
-    changed = true;
-    return { ...message, content: serialized };
-  });
-
-  return changed ? nextMessages : messages;
 }
 
 export interface SessionError {
@@ -804,25 +758,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       try {
         if (typeof window.electronAPI.db.getLatestTodos === 'function') {
           const lastTodosToolCall = await window.electronAPI.db.getLatestTodos(sessionId);
-          if (lastTodosToolCall && lastTodosToolCall.output) {
-            const outputObj = typeof lastTodosToolCall.output === 'string'
-              ? JSON.parse(lastTodosToolCall.output)
-              : lastTodosToolCall.output;
-            let todosList = null;
-            if (Array.isArray(outputObj)) {
-              todosList = outputObj;
-            } else if (outputObj.update && Array.isArray(outputObj.update.todos)) {
-              todosList = outputObj.update.todos;
-            } else {
-              const val = outputObj || {};
-              if (val.update && Array.isArray(val.update.todos)) {
-                todosList = val.update.todos;
-              }
-            }
-            if (Array.isArray(todosList)) {
-              latestTodos = todosList;
-            }
-          }
+          latestTodos = parseLatestTodosOutput(lastTodosToolCall?.output);
         }
       } catch (err) {
         console.warn('[sessionStore] Failed to fetch/parse latest todos from DB:', err);
@@ -837,56 +773,18 @@ export const useSessionStore = create<SessionState>((set, get) => {
           delegatedToolActions,
           latestTodos,
         });
-        const tasks = restoredRuntime.delegatedTasks;
 
         if (get().activeSessionId !== sessionId || latestActivityFetchRequestIds.get(sessionId) !== requestId) return;
 
-        // Preserve live chunks from streaming cache and current store state.
-        // DB-reconstructed tasks always have chunks: [] (streaming chunks are
-        // transient and not persisted to SQLite). Merging from both sources
-        // prevents "0 块 / 0 tokens" flash on every reopen / session switch.
         const streamProjection = getConversationRuntimeEntry(
           get().conversationRuntimeRegistry,
           sessionId,
         )?.projection;
-        const storeTasks = get().delegatedTasks ?? [];
-
-        for (const t of tasks) {
-          // Prefer streaming cache chunks (most recent), fall back to current
-          // store chunks (may survive a brief cache deletion window), then keep
-          // the DB-derived empty array as last resort.
-          const streamCached = streamProjection?.delegatedTasks?.find(
-            (candidate) => candidate.delegatedRunId === t.delegatedRunId,
-          );
-          const storeTask = storeTasks.find(
-            (candidate) => candidate.delegatedRunId === t.delegatedRunId,
-          );
-
-          if (streamCached && streamCached.chunks.length > 0) {
-            t.chunks = streamCached.chunks;
-            // Streaming cache may carry a human-readable agentName; DB
-            // reconstruction uses the slug as fallback.
-            if (streamCached.agentName && streamCached.agentName !== streamCached.agentSlug) {
-              t.agentName = streamCached.agentName;
-            }
-          } else if (storeTask && storeTask.chunks.length > 0) {
-            t.chunks = storeTask.chunks;
-          }
-
-          // Preserve runtime-injected steps (not persisted to DB).
-          if (streamCached && streamCached.steps.length > 0) {
-            t.steps = streamCached.steps;
-          } else if (storeTask && storeTask.steps.length > 0) {
-            t.steps = storeTask.steps;
-          }
-
-          // Also preserve startedAt from streaming cache / store if the DB
-          // tool call didn't record one (e.g. task tool call created before
-          // run_started event was received).
-          if (!t.startedAt) {
-            t.startedAt = streamCached?.startedAt ?? storeTask?.startedAt;
-          }
-        }
+        const tasks = mergeDelegatedTaskRuntime(
+          restoredRuntime.delegatedTasks,
+          streamProjection?.delegatedTasks,
+          get().delegatedTasks ?? [],
+        );
 
         const messages = reconcilePersistedToolMessages(get().messages, messageToolCalls);
 
