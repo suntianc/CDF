@@ -73,12 +73,16 @@ function getConfigEntry(
   const envValue = env[key] ?? '';
   const fileValue = config[key] ?? '';
   const value = envValue || fileValue;
+  const secret = isPaperSearchSecretConfigKey(key);
   return {
     key,
     configured: value.length > 0,
-    value,
+    // Never send secret values across the IPC boundary. A compromised renderer could read
+    // every stored API key at once. The UI relies on `configured` + a placeholder instead;
+    // secrets are write-only from the renderer's perspective.
+    value: secret ? '' : value,
     source: value ? (envValue ? 'environment' : 'user_config') : 'missing',
-    secret: isPaperSearchSecretConfigKey(key),
+    secret,
   };
 }
 

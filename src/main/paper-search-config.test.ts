@@ -67,10 +67,11 @@ describe('paper-search config sync', () => {
       env: {},
     });
 
+    // Secret is persisted to disk but never echoed back across IPC (value blanked).
     expect(settings.entries.find((entry) => entry.key === 'EASYSCHOLAR_KEY')).toEqual({
       key: 'EASYSCHOLAR_KEY',
       configured: true,
-      value: 'sk-easy-scholar-secret',
+      value: '',
       source: 'user_config',
       secret: true,
     });
@@ -105,7 +106,7 @@ describe('paper-search config sync', () => {
     expectOwnerOnlyMode(configPath);
   });
 
-  it('reports existing values for settings input echo', () => {
+  it('echoes non-secret values but never exposes secrets across the IPC boundary', () => {
     const configPath = path.join(tempDir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
       EASYSCHOLAR_KEY: 'sk-easy-scholar-secret',
@@ -115,10 +116,15 @@ describe('paper-search config sync', () => {
 
     const settings = getPaperSearchConfigSettings({ configPath, env: {} });
 
+    // Secret: configured is reported, but the value is blanked (write-only).
     expect(settings.entries.find((entry) => entry.key === 'EASYSCHOLAR_KEY')).toMatchObject({
-      value: 'sk-easy-scholar-secret',
+      value: '',
+      configured: true,
       secret: true,
     });
+    // No secret value must leak anywhere in the serialized settings payload.
+    expect(JSON.stringify(settings)).not.toContain('sk-easy-scholar-secret');
+    // Non-secrets are still echoed so the UI can display/edit them.
     expect(settings.entries.find((entry) => entry.key === 'CROSSREF_MAILTO')).toMatchObject({
       value: 'cdf@example.com',
       secret: false,
@@ -136,13 +142,15 @@ describe('paper-search config sync', () => {
       env: { WOS_API_KEY: 'wos-secret-key' },
     });
 
+    // Secret from the environment: reported as configured, value blanked, never echoed.
     expect(settings.entries.find((entry) => entry.key === 'WOS_API_KEY')).toEqual({
       key: 'WOS_API_KEY',
       configured: true,
-      value: 'wos-secret-key',
+      value: '',
       source: 'environment',
       secret: true,
     });
+    expect(JSON.stringify(settings)).not.toContain('wos-secret-key');
     expect(fs.existsSync(configPath)).toBe(false);
   });
 
