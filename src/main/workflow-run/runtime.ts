@@ -13,6 +13,7 @@
 
 import crypto from 'crypto';
 import db from '../database';
+import log from '../logger';
 import { BrowserWindow } from 'electron';
 import type {
   WorkflowRun,
@@ -42,7 +43,9 @@ import { normalizeWorkflowStages, selectWorkflowStageRoute, validateWorkflowStag
 import { createAgentCatalog } from '../agent-catalog';
 import { captureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 
-let resumeAgentCallback: ((sessionId: string, projectId: string, decisions: Array<{ type: 'approve' | 'reject'; message?: string }>) => void) | null = null;
+// Returns whether a resume turn was actually dispatched. false means the run cannot be
+// driven right now and must not be left in 'running'.
+let resumeAgentCallback: ((sessionId: string, projectId: string, decisions: Array<{ type: 'approve' | 'reject'; message?: string }>) => boolean) | null = null;
 
 export function registerResumeAgentCallback(cb: typeof resumeAgentCallback) {
   resumeAgentCallback = cb;
@@ -345,32 +348,42 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
         win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
       }
     } else if (resolution.decision === 'reject') {
-      updateRunStatus(run.id, 'running');
-      db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
-      pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: null });
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
-      }
-      if (resumeAgentCallback) {
-        resumeAgentCallback(run.session_id, run.project_id, [{
-          type: 'reject',
-          message: resolution.feedback || '未通过审批，请按反馈完善当前阶段后重新提交。',
-        }]);
-      }
+      resumeRunAfterGate(run, [{
+        type: 'reject',
+        message: resolution.feedback || '未通过审批，请按反馈完善当前阶段后重新提交。',
+      }]);
     } else {
-      updateRunStatus(run.id, 'running');
-      db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
-      pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: null });
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
-      }
-      if (resumeAgentCallback) {
-        resumeAgentCallback(run.session_id, run.project_id, [{ type: 'approve' }]);
-      }
+      resumeRunAfterGate(run, [{ type: 'approve' }]);
     }
 }
+}
+
+/**
+ * 重启/重载后无内存 waiter 时，通过 resumeAgentCallback 拉起一个新的 Agent 运行来驱动 run。
+ * 只有确认 resume 已启动才把 run 置为 running；若 callback 未注册或启动失败，则把 run 置为
+ * failed 并推送投影——避免 run 静默停在 running 无人驱动（原先只有下次重启的 reconciliation
+ * 才会误标 aborted）。
+ */
+function resumeRunAfterGate(
+  run: WorkflowRun,
+  decisions: Array<{ type: 'approve' | 'reject'; message?: string }>,
+): void {
+  const started = resumeAgentCallback
+    ? resumeAgentCallback(run.session_id, run.project_id, decisions) !== false
+    : false;
+  if (started) {
+    updateRunStatus(run.id, 'running');
+    pushProjectionEvent({ type: 'run', runId: run.id, status: 'running', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: null });
+  } else {
+    const message = '无法恢复工作流运行：没有可用的 Agent 运行通道';
+    updateRunStatus(run.id, 'failed', message);
+    pushProjectionEvent({ type: 'run', runId: run.id, status: 'failed', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: message });
+    log.warn(`[workflow-run] Resume dispatch failed for run ${run.id}; marked failed instead of leaving it stuck in running.`);
+  }
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
+  }
 }
 
 // =============================================================================

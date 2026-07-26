@@ -1053,7 +1053,9 @@ registerResumeAgentCallback((sessionId, projectId, decisions) => {
   if (!sender) {
     log.warn('[LLM] No sender available to resume agent');
     stream?.fail();
-    return;
+    // Signal the workflow runtime that no turn was dispatched, so it does not leave the
+    // run stuck in 'running' with nothing driving it.
+    return false;
   }
 
   void runLLMChat(sender, requestId, {
@@ -1066,4 +1068,5 @@ registerResumeAgentCallback((sessionId, projectId, decisions) => {
   }).catch(() => {
     stream!.fail();
   });
+  return true;
 });

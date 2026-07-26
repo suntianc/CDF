@@ -41,6 +41,7 @@ import {
   getRunBySessionId,
   resolveGateFromExternal,
   resumeWorkflowRunFromInput,
+  registerResumeAgentCallback,
 } from './runtime';
 import { createAdvanceStageTool, createStageRouteBlockerTool, createTaskGraphTools, isAdvanceStageInterrupt } from './tools';
 import { createTask, getPendingTasks, getStageGate, getTask, listRunTasks, setTaskDependencies, updateTaskStatus, listStageGates, createStageGate, resolveStageGate, abortWorkflowRun } from './db';
@@ -563,6 +564,41 @@ describe('handleAdvanceStageInterrupt', () => {
 
     expect(getWorkflowRun(run.id)?.status).toBe('aborted');
     expect(getStageGate(gate.id)?.status).toBe('rejected');
+  });
+
+  it('marks the run failed when a restart resume cannot be dispatched (#216)', () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const gate = createStageGate(run.id, run.current_stage_id!, 'S', {
+      acceptanceSelfCheck: [], artifacts: [], summary: 'x',
+    });
+    // No in-memory waiter (restart path); resume dispatch reports it could not start.
+    registerResumeAgentCallback(() => false);
+    try {
+      resolveGateFromExternal(gate.id, { decision: 'approve' });
+      // Failed, not silently stuck in 'running'.
+      expect(getWorkflowRun(run.id)?.status).toBe('failed');
+    } finally {
+      registerResumeAgentCallback(null);
+    }
+  });
+
+  it('sets the run running when a restart resume dispatches successfully (#216)', () => {
+    const { run } = startRun(lastWorkflowId, PROJECT_ID);
+    const gate = createStageGate(run.id, run.current_stage_id!, 'S', {
+      acceptanceSelfCheck: [], artifacts: [], summary: 'x',
+    });
+    const calls: Array<Array<{ type: string; message?: string }>> = [];
+    registerResumeAgentCallback((_sid, _pid, decisions) => {
+      calls.push(decisions);
+      return true;
+    });
+    try {
+      resolveGateFromExternal(gate.id, { decision: 'approve' });
+      expect(getWorkflowRun(run.id)?.status).toBe('running');
+      expect(calls).toEqual([[{ type: 'approve' }]]);
+    } finally {
+      registerResumeAgentCallback(null);
+    }
   });
 
   it('supports rejection, rework, and a later accepted route without selecting the rejected proposal', async () => {
