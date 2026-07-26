@@ -137,6 +137,19 @@ export class DelegatedToolApprovalScheduler {
     return resolution;
   }
 
+  /**
+   * Drop per-run in-memory caches once a delegated run is finished/cancelled, so the maps
+   * don't grow unbounded across a long session. Idempotency for already-finished actions is
+   * still served from the durable action repository (see runAction), so this is safe.
+   */
+  clearRun(delegatedRunId: string): void {
+    const prefix = `${delegatedRunId}:`;
+    for (const key of [...this.completedResults.keys()]) {
+      if (key.startsWith(prefix)) this.completedResults.delete(key);
+    }
+    this.sequences.delete(delegatedRunId);
+  }
+
   listHistory(delegatedRunId: string): DelegatedToolActionRecord[] {
     return this.actions.listForRun(delegatedRunId)
       .filter((record) => record.requires_approval && record.approval_status !== 'pending');

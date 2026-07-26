@@ -156,6 +156,7 @@ export class DelegatedAgentRunCoordinator {
       this.pending.splice(index, 1);
       this.inFlight.delete(pending.delegatedRunId);
       this.configurationSnapshots.delete(pending.delegatedRunId);
+      this.toolApprovals.clearRun(pending.delegatedRunId);
       pending.resolve(cancellation);
     }
     const changes = this.repository.cancelForParent(parentRunId, endedAt);
@@ -273,6 +274,7 @@ export class DelegatedAgentRunCoordinator {
           this.activeRuns -= 1;
           this.inFlight.delete(next.delegatedRunId);
           this.configurationSnapshots.delete(next.delegatedRunId);
+          this.toolApprovals.clearRun(next.delegatedRunId);
           this.promoteQueuedRuns();
         });
     }
