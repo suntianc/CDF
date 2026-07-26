@@ -87,10 +87,13 @@ export const useFileStore = create<FileState>((set) => ({
     })),
 
   setDirContents: (path, entries) =>
-    set((s) => ({
-      dirContents: { ...s.dirContents, [path]: entries },
-      dirErrors: { ...s.dirErrors, [path]: undefined! },
-    })),
+    set((s) => {
+      // Loading a directory clears any prior error for it. Delete the key (matching
+      // clearDirError) instead of stuffing `undefined!` into a Record<string,string>.
+      const dirErrors = { ...s.dirErrors };
+      delete dirErrors[path];
+      return { dirContents: { ...s.dirContents, [path]: entries }, dirErrors };
+    }),
 
   setDirError: (path, error) =>
     set((s) => ({

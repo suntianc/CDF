@@ -226,7 +226,6 @@ interface SessionState {
   setViewingParallelWorker: (key: { batchId: string; delegatedRunId: string; agentSlug: string } | null) => void;
   resolveApproval: (decision: 'approve' | 'reject' | 'edit', editedArgs?: string, approvalId?: string) => Promise<void>;
   stopMessage: () => Promise<void>;
-  checkContextThreshold: (projectId: string) => Promise<void>;
   clearError: () => void;
   updateMessageThinkDuration: (messageId: string, seconds: number) => void;
 }
@@ -1454,7 +1453,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
       console.error('Failed to stop chat message streaming:', err);
     }
   },
-  checkContextThreshold: async () => {},
 
   clearError: () => set({ error: null }),
 
