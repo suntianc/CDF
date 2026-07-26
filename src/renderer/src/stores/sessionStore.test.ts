@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LLMStreamEvent } from '@shared/types';
-import { createConversationRuntimeRegistryState } from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
+import {
+  createConversationRuntimeRegistryState,
+  getConversationRuntimeEntry,
+  type ConversationRuntimeRegistryEntry,
+} from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
+import { createConversationRuntimeState } from '../components/ChatArea/conversationRuntime/conversationRuntimeProjection';
 import { useSessionStore } from './sessionStore';
 
 const { mockStopGoalJudgeLoop } = vi.hoisted(() => ({
@@ -1904,5 +1909,300 @@ describe('sessionStore Conversation Runtime Registry adapter', () => {
       expect(useSessionStore.getState().conversationRuntimeRegistry.terminalOverlays['session-1']).toBeUndefined();
     });
     expect(assistantSaveAttempts).toBe(2);
+  });
+});
+
+// #235 safety net: pin fetchAgentActivity's todos parsing and delegated-task
+// merge behavior before extracting them into pure functions.
+describe('sessionStore fetchAgentActivity todos parsing and delegated task merge', () => {
+  const sampleTodos = [
+    { id: 'todo-1', content: 'Write tests', status: 'completed' },
+    { id: 'todo-2', content: 'Refactor store', status: 'in_progress' },
+  ];
+
+  const delegatedRunRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'delegated-1',
+    parent_run_id: 'run-1',
+    target_agent_id: 'agent-child',
+    target_agent_slug: 'code',
+    target_agent_name: 'code',
+    launch_form: 'single',
+    task_tool_call_id: 'task-1',
+    goal: 'Implement feature',
+    status: 'completed',
+    outcome: { status: 'success', artifacts: [], summary: 'Done' },
+    error_code: null,
+    error_message: null,
+    created_at: 100,
+    started_at: 110,
+    ended_at: 200,
+    updated_at: 200,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    window.electronAPI = {
+      store: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
+      db: {
+        getMessages: vi.fn(async () => []),
+        saveMessage: vi.fn(),
+        getAgentRuns: vi.fn(async () => []),
+        getAgentToolCalls: vi.fn(async () => []),
+        getDelegatedAgentRuns: vi.fn(async () => []),
+        getDelegatedToolActions: vi.fn(async () => []),
+        getLatestTodos: vi.fn(async () => undefined),
+      },
+      llm: {
+        chat: vi.fn(),
+        stopChat: vi.fn(),
+        onChunk: vi.fn(() => () => {}),
+      },
+      deepagents: {
+        onParallelTaskStep: vi.fn(() => () => {}),
+      },
+      platform: 'darwin',
+    } as any;
+
+    useSessionStore.setState({
+      activeSessionId: 'session-1',
+      messages: [],
+      agentRuns: [],
+      agentToolCalls: [],
+      delegatedTasks: [],
+      parallelBatches: [],
+      todos: [],
+      approvalHistory: [],
+      error: null,
+      isStreaming: false,
+      streamingMessageId: null,
+    } as any);
+  });
+
+  it('parses todos from a JSON string of {update: {todos}}', async () => {
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => ({
+      output: JSON.stringify({ update: { todos: sampleTodos } }),
+    })) as any;
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(useSessionStore.getState().todos).toEqual(sampleTodos);
+  });
+
+  it('parses todos from a JSON string of a plain array', async () => {
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => ({
+      output: JSON.stringify(sampleTodos),
+    })) as any;
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(useSessionStore.getState().todos).toEqual(sampleTodos);
+  });
+
+  it('parses todos from an already-deserialized output object', async () => {
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => ({
+      output: { update: { todos: sampleTodos } },
+    })) as any;
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(useSessionStore.getState().todos).toEqual(sampleTodos);
+  });
+
+  it('keeps todos empty and does not fail on malformed todos output', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => ({
+      output: 'not-json{',
+    })) as any;
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(useSessionStore.getState().todos).toEqual([]);
+    expect(useSessionStore.getState().error).toBe(null);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('keeps todos empty when the output object carries no todos list', async () => {
+    window.electronAPI.db.getLatestTodos = vi.fn(async () => ({
+      output: JSON.stringify({ update: { note: 'no todos here' } }),
+    })) as any;
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(useSessionStore.getState().todos).toEqual([]);
+  });
+
+  it('preserves chunks/steps from current store tasks when there is no stream cache', async () => {
+    window.electronAPI.db.getDelegatedAgentRuns = vi.fn(async () => [delegatedRunRow()]) as any;
+    const storeStep = { type: 'tool_call', name: 'read_file' } as any;
+    useSessionStore.setState({
+      delegatedTasks: [{
+        delegatedRunId: 'delegated-1',
+        taskId: 'task-1',
+        agentSlug: 'code',
+        agentName: 'code',
+        goal: 'Implement feature',
+        status: 'running',
+        chunks: ['store chunk 1', 'store chunk 2'],
+        steps: [storeStep],
+        startedAt: 110,
+      }],
+    } as any);
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    const task = useSessionStore.getState().delegatedTasks[0];
+    expect(task.chunks).toEqual(['store chunk 1', 'store chunk 2']);
+    expect(task.steps).toEqual([storeStep]);
+    // DB row is authoritative for status once the run completed.
+    expect(task.status).toBe('success');
+  });
+
+  it('falls back to store startedAt when the DB row recorded none', async () => {
+    window.electronAPI.db.getDelegatedAgentRuns = vi.fn(async () => [
+      delegatedRunRow({ started_at: null, created_at: 0 }),
+    ]) as any;
+    useSessionStore.setState({
+      delegatedTasks: [{
+        delegatedRunId: 'delegated-1',
+        taskId: 'task-1',
+        agentSlug: 'code',
+        agentName: 'code',
+        goal: 'Implement feature',
+        status: 'running',
+        chunks: [],
+        steps: [],
+        startedAt: 4242,
+      }],
+    } as any);
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    expect(useSessionStore.getState().delegatedTasks[0].startedAt).toBe(4242);
+  });
+
+  it('prefers stream-cache chunks and human-readable agentName over store and DB values', async () => {
+    window.electronAPI.db.getDelegatedAgentRuns = vi.fn(async () => [delegatedRunRow()]) as any;
+    const streamStep = { type: 'tool_call', name: 'write_file' } as any;
+    const streamProjection = createConversationRuntimeState({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      streamingMessageId: 'assistant-1',
+      currentAssistantMsgId: 'assistant-1',
+      delegatedTasks: [{
+        delegatedRunId: 'delegated-1',
+        taskId: 'task-1',
+        agentSlug: 'code',
+        agentName: 'Code Agent',
+        goal: 'Implement feature',
+        status: 'running',
+        chunks: ['stream chunk'],
+        steps: [streamStep],
+        startedAt: 50,
+      }] as any,
+    });
+    const entry: ConversationRuntimeRegistryEntry = {
+      conversationId: 'session-1',
+      requestId: 'request-1',
+      projection: streamProjection,
+      baseProjection: streamProjection,
+      active: true,
+      streamSource: 'foreground',
+      lastSequence: 0,
+      minimumHydrationSequence: 0,
+      hydrationPending: false,
+      reconciliation: 'none',
+      error: null,
+    };
+    useSessionStore.setState({
+      conversationRuntimeRegistry: { entries: { 'session-1': entry }, terminalOverlays: {} },
+      delegatedTasks: [{
+        delegatedRunId: 'delegated-1',
+        taskId: 'task-1',
+        agentSlug: 'code',
+        agentName: 'code',
+        goal: 'Implement feature',
+        status: 'running',
+        chunks: ['store chunk'],
+        steps: [],
+        startedAt: 110,
+      }],
+    } as any);
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    const merged = getConversationRuntimeEntry(
+      useSessionStore.getState().conversationRuntimeRegistry,
+      'session-1',
+    );
+    const task = merged?.baseProjection.delegatedTasks[0];
+    expect(task?.chunks).toEqual(['stream chunk']);
+    expect(task?.agentName).toBe('Code Agent');
+    expect(task?.steps).toEqual([streamStep]);
+  });
+
+  it('merges restored approval history with live entries deduplicated by approval id', async () => {
+    window.electronAPI.db.getDelegatedAgentRuns = vi.fn(async () => [delegatedRunRow()]) as any;
+    window.electronAPI.db.getDelegatedToolActions = vi.fn(async () => [{
+      id: 'approval-x',
+      parent_run_id: 'run-1',
+      delegated_run_id: 'delegated-1',
+      action_id: 'action-1',
+      tool_name: 'run_command',
+      arguments: { cmd: 'ls' },
+      description: null,
+      approval_status: 'approved',
+      execution_status: 'success',
+      output: 'ok',
+      error: null,
+      decided_at: 150,
+      ended_at: 160,
+      updated_at: 160,
+    }]) as any;
+    const liveOnlyApproval = {
+      approval: { id: 'approval-live', runId: 'run-1', actions: [] },
+      status: 'approved',
+      resolvedAt: 300,
+    } as any;
+    const staleDuplicate = {
+      approval: { id: 'approval-x', runId: 'run-1', actions: [] },
+      status: 'invalidated',
+      resolvedAt: 1,
+    } as any;
+    const projection = createConversationRuntimeState({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      streamingMessageId: 'assistant-1',
+      currentAssistantMsgId: 'assistant-1',
+      approvalHistory: [staleDuplicate, liveOnlyApproval],
+    });
+    const entry: ConversationRuntimeRegistryEntry = {
+      conversationId: 'session-1',
+      requestId: 'request-1',
+      projection,
+      baseProjection: projection,
+      active: true,
+      streamSource: 'foreground',
+      lastSequence: 0,
+      minimumHydrationSequence: 0,
+      hydrationPending: false,
+      reconciliation: 'none',
+      error: null,
+    };
+    useSessionStore.setState({
+      conversationRuntimeRegistry: { entries: { 'session-1': entry }, terminalOverlays: {} },
+    } as any);
+
+    await useSessionStore.getState().fetchAgentActivity('session-1', true);
+
+    const merged = getConversationRuntimeEntry(
+      useSessionStore.getState().conversationRuntimeRegistry,
+      'session-1',
+    );
+    const history = merged?.baseProjection.approvalHistory ?? [];
+    // Restored (DB) entry wins for approval-x; the live-only entry is appended after it.
+    expect(history.map((item) => item.approval.id)).toEqual(['approval-x', 'approval-live']);
+    expect(history[0].status).toBe('approved');
+    expect(history[0].output).toBe('ok');
   });
 });
