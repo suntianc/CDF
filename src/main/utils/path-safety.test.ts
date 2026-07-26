@@ -15,9 +15,22 @@ describe('isProtectedPath', () => {
     expect(isProtectedPath('/project/node_modules/pkg/index.js')).toBe(true);
   });
 
+  it('blocks out and dist build directories', () => {
+    expect(isProtectedPath('/project/out/main.js')).toBe(true);
+    expect(isProtectedPath('/project/dist/bundle.js')).toBe(true);
+  });
+
   it('allows normal files', () => {
     expect(isProtectedPath('/project/src/index.ts')).toBe(false);
     expect(isProtectedPath('/project/package.json')).toBe(false);
+  });
+
+  it('does not misfire on segments that merely contain a protected name', () => {
+    // regressions: unanchored substring matching used to flag these
+    expect(isProtectedPath('/project/src/layout/App.tsx')).toBe(false);
+    expect(isProtectedPath('/project/scripts/checkout/run.ts')).toBe(false);
+    expect(isProtectedPath('/project/vendor/redist/x.js')).toBe(false);
+    expect(isProtectedPath('/project/legit/module.ts')).toBe(false);
   });
 });
 

@@ -1,12 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 
+const PROTECTED_DIR_SEGMENTS = new Set(['.git', 'node_modules', 'out', 'dist']);
+
 export function isProtectedPath(filePath: string): boolean {
-  const lower = filePath.toLowerCase();
-  const segments = lower.split(/[/\\]/);
-  if (segments.some((s) => s === '.env' || s.startsWith('.env.'))) return true;
-  return [/.git[/\\]/, /node_modules[/\\]/, /out[/\\]/, /dist[/\\]/].some((rx) =>
-    rx.test(lower)
+  const segments = filePath.toLowerCase().split(/[/\\]/).filter(Boolean);
+  return segments.some(
+    (s) => s === '.env' || s.startsWith('.env.') || PROTECTED_DIR_SEGMENTS.has(s)
   );
 }
 
