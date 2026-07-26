@@ -672,6 +672,28 @@ describe('DelegatedAgentRunCoordinator', () => {
     });
   });
 
+  it('is idempotent: re-running schema init on an already-migrated DB preserves data (#233)', () => {
+    const db = createDatabase();
+    databases.push(db);
+    const repository = new DelegatedAgentRunRepository(db);
+    const run = repository.createSingle({
+      id: 'run-idem',
+      parentAgentRunId: 'run-parent',
+      targetAgentId: 'agent-child',
+      targetAgentSlug: 'child',
+      targetAgentName: 'Child Agent',
+      taskToolCallId: 'call-idem',
+      goal: 'stay put',
+      createdAt: 5,
+    });
+
+    // Second init must detect the current schema and skip the destructive rebuild.
+    initializeDelegatedAgentRunSchema(db);
+
+    expect(repository.get('run-idem')).toMatchObject({ id: run.id, goal: 'stay put', launch_form: 'single' });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('keeps the configuration captured when a streamed task was queued', async () => {
     const db = createDatabase();
     databases.push(db);
