@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileVideo, FolderOpen, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import {
   CapabilityJobTimelineEventSchema,
   type CapabilityJobTimelineEvent,
@@ -14,7 +14,17 @@ import { StreamdownRenderer } from './StreamdownRenderer';
 import { AtToken } from '@/components/AtMention/AtToken';
 import { parseAtTokens } from '@/lib/commands/pathUtils';
 import { useTypewriter } from '@/hooks/useTypewriter';
-import { useSessionStore, estimateTokens } from '../../stores/sessionStore';
+import { estimateTokens } from '../../stores/sessionStore';
+import {
+  checkThinkingFinished,
+  containsRenderableAtTokens,
+  joinThinkParts,
+  parseFoldedThinkView,
+  parseThinkBlocks,
+  segmentMarkdownForAtTokens,
+  stripOrphanThinkClosers,
+} from './messageContentParsing';
+import { useThinkingTimer } from './useThinkingTimer';
 import type { SkillAttribution } from '@shared/types';
 
 const CapabilityJobTimelineSchema = CapabilityJobTimelineEventSchema;
@@ -174,58 +184,39 @@ function ThinkBlock({ expanded, onToggle, bodyId, headerText, body, showCaret = 
   );
 }
 
-
-const checkThinkingFinished = (content: string): boolean => {
-  if (!content) return true;
-  const lastThink = content.lastIndexOf('<think>');
-  if (lastThink === -1) return true;
-  const lastThinkEnd = content.lastIndexOf('</think>');
-  return lastThinkEnd > lastThink;
-};
-
-interface ThinkBlocks {
-  thinkParts: string[];
-  mainContent: string;
-  isThinkingFinished: boolean;
+function PreviewLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: 'var(--color-overlay-scrim)' }}
+      onClick={onClose}
+    >
+      <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <img
+          src={url}
+          alt="preview"
+          className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
+          style={{ borderRadius: 'var(--radius-lg)' }}
+        />
+        <button
+          className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
+          style={{
+            background: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-muted)',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
+          onClick={onClose}
+          aria-label="Close preview"
+        >
+          &times;
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
 }
-
-/**
- * Walk a message body once, splitting it into the in-progress think
- * trace and the main content. Used by both the streaming branch (which
- * keeps multiple in-flight think blocks) and the folded branch (which
- * concatenates the trace into a single folded body).
- *
- *   `isThinkingFinished` is false when the last segment is an unclosed
- *   `<think>` (the LLM is still emitting the trace).
- */
-const parseThinkBlocks = (content: string): ThinkBlocks => {
-  const thinkParts: string[] = [];
-  let mainContent = '';
-  let remaining = content;
-  let isThinkingFinished = true;
-
-  while (true) {
-    const startIdx = remaining.indexOf('<think>');
-    if (startIdx === -1) {
-      mainContent += remaining;
-      break;
-    }
-    mainContent += remaining.substring(0, startIdx);
-
-    const endIdx = remaining.indexOf('</think>', startIdx);
-    if (endIdx !== -1) {
-      thinkParts.push(remaining.substring(startIdx + 7, endIdx));
-      remaining = remaining.substring(endIdx + 8);
-    } else {
-      thinkParts.push(remaining.substring(startIdx + 7));
-      isThinkingFinished = false;
-      remaining = '';
-      break;
-    }
-  }
-
-  return { thinkParts, mainContent: mainContent.trim(), isThinkingFinished };
-};
 
 export interface MessageItemProps {
   message: any;
@@ -258,34 +249,12 @@ export const MessageContentRenderer = memo(({
     return !isFinished;
   });
 
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [finalDuration, setFinalDuration] = useState<number | null>(null);
-  const startTimeRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!isFinished && isLast && isStreaming) {
-      if (!startTimeRef.current) {
-        startTimeRef.current = Date.now();
-      }
-      const interval = setInterval(() => {
-        const delta = Math.round((Date.now() - startTimeRef.current!) / 1000);
-        setElapsedSeconds(delta);
-      }, 500);
-      return () => clearInterval(interval);
-    } else {
-      startTimeRef.current = null;
-    }
-    return undefined;
-  }, [isFinished, isLast, isStreaming]);
-
-  useEffect(() => {
-    if (isFinished && elapsedSeconds > 0 && finalDuration === null) {
-      setFinalDuration(elapsedSeconds);
-      if (messageId && !thinkDurationSeconds) {
-        useSessionStore.getState().updateMessageThinkDuration(messageId, elapsedSeconds);
-      }
-    }
-  }, [isFinished, elapsedSeconds, finalDuration, messageId, thinkDurationSeconds]);
+  const { elapsedSeconds, finalDuration } = useThinkingTimer({
+    isFinished,
+    isActive: isLast && isStreaming,
+    messageId,
+    thinkDurationSeconds,
+  });
 
   const { displayedContent, isTypewriting } = useTypewriter(
     content,
@@ -326,131 +295,68 @@ export const MessageContentRenderer = memo(({
     return parts;
   };
 
-  const AT_TOKEN_SCAN_LIMIT = 50_000;
-
   const renderContentWithAtTokens = (text: string): React.ReactNode => {
     if (!text || typeof text !== 'string') return null;
-    if (!text.includes('@') || text.length > AT_TOKEN_SCAN_LIMIT || parseAtTokens(text).length === 0) {
+    if (!containsRenderableAtTokens(text)) {
       return <StreamdownRenderer text={text} isTypewriting={isTypewriting} />;
     }
 
-    const segments: React.ReactNode[] = [];
-    let cursor = 0;
+    const nodes: React.ReactNode[] = [];
     let key = 0;
-    const len = text.length;
-
-    while (cursor < len) {
-      const fenceOpen = text.startsWith('```', cursor);
-      const tick = text.indexOf('`', cursor);
-
-      if (!fenceOpen && tick === -1) {
-        segments.push(...renderAtSegment(text.slice(cursor), key++));
-        break;
-      }
-
-      if (fenceOpen && (tick === -1 || cursor === tick)) {
-        const close = text.indexOf('```', cursor + 3);
-        const end = close === -1 ? len : close + 3;
-        segments.push(
-          <StreamdownRenderer key={`code-${key++}`} text={text.slice(cursor, end)} isTypewriting={isTypewriting} />
+    for (const segment of segmentMarkdownForAtTokens(text)) {
+      if (segment.kind === 'code') {
+        nodes.push(
+          <StreamdownRenderer key={`code-${key++}`} text={segment.value} isTypewriting={isTypewriting} />
         );
-        cursor = end;
-        continue;
-      }
-
-      if (!fenceOpen && tick !== -1) {
-        if (tick > cursor) {
-          segments.push(...renderAtSegment(text.slice(cursor, tick), key++));
-        }
-        const tickLen = countBackticks(text, tick);
-        const closer = findInlineCodeClose(text, tick, tickLen);
-        const end = closer === -1 ? len : closer + tickLen;
-        segments.push(
-          <StreamdownRenderer key={`code-${key++}`} text={text.slice(tick, end)} isTypewriting={isTypewriting} />
-        );
-        cursor = end;
-        continue;
+      } else {
+        nodes.push(...renderAtSegment(segment.value, key++));
       }
     }
 
-    return <>{segments}</>;
+    return <>{nodes}</>;
   };
 
-  function countBackticks(text: string, start: number): number {
-    let n = 0;
-    while (text[start + n] === '`') n++;
-    return n;
-  }
-
-  function findInlineCodeClose(text: string, start: number, run: number): number {
-    const len = text.length;
-    let i = start + run;
-    while (i < len) {
-      if (text[i] === '`') {
-        const closing = countBackticks(text, i);
-        if (closing === run) return i;
-        i += closing;
-      } else {
-        i++;
-      }
-    }
-    return -1;
-  }
+  const renderThinkHeader = (
+    finished: boolean,
+    body: string,
+    resolvedSeconds: number | null,
+    keys: { withTime: string; withTokens: string },
+  ) => {
+    if (!finished) return t('chat.thinking.inProgress', { duration: formatDuration(elapsedSeconds) });
+    return resolvedSeconds !== null
+      ? t(keys.withTime, { duration: formatDuration(resolvedSeconds) })
+      : t(keys.withTokens, { tokens: estimateTokens(body) });
+  };
 
   const renderMessageContent = (contentString: string) => {
     if (!contentString) return null;
 
-    let cleanContent = contentString;
-    const thinkCount = (cleanContent.match(/<think>/g) || []).length;
-    const thinkEndCount = (cleanContent.match(/<\/think>/g) || []).length;
-    if (thinkEndCount > thinkCount) {
-      if (thinkCount === 0) {
-        cleanContent = cleanContent.replace(/<\/think>/g, '');
-      } else {
-        const lastIdx = cleanContent.lastIndexOf('</think>');
-        if (lastIdx !== -1) {
-          cleanContent = cleanContent.substring(0, lastIdx) + cleanContent.substring(lastIdx + 8);
-        }
-      }
-    }
+    const cleanContent = stripOrphanThinkClosers(contentString);
 
     if (isTypewriting) {
       const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
-      const thinkContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
-
-      const renderThink = () => {
-        if (!thinkContent) return null;
-        const finished = isThinkingFinished;
-
-        const getThinkingTime = () => {
-          if (!finished) return elapsedSeconds;
-          if (finalDuration !== null) return finalDuration;
-          if (thinkDurationSeconds) return thinkDurationSeconds;
-          return null;
-        };
-
-        const resolvedSeconds = getThinkingTime();
-        const headerText = finished
-          ? resolvedSeconds !== null
-            ? t('chat.thinking.finishedWithTime', { duration: formatDuration(resolvedSeconds) })
-            : t('chat.thinking.finishedWithTokens', { tokens: estimateTokens(thinkContent) })
-          : t('chat.thinking.inProgress', { duration: formatDuration(elapsedSeconds) });
-
-        return (
-          <ThinkBlock
-            expanded={thinkExpanded}
-            onToggle={() => setThinkExpanded(!thinkExpanded)}
-            bodyId="think-body-streaming"
-            headerText={headerText}
-            body={thinkContent}
-            showCaret={!finished}
-          />
-        );
-      };
+      const thinkContent = joinThinkParts(thinkParts);
 
       return (
         <div className="flex flex-col gap-3">
-          {renderThink()}
+          {thinkContent && (
+            <ThinkBlock
+              expanded={thinkExpanded}
+              onToggle={() => setThinkExpanded(!thinkExpanded)}
+              bodyId="think-body-streaming"
+              headerText={renderThinkHeader(
+                isThinkingFinished,
+                thinkContent,
+                finalDuration ?? (thinkDurationSeconds || null),
+                {
+                  withTime: 'chat.thinking.finishedWithTime',
+                  withTokens: 'chat.thinking.finishedWithTokens',
+                },
+              )}
+              body={thinkContent}
+              showCaret={!isThinkingFinished}
+            />
+          )}
           {mainContent && (
             <StreamdownRenderer text={mainContent} isTypewriting={true} />
           )}
@@ -458,8 +364,8 @@ export const MessageContentRenderer = memo(({
       );
     }
 
-    const firstThink = cleanContent.indexOf('<think>');
-    if (firstThink === -1) {
+    const foldedView = parseFoldedThinkView(cleanContent);
+    if (!foldedView) {
       return (
         <div className="flex flex-col gap-3">
           {renderContentWithAtTokens(cleanContent)}
@@ -467,41 +373,29 @@ export const MessageContentRenderer = memo(({
       );
     }
 
-    const { thinkParts, mainContent, isThinkingFinished } = parseThinkBlocks(cleanContent);
-    const foldedContent = thinkParts.map(p => p.trim()).filter(Boolean).join('\n');
-
-    const firstClose = cleanContent.indexOf('</think>', firstThink);
-    const preContentTrimmed = cleanContent.substring(0, firstThink).trim();
-    const postContentTrimmed = (firstClose === -1
-      ? ''
-      : cleanContent.substring(firstClose + 8)
-    ).trim();
-
-    const resolvedSeconds = finalDuration ?? thinkDurationSeconds ?? null;
-    const headerText = isThinkingFinished
-      ? resolvedSeconds !== null
-        ? t('chat.thinking.completeWithTime', { duration: formatDuration(resolvedSeconds) })
-        : t('chat.thinking.completeWithTokens', { tokens: estimateTokens(foldedContent) })
-      : t('chat.thinking.inProgress', { duration: formatDuration(elapsedSeconds) });
-
-    const renderFoldedBlock = () => {
-      if (!foldedContent) return null;
-      return (
-        <ThinkBlock
-          expanded={thinkExpanded}
-          onToggle={() => setThinkExpanded(!thinkExpanded)}
-          bodyId="think-body-folded"
-          headerText={headerText}
-          body={foldedContent}
-        />
-      );
-    };
+    const { preContent, foldedContent, postContent, isThinkingFinished } = foldedView;
 
     return (
       <div className="flex flex-col gap-3">
-        {preContentTrimmed && renderContentWithAtTokens(preContentTrimmed)}
-        {renderFoldedBlock()}
-        {postContentTrimmed && renderContentWithAtTokens(postContentTrimmed)}
+        {preContent && renderContentWithAtTokens(preContent)}
+        {foldedContent && (
+          <ThinkBlock
+            expanded={thinkExpanded}
+            onToggle={() => setThinkExpanded(!thinkExpanded)}
+            bodyId="think-body-folded"
+            headerText={renderThinkHeader(
+              isThinkingFinished,
+              foldedContent,
+              finalDuration ?? thinkDurationSeconds ?? null,
+              {
+                withTime: 'chat.thinking.completeWithTime',
+                withTokens: 'chat.thinking.completeWithTokens',
+              },
+            )}
+            body={foldedContent}
+          />
+        )}
+        {postContent && renderContentWithAtTokens(postContent)}
       </div>
     );
   };
@@ -541,7 +435,8 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       if (parsed && parsed.type === 'tool') {
         return parsed;
       }
-    } catch (e) {
+    } catch {
+      // Not JSON — fall through to the regular renderer.
     }
     return null;
   }, [message.content, message.role]);
@@ -553,7 +448,8 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
       if (parsed && parsed.type === 'skill_attribution' && Array.isArray(parsed.attributions)) {
         return parsed as SkillAttributionInfo;
       }
-    } catch (e) {
+    } catch {
+      // Not JSON — fall through to the regular renderer.
     }
     return null;
   }, [message.content, message.role]);
@@ -662,38 +558,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
           )}
         </div>
 
-        {/* Preview Lightbox (Portal) */}
-        {lightboxUrl && createPortal(
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center"
-            style={{ background: 'var(--color-overlay-scrim)' }}
-            onClick={() => setLightboxUrl(null)}
-          >
-            <div className="relative" onClick={(e) => e.stopPropagation()}>
-              <img
-                src={lightboxUrl}
-                alt="preview"
-                className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
-                style={{ borderRadius: 'var(--radius-lg)' }}
-              />
-              <button
-                className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
-                style={{
-                  background: 'var(--color-bg-surface)',
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-text-muted)',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
-                onClick={() => setLightboxUrl(null)}
-                aria-label="Close preview"
-              >
-                &times;
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
+        {lightboxUrl && <PreviewLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
       </div>
     );
   }
@@ -717,38 +582,7 @@ export const MessageItem = memo(({ message, isLast, isStreaming }: MessageItemPr
         </div>
       </div>
 
-      {/* Preview Lightbox (Portal) */}
-      {lightboxUrl && createPortal(
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center"
-          style={{ background: 'var(--color-overlay-scrim)' }}
-          onClick={() => setLightboxUrl(null)}
-        >
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={lightboxUrl}
-              alt="preview"
-              className="max-w-[90vw] max-h-[90vh] object-contain shadow-2xl"
-              style={{ borderRadius: 'var(--radius-lg)' }}
-            />
-            <button
-              className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
-              style={{
-                background: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-muted)',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-text-primary)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--color-text-muted)'}
-              onClick={() => setLightboxUrl(null)}
-              aria-label="Close preview"
-            >
-              &times;
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
+      {lightboxUrl && <PreviewLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
     </div>
   );
 }, (prevProps, nextProps) => {
