@@ -11,10 +11,10 @@ import {
   createConversationWorkingStateLifecycle,
   type ConversationWorkingStateLifecycle,
 } from './conversation-working-state';
-import type { ConversationWorkingStateCompactionRunnerContract } from './conversation-working-state-compaction-runner';
 import {
   compactConversationWorkingStateStorage,
   type ConversationWorkingStateCompactionDependencies,
+  type ConversationWorkingStateCompactionRunnerContract,
 } from './conversation-working-state-compaction';
 
 function checkpoint(id: string, value: string): Checkpoint {

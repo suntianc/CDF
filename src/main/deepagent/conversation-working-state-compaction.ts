@@ -12,14 +12,54 @@ import {
   CONVERSATION_WORKING_STATE_BLOCK_REASONS,
   CONVERSATION_WORKING_STATE_FAILURE_REASONS,
 } from '../../shared/conversation-working-state';
+import { Worker } from 'worker_threads';
 import {
   conversationWorkingStateTableExists,
   reconcileOrphanConversationWorkingState,
 } from './conversation-working-state-reconciliation';
-import {
-  getConversationWorkingStatePhysicalBytes,
-  inspectConversationWorkingStateStorage,
-} from './conversation-working-state-storage';
+
+export interface ConversationWorkingStateStorageInspection {
+  physicalBytes: number;
+  estimatedReclaimableBytes: number;
+}
+
+const SQLITE_STORAGE_SUFFIXES = ['', '-wal', '-shm'] as const;
+
+export function getConversationWorkingStatePhysicalBytes(databasePath: string): number {
+  return SQLITE_STORAGE_SUFFIXES.reduce((total, suffix) => {
+    const filePath = `${databasePath}${suffix}`;
+    try {
+      return total + fs.statSync(filePath).size;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return total;
+      throw error;
+    }
+  }, 0);
+}
+
+export function inspectConversationWorkingStateStorage(
+  databasePath: string
+): ConversationWorkingStateStorageInspection {
+  const physicalBytes = getConversationWorkingStatePhysicalBytes(databasePath);
+  if (!fs.existsSync(databasePath) || physicalBytes === 0) {
+    return { physicalBytes, estimatedReclaimableBytes: 0 };
+  }
+
+  const db = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    const pageSize = db.pragma('page_size', { simple: true }) as number;
+    const pageCount = db.pragma('page_count', { simple: true }) as number;
+    const freelistCount = db.pragma('freelist_count', { simple: true }) as number;
+    const estimatedCompactedBytes = Math.max(0, pageCount - freelistCount) * pageSize;
+    const estimatedReclaimableBytes = Math.max(
+      0,
+      Math.min(physicalBytes, physicalBytes - estimatedCompactedBytes)
+    );
+    return { physicalBytes, estimatedReclaimableBytes };
+  } finally {
+    db.close();
+  }
+}
 
 export interface ConversationWorkingStateCompactionRequest {
   checkpointDatabasePath: string;
@@ -421,4 +461,84 @@ export function compactConversationWorkingStateStorage(
     removeFileFamilyBestEffort(sqliteFileFamily(temporaryPath));
     if (!rollbackCreated) removeFileFamilyBestEffort(sqliteFileFamily(rollbackPath));
   }
+}
+
+export type ConversationWorkingStateCompactionWorkerResponse =
+  | { type: 'phase'; phase: ConversationWorkingStateMaintenancePhase }
+  | { type: 'result'; result: ConversationWorkingStateCompactionResult }
+  | { type: 'error'; code: ConversationWorkingStateFailureReason; error: string };
+
+export interface ConversationWorkingStateCompactionWorker {
+  unref(): void;
+  on(event: 'message', listener: (message: ConversationWorkingStateCompactionWorkerResponse) => void): this;
+  once(event: 'error', listener: (error: Error) => void): this;
+  once(event: 'exit', listener: (code: number) => void): this;
+}
+
+type CompactionWorkerFactory = (
+  workerPath: string,
+  request: ConversationWorkingStateCompactionRequest
+) => ConversationWorkingStateCompactionWorker;
+
+const createNodeCompactionWorker: CompactionWorkerFactory = (workerPath, request) =>
+  new Worker(workerPath, { workerData: request });
+
+export interface ConversationWorkingStateCompactionRunnerContract {
+  run(
+    request: ConversationWorkingStateCompactionRequest,
+    onPhase?: (phase: ConversationWorkingStateMaintenancePhase) => void
+  ): Promise<ConversationWorkingStateCompactionResult>;
+}
+
+export class ConversationWorkingStateCompactionRunner
+implements ConversationWorkingStateCompactionRunnerContract {
+  constructor(
+    private readonly resolveWorkerPath: () => string,
+    private readonly createWorker: CompactionWorkerFactory = createNodeCompactionWorker
+  ) {}
+
+  run(
+    request: ConversationWorkingStateCompactionRequest,
+    onPhase?: (phase: ConversationWorkingStateMaintenancePhase) => void
+  ): Promise<ConversationWorkingStateCompactionResult> {
+    return new Promise((resolve, reject) => {
+      const worker = this.createWorker(this.resolveWorkerPath(), request);
+      worker.unref();
+      let settled = false;
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        callback();
+      };
+
+      worker.on('message', (message) => {
+        if (message.type === 'phase') {
+          if (!settled) onPhase?.(message.phase);
+          return;
+        }
+        settle(() => {
+          if (message.type === 'result') {
+            resolve(message.result);
+          } else {
+            reject(new ConversationWorkingStateCompactionError(message.code, message.error));
+          }
+        });
+      });
+      worker.once('error', (error) => settle(() => reject(error)));
+      worker.once('exit', (code) => {
+        settle(() => reject(new Error(
+          code === 0
+            ? 'Conversation Working State compaction Worker exited without a result.'
+            : `Conversation Working State compaction Worker exited with code ${code}.`
+        )));
+      });
+    });
+  }
+}
+
+/** Default worker-backed runner: the compaction worker bundle sits beside the main bundle. */
+export function createConversationWorkingStateCompactionRunner(): ConversationWorkingStateCompactionRunnerContract {
+  return new ConversationWorkingStateCompactionRunner(
+    () => path.join(__dirname, 'conversation-working-state-compaction-worker.js')
+  );
 }

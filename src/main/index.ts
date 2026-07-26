@@ -18,7 +18,7 @@ import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { createCapabilityJobContinuationRunner } from './capabilities/capability-job-continuation-runner';
 import { hardenWindowNavigation } from './window-navigation-guard';
 import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
-import { ConversationWorkingStateWorkerRunner } from './deepagent/conversation-working-state-worker-runner';
+import { createConversationWorkingStateReconciliationRunner } from './deepagent/conversation-working-state-reconciliation';
 
 // Register cdf-file scheme as privileged to bypass CSP and security sandboxing for local image media.
 // standard:true additionally enables Chromium's media seeking/range machinery (see cdf-file-protocol.ts).
@@ -39,9 +39,7 @@ import path from 'path';
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
-const workingStateReconciliationRunner = new ConversationWorkingStateWorkerRunner(
-  () => path.join(__dirname, 'conversation-working-state-reconciliation-worker.js')
-);
+const workingStateReconciliationRunner = createConversationWorkingStateReconciliationRunner();
 
 function reconcileConversationWorkingStateAtStartup() {
   return conversationWorkingStateLifecycle.reconcileOrphansAtStartup(

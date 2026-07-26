@@ -5,11 +5,15 @@ import { spawn } from 'child_process';
 import Database from 'better-sqlite3';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import type { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { EventEmitter } from 'events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   compactConversationWorkingStateStorage,
+  ConversationWorkingStateCompactionRunner,
   findConversationWorkingStateMaintenanceBlocker,
+  inspectConversationWorkingStateStorage,
   recoverInterruptedConversationWorkingStateCompaction,
+  type ConversationWorkingStateCompactionWorker,
 } from './conversation-working-state-compaction';
 
 describe('Conversation Working State compaction engine', () => {
@@ -532,5 +536,127 @@ describe('findConversationWorkingStateMaintenanceBlocker', () => {
       db.close();
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('ConversationWorkingStateCompactionRunner', () => {
+  class FakeWorker extends EventEmitter implements ConversationWorkingStateCompactionWorker {
+    unref(): void {}
+  }
+
+  const request = {
+    checkpointDatabasePath: '/tmp/deepagents-checkpoints.db',
+    liveThreadIds: ['conversation-1'],
+  };
+
+  it('runs compaction in a Worker and forwards real maintenance phases', async () => {
+    const worker = new FakeWorker();
+    const onPhase = vi.fn();
+    const runner = new ConversationWorkingStateCompactionRunner(
+      () => '/app/compaction-worker.js',
+      (_workerPath, workerRequest) => {
+        expect(workerRequest).toEqual(request);
+        queueMicrotask(() => {
+          worker.emit('message', { type: 'phase', phase: 'rebuilding' });
+          worker.emit('message', {
+            type: 'result',
+            result: { physicalBytesBefore: 4096, physicalBytesAfter: 2048 },
+          });
+        });
+        return worker;
+      }
+    );
+
+    await expect(runner.run(request, onPhase)).resolves.toEqual({
+      physicalBytesBefore: 4096,
+      physicalBytesAfter: 2048,
+    });
+    expect(onPhase).toHaveBeenCalledWith('rebuilding');
+  });
+
+  it('preserves a stable Worker failure code', async () => {
+    const worker = new FakeWorker();
+    const runner = new ConversationWorkingStateCompactionRunner(
+      () => '/app/compaction-worker.js',
+      () => {
+        queueMicrotask(() => worker.emit('message', {
+          type: 'error',
+          code: 'INSUFFICIENT_DISK_SPACE',
+          error: 'not enough room',
+        }));
+        return worker;
+      }
+    );
+
+    await expect(runner.run(request)).rejects.toMatchObject({
+      code: 'INSUFFICIENT_DISK_SPACE',
+      message: 'not enough room',
+    });
+  });
+});
+
+describe('inspectConversationWorkingStateStorage', () => {
+  let tempDir: string;
+  let databasePath: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdf-working-state-storage-'));
+    databasePath = path.join(tempDir, 'deepagents-checkpoints.db');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('reports zero usage for a missing database without creating it', () => {
+    expect(inspectConversationWorkingStateStorage(databasePath)).toEqual({
+      physicalBytes: 0,
+      estimatedReclaimableBytes: 0,
+    });
+    expect(fs.existsSync(databasePath)).toBe(false);
+  });
+
+  it('reports valid bounded usage for an empty database', () => {
+    new Database(databasePath).close();
+
+    const status = inspectConversationWorkingStateStorage(databasePath);
+
+    expect(status.physicalBytes).toBe(fs.statSync(databasePath).size);
+    expect(status.estimatedReclaimableBytes).toBeGreaterThanOrEqual(0);
+    expect(status.estimatedReclaimableBytes).toBeLessThanOrEqual(status.physicalBytes);
+  });
+
+  it('accounts for live SQLite sidecars in physical usage', () => {
+    const db = new Database(databasePath);
+    db.pragma('journal_mode = WAL');
+    db.exec('CREATE TABLE payloads (value BLOB)');
+    db.prepare('INSERT INTO payloads VALUES (?)').run(Buffer.alloc(256 * 1024, 1));
+
+    const expectedPhysicalBytes = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]
+      .reduce((total, filePath) => total + (fs.existsSync(filePath) ? fs.statSync(filePath).size : 0), 0);
+    const status = inspectConversationWorkingStateStorage(databasePath);
+
+    expect(status.physicalBytes).toBe(expectedPhysicalBytes);
+    expect(status.estimatedReclaimableBytes).toBeLessThanOrEqual(expectedPhysicalBytes);
+    db.close();
+  });
+
+  it('estimates reclaimable space for a freelist-heavy database without reading payloads', () => {
+    const db = new Database(databasePath);
+    db.exec('CREATE TABLE payloads (id INTEGER PRIMARY KEY, value BLOB)');
+    const insert = db.prepare('INSERT INTO payloads (value) VALUES (?)');
+    const insertMany = db.transaction(() => {
+      for (let index = 0; index < 24; index += 1) {
+        insert.run(Buffer.alloc(128 * 1024, index));
+      }
+    });
+    insertMany();
+    db.exec('DELETE FROM payloads WHERE id <= 20');
+    db.close();
+
+    const status = inspectConversationWorkingStateStorage(databasePath);
+
+    expect(status.estimatedReclaimableBytes).toBeGreaterThan(0);
+    expect(status.estimatedReclaimableBytes).toBeLessThanOrEqual(status.physicalBytes);
   });
 });

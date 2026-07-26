@@ -86,9 +86,9 @@ import { deleteConversation, deleteProject } from './conversation-deletion';
 import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
 import { registerFlowDiagramExportResponseHandler } from './flow-diagram/flow-diagram-export-adapter';
 import {
-  compactConversationWorkingState,
-  getConversationWorkingStateStorageStatus,
-} from './deepagent/conversation-working-state-maintenance';
+  createConversationWorkingStateCompactionRunner,
+  findConversationWorkingStateMaintenanceBlocker,
+} from './deepagent/conversation-working-state-compaction';
 import { DelegatedAgentRunRepository } from './deepagent/delegated-agent-run-repository';
 import { createAgentCatalog, type CatalogAgent } from './agent-catalog';
 
@@ -281,12 +281,34 @@ export function registerIpcHandlers() {
   typedHandle('conversation:get-active-run', (_event, sessionId) =>
     conversationRunStreams.getActive(sessionId)
   );
-  typedHandle('working-state:get-storage-status', () =>
-    getConversationWorkingStateStorageStatus()
-  );
+  // Conversation Working State maintenance binding: the lifecycle stays free of
+  // the business database, so the blocker/live-id readers are bound here.
+  const workingStateCompactionRunner = createConversationWorkingStateCompactionRunner();
+  const readWorkingStateMaintenanceBlocker = () =>
+    findConversationWorkingStateMaintenanceBlocker(db);
+  const readLiveConversationIds = () =>
+    (db.prepare('SELECT id FROM sessions').all() as Array<{ id: string }>)
+      .map((session) => session.id);
+  const getWorkingStateStorageStatus = () => {
+    const status = conversationWorkingStateLifecycle.getStorageStatus();
+    if (status.phase === 'analyzing' || status.phase === 'optimizing') {
+      return status;
+    }
+    return {
+      ...status,
+      blockedReason: conversationWorkingStateLifecycle.getMaintenanceBlocker(
+        readWorkingStateMaintenanceBlocker
+      ),
+    };
+  };
+  typedHandle('working-state:get-storage-status', () => getWorkingStateStorageStatus());
   typedHandle('working-state:optimize-storage', async () => {
-    await compactConversationWorkingState();
-    return getConversationWorkingStateStorageStatus();
+    await conversationWorkingStateLifecycle.compact(
+      readWorkingStateMaintenanceBlocker,
+      readLiveConversationIds,
+      workingStateCompactionRunner
+    );
+    return getWorkingStateStorageStatus();
   });
   const ensureProjectForSession = (projectId: string) => {
     const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);

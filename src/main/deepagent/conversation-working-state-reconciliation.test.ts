@@ -1,9 +1,14 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { EventEmitter } from 'events';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { reconcileOrphanConversationWorkingState } from './conversation-working-state-reconciliation';
+import {
+  ConversationWorkingStateWorkerRunner,
+  reconcileOrphanConversationWorkingState,
+  type ConversationWorkingStateWorker,
+} from './conversation-working-state-reconciliation';
 
 describe('reconcileOrphanConversationWorkingState', () => {
   let tempDir: string;
@@ -118,5 +123,69 @@ describe('reconcileOrphanConversationWorkingState', () => {
     expect(reopened.prepare('SELECT COUNT(*) AS count FROM checkpoints').get()).toEqual({ count: 1 });
     expect(reopened.prepare('SELECT COUNT(*) AS count FROM writes').get()).toEqual({ count: 1 });
     reopened.close();
+  });
+});
+
+describe('ConversationWorkingStateWorkerRunner', () => {
+  class FakeWorker extends EventEmitter implements ConversationWorkingStateWorker {
+    unrefCalled = false;
+
+    unref(): void {
+      this.unrefCalled = true;
+    }
+  }
+
+  const request = {
+    checkpointDatabasePath: '/tmp/deepagents-checkpoints.db',
+    liveThreadIds: ['conversation-1'],
+  };
+
+  it('passes the reconciliation request to the Worker and returns its result', async () => {
+    const worker = new FakeWorker();
+    let receivedPath = '';
+    let receivedRequest: unknown;
+    const runner = new ConversationWorkingStateWorkerRunner(
+      () => '/app/reconciliation-worker.js',
+      (workerPath, workerRequest) => {
+        receivedPath = workerPath;
+        receivedRequest = workerRequest;
+        queueMicrotask(() => worker.emit('message', {
+          ok: true,
+          result: { deletedThreadCount: 2 },
+        }));
+        return worker;
+      }
+    );
+
+    await expect(runner.run(request)).resolves.toEqual({ deletedThreadCount: 2 });
+    expect(receivedPath).toBe('/app/reconciliation-worker.js');
+    expect(receivedRequest).toEqual(request);
+    expect(worker.unrefCalled).toBe(true);
+  });
+
+  it('rejects a structured Worker failure', async () => {
+    const worker = new FakeWorker();
+    const runner = new ConversationWorkingStateWorkerRunner(
+      () => '/app/reconciliation-worker.js',
+      () => {
+        queueMicrotask(() => worker.emit('message', { ok: false, error: 'database busy' }));
+        return worker;
+      }
+    );
+
+    await expect(runner.run(request)).rejects.toThrow('database busy');
+  });
+
+  it('rejects when the Worker exits before reporting a result', async () => {
+    const worker = new FakeWorker();
+    const runner = new ConversationWorkingStateWorkerRunner(
+      () => '/app/reconciliation-worker.js',
+      () => {
+        queueMicrotask(() => worker.emit('exit', 1));
+        return worker;
+      }
+    );
+
+    await expect(runner.run(request)).rejects.toThrow('exited with code 1');
   });
 });

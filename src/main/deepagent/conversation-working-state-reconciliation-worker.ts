@@ -2,8 +2,8 @@ import { parentPort, workerData } from 'worker_threads';
 import {
   reconcileOrphanConversationWorkingState,
   type ConversationWorkingStateReconciliationRequest,
+  type ConversationWorkingStateWorkerResponse,
 } from './conversation-working-state-reconciliation';
-import type { ConversationWorkingStateWorkerResponse } from './conversation-working-state-worker-runner';
 
 if (!parentPort) {
   throw new Error('Conversation Working State reconciliation requires a Worker parent port.');

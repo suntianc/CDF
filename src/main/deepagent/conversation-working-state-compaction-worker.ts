@@ -3,9 +3,9 @@ import {
   compactConversationWorkingStateStorage,
   ConversationWorkingStateCompactionError,
   type ConversationWorkingStateCompactionRequest,
+  type ConversationWorkingStateCompactionWorkerResponse,
 } from './conversation-working-state-compaction';
 import { CONVERSATION_WORKING_STATE_FAILURE_REASONS } from '../../shared/conversation-working-state';
-import type { ConversationWorkingStateCompactionWorkerResponse } from './conversation-working-state-compaction-runner';
 
 if (!parentPort) {
   throw new Error('Conversation Working State compaction requires a Worker parent port.');

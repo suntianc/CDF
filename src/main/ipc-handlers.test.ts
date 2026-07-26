@@ -29,6 +29,7 @@ const {
   deleteProjectMock,
   compactWorkingStateMock,
   getWorkingStateStorageStatusMock,
+  getMaintenanceBlockerMock,
   captureConversationSystemContextSnapshotMock,
   createAgentCatalogMock,
   agentCatalogMock,
@@ -82,6 +83,7 @@ const {
   deleteProjectMock: vi.fn(),
   compactWorkingStateMock: vi.fn(),
   getWorkingStateStorageStatusMock: vi.fn(),
+  getMaintenanceBlockerMock: vi.fn(),
   captureConversationSystemContextSnapshotMock: vi.fn(() => ({
     promptSnapshot: 'Captured Master prompt',
     skillSnapshot: listResolvedSkillViewsMock(),
@@ -154,9 +156,27 @@ vi.mock('./conversation-run-stream-runtime', () => ({
   },
 }));
 
-vi.mock('./deepagent/conversation-working-state-maintenance', () => ({
-  compactConversationWorkingState: compactWorkingStateMock,
-  getConversationWorkingStateStorageStatus: getWorkingStateStorageStatusMock,
+vi.mock('./deepagent/conversation-working-state', () => ({
+  DEEPAGENT_CHECKPOINT_NAMESPACE: '',
+  conversationWorkingStateLifecycle: {
+    getStorageStatus: getWorkingStateStorageStatusMock,
+    getMaintenanceBlocker: getMaintenanceBlockerMock,
+    compact: compactWorkingStateMock,
+    beginRuntimeUse: vi.fn(() => () => {}),
+    beginCapabilityJobUse: vi.fn(() => () => {}),
+    acquireSaver: vi.fn(),
+    enterMaintenance: vi.fn(),
+    leaveMaintenance: vi.fn(),
+    deleteThread: vi.fn(),
+    assertConversationDeletionAllowed: vi.fn(),
+    reconcileOrphansAtStartup: vi.fn(),
+    close: vi.fn(),
+  },
+}));
+
+vi.mock('./deepagent/conversation-working-state-compaction', () => ({
+  findConversationWorkingStateMaintenanceBlocker: vi.fn(() => null),
+  createConversationWorkingStateCompactionRunner: vi.fn(() => ({ run: vi.fn() })),
 }));
 
 vi.mock('./security', () => ({
@@ -258,6 +278,7 @@ describe('IPC handlers', () => {
     deleteConversationMock.mockReset();
     deleteProjectMock.mockReset();
     compactWorkingStateMock.mockReset();
+    getMaintenanceBlockerMock.mockReset().mockReturnValue(null);
     getWorkingStateStorageStatusMock.mockReset();
     getWorkingStateStorageStatusMock.mockReturnValue({
       phase: 'normal',
@@ -391,7 +412,11 @@ describe('IPC handlers', () => {
 
     const result = await handler({}, { skipIdleChecks: true, databasePath: '/private/cdf.db' });
 
-    expect(compactWorkingStateMock).toHaveBeenCalledWith();
+    expect(compactWorkingStateMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.any(Function),
+      expect.anything(),
+    );
     expect(getWorkingStateStorageStatusMock).toHaveBeenCalledOnce();
     expect(result).toEqual(status);
     expect(JSON.stringify(result)).not.toMatch(/path|sql|table|checkpoint|thread|database/i);
