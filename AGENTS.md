@@ -93,7 +93,7 @@ pnpm run preview
 
 - 渲染进程全局状态优先使用已有 Zustand store。
 - SQLite 和长期本地数据逻辑放在主进程，避免 renderer 直接持久化关键业务数据。
-- 工作流相关代码集中在 `src/main/workflow/` 和 `src/renderer/src/components/WorkflowEditor/`。
+- 工作流相关代码集中在 `src/main/workflow-run/` 和 `src/renderer/src/components/WorkflowEditor/`（旧 `src/main/workflow/` 引擎已随 ADR-0054 C-lite 重构删除）。
 - deepagent 相关代码集中在 `src/main/deepagent/`；修改 provider、tool、runtime 行为时必须检查相邻测试。
 
 ## 测试策略
