@@ -5,7 +5,13 @@ const { ipcHandleMock, browserWindowMock, loadUrlMock, dbPrepareMock, listMock, 
   return {
     ipcHandleMock: vi.fn(),
     browserWindowMock: vi.fn(function BrowserWindowMock() {
-      return { loadURL: loadUrlMock };
+      return {
+        loadURL: loadUrlMock,
+        webContents: {
+          setWindowOpenHandler: vi.fn(),
+          on: vi.fn(),
+        },
+      };
     }),
     loadUrlMock,
     dbPrepareMock: vi.fn(),

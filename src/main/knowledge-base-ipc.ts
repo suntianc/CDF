@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url';
 import { BrowserWindow } from 'electron';
 import db from './database';
 import { typedHandle } from './typed-ipc';
+import { hardenWindowNavigation } from './window-navigation-guard';
 import {
   createKnowledgeEntry,
   deleteKnowledgeEntry,
@@ -61,6 +62,7 @@ export function registerKnowledgeBaseHandlers(): void {
         sandbox: true,
       },
     });
+    hardenWindowNavigation(window);
     await window.loadURL(pathToFileURL(pdfPath).toString());
     return { success: true };
   });

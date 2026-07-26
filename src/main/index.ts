@@ -15,6 +15,7 @@ import {
 import { runLLMChat, setConversationIdleListener } from './llm';
 import { conversationRunStreams } from './conversation-run-stream-runtime';
 import { createCapabilityJobContinuationRunner } from './capabilities/capability-job-continuation-runner';
+import { hardenWindowNavigation } from './window-navigation-guard';
 import { conversationWorkingStateLifecycle } from './deepagent/conversation-working-state';
 import { ConversationWorkingStateWorkerRunner } from './deepagent/conversation-working-state-worker-runner';
 
@@ -78,6 +79,8 @@ function createWindow() {
     },
     show: false,
   });
+
+  hardenWindowNavigation(mainWindow, { allowedUrl: process.env.ELECTRON_RENDERER_URL });
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show();
