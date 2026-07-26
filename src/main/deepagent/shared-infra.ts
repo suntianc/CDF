@@ -133,6 +133,11 @@ export function normalizeProviderId(value: string | null | undefined): string | 
 export type InterruptOnConfig = Record<string, { allowedDecisions: ('approve' | 'reject' | 'edit')[] }>;
 
 export const DEFAULT_INTERRUPT_ON: InterruptOnConfig = {
+  // bash executes arbitrary commands and fetch performs arbitrary network egress; without
+  // gating them, `bash` trivially bypasses the write_file/delete_file gates (echo > file,
+  // rm) and fetch becomes a data-exfil channel. Both are gated in strict/agent_decides.
+  bash: { allowedDecisions: ['approve', 'reject'] },
+  fetch: { allowedDecisions: ['approve', 'reject'] },
   write_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   edit_file: { allowedDecisions: ['approve', 'edit', 'reject'] },
   delete_file: { allowedDecisions: ['approve', 'reject'] },

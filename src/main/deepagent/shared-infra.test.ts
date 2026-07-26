@@ -134,11 +134,18 @@ describe('resolveInterruptOn', () => {
 
 describe('DEFAULT_INTERRUPT_ON', () => {
   it('contains every approval-gated built-in tool', () => {
-    expect(Object.keys(DEFAULT_INTERRUPT_ON)).toHaveLength(9);
+    expect(Object.keys(DEFAULT_INTERRUPT_ON)).toHaveLength(11);
+  });
+
+  it('gates arbitrary code execution and network egress', () => {
+    expect(DEFAULT_INTERRUPT_ON.bash).toEqual({ allowedDecisions: ['approve', 'reject'] });
+    expect(DEFAULT_INTERRUPT_ON.fetch).toEqual({ allowedDecisions: ['approve', 'reject'] });
   });
 
   it('has all required tool keys', () => {
     const keys = Object.keys(DEFAULT_INTERRUPT_ON);
+    expect(keys).toContain('bash');
+    expect(keys).toContain('fetch');
     expect(keys).toContain('write_file');
     expect(keys).toContain('edit_file');
     expect(keys).toContain('delete_file');
