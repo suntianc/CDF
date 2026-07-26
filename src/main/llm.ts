@@ -268,14 +268,16 @@ async function waitForRunTerminal(run: any, signal: AbortSignal): Promise<'compl
   return null;
 }
 
-function waitForAbort(signal: AbortSignal): Promise<never> {
+function waitForAbort(signal: AbortSignal, cleanup?: AbortSignal): Promise<never> {
   if (signal.aborted) {
     return Promise.reject(new DOMException('Aborted', 'AbortError'));
   }
   return new Promise((_, reject) => {
+    // `cleanup` detaches this listener when the caller's race settles, so it doesn't
+    // linger on a long-lived signal that is polled across many runs (listener leak).
     signal.addEventListener('abort', () => {
       reject(new DOMException('Aborted', 'AbortError'));
-    }, { once: true });
+    }, { once: true, signal: cleanup });
   });
 }
 
@@ -283,15 +285,21 @@ async function waitForRunOutputOrTerminal(
   run: any,
   signal: AbortSignal
 ): Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }> {
+  const cleanup = new AbortController();
   const outputPromise = Promise.resolve(run.output).then((output) => ({ output, terminal: null }));
   const waits: Array<Promise<{ output?: any; terminal: 'completed' | 'interrupted' | 'failed' | null }>> = [
     outputPromise,
-    waitForAbort(signal),
+    waitForAbort(signal, cleanup.signal),
   ];
   if (run?.lifecycle && typeof run.lifecycle[Symbol.asyncIterator] === 'function') {
     waits.push(waitForRunTerminal(run, signal).then((terminal) => ({ output: undefined, terminal })));
   }
-  return Promise.race(waits);
+  try {
+    return await Promise.race(waits);
+  } finally {
+    // Detach the abort listener registered by waitForAbort once the race is decided.
+    cleanup.abort();
+  }
 }
 
 function getLatestAssistantContent(output: any): string | null {
@@ -890,12 +898,21 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
         });
         const key = `${requestId}:${approval.id}`;
         pendingApprovals.set(key, approvalResolve);
-        controller.signal.addEventListener('abort', () => {
+        const onApprovalAbort = () => {
           pendingApprovals.delete(key);
           approvalReject(new DOMException('Aborted', 'AbortError'));
-        }, { once: true });
+        };
+        controller.signal.addEventListener('abort', onApprovalAbort, { once: true });
 
-        const resolution = await approvalPromise;
+        let resolution: AgentApprovalResolution;
+        try {
+          resolution = await approvalPromise;
+        } finally {
+          // { once: true } only detaches on abort; on the normal resolve path the listener
+          // would otherwise linger on the shared signal and accumulate across a long turn's
+          // approvals (MaxListenersExceededWarning / leak).
+          controller.signal.removeEventListener('abort', onApprovalAbort);
+        }
 
         const approvalStatus = resolution.decisions.some((decision) => decision.type === 'edit')
           ? 'edited'
