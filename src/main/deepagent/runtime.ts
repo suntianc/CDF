@@ -283,7 +283,7 @@ function createRecoverableToolErrorMiddleware() {
               }
             }
           } catch (dbErr) {
-            console.warn('[RUNTIME] Failed to append approval status to tool result:', dbErr);
+            log.warn('[RUNTIME] Failed to append approval status to tool result:', dbErr);
           }
         }
         return result;
@@ -581,7 +581,7 @@ async function buildDeepAgentRuntime(
   try {
     builtInTools.push(...loadRegistryTools());
   } catch (err) {
-    console.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
+    log.warn('[RUNTIME] Failed to load built-in tools from registry:', err);
   }
 
 
@@ -589,7 +589,7 @@ async function buildDeepAgentRuntime(
   // parallel_tasks is added after the shared coordinator is constructed below,
   // but runtime assembly must know the public capability name up front.
   const builtInToolNames = [...getRuntimeToolNames(builtInTools), 'parallel_tasks'];
-  console.log('[runtime] built-in tool names:', builtInToolNames.join(', '));
+  log.info('[runtime] built-in tool names:', builtInToolNames.join(', '));
   const runtimeAssembly = await assembleDeepAgentRuntime(
     agentRow,
     undefined,
@@ -609,7 +609,7 @@ async function buildDeepAgentRuntime(
     assemblyWarnings,
   } = runtimeAssembly;
   for (const warning of assemblyWarnings) {
-    console.warn('[runtime] Ignored invalid Skill runtime input:', warning);
+    log.warn('[runtime] Ignored invalid Skill runtime input:', warning);
   }
 
 
@@ -779,7 +779,7 @@ async function buildDeepAgentRuntime(
     const ID_REGEX = /^[0-9a-zA-Z_-]+$/;
     for (const subId of effectiveSubagentIds) {
       if (!ID_REGEX.test(subId)) {
-        console.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
+        log.warn(`[runtime] Invalid ID format for subagentId: ${subId}`);
         continue;
       }
       const targetAgent = delegationTargetsById.get(subId);

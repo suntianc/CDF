@@ -21,7 +21,7 @@ db.pragma('foreign_keys = ON');
 try {
   const hasOldSkillsTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='skills'").get();
   if (hasOldSkillsTable) {
-    console.log('Migrating database: dropping old database-driven skills tables...');
+    log.info('Migrating database: dropping old database-driven skills tables...');
     db.exec(`
       DROP TABLE IF EXISTS agent_skills;
       DROP TABLE IF EXISTS skill_versions;
@@ -29,7 +29,7 @@ try {
     `);
   }
 } catch (error) {
-  console.error('Failed to run db migration for skills schema:', error);
+  log.error('Failed to run db migration for skills schema:', error);
 }
 
 // Initialize schema
@@ -93,7 +93,7 @@ const safeMigrate = (description: string, sql: string) => {
     db.exec(sql);
   } catch (error: any) {
     if (!error.message.includes('duplicate column name')) {
-      console.error(`Failed to migrate ${description}:`, error);
+      log.error(`Failed to migrate ${description}:`, error);
     }
   }
 };
@@ -103,7 +103,7 @@ safeMigrate('projects table (scene)', `ALTER TABLE projects ADD COLUMN scene TEX
 try {
   db.prepare(`UPDATE projects SET scene = 'general' WHERE scene IS NULL OR scene = ''`).run();
 } catch (error) {
-  console.error('Failed to backfill projects.scene:', error);
+  log.error('Failed to backfill projects.scene:', error);
 }
 
 // Safe migration for sessions parent_session_id & summary
@@ -149,7 +149,7 @@ try {
   db.prepare("UPDATE llm_providers SET provider_type = 'moonshot' WHERE provider_type = 'kimi'").run();
   db.prepare("UPDATE llm_providers SET provider_type = 'xiaomimimo' WHERE provider_type = 'mimo'").run();
 } catch (error) {
-  console.error('Failed to migrate provider_type values:', error);
+  log.error('Failed to migrate provider_type values:', error);
 }
 
 // Phase 3 & Phase 4: Agent Library, Skills, MCP Servers tables
@@ -252,10 +252,10 @@ try {
       INSERT INTO projects (id, name, path, scene, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(defaultProjectId, defaultProjectName, defaultProjectPath, 'general', now, now);
-    console.log('Successfully initialized default project:', defaultProjectId);
+    log.info('Successfully initialized default project:', defaultProjectId);
   }
 } catch (error) {
-  console.error('Failed to initialize default project:', error);
+  log.error('Failed to initialize default project:', error);
 }
 
 // Insert default LLM providers if none exist
@@ -384,10 +384,10 @@ try {
     for (const p of defaultProviders) {
       insertProvider.run(p.id, p.name, p.provider_type, p.api_url, p.default_model, p.context_limit, p.is_active, p.models, now, now);
     }
-    console.log('Successfully initialized default LLM providers');
+    log.info('Successfully initialized default LLM providers');
   }
 } catch (error) {
-  console.error('Failed to initialize default LLM providers:', error);
+  log.error('Failed to initialize default LLM providers:', error);
 }
 
 // ===== Workflow Skeleton + Workflow Run tables =====
@@ -501,7 +501,7 @@ try {
     if (stage?.id) updateCurrentStageId.run(stage.id, run.id);
   }
 } catch (error) {
-  console.error('Failed to backfill workflow_runs.current_stage_id:', error);
+  log.error('Failed to backfill workflow_runs.current_stage_id:', error);
 }
 
 safeMigrate(

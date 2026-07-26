@@ -8,6 +8,7 @@
  */
 
 import crypto from 'crypto';
+import log from '../logger';
 import db from '../database';
 import { decryptApiKey } from '../security';
 import { createDeleteFileTool } from './file-tools';
@@ -235,7 +236,7 @@ export function loadRegistryTools(): any[] {
       }
     }
   } catch (err) {
-    console.warn('[shared-infra] Failed to load registry tools:', err);
+    log.warn('[shared-infra] Failed to load registry tools:', err);
   }
   return tools;
 }

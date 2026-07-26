@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import log from '../logger';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatModelStreamEvent } from '@langchain/core/language_models/event';
@@ -126,7 +127,7 @@ function patchMiniMaxAssistantRole(model: BaseChatModel): void {
 
 function patchOpenAIReasoning(model: BaseChatModel): void {
   const anyModel = model as any;
-  console.log(`[ADAPTER] 成功在模型上准备应用 OpenAI-compatible stream normalization`);
+  log.debug(`[ADAPTER] 成功在模型上准备应用 OpenAI-compatible stream normalization`);
 
   const appendModelReasoning = (text: string) => {
     const captured = modelCapture.get(anyModel) || { reasoningText: '', normalText: '' };
@@ -183,7 +184,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
         for await (const data of result as AsyncIterable<any>) {
           const reasoning = extractRawReasoning(data);
           if (reasoning) {
-            console.log(`[ADAPTER] 原始 OpenAI-compatible stream 捕获 reasoning chunk! length:`, reasoning.length);
+            log.debug(`[ADAPTER] 原始 OpenAI-compatible stream 捕获 reasoning chunk! length:`, reasoning.length);
             appendRawReasoning(reasoning);
           }
           yield data;
@@ -202,7 +203,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
     }
     const original = target.completionWithRetry.bind(target);
     target.completionWithRetry = wrapCompletionWithRetry(original);
-    console.log(`[ADAPTER] 已成功 patch ${label} completionWithRetry`);
+    log.debug(`[ADAPTER] 已成功 patch ${label} completionWithRetry`);
   };
 
   const wrapInvoke = (originalInvoke: any) => {
@@ -210,7 +211,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
       if (typeof this._streamResponseChunks !== 'function') {
         return originalInvoke.call(this, input, options);
       }
-      console.log(`[ADAPTER] 实例 invoke 被拦截并转换为流式执行`);
+      log.debug(`[ADAPTER] 实例 invoke 被拦截并转换为流式执行`);
       const messages = (BaseChatModel as unknown as { _convertInputToPromptValue(input: unknown): { toChatMessages(): unknown[] } })._convertInputToPromptValue(input).toChatMessages();
       const [, callOptions] = typeof this._separateRunnableConfigFromCallOptionsCompat === 'function'
         ? this._separateRunnableConfigFromCallOptionsCompat(options)
@@ -246,15 +247,15 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
 
   const wrapStream = (originalStream: any, contextName: string) => {
     const fn = async function* (this: any, ...args: unknown[]) {
-      console.log(`[ADAPTER] ${contextName} _streamResponseChunks 被调用，开始消费大模型流...`);
+      log.debug(`[ADAPTER] ${contextName} _streamResponseChunks 被调用，开始消费大模型流...`);
 
       for await (const chunk of originalStream.call(this, ...args)) {
         const normalized = normalizeOpenAICompatibleChunk(chunk);
         if (normalized.reasoningDelta) {
           if (wasCapturedFromRawStream(normalized.reasoningDelta)) {
-            console.log(`[ADAPTER] ${contextName} reasoning chunk 已由原始流捕获，跳过重复缓存`);
+            log.debug(`[ADAPTER] ${contextName} reasoning chunk 已由原始流捕获，跳过重复缓存`);
           } else {
-            console.log(`[ADAPTER] ${contextName} 收到大模型 reasoning chunk! length:`, normalized.reasoningDelta.length);
+            log.debug(`[ADAPTER] ${contextName} 收到大模型 reasoning chunk! length:`, normalized.reasoningDelta.length);
             appendCurrentReasoning(normalized.reasoningDelta);
             appendModelReasoning(normalized.reasoningDelta);
           }
@@ -275,7 +276,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
 
   const wrapGenerate = (originalGenerate: any, contextName: string) => {
     const fn = async function (this: any, ...args: unknown[]) {
-      console.log(`[ADAPTER] ${contextName} _generate 被调用`);
+      log.debug(`[ADAPTER] ${contextName} _generate 被调用`);
       const result = await originalGenerate.call(this, ...args);
       // 保持原本 message 纯净，不污染 content
       if (result && Array.isArray(result.generations)) {
@@ -283,7 +284,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
           if (Array.isArray(group)) {
             for (const gen of group) {
               const normalized = normalizeOpenAICompatibleChunk(gen);
-              console.log(`[ADAPTER] ${contextName} _generate 收到结果，提取出的 reasoning length:`, normalized.reasoningDelta?.length);
+              log.debug(`[ADAPTER] ${contextName} _generate 收到结果，提取出的 reasoning length:`, normalized.reasoningDelta?.length);
               if (normalized.reasoningDelta) {
                 appendCurrentReasoning(normalized.reasoningDelta);
                 appendModelReasoning(normalized.reasoningDelta);
@@ -309,7 +310,7 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
 
   const wrapStreamChatModelEvents = () => {
     const fn = async function* (this: any, messages: any[], options: any, runManager?: any): AsyncGenerator<ChatModelStreamEvent> {
-      console.log(`[ADAPTER] 实例 _streamChatModelEvents 被调用，输出标准 reasoning/text/tool 事件`);
+      log.debug(`[ADAPTER] 实例 _streamChatModelEvents 被调用，输出标准 reasoning/text/tool 事件`);
 
       const streamRunId = `openai-compatible-${Date.now()}-${++streamEventSequence}`;
       const withStreamRunId = (event: Record<string, unknown>): ChatModelStreamEvent => ({
@@ -507,21 +508,21 @@ function patchOpenAIReasoning(model: BaseChatModel): void {
   if (typeof anyModel.invoke === 'function' && !anyModel.invoke.__patched) {
     const original = anyModel.invoke.bind(anyModel);
     anyModel.invoke = wrapInvoke(original);
-    console.log(`[ADAPTER] 已成功 patch 实例 invoke`);
+    log.debug(`[ADAPTER] 已成功 patch 实例 invoke`);
   }
   if (typeof anyModel._streamResponseChunks === 'function' && !anyModel._streamResponseChunks.__patched) {
     const original = anyModel._streamResponseChunks.bind(anyModel);
     anyModel._streamResponseChunks = wrapStream(original, '实例');
-    console.log(`[ADAPTER] 已成功 patch 实例 _streamResponseChunks`);
+    log.debug(`[ADAPTER] 已成功 patch 实例 _streamResponseChunks`);
   }
   if (typeof anyModel._generate === 'function' && !anyModel._generate.__patched) {
     const original = anyModel._generate.bind(anyModel);
     anyModel._generate = wrapGenerate(original, '实例');
-    console.log(`[ADAPTER] 已成功 patch 实例 _generate`);
+    log.debug(`[ADAPTER] 已成功 patch 实例 _generate`);
   }
   if (typeof anyModel._streamChatModelEvents === 'function' && !anyModel._streamChatModelEvents.__patched) {
     anyModel._streamChatModelEvents = wrapStreamChatModelEvents();
-    console.log(`[ADAPTER] 已成功 patch 实例 _streamChatModelEvents`);
+    log.debug(`[ADAPTER] 已成功 patch 实例 _streamChatModelEvents`);
   }
   patchCompletionWithRetry(anyModel, '实例');
   patchCompletionWithRetry(anyModel.completions, '实例 completions');

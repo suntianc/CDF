@@ -1,4 +1,5 @@
 import { tool } from '@langchain/core/tools';
+import log from '../logger';
 import { XMLParser } from 'fast-xml-parser';
 import type { SearchProviderConfig } from './search-tools';
 
@@ -303,7 +304,7 @@ export function createArxivTool(providerConfig: SearchProviderConfig | null) {
           content: formatPapersForLLM(result.papers),
         });
       } catch (err) {
-        console.error('arXiv search failed:', err);
+        log.error('arXiv search failed:', err);
         return JSON.stringify({
           success: false,
           error: `arXiv 搜索失败：${err instanceof Error ? err.message : String(err)}`,
@@ -342,7 +343,7 @@ export function createArxivTool(providerConfig: SearchProviderConfig | null) {
           content: formatPapersForLLM(result.papers),
         });
       } catch (err) {
-        console.error('arXiv get papers failed:', err);
+        log.error('arXiv get papers failed:', err);
         return JSON.stringify({
           success: false,
           error: `arXiv 论文获取失败：${err instanceof Error ? err.message : String(err)}`,

@@ -6,6 +6,7 @@
  */
 
 import { registerHarnessProfile, type FilesystemPermission } from 'deepagents';
+import log from '../logger';
 import {
   getProvider,
   normalizeProviderId,
@@ -102,7 +103,7 @@ export function registerCdfHarnessProfile(
     try {
       registerHarnessProfile(trimmed, profile);
     } catch (error) {
-      console.warn(`Failed to register DeepAgents harness profile for "${trimmed}":`, error);
+      log.warn(`Failed to register DeepAgents harness profile for "${trimmed}":`, error);
     }
   };
 

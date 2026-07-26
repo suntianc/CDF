@@ -14,6 +14,7 @@
 // definitions; memory file system is not implemented) — deferred to v1.2+.
 
 import fs from 'fs';
+import log from '../logger';
 import path from 'path';
 import db from '../database';
 import { getBuiltInSkillDirs, getScopePath } from './skill-manager';
@@ -616,7 +617,7 @@ export async function aggregateCurrentSessionContext(
       agentSystemPrompt = session.prompt_snapshot ?? resolvedMaster.system_prompt;
     }
   } catch (err) {
-    console.warn('[context-aggregator] provider lookup failed, using default limit:', err);
+    log.warn('[context-aggregator] provider lookup failed, using default limit:', err);
     if (typeof contextLimit === 'number' && Number.isFinite(contextLimit) && contextLimit > 0) {
       resolvedLimit = contextLimit;
     }
@@ -650,7 +651,7 @@ export async function aggregateCurrentSessionContext(
       .get(sessionId) as { total: number } | undefined;
     conversation = safeMath(row?.total || 0);
   } catch (err) {
-    console.warn('[context-aggregator] conversation failed:', err);
+    log.warn('[context-aggregator] conversation failed:', err);
   }
 
   // 2. Skills tokens (try-catch #2) — populates skillsPerSkill breakdown.
@@ -690,7 +691,7 @@ export async function aggregateCurrentSessionContext(
         preloadSkillNames,
       });
       for (const warning of skillsRuntime.warnings) {
-        console.warn('[context-aggregator] Ignored invalid Skill runtime input:', warning);
+        log.warn('[context-aggregator] Ignored invalid Skill runtime input:', warning);
       }
       let skillsChars = 0;
       for (const skill of skillsRuntime.skills) {
@@ -710,7 +711,7 @@ export async function aggregateCurrentSessionContext(
       skillsPerSkill.sort((a, b) => b.tokens - a.tokens);
     }
   } catch (err) {
-    console.warn('[context-aggregator] skills failed:', err);
+    log.warn('[context-aggregator] skills failed:', err);
   }
 
   // 3. MCP tools tokens (try-catch #3) — also populates mcpPerTool (#4)
@@ -746,7 +747,7 @@ export async function aggregateCurrentSessionContext(
       mcp = safeMath(mcpChars);
     }
   } catch (err) {
-    console.warn('[context-aggregator] mcp failed:', err);
+    log.warn('[context-aggregator] mcp failed:', err);
   }
 
   // 4. Workflows tokens (try-catch #4) — populates workflowsPerWorkflow breakdown
@@ -772,7 +773,7 @@ export async function aggregateCurrentSessionContext(
     // Sort by tokens desc
     workflowsPerWorkflow.sort((a, b) => b.tokens - a.tokens);
   } catch (err) {
-    console.warn('[context-aggregator] workflows failed:', err);
+    log.warn('[context-aggregator] workflows failed:', err);
   }
 
   // 5. Project command bodies (08.2 P4 NEW — v1.1 real)
@@ -795,7 +796,7 @@ export async function aggregateCurrentSessionContext(
       }
     }
   } catch (err) {
-    console.warn('[context-aggregator] projectCommandBodies failed:', err);
+    log.warn('[context-aggregator] projectCommandBodies failed:', err);
   }
 
   // 6. systemPrompt (08.2 polish — promoted to real calculation).
@@ -810,7 +811,7 @@ export async function aggregateCurrentSessionContext(
       : 0;
     systemPrompt = safeMath(agentPromptChars + projectCtxChars);
   } catch (err) {
-    console.warn('[context-aggregator] systemPrompt failed:', err);
+    log.warn('[context-aggregator] systemPrompt failed:', err);
   }
 
   // 7. systemTools (08.2 polish — promoted to real calculation).
@@ -834,7 +835,7 @@ export async function aggregateCurrentSessionContext(
     systemTools = safeMath(totalChars);
     systemToolsPerTool.sort((a, b) => b.tokens - a.tokens);
   } catch (err) {
-    console.warn('[context-aggregator] systemTools failed:', err);
+    log.warn('[context-aggregator] systemTools failed:', err);
   }
 
   // 8. customAgents (08.2 P4 — v1.1 PLACEHOLDER, v1.2 推).

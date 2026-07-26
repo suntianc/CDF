@@ -558,7 +558,7 @@ export function registerIpcHandlers() {
       try {
         modelsList = p.models ? JSON.parse(p.models) : [];
       } catch (err) {
-        console.error('Failed to parse models for provider:', p.id, err);
+        log.error('Failed to parse models for provider:', p.id, err);
       }
       return {
         ...p,
@@ -666,7 +666,7 @@ export function registerIpcHandlers() {
       }
     }).catch((error) => {
       stream.fail();
-      console.error('LLM chat task failed:', error);
+      log.error('LLM chat task failed:', error);
     });
     return { ok: true };
   });
@@ -770,7 +770,7 @@ export function registerIpcHandlers() {
       const content = fs.readFileSync(filePath, 'utf-8');
       return { name, script_type: script_type as any, content };
     } catch (e) {
-      console.error('Failed to read selected file:', e);
+      log.error('Failed to read selected file:', e);
       return null;
     }
   });
@@ -1344,7 +1344,7 @@ export function registerIpcHandlers() {
         }).skillSnapshot;
       return collectAllCommands(project.path, agentId, {}, skillSnapshot);
     } catch (err) {
-      console.error('[commands:list] failed:', err);
+      log.error('[commands:list] failed:', err);
       return { commands: [], conflicts: [], warnings: [] };
     }
   });
@@ -1358,7 +1358,7 @@ export function registerIpcHandlers() {
       const commands = listProjectCommands(project.path);
       return { commands };
     } catch (err) {
-      console.error('[commands:readProjectCommands] failed:', err);
+      log.error('[commands:readProjectCommands] failed:', err);
       return { commands: [] };
     }
   });
@@ -1384,7 +1384,7 @@ export function registerIpcHandlers() {
         }
       } catch (dbErr) {
         // If project enumeration fails, fall back to homedir-only allowlist
-        console.warn('[commands:readBody] project enumeration failed, using homedir only:', dbErr);
+        log.warn('[commands:readBody] project enumeration failed, using homedir only:', dbErr);
       }
 
       const resolved = path.resolve(bodyPath);
@@ -1400,7 +1400,7 @@ export function registerIpcHandlers() {
         (p) => realResolved === p || realResolved.startsWith(p + path.sep)
       );
       if (!isAllowed) {
-        console.warn('[commands:readBody] path not under allowed dir:', bodyPath);
+        log.warn('[commands:readBody] path not under allowed dir:', bodyPath);
         return { body: '', mtimeMs: 0 };
       }
 
@@ -1409,7 +1409,7 @@ export function registerIpcHandlers() {
       const body = stripMarkdownFrontmatter(content);
       return { body, mtimeMs: stat.mtimeMs };
     } catch (err) {
-      console.error('[commands:readBody] failed:', err);
+      log.error('[commands:readBody] failed:', err);
       return { body: '', mtimeMs: 0 };
     }
   });
@@ -1463,7 +1463,7 @@ export function registerIpcHandlers() {
         }
       });
       if (!isResolvedSkillPath) {
-        console.warn('[commands:readSkillBody] path is not a resolved Skill:', skillPath);
+        log.warn('[commands:readSkillBody] path is not a resolved Skill:', skillPath);
         return sessionId
           ? { body: '', mtimeMs: 0, error: 'Skill is not available in this Conversation Snapshot' }
           : { body: '', mtimeMs: 0 };
@@ -1473,7 +1473,7 @@ export function registerIpcHandlers() {
       const content = fs.readFileSync(realResolved, 'utf-8');
       return { body: stripMarkdownFrontmatter(content).replace(/^\s+/, ''), mtimeMs: stat.mtimeMs };
     } catch (err) {
-      console.error('[commands:readSkillBody] failed:', err);
+      log.error('[commands:readSkillBody] failed:', err);
       return { body: '', mtimeMs: 0 };
     }
   });
@@ -1486,7 +1486,7 @@ export function registerIpcHandlers() {
     try {
       return await aggregateCurrentSessionContext(sessionId, contextLimit, overriddenModelName);
     } catch (err) {
-      console.error('[context:currentSession] failed:', err);
+      log.error('[context:currentSession] failed:', err);
       return {
         breakdown: {
           conversation: 0, skills: 0, mcp: 0, workflows: 0,

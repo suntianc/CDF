@@ -1,4 +1,5 @@
 import { tool } from '@langchain/core/tools';
+import log from '../logger';
 import type { SearchResult } from '../../shared/types';
 
 export interface SearchProviderConfig {
@@ -77,7 +78,7 @@ export function createTavilyTool(providerConfig: SearchProviderConfig | null) {
           results,
         });
       } catch (err) {
-        console.error('Tavily search failed:', err);
+        log.error('Tavily search failed:', err);
         return JSON.stringify({
           error: `Tavily search failed: ${err instanceof Error ? err.message : String(err)}`,
           results: [],
@@ -193,7 +194,7 @@ export function createAnysearchTool(providerConfig: SearchProviderConfig | null)
           results,
         });
       } catch (err) {
-        console.error('AnySearch failed:', err);
+        log.error('AnySearch failed:', err);
         return JSON.stringify({
           error: `AnySearch failed: ${err instanceof Error ? err.message : String(err)}`,
           results: [],
