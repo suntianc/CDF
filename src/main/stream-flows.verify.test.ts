@@ -43,6 +43,7 @@ vi.mock('./database', () => ({
   default: {
     prepare: dbPrepareMock,
     exec: vi.fn(),
+    transaction: (fn: (...args: unknown[]) => unknown) => fn,
   },
 }));
 

@@ -1,5 +1,8 @@
 import { create } from 'zustand';
-import i18n from '@/i18n';
+// Use the raw i18next singleton (initialized by App via '@/i18n') rather than importing
+// '@/i18n' here, so pulling in this store does not eagerly initialize i18n — tests that
+// assert on untranslated keys must keep working.
+import i18next from 'i18next';
 import { useProjectStore } from './projectStore';
 import {
   createConversationRuntimeState,
@@ -46,11 +49,16 @@ import { CONVERSATION_DELETE_ERROR_CODES } from '../../../shared/conversation-de
 const SESSION_MODEL_OVERRIDES_KEY = 'sessionModelOverrides';
 
 function persistSessionModelOverrides(overrides: unknown): void {
-  // Promise.resolve tolerates a non-thenable return (e.g. in tests) and keeps this
-  // fire-and-forget: a persistence failure must never break the in-memory state update.
-  Promise.resolve(window.electronAPI.store.set(SESSION_MODEL_OVERRIDES_KEY, overrides)).catch((err) => {
+  // Fire-and-forget: a persistence failure (or an unavailable bridge) must never break the
+  // in-memory state update. Optional chaining + Promise.resolve tolerate a missing store or a
+  // non-thenable return.
+  try {
+    Promise.resolve(window.electronAPI.store?.set?.(SESSION_MODEL_OVERRIDES_KEY, overrides)).catch((err) => {
+      console.error('Failed to persist sessionModelOverrides to the main store:', err);
+    });
+  } catch (err) {
     console.error('Failed to persist sessionModelOverrides to the main store:', err);
-  });
+  }
 }
 
 export function estimateTokens(text: string): number {
@@ -312,7 +320,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             : errorEntry.error.retrySubmission
               ? {
                   recoverableActions: [{
-                    label: i18n.t('chat.retry'),
+                    label: i18next.t('chat.retry'),
                     action: () => {
                       const retry = errorEntry.error?.retrySubmission;
                       if (!retry) return;
@@ -1250,7 +1258,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
               error: {
                 message: effect.message || '对话请求出错',
                 messageParams: effect.messageParams,
-                recoverableActions: [{ label: i18n.t('chat.retry'), action: () => get().sendMessage(projectId, content, overrides, targetSessionId, options) }],
+                recoverableActions: [{ label: i18next.t('chat.retry'), action: () => get().sendMessage(projectId, content, overrides, targetSessionId, options) }],
               },
             });
           }
@@ -1381,7 +1389,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
             pendingApproval: null,
             pendingApprovals: [],
             approvalHistory: [],
-            error: state.error ?? { message: err.message || i18n.t('chat.sendMessageFailed'), recoverableActions: [{ label: i18n.t('chat.retry'), action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
+            error: state.error ?? { message: err.message || i18next.t('chat.sendMessageFailed'), recoverableActions: [{ label: i18next.t('chat.retry'), action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
           }));
         }
       }
@@ -1395,7 +1403,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         set({
           isStreaming: false,
           streamingMessageId: null,
-          error: { message: err.message || i18n.t('chat.sendMessageFailed'), recoverableActions: [{ label: i18n.t('chat.retry'), action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
+          error: { message: err.message || i18next.t('chat.sendMessageFailed'), recoverableActions: [{ label: i18next.t('chat.retry'), action: () => { void get().sendMessage(projectId, content, overrides, targetSessionId, options); } }] },
         });
       }
     }
@@ -1447,7 +1455,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       decisions: selectedApproval.actions.map((action) => ({
         type: decision,
         editedAction: decision === 'edit' ? { name: action.name, args: editedAction } : undefined,
-        message: decision === 'reject' ? i18n.t('chat.toolRejectedByUser') : undefined,
+        message: decision === 'reject' ? i18next.t('chat.toolRejectedByUser') : undefined,
       })),
     });
   },

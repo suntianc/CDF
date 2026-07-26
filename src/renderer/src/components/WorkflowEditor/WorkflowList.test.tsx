@@ -93,6 +93,7 @@ describe('WorkflowList model selection', () => {
     vi.restoreAllMocks();
 
     window.electronAPI = {
+      store: { get: vi.fn(async () => undefined), set: vi.fn(async () => undefined) },
       db: {
         getWorkflows: vi.fn(async () => [workflow]),
         getMessages: vi.fn(),
