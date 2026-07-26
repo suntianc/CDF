@@ -144,6 +144,9 @@ beforeEach(() => {
 
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     store: { get: vi.fn().mockResolvedValue(false) },
+    // 流程图 autosave 走文档存储通道 (#200)；参数形状与 fs.writeFile 的
+    // CAS 版本一致（rootPath, filePath, content, expectedContent），共用断言。
+    flowDiagram: { saveDocument: writeFile },
     fs: {
       readDirectory: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       readFile,
