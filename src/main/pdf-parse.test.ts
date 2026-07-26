@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cancelPdfParseJob, createMarkerCliRunner, getPdfParseJob, parsePDF, resetPdfParseJobsForTests, type MarkerRunner } from './pdf-parse';
+import { cancelPdfParseJob, createMarkerCliRunner, getPdfParseJob, parsePDF, resetPdfParseJobsForTests, runMarkerCommand, type MarkerRunner } from './pdf-parse';
 
 let tempDir: string;
 let pdfPath: string;
@@ -30,6 +30,25 @@ afterEach(() => {
     process.env.CDF_PDF_TEXT_LAYER_FALLBACK_COMMAND = previousTextLayerFallbackCommand;
   }
   fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe('runMarkerCommand', () => {
+  it.skipIf(process.platform === 'win32')(
+    'reports a non-zero exit code when the process is killed by a signal (#211)',
+    async () => {
+      // A process that terminates via SIGTERM reports exitCode=null on close; it must
+      // not be coerced to 0/success, or a truncated .md would be cached as completed.
+      const result = await runMarkerCommand('sh', ['-c', 'kill -TERM $$'], new AbortController().signal);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.signal).toBe('SIGTERM');
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')('reports exit code 0 for a clean success', async () => {
+    const result = await runMarkerCommand('sh', ['-c', 'exit 0'], new AbortController().signal);
+    expect(result.exitCode).toBe(0);
+    expect(result.signal).toBeNull();
+  });
 });
 
 function writeDelayedMarkerFixture(markdown: string, delayMs: number): string {

@@ -877,11 +877,11 @@ function findMarkdownOutput(outputDir: string): string {
   return candidates[0];
 }
 
-function runMarkerCommand(
+export function runMarkerCommand(
   command: string,
   args: string[],
   signal: AbortSignal,
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<{ stdout: string; stderr: string; exitCode: number; signal: NodeJS.Signals | null }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       windowsHide: true,
@@ -911,11 +911,14 @@ function runMarkerCommand(
       signal.removeEventListener('abort', abort);
       reject(error);
     });
-    child.on('close', (exitCode) => {
+    child.on('close', (exitCode, signalName) => {
       if (settled) return;
       settled = true;
       signal.removeEventListener('abort', abort);
-      resolve({ stdout, stderr, exitCode: exitCode ?? 0 });
+      // A null exit code means the process was terminated by a signal (OOM kill,
+      // external SIGTERM) rather than exiting cleanly. Coercing that to 0 would let a
+      // truncated .md be cached as a completed baseline, so treat it as failure.
+      resolve({ stdout, stderr, exitCode: exitCode ?? -1, signal: signalName ?? null });
     });
   });
 }
