@@ -11,6 +11,10 @@ interface McpCacheEntry {
 // Agent 运行时共享一套 MCP 长连接；Agent 级差异只过滤工具清单。
 let mcpCache: McpCacheEntry | null = null;
 
+// 同一 configHash 的并发 (re)build 合并到一个 in-flight promise，避免各自建 client、
+// 只有后者写回 mcpCache 而前者泄漏。
+let inFlightMcpBuild: { configHash: string; promise: Promise<McpCacheEntry> } | null = null;
+
 // 按 serverId 缓存 MCP 长连接，供健康检查复用
 const serverClients = new Map<string, { client: MultiServerMCPClient; lastUsed: number }>();
 
@@ -144,6 +148,26 @@ export async function loadMcpTools(
     };
   }
 
+  // 已有针对同一目标配置的构建在飞行中，复用它，避免重复建连与泄漏。
+  if (inFlightMcpBuild && inFlightMcpBuild.configHash === configHash) {
+    const entry = await inFlightMcpBuild.promise;
+    return { client: entry.client, tools: collectToolsForServers(entry.toolsByServer, servers) };
+  }
+
+  const build = buildMcpCacheEntry(sharedServers, configHash);
+  inFlightMcpBuild = { configHash, promise: build };
+  try {
+    const entry = await build;
+    return { client: entry.client, tools: collectToolsForServers(entry.toolsByServer, servers) };
+  } finally {
+    if (inFlightMcpBuild?.promise === build) inFlightMcpBuild = null;
+  }
+}
+
+async function buildMcpCacheEntry(
+  sharedServers: MCPServer[],
+  configHash: string,
+): Promise<McpCacheEntry> {
   // 全局配置变更或首次连接，关闭旧共享连接。
   if (mcpCache?.client) {
     await mcpCache.client.close().catch(() => {});
@@ -152,16 +176,20 @@ export async function loadMcpTools(
   if (sharedServers.length === 0) {
     const entry: McpCacheEntry = { client: null, toolsByServer: new Map(), configHash };
     mcpCache = entry;
-    return { client: null, tools: [] };
+    return entry;
   }
 
   const client = createMcpClient(sharedServers);
   const toolEntries = await Promise.all(
     sharedServers.map(async (server) => [server.id, await client.getTools(server.id)] as const),
   );
-  const toolsByServer = new Map<string, StructuredToolInterface[]>(toolEntries);
-  mcpCache = { client, toolsByServer, configHash };
-  return { client, tools: collectToolsForServers(toolsByServer, servers) };
+  const entry: McpCacheEntry = {
+    client,
+    toolsByServer: new Map<string, StructuredToolInterface[]>(toolEntries),
+    configHash,
+  };
+  mcpCache = entry;
+  return entry;
 }
 
 function collectToolsForServers(

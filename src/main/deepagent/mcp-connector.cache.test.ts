@@ -69,6 +69,25 @@ describe('loadMcpTools shared connection cache', () => {
     expect(closeMock).not.toHaveBeenCalled();
   });
 
+  it('coalesces concurrent builds for the same config into a single client (#215)', async () => {
+    const { loadMcpTools } = await import('./mcp-connector');
+    const alpha = server('alpha');
+    const beta = server('beta');
+    const allServers = [alpha, beta];
+    const gate = deferred<Array<{ name: string; description: string }>>();
+    getToolsMock.mockImplementation(() => gate.promise);
+
+    // Two agents load the same (uncached) config concurrently.
+    const p1 = loadMcpTools('agent-a', [alpha], allServers);
+    const p2 = loadMcpTools('agent-b', [beta], allServers);
+    await Promise.resolve();
+    gate.resolve([{ name: 'search', description: 'x' }]);
+    await Promise.all([p1, p2]);
+
+    // Only one shared client is constructed despite two concurrent callers (no leak).
+    expect(constructorMock).toHaveBeenCalledTimes(1);
+  });
+
   it('starts loading tools from all shared servers before waiting for any one server', async () => {
     const { loadMcpTools } = await import('./mcp-connector');
     const alpha = server('alpha');
