@@ -485,17 +485,20 @@ describe('handleAdvanceStageInterrupt', () => {
     });
   });
 
-  it('rejects a route not owned by the current Stage', async () => {
+  it('rejects a route not owned by the current Stage back into the Stage without failing the run (#219)', async () => {
     const { run } = startRun(lastWorkflowId, PROJECT_ID);
-    await expect(handleAdvanceStageInterrupt(
+    const result = await handleAdvanceStageInterrupt(
       run.id,
       { acceptanceSelfCheck: [], artifacts: [], summary: 'bad route' },
       undefined,
       undefined,
       undefined,
       { routeId: 'foreign-route', rationale: 'invalid' },
-    )).rejects.toThrow('Unknown route');
+    );
+    // Recoverable: reject back into the Stage, no gate, run keeps running (not failed).
+    expect(result).toMatchObject({ resume: { decisions: [{ type: 'reject' }] } });
     expect(getPendingStageGates(run.id)).toEqual([]);
+    expect(getWorkflowRun(run.id)?.status).toBe('running');
   });
 
   it('reject saves feedback and stays on same stage', async () => {

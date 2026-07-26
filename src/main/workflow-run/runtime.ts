@@ -198,9 +198,33 @@ export async function handleAdvanceStageInterrupt(
   const stage = getCurrentStage(run);
   if (!stage) throw new Error(`Current Stage ${run.current_stage_id} not found in run ${runId}`);
   const stageIndex = stages.findIndex((candidate) => candidate.id === stage.id);
-  const selectedRoute = selectWorkflowStageRoute(stage, selection?.routeId);
+
+  // A bad/missing routeId or rationale is a recoverable model-output error. Reject back
+  // into the current Stage (ADR-0064) instead of throwing, which llm.ts would turn into a
+  // failed run and end the whole workflow.
+  let selectedRoute: ReturnType<typeof selectWorkflowStageRoute>;
+  try {
+    selectedRoute = selectWorkflowStageRoute(stage, selection?.routeId);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      resume: {
+        decisions: [{
+          type: 'reject' as const,
+          message: `无法推进阶段：${detail}。请从当前阶段的可选路由中选择一个有效 routeId 后重试。`,
+        }],
+      },
+    };
+  }
   if ((stage.routes?.length ?? 0) > 1 && !selection?.rationale?.trim()) {
-    throw new Error(`Stage ${stage.name} requires a route rationale`);
+    return {
+      resume: {
+        decisions: [{
+          type: 'reject' as const,
+          message: `阶段 ${stage.name} 有多个路由，请提供 rationale 说明选择理由后重试。`,
+        }],
+      },
+    };
   }
   const persistedReport: WorkflowStageReport = selectedRoute
     ? {
