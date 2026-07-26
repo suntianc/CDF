@@ -1,7 +1,6 @@
 import { BrowserWindow } from 'electron';
 import type { WorkflowRunProjectionEvent } from '../../shared/types';
-
-const PROJECTION_EVENT_CHANNEL = 'workflow-run:projection-event';
+import { typedSend } from '../typed-ipc';
 
 function firstLiveWindow(): BrowserWindow | undefined {
   const win = BrowserWindow.getAllWindows()[0];
@@ -9,10 +8,12 @@ function firstLiveWindow(): BrowserWindow | undefined {
 }
 
 export function pushProjectionEvent(event: WorkflowRunProjectionEvent): void {
-  firstLiveWindow()?.webContents.send(PROJECTION_EVENT_CHANNEL, event);
+  const win = firstLiveWindow();
+  if (win) typedSend(win.webContents, 'workflow-run:projection-event', event);
 }
 
 /** Nudge the renderer to reload a Conversation's messages after a workflow state change. */
 export function notifyConversationMessagesChanged(sessionId: string): void {
-  firstLiveWindow()?.webContents.send('conversation:messages-changed', { sessionId });
+  const win = firstLiveWindow();
+  if (win) typedSend(win.webContents, 'conversation:messages-changed', { sessionId });
 }

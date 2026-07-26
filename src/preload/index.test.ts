@@ -77,6 +77,43 @@ describe('preload bridge', () => {
     expect(removeListenerMock).toHaveBeenCalledWith('agent:parallel-task-step-sess-9', listener);
   });
 
+  it('binds static event listeners to their contract channel and forwards only the payload (#230)', async () => {
+    const api = await loadApi();
+    const cases: Array<[() => (cb: (data: unknown) => void) => () => void, string]> = [
+      [() => api.conversation.onRunEvent, 'conversation:run-event'],
+      [() => api.conversation.onMessagesChanged, 'conversation:messages-changed'],
+      [() => api.capabilityJobs.onChanged, 'capability-jobs:changed'],
+      [() => api.workflowRun.onProjectionEvent, 'workflow-run:projection-event'],
+      [() => api.fs.onDirectoryChange, 'fs:directoryChange'],
+      [() => api.commands.onChanged, 'commands:changed'],
+      [() => api.commands.onFallback, 'commands:fallback'],
+    ];
+
+    for (const [getter, channel] of cases) {
+      onMock.mockClear();
+      removeListenerMock.mockClear();
+      const cb = vi.fn();
+      const unsubscribe = getter()(cb);
+
+      const call = onMock.mock.calls.find(([c]) => c === channel);
+      expect(call, `expected a listener on ${channel}`).toBeDefined();
+      const listener = call![1];
+
+      // The wrapped listener drops the raw IpcRendererEvent and passes only the payload.
+      listener({ sender: {} }, { hello: channel });
+      expect(cb).toHaveBeenCalledWith({ hello: channel });
+
+      unsubscribe();
+      expect(removeListenerMock).toHaveBeenCalledWith(channel, listener);
+    }
+  });
+
+  it('forwards the optional stageId to workflow-run:get-tasks (#230)', async () => {
+    const api = await loadApi();
+    await api.workflowRun.getTasks('run-1', 'stage-2');
+    expect(invokeMock).toHaveBeenCalledWith('workflow-run:get-tasks', 'run-1', 'stage-2');
+  });
+
   it('sends flow-diagram export responses through ipcRenderer.send', async () => {
     const api = await loadApi();
     const response = { requestId: 'x', ok: true } as unknown;

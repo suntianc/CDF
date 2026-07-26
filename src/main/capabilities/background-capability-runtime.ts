@@ -1,4 +1,5 @@
 import { lookup } from 'node:dns/promises';
+import { typedSend } from '../typed-ipc';
 import { isIP } from 'node:net';
 import { BrowserWindow, net } from 'electron';
 import { getOAuthCredential, getSubscriptionSecret } from '../ai-subscription-credentials';
@@ -29,7 +30,7 @@ function emitCapabilityJob(projectId: string, jobId: string): void {
   if (!job) return;
   for (const window of BrowserWindow.getAllWindows()) {
     try {
-      window.webContents.send('capability-jobs:changed', { projectId, job });
+      typedSend(window.webContents, 'capability-jobs:changed', { projectId, job });
     } catch {
       // A closing renderer must not affect durable continuation state.
     }
@@ -39,7 +40,7 @@ function emitCapabilityJob(projectId: string, jobId: string): void {
 function emitConversationMessagesChanged(sessionId: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
     try {
-      window.webContents.send('conversation:messages-changed', { sessionId });
+      typedSend(window.webContents, 'conversation:messages-changed', { sessionId });
     } catch {
       // A closing renderer must not affect durable Timeline state.
     }

@@ -130,7 +130,7 @@ export function useCommandRegistry(
   useEffect(() => {
     const api = (window as any).electronAPI?.commands;
     if (!api?.onChanged) return;
-    const cleanup = api.onChanged((_event: unknown, data: { source: string }) => {
+    const cleanup = api.onChanged((data: { source: string }) => {
       if (data?.source === 'chokidar' || data?.source === 'mcp-health') {
         reload();
       }
@@ -145,7 +145,7 @@ export function useCommandRegistry(
   useEffect(() => {
     const api = (window as any).electronAPI?.commands;
     if (!api?.onFallback) return;
-    const cleanup = api.onFallback((_event: unknown, data: { scope: 'system' | 'project'; dir: string; error: string }) => {
+    const cleanup = api.onFallback((data: { scope: 'system' | 'project'; dir: string; error: string }) => {
       // D-17: dedup by fingerprint. Same (scope, error) = same fingerprint.
       const fp = `${data.scope}:${data.error}`;
       if (toastedFingerprintsRef.current.has(fp)) return;

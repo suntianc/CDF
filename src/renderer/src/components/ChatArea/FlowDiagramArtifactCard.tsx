@@ -76,7 +76,7 @@ export function FlowDiagramArtifactCard({ href, label }: FlowDiagramArtifactCard
       await load();
     };
     void loadCurrent();
-    const unsubscribe = window.electronAPI.fs.onDirectoryChange((_event, data) => {
+    const unsubscribe = window.electronAPI.fs.onDirectoryChange((data) => {
       const changedPath = data.path.replace(/\\/g, '/');
       if (changedPath === sourcePath.replace(/\\/g, '/')) void loadCurrent();
     });

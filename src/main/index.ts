@@ -6,6 +6,7 @@ import {
   createCdfFileResponse,
 } from './cdf-file-protocol';
 import { registerIpcHandlers } from './ipc-handlers';
+import { typedSend } from './typed-ipc';
 import {
   backgroundCapabilityContinuations,
   backgroundCapabilityJobs,
@@ -116,7 +117,7 @@ configureCapabilityJobContinuationRunner(createCapabilityJobContinuationRunner({
   onMessagesChanged: (sessionId) => {
     for (const window of BrowserWindow.getAllWindows()) {
       try {
-        window.webContents.send('conversation:messages-changed', { sessionId });
+        typedSend(window.webContents, 'conversation:messages-changed', { sessionId });
       } catch {
         // A closing renderer must not turn a durable continuation into a retry.
       }

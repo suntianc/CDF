@@ -107,7 +107,6 @@ vi.mock('@excalidraw/excalidraw', () => ({
 const readFile = vi.fn();
 const writeFile = vi.fn();
 const directoryChangeListeners: Array<(
-  event: unknown,
   data: { type: string; path: string },
 ) => void> = [];
 
@@ -262,7 +261,7 @@ describe('Editable Flow Diagram workspace', () => {
 
     await act(async () => {
       for (const listener of directoryChangeListeners) {
-        listener({}, { type: 'change', path: DIAGRAM_PATH });
+        listener({ type: 'change', path: DIAGRAM_PATH });
       }
     });
 
@@ -306,7 +305,7 @@ describe('Editable Flow Diagram workspace', () => {
 
     await act(async () => {
       for (const listener of directoryChangeListeners) {
-        listener({}, { type: 'change', path: DIAGRAM_PATH });
+        listener({ type: 'change', path: DIAGRAM_PATH });
       }
       await Promise.resolve();
     });

@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron';
+import { typedSend } from '../typed-ipc';
 import chokidar from 'chokidar';
 import log from '../logger';
 
@@ -23,7 +24,7 @@ function flushEvents() {
       ? BrowserWindow.getAllWindows()
       : [];
     windows.forEach((w) => {
-      w.webContents.send('fs:directoryChange', { type, path: filePath });
+      typedSend(w.webContents, 'fs:directoryChange', { type, path: filePath });
     });
   }
   pendingEvents.clear();

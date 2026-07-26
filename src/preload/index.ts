@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcRendererEvent } from 'electron';
-import { typedInvoke } from './typed-ipc';
+import { typedInvoke, typedOn } from './typed-ipc';
 import { llmChunkChannel, parallelTaskStepChannel } from '../shared/ipc-contract';
 import type { IpcEventPayload } from '../shared/ipc-contract';
 import type {
@@ -178,11 +178,8 @@ const api = {
       typedInvoke('fs:readFile', rootPath, filePath),
     getFileInfo: (rootPath: string, filePath: string) =>
       typedInvoke('fs:getFileInfo', rootPath, filePath),
-    onDirectoryChange: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'fs:directoryChange'>) => void) => {
-      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'fs:directoryChange'>) => callback(event, data);
-      ipcRenderer.on('fs:directoryChange', listener);
-      return () => { ipcRenderer.removeListener('fs:directoryChange', listener); };
-    },
+    onDirectoryChange: (callback: (data: IpcEventPayload<'fs:directoryChange'>) => void) =>
+      typedOn('fs:directoryChange', callback),
     writeFile: (rootPath: string, filePath: string, content: string, expectedContent?: string) =>
       typedInvoke('fs:writeFile', rootPath, filePath, content, expectedContent),
     createFile: (rootPath: string, filePath: string) =>
@@ -212,23 +209,13 @@ const api = {
       typedInvoke('commands:readBody', bodyPath),
     readSkillBody: (projectId: string, agentId: string | null | undefined, skillPath: string, sessionId?: string | null) =>
       typedInvoke('commands:readSkillBody', projectId, agentId, skillPath, sessionId),
-    onChanged: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => void) => {
-      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:changed'>) => callback(event, data);
-      ipcRenderer.on('commands:changed', listener);
-      return () => {
-        ipcRenderer.removeListener('commands:changed', listener);
-      };
-    },
+    onChanged: (callback: (data: IpcEventPayload<'commands:changed'>) => void) =>
+      typedOn('commands:changed', callback),
     // Phase 8 — D-16: chokidar fallback notification. Fired once per session
     // when chokidar.watch() fails (EPERM/ENOENT/EBUSY). Renderer shows a
     // user-visible toast and re-fetches the (now static) command list.
-    onFallback: (callback: (event: IpcRendererEvent, data: IpcEventPayload<'commands:fallback'>) => void) => {
-      const listener = (event: IpcRendererEvent, data: IpcEventPayload<'commands:fallback'>) => callback(event, data);
-      ipcRenderer.on('commands:fallback', listener);
-      return () => {
-        ipcRenderer.removeListener('commands:fallback', listener);
-      };
-    },
+    onFallback: (callback: (data: IpcEventPayload<'commands:fallback'>) => void) =>
+      typedOn('commands:fallback', callback),
   },
   workflowRun: {
     start: (workflowId: string, projectId: string) =>
@@ -245,53 +232,24 @@ const api = {
       typedInvoke('workflow-run:resolve-stage-gate', gateId, resolution),
     abort: (runId: string) =>
       typedInvoke('workflow-run:abort', runId),
-    getTasks: (runId: string) =>
-      typedInvoke('workflow-run:get-tasks', runId),
-    onProjectionEvent: (callback: (data: WorkflowRunProjectionEvent) => void) => {
-      const listener = (_event: IpcRendererEvent, data: WorkflowRunProjectionEvent) => callback(data);
-      ipcRenderer.on('workflow-run:projection-event', listener);
-      return () => { ipcRenderer.removeListener('workflow-run:projection-event', listener); };
-    },
+    getTasks: (runId: string, stageId?: string) =>
+      typedInvoke('workflow-run:get-tasks', runId, stageId),
+    onProjectionEvent: (callback: (data: WorkflowRunProjectionEvent) => void) =>
+      typedOn('workflow-run:projection-event', callback),
   },
   conversation: {
     getActiveRun: (sessionId: string) => typedInvoke('conversation:get-active-run', sessionId),
-    onRunEvent: (
-      callback: (data: IpcEventPayload<'conversation:run-event'>) => void
-    ) => {
-      const listener = (
-        _event: IpcRendererEvent,
-        data: IpcEventPayload<'conversation:run-event'>
-      ) => callback(data);
-      ipcRenderer.on('conversation:run-event', listener);
-      return () => {
-        ipcRenderer.removeListener('conversation:run-event', listener);
-      };
-    },
-    onMessagesChanged: (
-      callback: (data: IpcEventPayload<'conversation:messages-changed'>) => void
-    ) => {
-      const listener = (
-        _event: IpcRendererEvent,
-        data: IpcEventPayload<'conversation:messages-changed'>
-      ) => callback(data);
-      ipcRenderer.on('conversation:messages-changed', listener);
-      return () => {
-        ipcRenderer.removeListener('conversation:messages-changed', listener);
-      };
-    },
+    onRunEvent: (callback: (data: IpcEventPayload<'conversation:run-event'>) => void) =>
+      typedOn('conversation:run-event', callback),
+    onMessagesChanged: (callback: (data: IpcEventPayload<'conversation:messages-changed'>) => void) =>
+      typedOn('conversation:messages-changed', callback),
   },
   capabilityJobs: {
     list: (projectId: string) => typedInvoke('capability-jobs:list', projectId),
     command: (projectId: string, jobId: string, action: CapabilityJobAction) =>
       typedInvoke('capability-jobs:command', projectId, jobId, action),
-    onChanged: (callback: (data: IpcEventPayload<'capability-jobs:changed'>) => void) => {
-      const listener = (_event: IpcRendererEvent, data: IpcEventPayload<'capability-jobs:changed'>) =>
-        callback(data);
-      ipcRenderer.on('capability-jobs:changed', listener);
-      return () => {
-        ipcRenderer.removeListener('capability-jobs:changed', listener);
-      };
-    },
+    onChanged: (callback: (data: IpcEventPayload<'capability-jobs:changed'>) => void) =>
+      typedOn('capability-jobs:changed', callback),
   },
   // ===== Phase 08.3 Plan 01: @Mention file candidate bridge (E-01, E-05) =====
   // Returns relative POSIX paths (directories suffixed with `/`). Renderer

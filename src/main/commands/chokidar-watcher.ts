@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron';
+import { typedSend } from '../typed-ipc';
 import chokidar from 'chokidar';
 import fs from 'fs';
 import os from 'os';
@@ -34,7 +35,7 @@ let degraded = false;
 function emitFallbackEvent(scope: 'system' | 'project', dir: string, error: string): void {
   try {
     BrowserWindow.getAllWindows().forEach((w) => {
-      w.webContents.send('commands:fallback', { scope, dir, error });
+      typedSend(w.webContents, 'commands:fallback', { scope, dir, error });
     });
   } catch (emitErr) {
     log.error('[commands-watcher] emit commands:fallback failed:', emitErr);
@@ -177,7 +178,7 @@ function startWatcher(dir: string, onChange: () => Promise<void>, scope: 'system
       log.error('[commands-watcher] onChange callback failed:', err);
     }
     BrowserWindow.getAllWindows().forEach((w) => {
-      w.webContents.send('commands:changed', { source: 'chokidar' });
+      typedSend(w.webContents, 'commands:changed', { source: 'chokidar' });
     });
   }, 100);
 

@@ -145,7 +145,7 @@ export function FilePanel() {
 
   useEffect(() => {
     if (!rootPath) return;
-    const unsub = window.electronAPI.fs.onDirectoryChange((_event, data) => {
+    const unsub = window.electronAPI.fs.onDirectoryChange((data) => {
       const dirPath = data.path.substring(0, data.path.lastIndexOf('/'));
       const { expandedDirs, dirContents } = useFileStore.getState();
       if (dirPath === rootPath || expandedDirs[dirPath] || dirContents[dirPath]) {

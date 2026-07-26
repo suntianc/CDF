@@ -58,7 +58,7 @@ describe('useCommandRegistry', () => {
   });
 
   it('subscribes to onChanged and re-fetches on chokidar push', async () => {
-    let onChangedCallback: ((event: unknown, data: { source: string }) => void) | null = null;
+    let onChangedCallback: ((data: { source: string }) => void) | null = null;
     const cleanup = vi.fn();
     const listMock = vi.fn().mockResolvedValue({ commands: [], conflicts: [], warnings: [] });
 
@@ -80,7 +80,7 @@ describe('useCommandRegistry', () => {
 
     // Simulate chokidar push
     expect(onChangedCallback).toBeTruthy();
-    (onChangedCallback as any)(null, { source: 'chokidar' });
+    (onChangedCallback as any)({ source: 'chokidar' });
 
     await waitFor(() => {
       expect(listMock).toHaveBeenCalledTimes(2);
@@ -237,7 +237,7 @@ describe('Phase 8 loading state machine (D-07..D-11)', () => {
 // ===== Phase 8 — D-16..D-19: chokidar fallback toast (C-04 dedup) =====
 describe('Phase 8 chokidar fallback toast (D-16..D-19)', () => {
   it('toast.warning fires once for a given (scope, error) fingerprint', async () => {
-    const captured: { cb: ((event: unknown, data: { scope: 'system' | 'project'; dir: string; error: string }) => void) | null } = { cb: null };
+    const captured: { cb: ((data: { scope: 'system' | 'project'; dir: string; error: string }) => void) | null } = { cb: null };
     (window as any).electronAPI = {
       commands: {
         list: vi.fn().mockResolvedValue({ commands: [], conflicts: [], warnings: [] }),
@@ -253,10 +253,10 @@ describe('Phase 8 chokidar fallback toast (D-16..D-19)', () => {
     await waitFor(() => expect(result.current.loading).toBe('ready'));
     // Same scope + error → same fingerprint → second call is a no-op for the toast
     act(() => {
-      captured.cb?.(null, { scope: 'system', dir: '/a', error: 'EPERM' });
+      captured.cb?.({ scope: 'system', dir: '/a', error: 'EPERM' });
     });
     act(() => {
-      captured.cb?.(null, { scope: 'system', dir: '/a', error: 'EPERM' });
+      captured.cb?.({ scope: 'system', dir: '/a', error: 'EPERM' });
     });
     // Contract: same fingerprint does not throw; hook stays in 'ready' state
     await waitFor(() => expect(result.current.loading).toBe('ready'));

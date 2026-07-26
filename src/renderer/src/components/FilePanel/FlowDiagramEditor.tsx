@@ -208,7 +208,7 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
 
   useEffect(() => {
     if (!rootPath) return;
-    const unsubscribe = window.electronAPI.fs.onDirectoryChange((_event, data) => {
+    const unsubscribe = window.electronAPI.fs.onDirectoryChange((data) => {
       if (data.path.replace(/\\/g, '/') !== filePath.replace(/\\/g, '/')) return;
       const version = ++externalReloadVersionRef.current;
       const previousReload = externalReloadPromiseRef.current ?? Promise.resolve(true);

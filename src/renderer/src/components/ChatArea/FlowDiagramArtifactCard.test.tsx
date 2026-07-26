@@ -43,7 +43,7 @@ vi.mock('../FilePanel/excalidrawAdapter', () => ({
 }));
 
 describe('FlowDiagramArtifactCard', () => {
-  let directoryChange: ((event: unknown, data: { type: string; path: string }) => void) | undefined;
+  let directoryChange: ((data: { type: string; path: string }) => void) | undefined;
   const readFile = vi.fn(async () => ({
     ok: true,
     data: { content: '{"type":"excalidraw"}', encoding: 'utf-8', size: 22, mtimeMs: 1 },
@@ -112,7 +112,7 @@ describe('FlowDiagramArtifactCard', () => {
     expect(renderThumbnailMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      directoryChange?.({}, {
+      directoryChange?.({
         type: 'change',
         path: '/project/diagrams/release.excalidraw',
       });
