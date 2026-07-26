@@ -101,7 +101,9 @@ describe('paper collection cache', () => {
     }
 
     expect(readLatestPaperCollectionCache(threadState)).toBeUndefined();
-    expect(result.archivePath).toBe('.cdf/paper-collection-cache/archive/2026-07-05T10:00:00Z.json');
+    // Colons are replaced so the filename is valid on Windows (#218).
+    expect(result.archivePath).toBe('.cdf/paper-collection-cache/archive/2026-07-05T10-00-00Z.json');
+    expect(result.archivePath).not.toContain(':');
     expect(readArchive(threadState, result.archivePath as string)).toEqual(consumedPayload);
     expect(readIndex(threadState)[0]).toMatchObject({
       status: 'archived',

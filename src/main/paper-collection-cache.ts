@@ -161,7 +161,11 @@ export function markLatestPaperCollectionCacheConsumed(
 export const markLatestConsumed = markLatestPaperCollectionCacheConsumed;
 
 function archivePathForSearchedAt(searchedAt: string): string {
-  return `${PAPER_COLLECTION_ARCHIVE_DIR}/${searchedAt}.json`;
+  // Colons are illegal in Windows filenames, so an ISO timestamp can't be used verbatim.
+  // The path is stored in the index and read back by value (never reparsed into a date),
+  // so a stable colon→'-' substitution is a safe, unique filename.
+  const safeName = searchedAt.replace(/:/g, '-');
+  return `${PAPER_COLLECTION_ARCHIVE_DIR}/${safeName}.json`;
 }
 
 export function readPaperCollectionCacheArchive(
