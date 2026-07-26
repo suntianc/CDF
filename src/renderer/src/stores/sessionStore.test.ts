@@ -3,6 +3,16 @@ import type { LLMStreamEvent } from '@shared/types';
 import { createConversationRuntimeRegistryState } from '../components/ChatArea/conversationRuntime/conversationRuntimeRegistry';
 import { useSessionStore } from './sessionStore';
 
+const { mockStopGoalJudgeLoop } = vi.hoisted(() => ({
+  mockStopGoalJudgeLoop: vi.fn(async () => {}),
+}));
+vi.mock('@/hooks/useGoalJudge', () => ({
+  stopGoalJudgeLoop: mockStopGoalJudgeLoop,
+  startGoalJudgeLoop: vi.fn(async () => {}),
+  goalJudge: {},
+  useGoalJudgeStatus: () => ({}),
+}));
+
 beforeEach(() => {
   useSessionStore.setState({
     conversationRuntimeRegistry: createConversationRuntimeRegistryState(),
@@ -710,6 +720,16 @@ describe('sessionStore goalJudgeStatus (P3)', () => {
     await useSessionStore.getState().deleteSession('s1');
     expect(useSessionStore.getState().sessionGoals.has('s1')).toBe(false);
     expect(useSessionStore.getState().goalJudgeStatus.has('s1')).toBe(false);
+  });
+
+  it('J: deleteSession stops the running /goal judge loop for that session (#214)', async () => {
+    mockStopGoalJudgeLoop.mockClear();
+
+    await useSessionStore.getState().deleteSession('s1');
+
+    // Loop is torn down before the session is removed, so the streaming flip cannot fire a
+    // judge that sendMessages into the deleted conversation, and the subscription is freed.
+    expect(mockStopGoalJudgeLoop).toHaveBeenCalledWith('s1');
   });
 });
 

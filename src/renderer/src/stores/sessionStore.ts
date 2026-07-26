@@ -570,6 +570,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
   deleteSession: async (sessionId: string) => {
     try {
+      // Stop any running /goal judge loop first, so the delete-induced streaming flip can't
+      // fire a judge that sendMessages into a conversation being removed, and the module-level
+      // subscription isn't leaked. Dynamic import avoids a static import cycle with useGoalJudge.
+      const { stopGoalJudgeLoop } = await import('@/hooks/useGoalJudge');
+      await stopGoalJudgeLoop(sessionId);
+
       await window.electronAPI.db.deleteSession(sessionId);
       set((state) => {
         const remaining = state.sessions.filter((s) => s.id !== sessionId);
