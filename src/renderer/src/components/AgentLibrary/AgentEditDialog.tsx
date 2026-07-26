@@ -1,25 +1,26 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useReducer, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { X, Bot, ShieldCheck } from 'lucide-react';
 import { useAgentStore } from '../../stores/agentStore';
 import { useAISubscriptionStore } from '../../stores/aiSubscriptionStore';
 import { useLLMStore } from '../../stores/llmStore';
 import { useSkillStore } from '../../stores/skillStore';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
-import {
-  AGENT_BUILT_IN_TOOL_NAMES,
-  type AgentToolScopeConfig,
-} from '../../../../shared/agents';
-import type { ReasoningEffort } from '../../../../shared/ai-subscriptions';
-import type { SceneId } from '../../../../shared/scenes';
-import {
-  X, Bot, Brain, Layers, Cpu, ShieldCheck, Plus, Search
-} from 'lucide-react';
 import { ModelSelectionSurface } from '../ChatArea/modelSelection/ModelSelectionSurface';
-import {
-  buildModelSelectionGroups,
-  type ModelSourceType,
-} from '../ChatArea/modelSelection/useModelSelectionController';
+import { buildModelSelectionGroups } from '../ChatArea/modelSelection/useModelSelectionController';
 import { getAgentErrorTranslationKey } from './agentErrorI18n';
+import {
+  agentFormReducer,
+  buildAgentSavePayload,
+  createEmptyAgentFormState,
+  deriveAgentFormState,
+  findDefaultModelGroup,
+  getAgentFormValidationError,
+} from './agentEditForm';
+import { MasterPromptDialog } from './MasterPromptDialog';
+import { ToolScopeSection } from './ToolScopeSection';
+import { McpVisibilitySection } from './McpVisibilitySection';
+import { SkillPreloadSection } from './SkillPreloadSection';
 
 interface AgentEditDialogProps {
   isOpen: boolean;
@@ -28,54 +29,13 @@ interface AgentEditDialogProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-function readToolScopeFromConfig(config?: Record<string, unknown>): AgentToolScopeConfig {
-  const raw = config?.toolScope;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { mode: 'inherit' };
-  const value = raw as Record<string, unknown>;
-  if (value.mode !== 'narrow') return { mode: 'inherit' };
-  return {
-    mode: 'narrow',
-    builtInTools: Array.isArray(value.builtInTools)
-      ? value.builtInTools.filter((item): item is string => typeof item === 'string')
-      : [],
-    mcpServerIds: Array.isArray(value.mcpServerIds)
-      ? value.mcpServerIds.filter((item): item is string => typeof item === 'string')
-      : [],
-  };
-}
-
-function getSkillDisplayName(skill: { name: string; qualifiedName?: string | null }): string {
-  return skill.qualifiedName?.trim() || skill.name;
-}
-
-function readReasoningEffort(value: unknown): ReasoningEffort | undefined {
-  switch (value) {
-    case 'none':
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-    case 'max':
-    case 'ultra':
-      return value;
-    default:
-      return undefined;
-  }
-}
-
 export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEditDialogProps) {
   const { t } = useTranslation();
   const {
     agents,
-    masterScenePrompts,
-    isLoading,
-    isMasterPromptsLoading,
-    masterPromptsError,
     createCustomAgent,
     updateCustomAgent,
     updateGeneralPurposeAgent,
-    fetchMasterScenePrompts,
-    saveMasterScenePrompts,
   } = useAgentStore();
   const { providers, isLoading: providersLoading } = useLLMStore();
   const {
@@ -85,35 +45,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
   const { skills } = useSkillStore();
   const { mcpServers } = useMcpServerStore();
 
-  // Form State
-  const [formName, setFormName] = useState('');
-  const [formDesc, setFormDesc] = useState('');
-  const [formModelSource, setFormModelSource] = useState<ModelSourceType | ''>('');
-  const [formSourceId, setFormSourceId] = useState('');
-  const [formModel, setFormModel] = useState('');
-  const [formReasoningEffort, setFormReasoningEffort] = useState<ReasoningEffort>();
-  const [formSystemPrompt, setFormSystemPrompt] = useState('');
-  const [formMcpExclusionIds, setFormMcpExclusionIds] = useState<string[]>([]);
-  const [formSkillIds, setFormSkillIds] = useState<string[]>([]);
-  const [formToolScopeMode, setFormToolScopeMode] = useState<AgentToolScopeConfig['mode']>('inherit');
-  const [formBuiltInTools, setFormBuiltInTools] = useState<string[]>([]);
-  const [formToolScopeMcpServerIds, setFormToolScopeMcpServerIds] = useState<string[]>([]);
-  const [masterScene, setMasterScene] = useState<SceneId>('general');
-  const [masterDrafts, setMasterDrafts] = useState<Record<string, string>>({});
+  const [form, dispatch] = useReducer(agentFormReducer, undefined, createEmptyAgentFormState);
 
-  // Multi-selector dropdown states
-  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
-
-  // Search query states for MCP visibility and Skill Preload controls
-  const [mcpSearchQuery, setMcpSearchQuery] = useState('');
-  const [skillSearchQuery, setSkillSearchQuery] = useState('');
-
-  // Reset search queries when dropdowns close
-  useEffect(() => {
-    if (!skillDropdownOpen) setSkillSearchQuery('');
-  }, [skillDropdownOpen]);
-
-  const skillContainerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLTextAreaElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -125,16 +58,6 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     () => buildModelSelectionGroups(providers, aiSubscriptionEntries),
     [aiSubscriptionEntries, providers],
   );
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (skillContainerRef.current && !skillContainerRef.current.contains(event.target as Node)) {
-        setSkillDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -169,27 +92,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     }
   };
 
-  useEffect(() => {
-    if (!isOpen) {
-      setMasterDrafts({});
-      setMasterScene('general');
-      return;
-    }
-    if (isMasterAgent) void fetchMasterScenePrompts();
-  }, [isOpen, isMasterAgent, fetchMasterScenePrompts]);
-
-  useEffect(() => {
-    if (!isOpen || !isMasterAgent || masterScenePrompts.length === 0) return;
-    setMasterDrafts((drafts) => {
-      const next = { ...drafts };
-      for (const prompt of masterScenePrompts) {
-        if (next[prompt.scene] === undefined) next[prompt.scene] = prompt.systemPrompt;
-      }
-      return next;
-    });
-  }, [isOpen, isMasterAgent, masterScenePrompts]);
-
-  // Initialize/Reset form states when agentId changes
+  // Initialize/Reset the form once per opened agent (or once per create session).
   useEffect(() => {
     if (!isOpen) {
       formInitializationKeyRef.current = null;
@@ -202,72 +105,10 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     if (agentId && !agent) return;
     formInitializationKeyRef.current = initializationKey;
 
-    if (agent) {
-      setFormName(agent.name);
-      setFormDesc(agent.description || '');
-      const configuredModelSource = agent.config?.modelSource === 'ai_subscription'
-        ? 'ai_subscription'
-        : agent.config?.modelSource === 'llm_provider' || agent.provider_id
-          ? 'llm_provider'
-          : '';
-      const configuredSourceId = configuredModelSource
-        && typeof agent.config?.sourceId === 'string'
-        ? agent.config.sourceId
-        : agent.provider_id || '';
-      const configuredGroup = modelGroups.find(group => (
-        group.sourceType === configuredModelSource && group.sourceId === configuredSourceId
-      ));
-      const activeProvider = providers.find(provider => provider.is_active === 1);
-      const activeProviderGroup = modelGroups.find(group => (
-        group.sourceType === 'llm_provider' && group.sourceId === activeProvider?.id
-      ));
-      const hasConfiguredSelection = Boolean(configuredModelSource && configuredSourceId);
-      const selectedGroup = configuredGroup
-        || (!hasConfiguredSelection && agent.role === 'custom'
-          ? activeProviderGroup || modelGroups[0]
-          : undefined);
-      const selectedSourceType = selectedGroup?.sourceType || configuredModelSource;
-      const selectedSourceId = selectedGroup?.sourceId || configuredSourceId;
-      const configuredModel = typeof agent.config?.model === 'string' ? agent.config.model : '';
-      const selectedModel = configuredModel || selectedGroup?.candidates[0]?.model || '';
-      const selectedCandidate = selectedGroup?.candidates.find(candidate => candidate.model === selectedModel);
-      const configuredReasoningEffort = readReasoningEffort(agent.config?.reasoningEffort);
-      const preservesReasoningEffort = configuredReasoningEffort && (
-        !selectedCandidate
-        || selectedCandidate.reasoning?.supportedEfforts.includes(configuredReasoningEffort)
-      );
-      setFormModelSource(selectedSourceType);
-      setFormSourceId(selectedSourceId);
-      setFormModel(selectedModel);
-      setFormReasoningEffort(preservesReasoningEffort ? configuredReasoningEffort : undefined);
-      setFormSystemPrompt(agent.system_prompt || '');
-      setFormMcpExclusionIds(agent.mcpServerExclusionIds || []);
-      setFormSkillIds(agent.skillNames || []);
-      const toolScope = readToolScopeFromConfig(agent.config);
-      setFormToolScopeMode(toolScope.mode);
-      setFormBuiltInTools(toolScope.builtInTools ?? []);
-      setFormToolScopeMcpServerIds(toolScope.mcpServerIds ?? []);
-    } else {
-      setFormName('');
-      setFormDesc('');
-      const activeProvider = providers.find(provider => provider.is_active === 1);
-      const selectedGroup = providersLoading || aiSubscriptionsLoading
-        ? undefined
-        : modelGroups.find(group => (
-            group.sourceType === 'llm_provider' && group.sourceId === activeProvider?.id
-          )) || modelGroups[0];
-      setFormModelSource(selectedGroup?.sourceType || '');
-      setFormSourceId(selectedGroup?.sourceId || '');
-      setFormModel(selectedGroup?.candidates[0]?.model || '');
-      setFormReasoningEffort(undefined);
-      setFormSystemPrompt('');
-      setFormMcpExclusionIds([]);
-      setFormSkillIds([]);
-      setFormToolScopeMode('inherit');
-      setFormBuiltInTools([]);
-      setFormToolScopeMcpServerIds([]);
-    }
-    setSkillDropdownOpen(false);
+    dispatch({
+      type: 'reset',
+      state: deriveAgentFormState({ agent, modelGroups, providers, providersLoading, aiSubscriptionsLoading }),
+    });
   }, [
     agentId,
     agents,
@@ -278,27 +119,29 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
     providersLoading,
   ]);
 
+  // A fresh Custom Agent draft may start before model sources finish loading:
+  // fill in the default selection once they arrive, without touching other fields.
   useEffect(() => {
     if (
       !isOpen
       || agentId
-      || formSourceId
+      || form.sourceId
       || providersLoading
       || aiSubscriptionsLoading
       || modelGroups.length === 0
     ) return;
-    const activeProvider = providers.find(provider => provider.is_active === 1);
-    const selectedGroup = modelGroups.find(group => (
-      group.sourceType === 'llm_provider' && group.sourceId === activeProvider?.id
-    )) || modelGroups[0];
-    setFormModelSource(selectedGroup.sourceType);
-    setFormSourceId(selectedGroup.sourceId);
-    setFormModel(selectedGroup.candidates[0]?.model || '');
-    setFormReasoningEffort(undefined);
+    const selectedGroup = findDefaultModelGroup(modelGroups, providers);
+    if (!selectedGroup) return;
+    dispatch({
+      type: 'selectModel',
+      sourceType: selectedGroup.sourceType,
+      sourceId: selectedGroup.sourceId,
+      model: selectedGroup.candidates[0]?.model || '',
+    });
   }, [
     agentId,
     aiSubscriptionsLoading,
-    formSourceId,
+    form.sourceId,
     isOpen,
     modelGroups,
     providers,
@@ -307,77 +150,17 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
 
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isMasterAgent && editingAgent) {
-      if (masterScenePrompts.length === 0 || isLoading || isMasterPromptsLoading || masterPromptsError) {
-        showToast(t('agent.masterPromptsLoadError'), 'error');
-        return;
-      }
-      try {
-        await saveMasterScenePrompts(masterScenePrompts.map((prompt) => ({
-          scene: prompt.scene,
-          systemPrompt: masterDrafts[prompt.scene] ?? prompt.systemPrompt,
-        })));
-        showToast(t('agent.masterPromptSaved'), 'success');
-        onClose();
-      } catch {
-        showToast(t('agent.saveError'), 'error');
-      }
-      return;
-    }
-    if (!formName.trim()) {
-      showToast(t('agent.nameRequired'), 'error');
+    const validationError = getAgentFormValidationError(form, isProtectedAgent);
+    if (validationError) {
+      showToast(t(validationError), 'error');
       return;
     }
 
-    const ENGLISH_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
-    if (!ENGLISH_NAME_REGEX.test(formName.trim())) {
-      showToast(t('agent.nameEnglishOnly'), 'error');
-      return;
-    }
-
-    if (!formSourceId && !isProtectedAgent) {
-      showToast(t('agent.providerRequired'), 'error');
-      return;
-    }
-
-    const id = agentId || window.crypto.randomUUID();
     const existingAgent = agentId ? agents.find((item) => item.id === agentId) : null;
-    const nextConfig: Record<string, unknown> = {
-      ...(existingAgent?.config ?? {}),
-      permissionsPreset: 'project-safe',
-      approvalPreset: 'write-operations',
-      toolScope: formToolScopeMode === 'narrow'
-        ? {
-            mode: 'narrow',
-            builtInTools: formBuiltInTools,
-            mcpServerIds: formToolScopeMcpServerIds,
-          }
-        : { mode: 'inherit' },
-    };
-    if (formModelSource && formSourceId) {
-      nextConfig.modelSource = formModelSource;
-      nextConfig.sourceId = formSourceId;
-      if (formModel) nextConfig.model = formModel;
-      else delete nextConfig.model;
-      if (formReasoningEffort) nextConfig.reasoningEffort = formReasoningEffort;
-      else delete nextConfig.reasoningEffort;
-    } else {
-      delete nextConfig.modelSource;
-      delete nextConfig.sourceId;
-      delete nextConfig.model;
-      delete nextConfig.reasoningEffort;
-    }
-
-    const payload = {
-      id,
-      name: formName,
-      description: formDesc,
-      provider_id: formModelSource === 'llm_provider' ? formSourceId : null,
-      system_prompt: formSystemPrompt,
-      config: nextConfig,
-      mcpServerExclusionIds: formMcpExclusionIds,
-      skillNames: formSkillIds,
-    };
+    const payload = buildAgentSavePayload(form, {
+      id: agentId || window.crypto.randomUUID(),
+      existingConfig: existingAgent?.config,
+    });
 
     try {
       if (!existingAgent) await createCustomAgent(payload);
@@ -385,168 +168,30 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         const { id: _id, name: _name, ...capabilities } = payload;
         await updateGeneralPurposeAgent(capabilities);
       } else await updateCustomAgent(existingAgent.id, payload);
-      showToast(t('agent.savedSuccess', { name: formName }), 'success');
+      showToast(t('agent.savedSuccess', { name: form.name }), 'success');
       onClose();
     } catch (error) {
       showToast(t(getAgentErrorTranslationKey(error)), 'error');
     }
   };
 
-  const toggleMcpExclusion = (mcpId: string) => {
-    setFormMcpExclusionIds(prev =>
-      prev.includes(mcpId) ? prev.filter(id => id !== mcpId) : [...prev, mcpId]
-    );
-  };
-
-  const toggleSkillPreload = (skillId: string) => {
-    setFormSkillIds(prev =>
-      prev.includes(skillId) ? prev.filter(id => id !== skillId) : [...prev, skillId]
-    );
-  };
-
-  const toggleBuiltInTool = (toolName: string) => {
-    setFormBuiltInTools(prev => prev.includes(toolName)
-      ? prev.filter(name => name !== toolName)
-      : [...prev, toolName]);
-  };
-
-  const toggleToolScopeMcpServer = (serverId: string) => {
-    setFormToolScopeMcpServerIds(prev => prev.includes(serverId)
-      ? prev.filter(id => id !== serverId)
-      : [...prev, serverId]);
-  };
-
-  const skillPreloadCandidates = skills.filter(sk => {
-    if (sk.scope !== 'global') return false;
-    const query = skillSearchQuery.toLowerCase();
-    return sk.name.toLowerCase().includes(query)
-      || getSkillDisplayName(sk).toLowerCase().includes(query)
-      || (sk.sourceLabel || '').toLowerCase().includes(query);
-  });
-
-  const mcpVisibilityCandidates = mcpServers.filter(server =>
-    server.name.toLowerCase().includes(mcpSearchQuery.toLowerCase())
-  );
-  const visibleMcpCount = mcpServers.filter(server => !formMcpExclusionIds.includes(server.id)).length;
   const selectedModelGroup = modelGroups.find(group => (
-    group.sourceType === formModelSource && group.sourceId === formSourceId
+    group.sourceType === form.modelSource && group.sourceId === form.sourceId
   ));
-  const selectedModelCandidate = selectedModelGroup?.candidates.find(candidate => candidate.model === formModel);
-
-  const getSkillSourceLabel = (skill: { scope: string; sourceLabel?: string | null }) =>
-    skill.sourceLabel || (skill.scope === 'project' ? t('agent.skillSourceProject') : t('agent.skillSourceGlobal'));
+  const selectedModelCandidate = selectedModelGroup?.candidates.find(candidate => candidate.model === form.model);
 
   if (!isOpen) return null;
 
   if (isMasterAgent && editingAgent) {
-    const activeMasterPrompt = masterScenePrompts.find((prompt) => prompt.scene === masterScene);
-    const masterPromptsUnavailable = masterScenePrompts.length === 0;
-    const masterPromptsBlocked = isLoading
-      || isMasterPromptsLoading
-      || masterPromptsUnavailable
-      || masterPromptsError !== null;
-    const handleResetMasterPrompt = () => {
-      if (!activeMasterPrompt) return;
-      setMasterDrafts((drafts) => ({
-        ...drafts,
-        [masterScene]: activeMasterPrompt.defaultSystemPrompt,
-      }));
-    };
-
     return (
-      <div className="modal-overlay visible z-50">
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="agent-edit-dialog-title" onKeyDown={handleDialogKeyDown} className="modal animate-fade-in w-[95%] max-w-[760px] flex flex-col p-0">
-          <div className="flex justify-between items-center px-6 py-4 border-b border-[var(--color-border)] shrink-0">
-            <h2 id="agent-edit-dialog-title" className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
-              <Bot className="w-5 h-5 text-[var(--color-accent)]" />
-              <span>{t('agent.editTitle', { name: editingAgent.name })}</span>
-            </h2>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-md hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-[background-color,color] duration-150 cursor-pointer"
-              aria-label={t('common.closeModal')}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <form onSubmit={handleSaveAgent} className="p-6 space-y-4">
-            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3 text-xs leading-relaxed text-[var(--color-text-secondary)]">
-              {t('agent.masterPromptOnlyHint')}
-            </div>
-            <div className="form-group">
-              <label className="form-label">{t('agent.nameLabel')}</label>
-              <input
-                className="form-input"
-                value={editingAgent.name}
-                placeholder={t('agent.namePlaceholder')}
-                disabled
-              />
-            </div>
-            {isMasterPromptsLoading && (
-              <p role="status" className="text-xs text-[var(--color-text-muted)]">
-                {t('agent.masterPromptsLoading')}
-              </p>
-            )}
-            {masterPromptsError && !isMasterPromptsLoading && (
-              <p role="alert" className="text-xs text-[var(--color-danger)]">
-                {t('agent.masterPromptsLoadError')}
-              </p>
-            )}
-            <div className="flex gap-1 border-b border-[var(--color-border)]" role="tablist" aria-label={t('agent.masterSceneTabs')}>
-              {masterScenePrompts.map((prompt) => (
-                <button
-                  key={prompt.scene}
-                  type="button"
-                  role="tab"
-                  aria-selected={masterScene === prompt.scene}
-                  onClick={() => setMasterScene(prompt.scene)}
-                  className={`px-3 py-2 text-xs font-medium ${masterScene === prompt.scene
-                    ? 'border-b-2 border-[var(--color-accent)] text-[var(--color-text-primary)]'
-                    : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
-                >
-                  {prompt.scene === 'general' ? t('agent.masterSceneGeneral') : t('agent.masterSceneResearch')}
-                </button>
-              ))}
-            </div>
-            <div className="form-group flex flex-col min-h-[280px]">
-              <label className="form-label">{t('agent.systemPromptLabel')}</label>
-              <textarea
-                ref={initialFocusRef}
-                className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
-                value={activeMasterPrompt ? masterDrafts[masterScene] ?? activeMasterPrompt.systemPrompt : ''}
-                onChange={(e) => setMasterDrafts((drafts) => ({ ...drafts, [masterScene]: e.target.value }))}
-                placeholder={t('agent.systemPromptPlaceholder')}
-                disabled={masterPromptsBlocked}
-              />
-            </div>
-            <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-              {t('agent.masterPromptScopeHint')}
-            </p>
-            <div className="border-t border-[var(--color-border)]/50 pt-4 flex justify-between gap-2">
-              <button
-                type="button"
-                onClick={handleResetMasterPrompt}
-                disabled={masterPromptsBlocked}
-                className="btn btn-secondary cursor-pointer disabled:cursor-not-allowed"
-              >
-                {t('agent.resetMasterPrompt')}
-              </button>
-              <div className="flex gap-2">
-                <button type="button" onClick={onClose} className="btn btn-secondary cursor-pointer">
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  disabled={masterPromptsBlocked}
-                  className="btn btn-primary cursor-pointer disabled:cursor-not-allowed"
-                >
-                  {t('common.save')}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      </div>
+      <MasterPromptDialog
+        agent={editingAgent}
+        onClose={onClose}
+        showToast={showToast}
+        dialogRef={dialogRef}
+        initialFocusRef={initialFocusRef}
+        onDialogKeyDown={handleDialogKeyDown}
+      />
     );
   }
 
@@ -557,7 +202,7 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
         <div className="flex justify-between items-center px-6 py-4 border-b border-[var(--color-border)] shrink-0">
           <span className="font-semibold text-base text-[var(--color-text-primary)] flex items-center gap-2">
             <Bot className="w-5 h-5 text-[var(--color-accent)]" />
-            <span>{agentId ? t('agent.editTitle', { name: formName }) : t('agent.createTitle')}</span>
+            <span>{agentId ? t('agent.editTitle', { name: form.name }) : t('agent.createTitle')}</span>
           </span>
           <button
             onClick={onClose}
@@ -580,8 +225,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               <label className="form-label">{t('agent.nameLabel')} <span className="text-[var(--color-danger)]">*</span></label>
               <input
                 className="form-input"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
+                value={form.name}
+                onChange={(e) => dispatch({ type: 'patch', patch: { name: e.target.value } })}
                 placeholder={t('agent.namePlaceholder')}
                 disabled={isProtectedAgent}
                 required
@@ -597,8 +242,8 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               <label className="form-label">{t('agent.descLabel')}</label>
               <textarea
                 className="form-input min-h-[80px] resize-none py-2"
-                value={formDesc}
-                onChange={(e) => setFormDesc(e.target.value)}
+                value={form.description}
+                onChange={(e) => dispatch({ type: 'patch', patch: { description: e.target.value } })}
                 placeholder={t('agent.descPlaceholder')}
               />
             </div>
@@ -611,31 +256,25 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               <ModelSelectionSurface
                 variant="welcome"
                 modelGroups={modelGroups}
-                selectedSourceType={formModelSource || 'llm_provider'}
-                selectedSourceId={formSourceId}
-                selectedModel={formModel}
-                currentModelLabel={selectedModelCandidate?.label || formModel}
+                selectedSourceType={form.modelSource || 'llm_provider'}
+                selectedSourceId={form.sourceId}
+                selectedModel={form.model}
+                currentModelLabel={selectedModelCandidate?.label || form.model}
                 currentProviderType={selectedModelCandidate?.providerType}
                 onSelectModel={(sourceType, sourceId, model) => {
-                  setFormModelSource(sourceType);
-                  setFormSourceId(sourceId);
-                  setFormModel(model);
-                  setFormReasoningEffort(undefined);
+                  dispatch({ type: 'selectModel', sourceType, sourceId, model });
                 }}
-                selectedReasoningEffort={formReasoningEffort}
-                onSelectReasoningEffort={setFormReasoningEffort}
+                selectedReasoningEffort={form.reasoningEffort}
+                onSelectReasoningEffort={(effort) => dispatch({ type: 'setReasoningEffort', effort })}
                 inheritOption={isProtectedAgent ? {
-                  selected: !formSourceId,
+                  selected: !form.sourceId,
                   label: t('agent.inheritInvokingModel'),
                   onSelect: () => {
-                    setFormModelSource('');
-                    setFormSourceId('');
-                    setFormModel('');
-                    setFormReasoningEffort(undefined);
+                    dispatch({ type: 'selectModel', sourceType: '', sourceId: '', model: '' });
                   },
                 } : undefined}
               />
-              {isProtectedAgent && !formSourceId && (
+              {isProtectedAgent && !form.sourceId && (
                 <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
                   {t('agent.inheritedModelHint')}
                 </p>
@@ -669,258 +308,35 @@ export function AgentEditDialog({ isOpen, onClose, agentId, showToast }: AgentEd
               <label className="form-label">{t('agent.systemPromptLabel')}</label>
               <textarea
                 className="form-input flex-1 font-mono text-xs leading-relaxed resize-none p-3 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)]"
-                value={formSystemPrompt}
-                onChange={(e) => setFormSystemPrompt(e.target.value)}
+                value={form.systemPrompt}
+                onChange={(e) => dispatch({ type: 'patch', patch: { systemPrompt: e.target.value } })}
                 placeholder={t('agent.systemPromptPlaceholder')}
               />
             </div>
 
-            <div className="mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold text-[var(--color-text-primary)]">
-                    {t('agent.toolScopeLabel')}
-                  </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-                    {formToolScopeMode === 'inherit'
-                      ? t('agent.toolScopeInheritedDesc')
-                      : t('agent.toolScopeNarrowDesc')}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[10px] shrink-0">
-                  {(['inherit', 'narrow'] as const).map(mode => (
-                    <button
-                      key={mode}
-                      type="button"
-                      aria-label={mode === 'inherit' ? t('agent.toolScopeInherit') : t('agent.toolScopeNarrow')}
-                      aria-pressed={formToolScopeMode === mode}
-                      onClick={() => setFormToolScopeMode(mode)}
-                      className={`px-2.5 py-1.5 transition-colors ${
-                        formToolScopeMode === mode
-                          ? 'bg-[var(--color-accent)] text-white'
-                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
-                      }`}
-                    >
-                      {mode === 'inherit' ? t('agent.toolScopeInherit') : t('agent.toolScopeNarrow')}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <ToolScopeSection
+              mode={form.toolScopeMode}
+              builtInTools={form.builtInTools}
+              toolScopeMcpServerIds={form.toolScopeMcpServerIds}
+              mcpServers={mcpServers}
+              onModeChange={(mode) => dispatch({ type: 'patch', patch: { toolScopeMode: mode } })}
+              onToggleBuiltInTool={(toolName) => dispatch({ type: 'toggleListItem', field: 'builtInTools', id: toolName })}
+              onToggleMcpServer={(serverId) => dispatch({ type: 'toggleListItem', field: 'toolScopeMcpServerIds', id: serverId })}
+            />
 
-              {formToolScopeMode === 'narrow' && (
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-                      {t('agent.builtInToolsLabel')}
-                    </div>
-                    <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--color-border)]/60 bg-[var(--color-bg-app)]/40 p-1.5 grid grid-cols-2 gap-1">
-                      {AGENT_BUILT_IN_TOOL_NAMES.map(toolName => (
-                        <label key={toolName} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-                          <input
-                            type="checkbox"
-                            checked={formBuiltInTools.includes(toolName)}
-                            onChange={() => toggleBuiltInTool(toolName)}
-                            aria-label={t('agent.allowBuiltInTool', { name: toolName })}
-                            className="accent-[var(--color-accent)]"
-                          />
-                          <span className="truncate font-mono">{toolName}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-                      {t('agent.mcpToolScopeLabel')}
-                    </div>
-                    <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--color-border)]/60 bg-[var(--color-bg-app)]/40 p-1.5 space-y-1">
-                      {mcpServers.map(server => (
-                        <label key={server.id} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-                          <input
-                            type="checkbox"
-                            checked={formToolScopeMcpServerIds.includes(server.id)}
-                            onChange={() => toggleToolScopeMcpServer(server.id)}
-                            aria-label={t('agent.allowMcpServerTools', { name: server.name })}
-                            className="accent-[var(--color-accent)]"
-                          />
-                          <span className="truncate">{server.name}</span>
-                        </label>
-                      ))}
-                      {mcpServers.length === 0 && (
-                        <div className="px-1.5 py-2 text-[10px] italic text-[var(--color-text-muted)]">
-                          {t('agent.noMcpServers')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-        {/* MCP visibility and Skill Preload controls */}
+            {/* MCP visibility and Skill Preload controls */}
             <div className="grid grid-cols-2 gap-4">
-              {/* MCP Servers */}
-              <div className="form-group relative">
-                <label className="form-label flex items-center justify-between">
-                  <span>{t('agent.mcpVisibilityLabel', { count: visibleMcpCount, total: mcpServers.length })}</span>
-                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.defaultVisibleHint')}</span>
-                </label>
-
-                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-sidebar)]/30 p-2">
-                  <div className="flex items-center gap-1.5 px-2 py-1 border-b border-[var(--color-border)]/50 mb-1">
-                    <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
-                    <input
-                      type="text"
-                      placeholder={t('agent.searchMcpPlaceholder')}
-                      value={mcpSearchQuery}
-                      onChange={(e) => setMcpSearchQuery(e.target.value)}
-                      className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
-                    />
-                  </div>
-                  <div
-                    role="group"
-                    aria-label={t('agent.mcpVisibilityGroupLabel')}
-                    className="max-h-[178px] overflow-y-auto space-y-0.5 pr-0.5"
-                  >
-                    {mcpVisibilityCandidates.map(server => {
-                      const isExcluded = formMcpExclusionIds.includes(server.id);
-                      const isVisible = !isExcluded;
-                      return (
-                        <label
-                          key={server.id}
-                          className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
-                            isVisible
-                              ? 'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
-                              : 'bg-[var(--color-danger-dim)]/40 text-[var(--color-text-secondary)]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <input
-                              type="checkbox"
-                              checked={isVisible}
-                              onChange={() => toggleMcpExclusion(server.id)}
-                              aria-label={t('agent.mcpVisibilityToggleLabel', { name: server.name })}
-                              className="accent-[var(--color-accent)] cursor-pointer"
-                            />
-                            <span className="truncate">{server.name}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-[10px] scale-90 px-1 py-0.2 rounded bg-[var(--color-bg-sunken)] text-[var(--color-text-muted)] font-mono">
-                              {server.server_type}
-                            </span>
-                            <span className={`text-[10px] font-medium ${isVisible ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>
-                              {isVisible ? t('agent.mcpVisible') : t('agent.mcpExcluded')}
-                            </span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                    {mcpServers.length === 0 && (
-                      <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noMcpServers')}</div>
-                    )}
-                    {mcpServers.length > 0 && mcpVisibilityCandidates.length === 0 && (
-                      <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noMcpMatch')}</div>
-                    )}
-                    </div>
-                  </div>
-              </div>
-
-              {/* Skills */}
-              <div className="form-group relative" ref={skillContainerRef}>
-                <label className="form-label flex items-center justify-between">
-                  <span>{t('agent.skillPreloadLabel', { count: formSkillIds.length })}</span>
-                  <span className="text-[10px] text-[var(--color-text-muted)] font-normal">{t('agent.multiSelectHint')}</span>
-                </label>
-                <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-                  {t('agent.skillPreloadDesc')}
-                </p>
-
-                <div className="flex flex-wrap gap-1 py-1.5 px-2 bg-[var(--color-bg-sidebar)]/30 border border-[var(--color-border)] rounded-lg min-h-[46px] max-h-[120px] overflow-y-auto mb-2 transition-[background-color,border-color] duration-150">
-                  {formSkillIds.map(id => {
-                    const sk = skills.find(s => s.id === id);
-                    const displayName = sk ? getSkillDisplayName(sk) : '';
-                    return sk ? (
-                      <span key={id} className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded bg-[var(--color-success-dim)]/40 text-[var(--color-success)] text-[11px] select-none border border-[var(--color-success)]/15 animate-fade-in scale-95 origin-left">
-                        <span>{displayName}</span>
-                        <button
-                          type="button"
-                          onClick={() => toggleSkillPreload(id)}
-                          className="text-[var(--color-success)]/60 hover:text-red-500 transition-colors ml-0.5 cursor-pointer font-bold text-[10px] leading-none"
-                          title={t('agent.removePreload')}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ) : null;
-                  })}
-                  {formSkillIds.length === 0 && (
-                    <span className="text-[11px] text-[var(--color-text-muted)] italic self-center pl-1">{t('agent.noSkillsPreloaded')}</span>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSkillDropdownOpen(!skillDropdownOpen);
-                  }}
-                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-sidebar)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-[background-color,border-color,color] duration-150 cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{t('agent.manageSkillPreload')}</span>
-                </button>
-
-                {skillDropdownOpen && (
-                  <div className="absolute left-0 bottom-[36px] w-full max-h-[220px] overflow-y-auto border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-xl rounded-lg z-50 p-2 animate-fade-in select-none flex flex-col gap-1">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[var(--color-border)]/50 mb-1">
-                      <Search className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
-                      <input
-                        type="text"
-                        placeholder={t('agent.searchSkillPlaceholder')}
-                        value={skillSearchQuery}
-                        onChange={(e) => setSkillSearchQuery(e.target.value)}
-                        className="bg-transparent text-xs text-[var(--color-text-primary)] outline-none w-full py-0.5"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                    <div className="overflow-y-auto max-h-[160px] space-y-0.5 pr-0.5">
-                      {skillPreloadCandidates.map(sk => {
-                          const displayName = getSkillDisplayName(sk);
-                          const sourceLabel = getSkillSourceLabel(sk);
-                          const isBound = formSkillIds.includes(sk.id);
-                          return (
-                            <div
-                              key={sk.id}
-                              role="button"
-                              aria-label={t('agent.skillPreloadCandidateLabel', { name: displayName })}
-                              onClick={() => toggleSkillPreload(sk.id)}
-                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
-                                isBound
-                                  ? 'bg-[var(--color-success-dim)]/20 text-[var(--color-success)] font-medium'
-                                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <input
-                                  type="checkbox"
-                                  checked={isBound}
-                                  readOnly
-                                  className="accent-[var(--color-success)] cursor-pointer"
-                                />
-                                <span className="truncate">{displayName}</span>
-                              </div>
-                              <span className="ml-2 shrink-0 rounded bg-[var(--color-bg-sunken)] px-1 py-0.5 text-[10px] text-[var(--color-text-muted)]">
-                                {sourceLabel}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      {skillPreloadCandidates.length === 0 && (
-                        <div className="text-center py-4 text-xs text-[var(--color-text-muted)] italic">{t('agent.noSkillMatch')}</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <McpVisibilitySection
+                mcpServers={mcpServers}
+                exclusionIds={form.mcpExclusionIds}
+                onToggleExclusion={(serverId) => dispatch({ type: 'toggleListItem', field: 'mcpExclusionIds', id: serverId })}
+              />
+              <SkillPreloadSection
+                key={agentId || '__create__'}
+                skills={skills}
+                selectedSkillIds={form.skillIds}
+                onToggleSkill={(skillId) => dispatch({ type: 'toggleListItem', field: 'skillIds', id: skillId })}
+              />
             </div>
 
             {/* Submit actions inside columns */}
