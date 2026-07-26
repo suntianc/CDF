@@ -125,16 +125,34 @@ setConversationIdleListener((sessionId) => {
 });
 
 
+// Roots the cdf-file protocol is allowed to read from: every registered project path
+// plus the app data dir (generated images/artifacts). Recomputed per request so newly
+// added projects are served without a restart.
+function getCdfFileAllowedRoots(): string[] {
+  const roots = new Set<string>([app.getPath('userData')]);
+  try {
+    const rows = db.prepare('SELECT DISTINCT path FROM projects').all() as { path: string }[];
+    for (const { path: projectPath } of rows) {
+      if (projectPath) roots.add(projectPath);
+    }
+  } catch (error) {
+    log.error('[cdf-file] Failed to load project roots:', error);
+  }
+  return [...roots];
+}
+
 app.whenReady().then(() => {
   log.info('App is ready');
   
   // Register cdf-file protocol handler. Serves local files with HTTP Range support so that
   // <audio>/<video> media is seekable (required for replay and for moov-at-end mp4s).
+  // Reads are confined to registered project roots + the app data dir; anything else is 403.
   protocol.handle(CDF_FILE_SCHEME, async (request) => {
     try {
       return await createCdfFileResponse({
         url: request.url,
         rangeHeader: request.headers.get('Range'),
+        allowedRoots: getCdfFileAllowedRoots(),
       });
     } catch (error) {
       log.error('[cdf-file] Failed to serve local file:', error);

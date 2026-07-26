@@ -137,14 +137,39 @@ export function nodeStreamToWeb(stream: fs.ReadStream): ReadableStream<Uint8Arra
 export interface CdfFileRequest {
   url: string;
   rangeHeader?: string | null;
+  /**
+   * 允许被读取的根目录白名单（已注册项目根 + 应用数据目录）。协议对渲染进程开放
+   * 且 bypassCSP，若不校验，任何渲染层注入都能 `fetch('cdf-file:///~/.ssh/id_rsa')`
+   * 读全盘。解析后的绝对路径必须落在其中之一，否则返回 403。
+   */
+  allowedRoots: string[];
+}
+
+/**
+ * 判断解析后的绝对路径是否落在任一允许根内。先 `path.resolve` 折叠 `..`，
+ * 再用 `path.relative` 做包含性判断，杜绝 `/root/../../etc/passwd` 之类逃逸。
+ */
+export function isPathWithinRoots(filePath: string, allowedRoots: string[]): boolean {
+  const resolved = path.resolve(filePath);
+  return allowedRoots.some((root) => {
+    if (!root) return false;
+    const normalizedRoot = path.resolve(root);
+    const rel = path.relative(normalizedRoot, resolved);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  });
 }
 
 /**
  * 根据请求构造响应：命中 Range 返回 206（含 Content-Range），否则整体 200；
- * 两者都带 Accept-Ranges/Content-Length 以启用寻址。文件不存在返回 404，范围越界返回 416。
+ * 两者都带 Accept-Ranges/Content-Length 以启用寻址。文件不存在返回 404，范围越界返回 416，
+ * 越出白名单根返回 403。
  */
 export async function createCdfFileResponse(request: CdfFileRequest): Promise<Response> {
   const filePath = resolveCdfFilePath(request.url);
+
+  if (!isPathWithinRoots(filePath, request.allowedRoots)) {
+    return new Response('Forbidden', { status: 403 });
+  }
 
   let stat: fs.Stats;
   try {

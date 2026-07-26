@@ -99,7 +99,7 @@ describe('createCdfFileResponse', () => {
   });
 
   it('serves the whole file as 200 with Accept-Ranges and a correct Content-Length', async () => {
-    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: null });
+    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: null, allowedRoots: [tempDir] });
     expect(res.status).toBe(200);
     expect(res.headers.get('Accept-Ranges')).toBe('bytes');
     expect(res.headers.get('Content-Type')).toBe('video/mp4');
@@ -110,7 +110,7 @@ describe('createCdfFileResponse', () => {
   });
 
   it('serves a bounded Range as 206 with an inclusive Content-Range and matching bytes', async () => {
-    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: 'bytes=10-19' });
+    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: 'bytes=10-19', allowedRoots: [tempDir] });
     expect(res.status).toBe(206);
     expect(res.headers.get('Content-Range')).toBe(`bytes 10-19/${CONTENT.length}`);
     expect(res.headers.get('Content-Length')).toBe('10');
@@ -121,7 +121,7 @@ describe('createCdfFileResponse', () => {
   });
 
   it('serves a suffix Range (the tail Chromium reads for moov-at-end mp4s)', async () => {
-    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: 'bytes=-6' });
+    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: 'bytes=-6', allowedRoots: [tempDir] });
     expect(res.status).toBe(206);
     expect(res.headers.get('Content-Range')).toBe(`bytes 30-35/${CONTENT.length}`);
 
@@ -133,6 +133,7 @@ describe('createCdfFileResponse', () => {
     const res = await createCdfFileResponse({
       url: cdfUrl(mediaPath),
       rangeHeader: `bytes=${CONTENT.length}-${CONTENT.length + 10}`,
+      allowedRoots: [tempDir],
     });
     expect(res.status).toBe(416);
     expect(res.headers.get('Content-Range')).toBe(`bytes */${CONTENT.length}`);
@@ -142,12 +143,24 @@ describe('createCdfFileResponse', () => {
     const res = await createCdfFileResponse({
       url: cdfUrl(path.join(tempDir, 'missing.mp4')),
       rangeHeader: null,
+      allowedRoots: [tempDir],
     });
     expect(res.status).toBe(404);
   });
 
   it('returns 404 for a directory', async () => {
-    const res = await createCdfFileResponse({ url: cdfUrl(tempDir), rangeHeader: null });
+    const res = await createCdfFileResponse({ url: cdfUrl(tempDir), rangeHeader: null, allowedRoots: [tempDir] });
     expect(res.status).toBe(404);
+  });
+
+  it('returns 403 for a file outside the allowed roots', async () => {
+    const res = await createCdfFileResponse({ url: cdfUrl(mediaPath), rangeHeader: null, allowedRoots: ['/some/other/root'] });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 for a traversal escape out of an allowed root', async () => {
+    const escape = path.join(tempDir, '..', '..', 'etc', 'passwd');
+    const res = await createCdfFileResponse({ url: cdfUrl(escape), rangeHeader: null, allowedRoots: [tempDir] });
+    expect(res.status).toBe(403);
   });
 });
