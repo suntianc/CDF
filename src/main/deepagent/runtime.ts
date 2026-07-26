@@ -6,7 +6,7 @@ import { createMiddleware, modelRetryMiddleware, ToolMessage, toolRetryMiddlewar
 import db from '../database';
 import log from '../logger';
 import store from '../store';
-import { createDeepAgent, CompositeBackend, FilesystemBackend, StateBackend } from 'deepagents';
+import { createDeepAgent, CompositeBackend, StateBackend } from 'deepagents';
 import { createLangChainModel } from './llm-adapter';
 import {
   assembleDeepAgentRuntime,
@@ -46,6 +46,7 @@ import {
 import { readAgentToolScope, selectDelegatedToolScope } from './agent-tool-scope';
 import { resolveDelegatedModelOverrides } from './delegated-model-selection';
 import { conversationWorkingStateLifecycle, DEEPAGENT_CHECKPOINT_NAMESPACE } from './conversation-working-state';
+import { ProjectConfinedFilesystemBackend, computeAgentFileRoots } from './project-confined-backend';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
 import { resolveProjectContext } from './project-context';
@@ -531,8 +532,14 @@ async function buildDeepAgentRuntime(
   // and process restarts. Delegated Agents retain their own live prompts.
   const agentRow = { ...resolvedAgentRow, system_prompt: systemContext.promptSnapshot };
   const skillSnapshot = systemContext.skillSnapshot;
+  const agentFileRoots = computeAgentFileRoots(project.path);
   const backend = new CompositeBackend(new StateBackend(), {
-    "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
+    "/": new ProjectConfinedFilesystemBackend({
+      rootDir: "/",
+      virtualMode: false,
+      allowedRoots: agentFileRoots,
+      projectRoot: project.path,
+    }),
   });
   const checkpointer = conversationWorkingStateLifecycle.acquireSaver();
   const agentSkillNames = getAgentSkillNames(agentRow.id);
@@ -629,7 +636,12 @@ async function buildDeepAgentRuntime(
       // Every Delegated Agent Run owns fresh mutable execution state. Agent
       // configuration is reused, but model/graph/backend/checkpoint/tools are not.
       const childBackend = new CompositeBackend(new StateBackend(), {
-        "/": new FilesystemBackend({ rootDir: "/", virtualMode: false }),
+        "/": new ProjectConfinedFilesystemBackend({
+          rootDir: "/",
+          virtualMode: false,
+          allowedRoots: agentFileRoots,
+          projectRoot: project.path,
+        }),
       });
       const childBuiltInTools = createBuiltInTools(project.path, sessionId);
       try {
