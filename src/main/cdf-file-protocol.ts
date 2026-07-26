@@ -146,15 +146,30 @@ export interface CdfFileRequest {
 }
 
 /**
+ * macOS/Windows 的默认文件系统大小写不敏感：`/users/…` 与 `/Users/…` 指向同一文件。
+ * standard scheme 下 Chromium 会把第一段路径折进 URL host 并小写化
+ * （`cdf-file:///Users/…` → `cdf-file://users/…`），因此白名单包含性判断必须
+ * 同样按大小写不敏感比较，否则所有 `/Users/…` 资源都会被 403。
+ */
+const CASE_INSENSITIVE_FILESYSTEM = process.platform === 'darwin' || process.platform === 'win32';
+
+/**
  * 判断解析后的绝对路径是否落在任一允许根内。先 `path.resolve` 折叠 `..`，
  * 再用 `path.relative` 做包含性判断，杜绝 `/root/../../etc/passwd` 之类逃逸。
+ * `caseInsensitive` 默认跟随平台文件系统语义（darwin/win32 不敏感）。
  */
-export function isPathWithinRoots(filePath: string, allowedRoots: string[]): boolean {
+export function isPathWithinRoots(
+  filePath: string,
+  allowedRoots: string[],
+  caseInsensitive: boolean = CASE_INSENSITIVE_FILESYSTEM,
+): boolean {
   const resolved = path.resolve(filePath);
+  const target = caseInsensitive ? resolved.toLowerCase() : resolved;
   return allowedRoots.some((root) => {
     if (!root) return false;
     const normalizedRoot = path.resolve(root);
-    const rel = path.relative(normalizedRoot, resolved);
+    const comparableRoot = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
+    const rel = path.relative(comparableRoot, target);
     return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
   });
 }
