@@ -2,7 +2,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import db from '../database';
 import { createAgentCatalog, type CatalogAgent } from '../agent-catalog';
-import { listGlobalSkillViews } from './skill-manager';
+import { listGlobalSkillViews } from './skill-catalog';
 
 const AGENT_NAME_REGEX = /^[A-Za-z0-9\s\-_]+$/;
 

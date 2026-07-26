@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { parseSkillMetadata } from './skill-metadata';
-import type { SkillSourceKind } from '../../../shared/skills';
+import type { GlobalSkillSourceKind, SkillSourceKind } from '../../../shared/skills';
 export type { SkillSourceKind } from '../../../shared/skills';
 import type { SkillModelDiscovery } from '../../../shared/skills';
 
@@ -58,6 +58,37 @@ export interface ShadowedSkillCatalogEntry {
 export interface ResolvedSkillCatalog {
   skills: ResolvedSkillCatalogEntry[];
   warnings: string[];
+}
+
+export function isGlobalSkillSourceKind(
+  sourceKind: SkillSourceKind
+): sourceKind is GlobalSkillSourceKind {
+  return sourceKind === 'built-in' || sourceKind === 'user';
+}
+
+export function getSkillDisplayName(
+  skill: Pick<ResolvedSkillCatalogEntry, 'name' | 'qualifiedName'>
+): string {
+  return skill.qualifiedName ?? skill.name;
+}
+
+export function getSkillSourceLabel(
+  skill: Pick<ResolvedSkillCatalogEntry, 'sourceKind' | 'qualifier'>
+): string {
+  switch (skill.sourceKind) {
+    case 'built-in':
+      return 'Built-in Skill';
+    case 'project':
+      return 'Project Skill';
+    case 'project-nested':
+      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
+    case 'project-additional':
+      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
+    case 'user':
+      return 'Global Skill';
+    case 'enterprise':
+      return 'Managed Skill';
+  }
 }
 
 export interface SkillSourcePlanOptions {

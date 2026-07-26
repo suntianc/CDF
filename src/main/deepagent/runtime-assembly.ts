@@ -15,11 +15,9 @@ import {
 import { createLangChainModel, type RuntimeProviderModelConfig } from './llm-adapter';
 import { prepareAISubscriptionRuntimeModel } from '../ai-subscription-runtime';
 import {
-  getBuiltInSkillDirs,
-  getScopePath,
+  buildProjectSkillsRuntime,
   resolveConversationSkillSnapshotConfig,
-} from './skill-manager';
-import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
+} from './skill-catalog';
 import {
   globalSkillReferenceToKey,
   skillReferencesToPreloadNames,
@@ -30,7 +28,7 @@ import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import { buildProjectContext } from './project-context';
 
 export { buildProjectContext } from './project-context';
-import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
+import type { ResolvedSkillCatalogEntry } from './skill-catalog';
 
 // =============================================================================
 // Provider 模型配置解析
@@ -262,7 +260,7 @@ export function buildCdfCapabilityToolsPrompt(toolNames: string[]): string {
 
 interface CdfSkillsAssemblyResult {
   permissions: FilesystemPermission[];
-  skillsRuntime: ReturnType<typeof buildCdfSkillsRuntime>;
+  skillsRuntime: ReturnType<typeof buildProjectSkillsRuntime>;
   warnings: string[];
 }
 
@@ -281,9 +279,7 @@ export function buildCdfSkillsRuntimeAssembly(
   sceneId: ProjectScene = 'general',
   skillSnapshot?: readonly ConversationSkillSnapshotEntry[] | null,
 ): CdfSkillsAssemblyResult {
-  const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
-    builtInSkillDirs: getBuiltInSkillDirs(),
-    userSkillsDir: getScopePath(projectPath, 'global'),
+  const skillsRuntime = buildProjectSkillsRuntime(projectPath, {
     preloadSkillKeys: getPreloadSkillKeys(skillNames),
     pathContext,
     sceneId,
@@ -307,7 +303,7 @@ export interface DeepAgentAssemblyResult {
   provider: ProviderRow;
   permissions: FilesystemPermission[];
   systemPrompt: string;
-  skillsRuntime: ReturnType<typeof buildCdfSkillsRuntime>;
+  skillsRuntime: ReturnType<typeof buildProjectSkillsRuntime>;
   assemblyWarnings: string[];
 }
 

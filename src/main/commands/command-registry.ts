@@ -3,7 +3,7 @@ import { collectMcpCommands } from './collectors/mcp';
 import { collectProjectCommands } from './collectors/project';
 import { collectSkillCommands, type SkillCommandCollectorOptions } from './collectors/skill';
 import { collectSystemCommands } from './collectors/system';
-import type { SkillCatalogOptions } from '../deepagent/skills-runtime/skill-sources';
+import type { SkillCatalogOptions } from '../deepagent/skill-catalog';
 import type { ConversationSkillSnapshotEntry } from '../../shared/skills';
 import { detectConflicts } from './conflict-detector';
 

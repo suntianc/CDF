@@ -1,6 +1,9 @@
 import fs from 'fs';
 import { renderCdfSkillsPrompt } from './skill-prompt';
 import {
+  getSkillDisplayName,
+  getSkillSourceLabel,
+  isGlobalSkillSourceKind,
   resolveSkillCatalog,
   resolveSkillSourcePlan,
   type ResolvedSkillCatalogEntry,
@@ -8,7 +11,7 @@ import {
   type SkillSourcePlanOptions,
 } from './skill-sources';
 import type { SkillAttribution } from '../../../shared/types';
-import type { GlobalSkillSourceKind, SkillSourceKind } from '../../../shared/skills';
+import type { GlobalSkillSourceKind } from '../../../shared/skills';
 import { resolvedGlobalSkillKey } from '../../../shared/skill-identifiers';
 
 export interface CdfSkillsRuntimeOptions extends SkillSourcePlanOptions, SkillCatalogOptions {
@@ -21,10 +24,6 @@ export interface CdfSkillsRuntimeOptions extends SkillSourcePlanOptions, SkillCa
   sceneId?: string;
   /** Global Scene policy. Project Skills are intentionally never passed to this predicate. */
   isGlobalSkillExposed?: (skill: { sourceKind: GlobalSkillSourceKind; name: string }) => boolean;
-}
-
-function isGlobalSkillSourceKind(sourceKind: SkillSourceKind): sourceKind is GlobalSkillSourceKind {
-  return sourceKind === 'built-in' || sourceKind === 'user';
 }
 
 export interface CdfSkillsRuntime {
@@ -40,27 +39,6 @@ function stripSkillFrontmatter(content: string): string {
   return end === -1
     ? content
     : content.slice(end + '\n---'.length).replace(/^\s+/, '');
-}
-
-function getSkillDisplayName(skill: ResolvedSkillCatalogEntry): string {
-  return skill.qualifiedName ?? skill.name;
-}
-
-function getSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
-  switch (skill.sourceKind) {
-    case 'built-in':
-      return 'Built-in Skill';
-    case 'project':
-      return 'Project Skill';
-    case 'project-nested':
-      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
-    case 'project-additional':
-      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
-    case 'user':
-      return 'Global Skill';
-    case 'enterprise':
-      return 'Managed Skill';
-  }
 }
 
 function isPreloadedSkill(

@@ -13,6 +13,7 @@ import { getAcademicStyleRevisionSkillMarkdown, getAcademicStyleRevisionSkillRes
 import { getPaperSearchSkillMarkdown, getPaperSearchSkillResources } from '../paper-search-skill';
 import { getPdfParsingSkillMarkdown, getPdfParsingSkillResources } from '../pdf-parsing-skill';
 import {
+  getSkillSourceLabel,
   invalidateSkillSourceCaches,
   resolveSkillCatalog,
   resolveSkillSourcePlan,
@@ -433,23 +434,6 @@ function getResolvedSkillScope(skill: ResolvedSkillCatalogEntry): SkillScope {
   return classifySkillSourceKind(skill.sourceKind) === 'global' ? 'global' : 'project';
 }
 
-function getResolvedSkillSourceLabel(skill: Pick<ResolvedSkillCatalogEntry, 'sourceKind' | 'qualifier'>): string {
-  switch (skill.sourceKind) {
-    case 'built-in':
-      return 'Built-in Skill';
-    case 'project':
-      return 'Project Skill';
-    case 'project-nested':
-      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
-    case 'project-additional':
-      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
-    case 'user':
-      return 'Global Skill';
-    case 'enterprise':
-      return 'Managed Skill';
-  }
-}
-
 function isResolvedSkillEditable(skill: ResolvedSkillCatalogEntry): boolean {
   return skill.sourceKind === 'project' || skill.sourceKind === 'user';
 }
@@ -465,7 +449,7 @@ function buildResolvedSkillView(skill: ResolvedSkillCatalogEntry): PhysicalSkill
     description: skill.description,
     scope: getResolvedSkillScope(skill),
     sourceKind: skill.sourceKind,
-    sourceLabel: getResolvedSkillSourceLabel(skill),
+    sourceLabel: getSkillSourceLabel(skill),
     sourcePath: skill.sourcePath,
     skillPath: skill.skillPath,
     modelDiscovery: skill.modelDiscovery,
@@ -478,7 +462,7 @@ function buildResolvedSkillView(skill: ResolvedSkillCatalogEntry): PhysicalSkill
       name: shadowed.name,
       qualifiedName: shadowed.qualifiedName ?? shadowed.name,
       sourceKind: shadowed.sourceKind,
-      sourceLabel: getResolvedSkillSourceLabel(shadowed),
+      sourceLabel: getSkillSourceLabel(shadowed),
       sourcePath: shadowed.sourcePath,
       skillPath: shadowed.skillPath,
     })),

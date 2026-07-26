@@ -17,13 +17,16 @@ import fs from 'fs';
 import log from '../logger';
 import path from 'path';
 import db from '../database';
-import { getBuiltInSkillDirs, getScopePath } from './skill-manager';
+import {
+  buildProjectSkillsRuntime,
+  getSkillDisplayName,
+  getSkillSourceLabel,
+  type ResolvedSkillCatalogEntry,
+} from './skill-catalog';
 import { loadMcpTools } from './mcp-connector';
 import { getAgentMcpServers, getConnectedMcpServers } from './mcp-visibility';
 import type { MCPServer } from '../../shared/types';
 import { skillReferencesToPreloadNames } from '../../shared/skill-identifiers';
-import { buildCdfSkillsRuntime } from './skills-runtime/cdf-skills-runtime';
-import type { ResolvedSkillCatalogEntry } from './skills-runtime/skill-sources';
 import { getOrCaptureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
 import { createAgentCatalog } from '../agent-catalog';
 import { buildProjectContext } from './project-context';
@@ -136,27 +139,6 @@ function stripSkillFrontmatter(content: string): string {
   return end === -1
     ? content
     : content.slice(end + '\n---'.length).replace(/^\s+/, '');
-}
-
-function getSkillDisplayName(skill: ResolvedSkillCatalogEntry): string {
-  return skill.qualifiedName ?? skill.name;
-}
-
-function getSkillSourceLabel(skill: ResolvedSkillCatalogEntry): string {
-  switch (skill.sourceKind) {
-    case 'built-in':
-      return 'Built-in Skill';
-    case 'project':
-      return 'Project Skill';
-    case 'project-nested':
-      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
-    case 'project-additional':
-      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
-    case 'user':
-      return 'Global Skill';
-    case 'enterprise':
-      return 'Managed Skill';
-  }
 }
 
 function isPreloadedSkill(skill: ResolvedSkillCatalogEntry, preloadSkillNames: string[]): boolean {
@@ -684,10 +666,8 @@ export async function aggregateCurrentSessionContext(
         sceneId: project.scene ?? 'general',
         promptSnapshot: createAgentCatalog(db, { initializeSchema: false }).resolveMaster(project.scene ?? 'general').system_prompt,
       }).skillSnapshot;
-      const skillsRuntime = buildCdfSkillsRuntime(projectPath, {
+      const skillsRuntime = buildProjectSkillsRuntime(projectPath, {
         catalog: skillSnapshot as ResolvedSkillCatalogEntry[],
-        builtInSkillDirs: getBuiltInSkillDirs(),
-        userSkillsDir: getScopePath(projectPath, 'global'),
         preloadSkillNames,
       });
       for (const warning of skillsRuntime.warnings) {

@@ -1,10 +1,9 @@
-import { getBuiltInSkillDirs, getScopePath } from '../../deepagent/skill-manager';
 import {
-  resolveSkillCatalog,
-  resolveSkillSourcePlan,
+  getSkillSourceLabel,
+  resolveProjectSkillCatalog,
   type SkillCatalogOptions,
   type ResolvedSkillCatalogEntry,
-} from '../../deepagent/skills-runtime/skill-sources';
+} from '../../deepagent/skill-catalog';
 import type { CommandSource, SkillCommandSourceKind, SlashCommand } from '../../../shared/types';
 import type { ConversationSkillSnapshotEntry } from '../../../shared/skills';
 
@@ -25,11 +24,7 @@ export async function collectSkillCommands(
 ): Promise<SlashCommand[]> {
   const skills = options.catalog
     ? options.catalog
-    : resolveSkillCatalog(resolveSkillSourcePlan(projectPath, {
-      builtInSkillDirs: getBuiltInSkillDirs(),
-      userSkillsDir: getScopePath(projectPath, 'global'),
-      includeNestedProjectSkills: options.includeNestedProjectSkills,
-    }), options).skills;
+    : resolveProjectSkillCatalog(projectPath, options).skills;
 
   return skills
     .filter((skill) => skill.userInvocable)
@@ -52,7 +47,7 @@ function skillToCommand(skill: ResolvedSkillCatalogEntry | ConversationSkillSnap
     description: skill.description,
     source,
     target: `${getTargetScope(skill.sourceKind)}:${qualifiedName}`,
-    sourceLabel: getSourceLabel(skill),
+    sourceLabel: getSkillSourceLabel(skill),
     badge: `[${source}]`,
     frontmatter: {
       allowedTools: skill.allowedTools ?? [],
@@ -92,19 +87,3 @@ function getTargetScope(sourceKind: ResolvedSkillCatalogEntry['sourceKind']): st
   }
 }
 
-function getSourceLabel(skill: Pick<ResolvedSkillCatalogEntry, 'sourceKind' | 'qualifier'>): string {
-  switch (skill.sourceKind) {
-    case 'built-in':
-      return 'Built-in Skill';
-    case 'project':
-      return 'Project Skill';
-    case 'project-nested':
-      return skill.qualifier ? `Nested Project Skill: ${skill.qualifier}` : 'Nested Project Skill';
-    case 'project-additional':
-      return skill.qualifier ? `Project Skill: ${skill.qualifier}` : 'Project Skill';
-    case 'user':
-      return 'Global Skill';
-    case 'enterprise':
-      return 'Enterprise Skill';
-  }
-}

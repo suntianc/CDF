@@ -1,37 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getBuiltInSkillDirsMock, getScopePathMock, resolveSkillSourcePlanMock, resolveSkillCatalogMock } = vi.hoisted(() => ({
-  getBuiltInSkillDirsMock: vi.fn(() => ['/tmp/built-in/knowledge-base']),
-  getScopePathMock: vi.fn(() => '/tmp/global-skills'),
-  resolveSkillSourcePlanMock: vi.fn(() => ({ config: { version: 1, additionalSkillDirectories: [] }, sources: [], warnings: [] })),
-  resolveSkillCatalogMock: vi.fn((): any => ({ skills: [], warnings: [] })),
+const { resolveProjectSkillCatalogMock } = vi.hoisted(() => ({
+  resolveProjectSkillCatalogMock: vi.fn((): any => ({ skills: [], warnings: [] })),
 }));
 
-vi.mock('../../deepagent/skill-manager', () => ({
-  getBuiltInSkillDirs: getBuiltInSkillDirsMock,
-  getScopePath: getScopePathMock,
-}));
-vi.mock('../../deepagent/skills-runtime/skill-sources', () => ({
-  resolveSkillSourcePlan: resolveSkillSourcePlanMock,
-  resolveSkillCatalog: resolveSkillCatalogMock,
-}));
+vi.mock('../../deepagent/skill-catalog', async () => {
+  const sources = await vi.importActual<
+    typeof import('../../deepagent/skills-runtime/skill-sources')
+  >('../../deepagent/skills-runtime/skill-sources');
+  return {
+    resolveProjectSkillCatalog: resolveProjectSkillCatalogMock,
+    getSkillSourceLabel: sources.getSkillSourceLabel,
+  };
+});
 
 import { collectSkillCommands } from './skill';
 
 describe('collectSkillCommands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveSkillCatalogMock.mockReturnValue({ skills: [], warnings: [] });
+    resolveProjectSkillCatalogMock.mockReturnValue({ skills: [], warnings: [] });
   });
 
-  it('resolves the live catalog from Built-in and Global sources when no snapshot exists', async () => {
-    await expect(collectSkillCommands('/tmp/project')).resolves.toEqual([]);
+  it('resolves the live catalog through the Skill Catalog when no snapshot exists', async () => {
+    await expect(collectSkillCommands('/tmp/project', { includeNestedProjectSkills: true }))
+      .resolves.toEqual([]);
 
-    expect(resolveSkillSourcePlanMock).toHaveBeenCalledWith('/tmp/project', {
-      builtInSkillDirs: ['/tmp/built-in/knowledge-base'],
-      userSkillsDir: '/tmp/global-skills',
-      includeNestedProjectSkills: undefined,
-    });
+    expect(resolveProjectSkillCatalogMock).toHaveBeenCalledWith(
+      '/tmp/project',
+      expect.objectContaining({ includeNestedProjectSkills: true }),
+    );
   });
 
   it('uses the frozen Conversation Skill Snapshot without resolving a live catalog', async () => {
@@ -46,11 +44,11 @@ describe('collectSkillCommands', () => {
     }] });
 
     expect(commands).toEqual([expect.objectContaining({ name: 'review', target: 'project:review' })]);
-    expect(resolveSkillSourcePlanMock).not.toHaveBeenCalled();
+    expect(resolveProjectSkillCatalogMock).not.toHaveBeenCalled();
   });
 
   it('maps a Project Skill to an attributable command', async () => {
-    resolveSkillCatalogMock.mockReturnValue({ skills: [{
+    resolveProjectSkillCatalogMock.mockReturnValue({ skills: [{
       name: 'simplify', description: 'Simplify code', sourceKind: 'project',
       sourcePath: '/tmp/project/.cdf/skills', skillPath: '/tmp/project/.cdf/skills/simplify/SKILL.md',
       modelDiscovery: 'full', userInvocable: true, argumentHint: '<file>',
@@ -66,7 +64,7 @@ describe('collectSkillCommands', () => {
   });
 
   it('maps a Global Skill to a global attributable command', async () => {
-    resolveSkillCatalogMock.mockReturnValue({ skills: [{
+    resolveProjectSkillCatalogMock.mockReturnValue({ skills: [{
       name: 'explore', description: 'Explore the repository', sourceKind: 'user',
       sourcePath: '/tmp/global-skills', skillPath: '/tmp/global-skills/explore/SKILL.md',
       modelDiscovery: 'full', userInvocable: true,
@@ -82,7 +80,7 @@ describe('collectSkillCommands', () => {
   });
 
   it('omits Skills whose author disables explicit invocation', async () => {
-    resolveSkillCatalogMock.mockReturnValue({ skills: [{
+    resolveProjectSkillCatalogMock.mockReturnValue({ skills: [{
       name: 'internal', description: 'Internal workflow', sourceKind: 'project',
       sourcePath: '/tmp/project/.cdf/skills', skillPath: '/tmp/project/.cdf/skills/internal/SKILL.md',
       modelDiscovery: 'full', userInvocable: false,

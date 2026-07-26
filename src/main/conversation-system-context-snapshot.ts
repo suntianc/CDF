@@ -1,47 +1,12 @@
 import type Database from 'better-sqlite3';
-import {
-  getBuiltInSkillDirs,
-  getScopePath,
-} from './deepagent/skill-manager';
 import { createGlobalSkillSceneExposureFilter } from './global-skill-scene-exposure';
-import {
-  resolveSkillCatalog,
-  resolveSkillSourcePlan,
-  type ResolvedSkillCatalogEntry,
-} from './deepagent/skills-runtime/skill-sources';
+import { captureConversationSkillSnapshot } from './deepagent/skill-catalog';
 import type { ProjectScene } from '../shared/types';
-import type {
-  ConversationSkillSnapshotEntry,
-  GlobalSkillSourceKind,
-  SkillSourceKind,
-} from '../shared/skills';
+import type { ConversationSkillSnapshotEntry } from '../shared/skills';
 
 export interface ConversationSystemContextSnapshot {
   promptSnapshot: string;
   skillSnapshot: ConversationSkillSnapshotEntry[];
-}
-
-function isGlobalSkillSourceKind(sourceKind: SkillSourceKind): sourceKind is GlobalSkillSourceKind {
-  return sourceKind === 'built-in' || sourceKind === 'user';
-}
-
-
-function snapshotSkill(skill: ResolvedSkillCatalogEntry): ConversationSkillSnapshotEntry {
-  return {
-    name: skill.name,
-    qualifiedName: skill.qualifiedName,
-    qualifier: skill.qualifier,
-    description: skill.description,
-    argumentHint: skill.argumentHint,
-    allowedTools: skill.allowedTools,
-    whenToUse: skill.whenToUse,
-    arguments: skill.arguments,
-    sourceKind: skill.sourceKind,
-    sourcePath: skill.sourcePath,
-    skillPath: skill.skillPath,
-    modelDiscovery: skill.modelDiscovery,
-    userInvocable: skill.userInvocable,
-  };
 }
 
 export function captureConversationSystemContextSnapshot(input: {
@@ -49,21 +14,12 @@ export function captureConversationSystemContextSnapshot(input: {
   sceneId: ProjectScene;
   promptSnapshot: string;
 }): ConversationSystemContextSnapshot {
-  const plan = resolveSkillSourcePlan(input.projectPath, {
-    builtInSkillDirs: getBuiltInSkillDirs(),
-    userSkillsDir: getScopePath(input.projectPath, 'global'),
-    includeNestedProjectSkills: true,
-  });
-  const isGlobalSkillExposed = createGlobalSkillSceneExposureFilter(input.sceneId);
-  const catalog = resolveSkillCatalog(plan, {
-    includeSkill: (source, name) => !isGlobalSkillSourceKind(source.kind)
-      || isGlobalSkillExposed({ sourceKind: source.kind, name }),
-    includeNestedProjectSkills: true,
-  });
-
   return {
     promptSnapshot: input.promptSnapshot,
-    skillSnapshot: catalog.skills.map(snapshotSkill),
+    skillSnapshot: captureConversationSkillSnapshot({
+      projectPath: input.projectPath,
+      isGlobalSkillExposed: createGlobalSkillSceneExposureFilter(input.sceneId),
+    }),
   };
 }
 

@@ -28,7 +28,7 @@ import {
   deletePhysicalSkill,
   importPhysicalSkillDirectory,
   getBuiltInSkillRegistrations,
-} from './deepagent/skill-manager';
+} from './deepagent/skill-catalog';
 import type { GlobalSkillReference, SceneSkillExposureInput } from '../shared/skills';
 import { isRegisteredSceneId, SCENE_REGISTRY } from '../shared/scenes';
 import { createSceneSkillExposureService } from './scene-skill-exposure';

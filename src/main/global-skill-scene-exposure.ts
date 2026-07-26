@@ -1,6 +1,6 @@
 import store from './store';
 import { createSceneSkillExposureService } from './scene-skill-exposure';
-import { getBuiltInSkillRegistrations } from './deepagent/skill-manager';
+import { getBuiltInSkillRegistrations } from './deepagent/skill-catalog';
 import type { ProjectScene } from '../shared/types';
 
 /** Resolves whether a Global Skill is exposed in a Project Scene. */
