@@ -529,9 +529,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
           }],
         };
 
-        db.exec('BEGIN');
         markApprovalStatus(runId, 'pending');
-        db.exec('COMMIT');
         publishParentStatus();
         sender.send(channel, { type: 'approval_required', approval });
 
@@ -544,9 +542,7 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
             : 'reject';
           const outcome = runtime.resolveDelegatedToolApproval(approval.id, decision);
           const approvalStatus = decision === 'approve' ? 'approved' : 'rejected';
-          db.exec('BEGIN');
           markApprovalStatus(runId, approvalStatus);
-          db.exec('COMMIT');
           sender.send(channel, {
             type: 'approval_resolved',
             approvalId: approval.id,
@@ -879,10 +875,10 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
 
 
         const approval = toApprovalRequest(runId, interruptValue);
-        db.exec('BEGIN');
-        updateRun(runId, 'waiting_approval');
-        markApprovalStatus(runId, 'pending');
-        db.exec('COMMIT');
+        db.transaction(() => {
+          updateRun(runId, 'waiting_approval');
+          markApprovalStatus(runId, 'pending');
+        })();
         sender.send(channel, { type: 'run_updated', runId, status: 'waiting_approval' });
         sender.send(channel, { type: 'approval_required', approval });
 
@@ -906,29 +902,33 @@ export async function runLLMChat(sender: LLMChatEventSender, requestId: string, 
           : resolution.decisions.every((decision) => decision.type === 'approve')
             ? 'approved'
             : 'rejected';
-        db.exec('BEGIN');
-        markApprovalStatus(runId, approvalStatus);
-        sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
+        const rejectedTools = approvalStatus === 'rejected'
+          ? db.prepare(`
+              SELECT id, tool_name FROM agent_tool_calls
+              WHERE run_id = ? AND status = 'running'
+            `).all(runId) as Array<{ id: string; tool_name: string }>
+          : [];
 
-        if (approvalStatus === 'rejected') {
-          const runningTools = db.prepare(`
-            SELECT id, tool_name FROM agent_tool_calls
-            WHERE run_id = ? AND status = 'running'
-          `).all(runId) as Array<{ id: string; tool_name: string }>;
-
-          for (const tool of runningTools) {
+        // All DB writes in one transaction so a mid-way throw rolls back atomically
+        // rather than leaving a dangling BEGIN that poisons every later transaction.
+        db.transaction(() => {
+          markApprovalStatus(runId, approvalStatus);
+          for (const tool of rejectedTools) {
             updateToolCall(tool.id, 'skipped');
-            sender.send(channel, {
-              type: 'tool_error',
-              id: tool.id,
-              name: tool.tool_name,
-              error: '用户拒绝执行该操作',
-            });
           }
-        }
+          updateRun(runId, 'running');
+        })();
 
-        updateRun(runId, 'running');
-        db.exec('COMMIT');
+        // IPC only after the state is committed.
+        sender.send(channel, { type: 'approval_resolved', approvalId: approval.id, status: approvalStatus });
+        for (const tool of rejectedTools) {
+          sender.send(channel, {
+            type: 'tool_error',
+            id: tool.id,
+            name: tool.tool_name,
+            error: '用户拒绝执行该操作',
+          });
+        }
         sender.send(channel, { type: 'run_updated', runId, status: 'running' });
         nextInput = new Command({ resume: { decisions: resolution.decisions } });
       }
