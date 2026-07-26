@@ -14,7 +14,6 @@
 import crypto from 'crypto';
 import db from '../database';
 import log from '../logger';
-import { BrowserWindow } from 'electron';
 import type {
   WorkflowRun,
   WorkflowRunStatus,
@@ -38,7 +37,7 @@ import {
   getStageGate,
   updateRunStatus,
 } from './db';
-import { pushProjectionEvent } from './notify';
+import { pushProjectionEvent, notifyConversationMessagesChanged } from './notify';
 import { normalizeWorkflowStages, selectWorkflowStageRoute, validateWorkflowStages } from '../../shared/workflow-routing';
 import { createAgentCatalog } from '../agent-catalog';
 import { captureConversationSystemContextSnapshot } from '../conversation-system-context-snapshot';
@@ -298,8 +297,8 @@ export async function handleAdvanceStageInterrupt(
   if (resolution.decision === 'reject') {
     // 打回：reject decision，cursor 不变，agent 可重新提交
     const rejectedGate = resolveStageGate(gate.id, 'rejected', resolution.feedback || null);
+    // updateRunStatus already syncs sessions.workflow_run_status (no manual double-write).
     updateRunStatus(runId, 'running');
-    db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
     if (rejectedGate) pushProjectionEvent({ type: 'stage_gate', gate: rejectedGate });
     pushProjectionEvent({ type: 'run', runId, status: 'running', currentStageId: stage.id, currentStageIndex: stageIndex, error: null });
     return {
@@ -315,7 +314,6 @@ export async function handleAdvanceStageInterrupt(
   // approve：resume 以 approve decision，工具 callback 执行并推进 cursor
   const approvedGate = resolveStageGate(gate.id, 'approved', resolution.feedback || null);
   updateRunStatus(runId, 'running');
-  db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('running', run.session_id);
   if (approvedGate) pushProjectionEvent({ type: 'stage_gate', gate: approvedGate });
   pushProjectionEvent({ type: 'run', runId, status: 'running', currentStageId: stage.id, currentStageIndex: stageIndex, error: null });
   return { resume: { decisions: [{ type: 'approve' as const }] } };
@@ -364,13 +362,10 @@ export function resolveGateFromExternal(gateId: string, resolution: StageGateRes
     if (!run) throw new Error(`Workflow run not found: ${gate.run_id}`);
 
     if (resolution.decision === 'terminate') {
+      // abortWorkflowRun → updateRunStatus already syncs sessions.workflow_run_status.
       abortWorkflowRun(run.id);
-      db.prepare('UPDATE sessions SET workflow_run_status = ? WHERE id = ?').run('aborted', run.session_id);
       pushProjectionEvent({ type: 'run', runId: run.id, status: 'aborted', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: '已终止' });
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
-      }
+      notifyConversationMessagesChanged(run.session_id);
     } else if (resolution.decision === 'reject') {
       resumeRunAfterGate(run, [{
         type: 'reject',
@@ -404,10 +399,7 @@ function resumeRunAfterGate(
     pushProjectionEvent({ type: 'run', runId: run.id, status: 'failed', currentStageId: run.current_stage_id, currentStageIndex: run.current_stage_index, error: message });
     log.warn(`[workflow-run] Resume dispatch failed for run ${run.id}; marked failed instead of leaving it stuck in running.`);
   }
-  const win = BrowserWindow.getAllWindows()[0];
-  if (win) {
-    win.webContents.send('conversation:messages-changed', { sessionId: run.session_id });
-  }
+  notifyConversationMessagesChanged(run.session_id);
 }
 
 // =============================================================================
