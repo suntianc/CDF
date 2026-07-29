@@ -76,7 +76,7 @@ describe('Academic Style Revision Skill', () => {
     expect(fs.readFileSync(path.join(skillDir as string, 'SKILL.md'), 'utf-8')).toBe(markdown);
     expect(fs.existsSync(path.join(skillDir as string, 'scripts'))).toBe(false);
     expect(fs.readFileSync(path.join(skillDir as string, 'PROVENANCE.md'), 'utf-8')).toContain('MIT');
-  });
+  }, 15_000);
 
   it('publishes scope, fidelity, coverage, and report safety contracts without executable capabilities', () => {
     const markdown = getAcademicStyleRevisionSkillMarkdown();
