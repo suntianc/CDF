@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  getSkillSourceLabel,
   invalidateSkillSourceCaches,
   resolveSkillCatalog,
   resolveSkillSourcePlan,
@@ -30,6 +31,25 @@ function writeSkill(
     'utf-8'
   );
 }
+
+describe('getSkillSourceLabel', () => {
+  it.each([
+    [{ sourceKind: 'built-in' as const }, 'Built-in Skill'],
+    [{ sourceKind: 'project' as const }, 'Project Skill'],
+    [
+      { sourceKind: 'project-nested' as const, qualifier: 'apps/web' },
+      'Nested Project Skill: apps/web',
+    ],
+    [
+      { sourceKind: 'project-additional' as const, qualifier: 'docs' },
+      'Project Skill: docs',
+    ],
+    [{ sourceKind: 'user' as const }, 'Global Skill'],
+    [{ sourceKind: 'enterprise' as const }, 'Managed Skill'],
+  ])('maps $sourceKind to its canonical label', (skill, expectedLabel) => {
+    expect(getSkillSourceLabel(skill)).toBe(expectedLabel);
+  });
+});
 
 describe('resolveSkillSourcePlan', () => {
   const tempProjectPath = path.join(os.tmpdir(), `cdf-skill-source-test-${Math.random().toString(36).slice(2)}`);

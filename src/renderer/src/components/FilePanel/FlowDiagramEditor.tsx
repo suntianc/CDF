@@ -8,7 +8,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { reloadProjectFile } from '../../lib/openProjectFile';
 import { registerProjectFileFlush } from '../../lib/projectFileFlush';
 import { useFileStore } from '../../stores/fileStore';
-import { FLOW_DIAGRAM_SOURCE_CHANGED } from '@shared/flow-diagrams';
+import {
+  FLOW_DIAGRAM_SOURCE_CHANGED,
+  type FlowDiagramDocumentSnapshot,
+  type FlowDiagramDocumentVersion,
+} from '@shared/flow-diagrams';
 import {
   restoreFlowDiagram,
   serializeFlowDiagram,
@@ -19,9 +23,11 @@ import {
 } from './excalidrawAdapter';
 
 const AUTOSAVE_DELAY_MS = 750;
+let mutationSequence = 0;
 
 interface FlowDiagramEditorProps {
   content: string;
+  documentVersion?: FlowDiagramDocumentVersion;
   fileName: string;
   filePath: string;
   loadError?: 'unreadable';
@@ -34,7 +40,22 @@ type LoadState =
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
-export function FlowDiagramEditor({ content, fileName, filePath, loadError }: FlowDiagramEditorProps) {
+function nextMutationId(): string {
+  mutationSequence += 1;
+  return `flow-diagram-${Date.now()}-${mutationSequence}`;
+}
+
+function normalizedPath(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
+export function FlowDiagramEditor({
+  content,
+  documentVersion,
+  fileName,
+  filePath,
+  loadError,
+}: FlowDiagramEditorProps) {
   const { t, i18n } = useTranslation();
   const theme = useThemeStore((state) => state.theme);
   const rootPath = useFileStore((state) => state.rootPath);
@@ -49,17 +70,14 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
   const [diagramRevision, setDiagramRevision] = useState(0);
   const [conflictedContent, setConflictedContent] = useState<string | null>(null);
   const conflictedContentRef = useRef<string | null>(null);
-  const editGenerationRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedContentRef = useRef<string | null>(null);
-  const lastDiskContentRef = useRef<string | null>(null);
+  const baselineContentRef = useRef<string | null>(null);
+  const documentVersionRef = useRef<FlowDiagramDocumentVersion | null>(null);
   const pendingContentRef = useRef<string | null>(null);
-  const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
-  const lastQueuedContentRef = useRef<string | null>(null);
-  const queuedDiskContentRef = useRef<string | null>(null);
-  const externalReloadVersionRef = useRef(0);
-  const externalReloadPromiseRef = useRef<Promise<boolean> | null>(null);
-  const externalPendingPreservationRef = useRef<string | null>(null);
+  const saveOperationRef = useRef<Promise<boolean> | null>(null);
+  const savingContentRef = useRef<string | null>(null);
+  const activeMutationIdRef = useRef<string | null>(null);
+  const latestNotifiedVersionRef = useRef<FlowDiagramDocumentVersion | null>(null);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -68,72 +86,144 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  const persist = useCallback((contentToSave: string): Promise<boolean> => {
-    if (!rootPath) return Promise.resolve(false);
-    if (lastQueuedContentRef.current === contentToSave) {
-      return saveQueueRef.current;
-    }
+  const installAuthoritativeSnapshot = useCallback(async (
+    snapshot: FlowDiagramDocumentSnapshot,
+    preservedLocalContent: string | null,
+    notificationGuard?: FlowDiagramDocumentVersion | null,
+  ): Promise<boolean> => {
+    try {
+      const diagram = await restoreFlowDiagram(snapshot.content);
+      if (
+        notificationGuard !== undefined
+        && latestNotifiedVersionRef.current !== notificationGuard
+      ) {
+        return true;
+      }
+      const restoredContent = serializeFlowDiagram(
+        diagram.elements,
+        diagram.appState,
+        diagram.files,
+      );
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingContentRef.current = null;
+      baselineContentRef.current = restoredContent;
+      documentVersionRef.current = snapshot.version;
 
-    const expectedDiskContent = queuedDiskContentRef.current ?? lastDiskContentRef.current ?? null;
-    lastQueuedContentRef.current = contentToSave;
-    queuedDiskContentRef.current = contentToSave;
-    const operation = saveQueueRef.current.then(async () => {
-      setSaveState('saving');
-      try {
-        const result = await window.electronAPI.flowDiagram.saveDocument(
-          rootPath,
-          filePath,
-          contentToSave,
-          expectedDiskContent,
-        );
-        if (!result.ok) {
-          if (result.error.code === FLOW_DIAGRAM_SOURCE_CHANGED) {
-            // The document changed externally: the store returns the current
-            // on-disk content so we can relink our CAS baseline without a
-            // second read, then surface the unsaved attempt as a conflict.
-            const currentContent = result.error.currentContent ?? null;
-            if (currentContent != null) lastDiskContentRef.current = currentContent;
-            if (!conflictedContentRef.current) {
-              conflictedContentRef.current = contentToSave;
-              setConflictedContent(contentToSave);
-            }
-            setTabDirty(filePath, true);
-            setSaveState('dirty');
-            return false;
-          }
-          console.error('[FlowDiagramEditor] Save failed:', result.error.message);
+      const hasConflict = Boolean(
+        preservedLocalContent && preservedLocalContent !== restoredContent,
+      );
+      const nextConflict = hasConflict ? preservedLocalContent : null;
+      conflictedContentRef.current = nextConflict;
+      setConflictedContent(nextConflict);
+      setTabContent(filePath, snapshot.content, snapshot.version);
+      setTabDirty(filePath, hasConflict);
+      setSaveState(hasConflict ? 'dirty' : 'saved');
+      setDiagramRevision((current) => current + 1);
+      setLoadState({ status: 'ready', diagram });
+      return !hasConflict;
+    } catch {
+      if (
+        notificationGuard !== undefined
+        && latestNotifiedVersionRef.current !== notificationGuard
+      ) {
+        return true;
+      }
+      if (preservedLocalContent && !conflictedContentRef.current) {
+        conflictedContentRef.current = preservedLocalContent;
+        setConflictedContent(preservedLocalContent);
+      }
+      setTabDirty(filePath, conflictedContentRef.current !== null);
+      setSaveState(conflictedContentRef.current ? 'dirty' : 'error');
+      setLoadState({ status: 'invalid', reason: 'invalid' });
+      return false;
+    }
+  }, [filePath, setTabContent, setTabDirty]);
+
+  const persistPending = useCallback((): Promise<boolean> => {
+    if (!rootPath) return Promise.resolve(false);
+    if (saveOperationRef.current) return saveOperationRef.current;
+
+    const operation = (async () => {
+      while (pendingContentRef.current && !conflictedContentRef.current) {
+        const contentToSave = pendingContentRef.current;
+        const expectedVersion = documentVersionRef.current;
+        if (!expectedVersion) {
           setSaveState('error');
           return false;
         }
 
-        lastSavedContentRef.current = contentToSave;
-        lastDiskContentRef.current = contentToSave;
-        setTabContent(filePath, contentToSave);
-        if (pendingContentRef.current === contentToSave) {
-          pendingContentRef.current = null;
-          const hasConflict = conflictedContentRef.current !== null;
-          setTabDirty(filePath, hasConflict);
-          setSaveState(hasConflict ? 'dirty' : 'saved');
-        } else {
-          setSaveState('dirty');
-        }
-        return true;
-      } catch (error) {
-        console.error('[FlowDiagramEditor] Save error:', error);
-        setSaveState('error');
-        return false;
-      }
-    });
+        const mutationId = nextMutationId();
+        savingContentRef.current = contentToSave;
+        activeMutationIdRef.current = mutationId;
+        setSaveState('saving');
 
-    saveQueueRef.current = operation;
-    void operation.finally(() => {
-      if (lastQueuedContentRef.current === contentToSave) {
-        lastQueuedContentRef.current = null;
-        queuedDiskContentRef.current = null;
+        try {
+          const result = await window.electronAPI.flowDiagram.saveDocument(
+            rootPath,
+            filePath,
+            contentToSave,
+            expectedVersion,
+            mutationId,
+          );
+          if (!result.ok) {
+            if (result.error.code === FLOW_DIAGRAM_SOURCE_CHANGED) {
+              const preserved = pendingContentRef.current ?? contentToSave;
+              pendingContentRef.current = null;
+              if (result.error.currentContent != null && result.error.currentVersion) {
+                await installAuthoritativeSnapshot(
+                  {
+                    content: result.error.currentContent,
+                    version: result.error.currentVersion,
+                  },
+                  preserved,
+                );
+              } else {
+                conflictedContentRef.current = preserved;
+                setConflictedContent(preserved);
+                setTabDirty(filePath, true);
+                setSaveState('dirty');
+              }
+              return false;
+            }
+            console.error('[FlowDiagramEditor] Save failed:', result.error.message);
+            setSaveState('error');
+            return false;
+          }
+
+          documentVersionRef.current = result.document.version;
+          baselineContentRef.current = contentToSave;
+          setTabContent(
+            filePath,
+            result.document.content,
+            result.document.version,
+          );
+          if (pendingContentRef.current === contentToSave) {
+            pendingContentRef.current = null;
+          }
+          const isDirty = pendingContentRef.current !== null;
+          setTabDirty(filePath, isDirty);
+          setSaveState(isDirty ? 'dirty' : 'saved');
+        } catch (error) {
+          console.error('[FlowDiagramEditor] Save error:', error);
+          setSaveState('error');
+          return false;
+        } finally {
+          savingContentRef.current = null;
+          activeMutationIdRef.current = null;
+        }
       }
+      return conflictedContentRef.current === null;
+    })();
+
+    saveOperationRef.current = operation;
+    void operation.finally(() => {
+      if (saveOperationRef.current === operation) saveOperationRef.current = null;
     });
     return operation;
-  }, [filePath, rootPath, setTabContent, setTabDirty]);
+  }, [filePath, installAuthoritativeSnapshot, rootPath, setTabContent, setTabDirty]);
 
   const scheduleSave = useCallback((serialized: string) => {
     pendingContentRef.current = serialized;
@@ -142,28 +232,21 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
-      void persist(serialized);
+      void persistPending();
     }, AUTOSAVE_DELAY_MS);
-  }, [filePath, persist, setTabDirty]);
+  }, [filePath, persistPending, setTabDirty]);
 
   const flushPendingSave = useCallback(async (): Promise<boolean> => {
-    while (externalReloadPromiseRef.current) {
-      const reload = externalReloadPromiseRef.current;
-      if (!await reload) return false;
-      if (externalReloadPromiseRef.current === reload) externalReloadPromiseRef.current = null;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
     if (conflictedContentRef.current) return false;
-    while (true) {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-      const pending = pendingContentRef.current;
-      const saved = await (pending ? persist(pending) : saveQueueRef.current);
-      if (!saved) return false;
-      if (!pendingContentRef.current) return true;
+    while (pendingContentRef.current || saveOperationRef.current) {
+      if (!await persistPending()) return false;
     }
-  }, [persist]);
+    return true;
+  }, [persistPending]);
 
   const handleChange = useCallback((
     elements: FlowDiagramElements,
@@ -171,29 +254,35 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     files: FlowDiagramFiles,
   ) => {
     const serialized = serializeFlowDiagram(elements, appState, files);
+    if (serialized === pendingContentRef.current) return;
     if (
-      serialized === lastSavedContentRef.current
-      || serialized === pendingContentRef.current
+      serialized === baselineContentRef.current
+      && savingContentRef.current === null
     ) {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingContentRef.current = null;
+      setTabDirty(filePath, false);
+      setSaveState('saved');
       return;
     }
-    editGenerationRef.current += 1;
     scheduleSave(serialized);
-  }, [scheduleSave]);
+  }, [filePath, scheduleSave, setTabDirty]);
 
   useEffect(() => {
     let cancelled = false;
-    if (lastSavedContentRef.current !== null && lastDiskContentRef.current === content) {
+    if (loadError || !documentVersion) {
+      setLoadState({ status: 'invalid', reason: 'unreadable' });
       return () => {
         cancelled = true;
       };
     }
-    lastSavedContentRef.current = null;
-    lastDiskContentRef.current = content;
-    pendingContentRef.current = null;
-
-    if (loadError) {
-      setLoadState({ status: 'invalid', reason: 'unreadable' });
+    if (
+      baselineContentRef.current !== null
+      && documentVersionRef.current === documentVersion
+    ) {
       return () => {
         cancelled = true;
       };
@@ -203,11 +292,14 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     restoreFlowDiagram(content)
       .then((diagram) => {
         if (cancelled) return;
-        lastSavedContentRef.current = serializeFlowDiagram(
+        baselineContentRef.current = serializeFlowDiagram(
           diagram.elements,
           diagram.appState,
           diagram.files,
         );
+        documentVersionRef.current = documentVersion;
+        pendingContentRef.current = null;
+        setTabDirty(filePath, false);
         setSaveState('saved');
         setDiagramRevision((current) => current + 1);
         setLoadState({ status: 'ready', diagram });
@@ -219,103 +311,64 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     return () => {
       cancelled = true;
     };
-  }, [content, loadError]);
+  }, [content, documentVersion, filePath, loadError, setTabDirty]);
 
   useEffect(() => {
     if (!rootPath) return;
-    const unsubscribe = window.electronAPI.fs.onDirectoryChange((data) => {
-      if (data.path.replace(/\\/g, '/') !== filePath.replace(/\\/g, '/')) return;
-      const version = ++externalReloadVersionRef.current;
-      const previousReload = externalReloadPromiseRef.current ?? Promise.resolve(true);
-      const reload = previousReload.then(async () => {
-        if (externalReloadVersionRef.current !== version) return true;
-        const generationAtNotification = editGenerationRef.current;
-        const pendingAtNotification = pendingContentRef.current;
-        if (pendingAtNotification) {
-          externalPendingPreservationRef.current ??= pendingAtNotification;
-        }
-        if (saveTimerRef.current) {
-          clearTimeout(saveTimerRef.current);
-          saveTimerRef.current = null;
-        }
-        pendingContentRef.current = null;
-        await saveQueueRef.current;
-        const result = await window.electronAPI.fs.readFile(rootPath, filePath);
-        if (externalReloadVersionRef.current !== version) return true;
-        if (!result.ok || 'binary' in result.data) {
-          const preserved = pendingContentRef.current ?? externalPendingPreservationRef.current;
-          externalPendingPreservationRef.current = null;
-          pendingContentRef.current = null;
+    const unsubscribe = window.electronAPI.flowDiagram.onDocumentChange((event) => {
+      if (normalizedPath(event.filePath) !== normalizedPath(filePath)) return;
+      if (event.mutationId && event.mutationId === activeMutationIdRef.current) return;
+      if (event.version && event.version === documentVersionRef.current) return;
+
+      latestNotifiedVersionRef.current = event.version;
+      const notificationVersion = event.version;
+      void (async () => {
+        const result = await window.electronAPI.flowDiagram.loadDocument(rootPath, filePath);
+        if (latestNotifiedVersionRef.current !== notificationVersion) return;
+        if (!result.ok) {
+          const preserved = (
+            conflictedContentRef.current
+            ?? pendingContentRef.current
+            ?? savingContentRef.current
+          );
           if (preserved && !conflictedContentRef.current) {
             conflictedContentRef.current = preserved;
             setConflictedContent(preserved);
           }
+          pendingContentRef.current = null;
           setTabDirty(filePath, conflictedContentRef.current !== null);
           setSaveState(conflictedContentRef.current ? 'dirty' : 'error');
-          return false;
+          setLoadState({ status: 'invalid', reason: 'unreadable' });
+          return;
         }
-        try {
-          const diagram = await restoreFlowDiagram(result.data.content);
-          const restoredContent = serializeFlowDiagram(
-            diagram.elements,
-            diagram.appState,
-            diagram.files,
+        if (result.document.version === documentVersionRef.current) return;
+
+        const savingContent = savingContentRef.current;
+        if (savingContent && result.document.content === savingContent) {
+          documentVersionRef.current = result.document.version;
+          baselineContentRef.current = savingContent;
+          setTabContent(
+            filePath,
+            result.document.content,
+            result.document.version,
           );
-          const pendingAfterWait = pendingContentRef.current;
-          const editedWhileWaiting = editGenerationRef.current !== generationAtNotification;
-          if (restoredContent === lastSavedContentRef.current) {
-            const preserved = pendingAfterWait ?? externalPendingPreservationRef.current;
-            externalPendingPreservationRef.current = null;
-            if (preserved && preserved !== restoredContent) scheduleSave(preserved);
-            return true;
-          }
-
-          const preservedContent = editedWhileWaiting
-            ? (pendingAfterWait ?? externalPendingPreservationRef.current)
-            : (pendingAtNotification ?? externalPendingPreservationRef.current);
-          if (saveTimerRef.current) {
-            clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = null;
-          }
-          pendingContentRef.current = null;
-          externalPendingPreservationRef.current = null;
-          if (preservedContent && preservedContent !== restoredContent && !conflictedContentRef.current) {
-            conflictedContentRef.current = preservedContent;
-            setConflictedContent(preservedContent);
-          }
-
-          setLoadState({ status: 'loading' });
-          lastSavedContentRef.current = restoredContent;
-          lastDiskContentRef.current = result.data.content;
-          setSaveState(conflictedContentRef.current ? 'dirty' : 'saved');
-          setTabDirty(filePath, conflictedContentRef.current !== null);
-          setTabContent(filePath, result.data.content);
-          setDiagramRevision((current) => current + 1);
-          setLoadState({ status: 'ready', diagram });
-          return conflictedContentRef.current === null;
-        } catch {
-          const preserved = pendingContentRef.current ?? externalPendingPreservationRef.current;
-          externalPendingPreservationRef.current = null;
-          pendingContentRef.current = null;
-          if (preserved && !conflictedContentRef.current) {
-            conflictedContentRef.current = preserved;
-            setConflictedContent(preserved);
-          }
-          setTabDirty(filePath, conflictedContentRef.current !== null);
-          setLoadState({ status: 'invalid', reason: 'invalid' });
-          return false;
+          return;
         }
-      });
-      externalReloadPromiseRef.current = reload;
-      void reload.finally(() => {
-        if (externalReloadPromiseRef.current === reload) externalReloadPromiseRef.current = null;
-      });
+
+        const preserved = (
+          conflictedContentRef.current
+          ?? pendingContentRef.current
+          ?? savingContent
+        );
+        await installAuthoritativeSnapshot(
+          result.document,
+          preserved,
+          notificationVersion,
+        );
+      })();
     });
-    return () => {
-      externalReloadVersionRef.current += 1;
-      unsubscribe();
-    };
-  }, [filePath, rootPath, scheduleSave, setTabContent, setTabDirty]);
+    return unsubscribe;
+  }, [filePath, installAuthoritativeSnapshot, rootPath, setTabContent, setTabDirty]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -347,7 +400,6 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
       setConflictedContent(null);
       setDiagramRevision((current) => current + 1);
       setLoadState({ status: 'ready', diagram });
-      editGenerationRef.current += 1;
       scheduleSave(conflictedContent);
     } catch {
       setLoadState({ status: 'invalid', reason: 'invalid' });
@@ -365,26 +417,18 @@ export function FlowDiagramEditor({ content, fileName, filePath, loadError }: Fl
     if (!rootPath) return;
     setLoadState({ status: 'loading' });
     const result = await reloadProjectFile(rootPath, filePath, fileName);
-    if (!result.ok || result.file.loadError) {
+    if (!result.ok || result.file.loadError || !result.file.documentVersion) {
       setLoadState({ status: 'invalid', reason: 'unreadable' });
       return;
     }
-
-    try {
-      const diagram = await restoreFlowDiagram(result.file.content);
-      lastSavedContentRef.current = serializeFlowDiagram(
-        diagram.elements,
-        diagram.appState,
-        diagram.files,
-      );
-      lastDiskContentRef.current = result.file.content;
-      setSaveState('saved');
-      setDiagramRevision((current) => current + 1);
-      setLoadState({ status: 'ready', diagram });
-    } catch {
-      setLoadState({ status: 'invalid', reason: 'invalid' });
-    }
-  }, [fileName, filePath, rootPath]);
+    await installAuthoritativeSnapshot(
+      {
+        content: result.file.content,
+        version: result.file.documentVersion,
+      },
+      null,
+    );
+  }, [fileName, filePath, installAuthoritativeSnapshot, rootPath]);
 
   if (loadState.status === 'loading') {
     return (

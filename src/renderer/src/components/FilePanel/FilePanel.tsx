@@ -293,6 +293,7 @@ export function FilePanel() {
               filePath={previewFile.path}
               fileName={previewFile.name}
               content={previewFile.content}
+              documentVersion={previewFile.documentVersion}
               loadError={previewFile.loadError}
             />
             <div

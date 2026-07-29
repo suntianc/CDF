@@ -240,6 +240,10 @@ _Avoid_: main view, page, layout mode
 A user-visible, Project-owned Excalidraw document composed of independently editable shapes, text, and connectors that serves as the shared source for Agent generation and user editing. Subsequent Agent changes apply to the current document rather than regenerating a separate copy; the capability is available across Scenes.
 _Avoid_: Scientific Figure, generated image, flattened flowchart, hidden artifact, Research Scene tool
 
+**Flow Diagram Document Version**:
+An opaque identity of the exact current contents of an Editable Flow Diagram, used to detect whether a save or Agent edit is still based on that document. It is not ordered and does not represent history.
+_Avoid_: Flow Diagram Revision, timestamp, save counter, version number, Project commit
+
 **Flow Diagram Revision**:
 A durable snapshot of an Editable Flow Diagram captured immediately before an Agent modifies it and retained independently of the user's Project version control. It is available to Agent operations and automatic recovery without exposing version management or manual rollback controls to the user.
 _Avoid_: Project commit, copied backup file, Excalidraw undo entry, user-facing version history, full-Project snapshot

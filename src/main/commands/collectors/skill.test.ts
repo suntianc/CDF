@@ -79,6 +79,27 @@ describe('collectSkillCommands', () => {
     });
   });
 
+  it('maps an Enterprise Skill to the canonical Managed Skill attribution', async () => {
+    resolveProjectSkillCatalogMock.mockReturnValue({ skills: [{
+      name: 'compliance', qualifiedName: 'acme:compliance', qualifier: 'acme',
+      description: 'Apply managed compliance policy', sourceKind: 'enterprise',
+      sourcePath: '/tmp/managed-skills', skillPath: '/tmp/managed-skills/compliance/SKILL.md',
+      modelDiscovery: 'full', userInvocable: true,
+    }], warnings: [] });
+
+    const commands = await collectSkillCommands('/tmp/project');
+
+    expect(commands[0]).toMatchObject({
+      name: 'acme:compliance',
+      qualifiedName: 'acme:compliance',
+      skillName: 'compliance',
+      skillSourceKind: 'enterprise',
+      source: 'skill:global',
+      target: 'enterprise:acme:compliance',
+      sourceLabel: 'Managed Skill',
+    });
+  });
+
   it('omits Skills whose author disables explicit invocation', async () => {
     resolveProjectSkillCatalogMock.mockReturnValue({ skills: [{
       name: 'internal', description: 'Internal workflow', sourceKind: 'project',

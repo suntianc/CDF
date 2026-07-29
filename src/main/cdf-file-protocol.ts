@@ -145,33 +145,59 @@ export interface CdfFileRequest {
   allowedRoots: string[];
 }
 
-/**
- * macOS/Windows 的默认文件系统大小写不敏感：`/users/…` 与 `/Users/…` 指向同一文件。
- * standard scheme 下 Chromium 会把第一段路径折进 URL host 并小写化
- * （`cdf-file:///Users/…` → `cdf-file://users/…`），因此白名单包含性判断必须
- * 同样按大小写不敏感比较，否则所有 `/Users/…` 资源都会被 403。
- */
-const CASE_INSENSITIVE_FILESYSTEM = process.platform === 'darwin' || process.platform === 'win32';
+interface CanonicalPath {
+  path: string;
+  exists: boolean;
+}
 
 /**
- * 判断解析后的绝对路径是否落在任一允许根内。先 `path.resolve` 折叠 `..`，
- * 再用 `path.relative` 做包含性判断，杜绝 `/root/../../etc/passwd` 之类逃逸。
- * `caseInsensitive` 默认跟随平台文件系统语义（darwin/win32 不敏感）。
+ * 把路径解析成文件系统认可的真实路径。目标不存在时，从最近的已有父目录继续解析，
+ * 这样既能让允许根内的缺失文件返回 404，也不会把 `..` 或父目录软链接误判为允许路径。
  */
-export function isPathWithinRoots(
-  filePath: string,
-  allowedRoots: string[],
-  caseInsensitive: boolean = CASE_INSENSITIVE_FILESYSTEM,
-): boolean {
-  const resolved = path.resolve(filePath);
-  const target = caseInsensitive ? resolved.toLowerCase() : resolved;
-  return allowedRoots.some((root) => {
-    if (!root) return false;
-    const normalizedRoot = path.resolve(root);
-    const comparableRoot = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
-    const rel = path.relative(comparableRoot, target);
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-  });
+async function resolveCanonicalPath(filePath: string): Promise<CanonicalPath | null> {
+  let current = path.resolve(filePath);
+  const missingSegments: string[] = [];
+
+  while (true) {
+    try {
+      const canonicalParent = await fs.promises.realpath(current);
+      return {
+        path: path.join(canonicalParent, ...missingSegments),
+        exists: missingSegments.length === 0,
+      };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return null;
+
+      const parent = path.dirname(current);
+      if (parent === current) return null;
+      missingSegments.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * `realpath` 已经按当前卷和目录的真实大小写返回路径，因此这里只做逐段精确比较。
+ * Windows 盘符本身不区分大小写，但启用 per-directory case sensitivity 的目录段必须区分。
+ */
+function isCanonicalPathWithinRoot(target: string, root: string): boolean {
+  const normalizedTarget = path.resolve(target);
+  const normalizedRoot = path.resolve(root);
+  const targetRoot = path.parse(normalizedTarget).root;
+  const allowedRoot = path.parse(normalizedRoot).root;
+  const sameVolume =
+    process.platform === 'win32'
+      ? targetRoot.toLowerCase() === allowedRoot.toLowerCase()
+      : targetRoot === allowedRoot;
+  if (!sameVolume) return false;
+
+  const targetSegments = normalizedTarget.slice(targetRoot.length).split(path.sep).filter(Boolean);
+  const rootSegments = normalizedRoot.slice(allowedRoot.length).split(path.sep).filter(Boolean);
+  return (
+    rootSegments.length <= targetSegments.length
+    && rootSegments.every((segment, index) => segment === targetSegments[index])
+  );
 }
 
 /**
@@ -181,14 +207,28 @@ export function isPathWithinRoots(
  */
 export async function createCdfFileResponse(request: CdfFileRequest): Promise<Response> {
   const filePath = resolveCdfFilePath(request.url);
+  const canonicalTarget = await resolveCanonicalPath(filePath);
+  if (!canonicalTarget) {
+    return new Response('File not found', { status: 404 });
+  }
 
-  if (!isPathWithinRoots(filePath, request.allowedRoots)) {
+  const canonicalRoots = (
+    await Promise.all(
+      request.allowedRoots
+        .filter(Boolean)
+        .map(async (root) => (await resolveCanonicalPath(root))?.path ?? null)
+    )
+  ).filter((root): root is string => root !== null);
+  if (!canonicalRoots.some((root) => isCanonicalPathWithinRoot(canonicalTarget.path, root))) {
     return new Response('Forbidden', { status: 403 });
+  }
+  if (!canonicalTarget.exists) {
+    return new Response('File not found', { status: 404 });
   }
 
   let stat: fs.Stats;
   try {
-    stat = await fs.promises.stat(filePath);
+    stat = await fs.promises.stat(canonicalTarget.path);
   } catch {
     return new Response('File not found', { status: 404 });
   }
@@ -207,7 +247,7 @@ export async function createCdfFileResponse(request: CdfFileRequest): Promise<Re
   }
 
   if (range) {
-    const stream = fs.createReadStream(filePath, { start: range.start, end: range.end });
+    const stream = fs.createReadStream(canonicalTarget.path, { start: range.start, end: range.end });
     return new Response(nodeStreamToWeb(stream), {
       status: 206,
       headers: {
@@ -219,7 +259,7 @@ export async function createCdfFileResponse(request: CdfFileRequest): Promise<Re
     });
   }
 
-  const stream = fs.createReadStream(filePath);
+  const stream = fs.createReadStream(canonicalTarget.path);
   return new Response(nodeStreamToWeb(stream), {
     status: 200,
     headers: {

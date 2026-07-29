@@ -430,7 +430,7 @@ describe('FlowDiagramService integration', () => {
     const revisionGate = new Promise<void>((resolve) => {
       releaseRevision = resolve;
     });
-    const coordinatedService = createFlowDiagramService({
+    const coordinatedStore = createFlowDiagramDocumentStore({
       projectPath,
       stateRoot,
       revisionStore: {
@@ -443,6 +443,14 @@ describe('FlowDiagramService integration', () => {
         consumeLatest: vi.fn(),
       },
     });
+    const coordinatedService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      documentStore: coordinatedStore,
+    });
+    const initial = await coordinatedStore.readDocument(filePath);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) throw new Error('expected readable document');
 
     const agentEdit = coordinatedService.execute({
       action: 'edit',
@@ -454,7 +462,7 @@ describe('FlowDiagramService integration', () => {
     const staleAutosave = documentStore.saveDocument(
       filePath,
       original.toString('utf8'),
-      original.toString('utf8'),
+      initial.document.version,
     );
     releaseRevision();
 
@@ -511,7 +519,7 @@ describe('FlowDiagramService integration', () => {
     writeScene(filePath, scene([rectangle('original')]));
     const external = Buffer.from(`${JSON.stringify(scene([rectangle('external')]), null, 2)}\n`);
     const consumeLatest = vi.fn(async () => undefined);
-    const guardedService = createFlowDiagramService({
+    const guardedStore = createFlowDiagramDocumentStore({
       projectPath,
       stateRoot,
       revisionStore: {
@@ -522,6 +530,11 @@ describe('FlowDiagramService integration', () => {
         peekLatest: vi.fn(),
         consumeLatest,
       },
+    });
+    const guardedService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      documentStore: guardedStore,
     });
 
     expect(await guardedService.execute({
@@ -539,7 +552,7 @@ describe('FlowDiagramService integration', () => {
     const external = Buffer.from(`${JSON.stringify(scene([rectangle('external')]), null, 2)}\n`);
     const previous = Buffer.from(`${JSON.stringify(scene([rectangle('previous')]), null, 2)}\n`);
     const consumeLatest = vi.fn();
-    const guardedService = createFlowDiagramService({
+    const guardedStore = createFlowDiagramDocumentStore({
       projectPath,
       stateRoot,
       revisionStore: {
@@ -555,6 +568,11 @@ describe('FlowDiagramService integration', () => {
         consumeLatest,
       },
     });
+    const guardedService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      documentStore: guardedStore,
+    });
 
     expect(await guardedService.execute({
       action: 'rollback',
@@ -568,7 +586,7 @@ describe('FlowDiagramService integration', () => {
     const filePath = path.join(projectPath, 'diagram.excalidraw');
     const original = writeScene(filePath, scene([rectangle('one')]));
 
-    const revisionFailure = createFlowDiagramService({
+    const revisionFailureStore = createFlowDiagramDocumentStore({
       projectPath,
       stateRoot,
       revisionStore: {
@@ -577,6 +595,11 @@ describe('FlowDiagramService integration', () => {
         consumeLatest: vi.fn(),
       },
     });
+    const revisionFailure = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      documentStore: revisionFailureStore,
+    });
     expect(await revisionFailure.execute({
       action: 'edit',
       file_path: filePath,
@@ -584,10 +607,15 @@ describe('FlowDiagramService integration', () => {
     })).toMatchObject({ ok: false, error: { code: 'REVISION_FAILED' } });
     expect(fs.readFileSync(filePath)).toEqual(original);
 
+    const replacementFailureStore = createFlowDiagramDocumentStore({
+      projectPath,
+      stateRoot,
+      beforePublish: vi.fn(async () => { throw new Error('replace interrupted'); }),
+    });
     const replacementFailure = createFlowDiagramService({
       projectPath,
       stateRoot,
-      replaceFile: vi.fn(async () => { throw new Error('replace interrupted'); }),
+      documentStore: replacementFailureStore,
     });
     expect(await replacementFailure.execute({
       action: 'edit',
@@ -701,10 +729,15 @@ describe('FlowDiagramService integration', () => {
       })),
       consumeLatest: vi.fn(async () => { throw new Error('manifest write failed'); }),
     };
-    const rollbackService = createFlowDiagramService({
+    const rollbackDocumentStore = createFlowDiagramDocumentStore({
       projectPath,
       stateRoot,
       revisionStore: failingStore,
+    });
+    const rollbackService = createFlowDiagramService({
+      projectPath,
+      stateRoot,
+      documentStore: rollbackDocumentStore,
     });
 
     expect(await rollbackService.execute({ action: 'rollback', file_path: filePath })).toMatchObject({

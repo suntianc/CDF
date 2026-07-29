@@ -85,7 +85,8 @@ describe('createDelegatedRuntimeAdapter', () => {
   let loadMcpToolsMock: ReturnType<typeof vi.fn>;
   let assembleRuntimeMock: ReturnType<typeof vi.fn>;
   let resolveInterruptOnMock: ReturnType<typeof vi.fn>;
-  let resolveApprovalCoordinatorMock: ReturnType<typeof vi.fn>;
+  let runDelegatedToolActionMock: ReturnType<typeof vi.fn>;
+  let resolveRunDelegatedToolActionMock: ReturnType<typeof vi.fn>;
   let options: CreateDelegatedRuntimeAdapterOptions;
 
   beforeEach(() => {
@@ -103,9 +104,10 @@ describe('createDelegatedRuntimeAdapter', () => {
       assemblyWarnings: [],
     }));
     resolveInterruptOnMock = vi.fn(() => ({ mcp_search: { allowedDecisions: ['approve', 'reject'] } }));
-    resolveApprovalCoordinatorMock = vi.fn(() => ({
-      runToolAction: vi.fn(async ({ execute }: { execute: () => Promise<unknown> }) => execute()),
-    }));
+    runDelegatedToolActionMock = vi.fn(
+      async ({ execute }: { execute: () => Promise<unknown> }) => execute(),
+    );
+    resolveRunDelegatedToolActionMock = vi.fn(() => runDelegatedToolActionMock);
     parentContext = {
       approvalMode: 'strict',
       parentBuiltInToolNames: ['bash', 'fetch'],
@@ -119,8 +121,9 @@ describe('createDelegatedRuntimeAdapter', () => {
       sessionId: 'session-1',
     } as DelegatedParentContext;
     options = {
-      resolveApprovalCoordinator:
-        resolveApprovalCoordinatorMock as unknown as CreateDelegatedRuntimeAdapterOptions['resolveApprovalCoordinator'],
+      resolveRunDelegatedToolAction:
+        resolveRunDelegatedToolActionMock as unknown as
+          CreateDelegatedRuntimeAdapterOptions['resolveRunDelegatedToolAction'],
       createResilienceMiddleware: vi.fn(() => []) as unknown as
         CreateDelegatedRuntimeAdapterOptions['createResilienceMiddleware'],
       dependencies: {
@@ -200,9 +203,9 @@ describe('createDelegatedRuntimeAdapter', () => {
     expect(passedSnapshot).toBe(skillSnapshot);
   });
 
-  it('builds an isolated graph per run and resolves the coordinator lazily (ADR-0061)', async () => {
+  it('builds an isolated graph per run and resolves the tool-action callback lazily (ADR-0061)', async () => {
     const adapter = createDelegatedRuntimeAdapter(parentContext, options);
-    expect(resolveApprovalCoordinatorMock).not.toHaveBeenCalled();
+    expect(resolveRunDelegatedToolActionMock).not.toHaveBeenCalled();
 
     await adapter.run(requestFor(snapshotFor(null)));
     await adapter.run(requestFor(snapshotFor(null)));
@@ -213,7 +216,69 @@ describe('createDelegatedRuntimeAdapter', () => {
     );
     expect(firstConfig.checkpointer).not.toBe(secondConfig.checkpointer);
     expect(firstConfig.backend).not.toBe(secondConfig.backend);
-    expect(resolveApprovalCoordinatorMock).toHaveBeenCalledTimes(2);
+    expect(resolveRunDelegatedToolActionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('routes gated and ungated tool calls through the same narrow callback', async () => {
+    const adapter = createDelegatedRuntimeAdapter(parentContext, options);
+    await adapter.run(requestFor(snapshotFor(null)));
+    const graphConfig = createAgentGraphMock.mock.calls[0][0] as {
+      middleware: Array<{
+        wrapToolCall: (
+          request: unknown,
+          handler: (request: unknown) => Promise<unknown>,
+        ) => Promise<unknown>;
+      }>;
+    };
+    const approvalMiddleware = graphConfig.middleware[0];
+    const handler = vi.fn(async () => 'handled');
+
+    await expect(approvalMiddleware.wrapToolCall(
+      { toolCall: { id: 'gated-1', name: 'mcp_search', args: { query: 'cdf' } } },
+      handler,
+    )).resolves.toBe('handled');
+    await expect(approvalMiddleware.wrapToolCall(
+      { toolCall: { id: 'open-1', name: 'bash', args: { command: 'pwd' } } },
+      handler,
+    )).resolves.toBe('handled');
+
+    expect(runDelegatedToolActionMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        delegatedRunId: 'delegated-1',
+        action: { id: 'gated-1', name: 'mcp_search', args: { query: 'cdf' } },
+        requiresApproval: true,
+      }),
+    );
+    expect(runDelegatedToolActionMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        delegatedRunId: 'delegated-1',
+        action: { id: 'open-1', name: 'bash', args: { command: 'pwd' } },
+        requiresApproval: false,
+      }),
+    );
+  });
+
+  it('propagates a rejected tool-action callback without invoking the tool handler', async () => {
+    runDelegatedToolActionMock.mockRejectedValueOnce(new Error('approval gateway failed'));
+    const adapter = createDelegatedRuntimeAdapter(parentContext, options);
+    await adapter.run(requestFor(snapshotFor(null)));
+    const graphConfig = createAgentGraphMock.mock.calls[0][0] as {
+      middleware: Array<{
+        wrapToolCall: (
+          request: unknown,
+          handler: (request: unknown) => Promise<unknown>,
+        ) => Promise<unknown>;
+      }>;
+    };
+    const handler = vi.fn(async () => 'handled');
+
+    await expect(graphConfig.middleware[0].wrapToolCall(
+      { toolCall: { id: 'gated-1', name: 'mcp_search', args: {} } },
+      handler,
+    )).rejects.toThrow('approval gateway failed');
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('returns the structured child result when it matches the delegated contract', async () => {

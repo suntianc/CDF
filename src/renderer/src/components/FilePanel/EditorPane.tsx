@@ -6,6 +6,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { MarkdownRenderer } from '../ChatArea/MarkdownRenderer';
 import { isFlowDiagramFile } from '../../lib/flowDiagramFile';
 import { FileTypeIcon } from './FileTypeIcon';
+import type { FlowDiagramDocumentVersion } from '@shared/flow-diagrams';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react'));
 const FlowDiagramEditor = lazy(() =>
@@ -35,10 +36,17 @@ interface EditorPaneProps {
   filePath: string;
   fileName: string;
   content: string;
+  documentVersion?: FlowDiagramDocumentVersion;
   loadError?: 'unreadable';
 }
 
-export function EditorPane({ filePath, fileName, content, loadError }: EditorPaneProps) {
+export function EditorPane({
+  filePath,
+  fileName,
+  content,
+  documentVersion,
+  loadError,
+}: EditorPaneProps) {
   const language = useMemo(() => detectLanguage(fileName), [fileName]);
   const isMd = language === 'markdown';
   const isFlowDiagram = isFlowDiagramFile(fileName);
@@ -201,6 +209,7 @@ export function EditorPane({ filePath, fileName, content, loadError }: EditorPan
               content={content}
               fileName={fileName}
               filePath={filePath}
+              documentVersion={documentVersion}
               loadError={loadError}
             />
           </Suspense>

@@ -19,7 +19,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { readDirectory, readFile, getFileInfo, writeFile, createFile, createDirectory, renameEntry, trashEntry, resolveProjectFile } from './services/file-system';
-import { ensureFileWatcher, notifyFileChange, watchDirectory, unwatchDirectory } from './services/file-watcher';
+import {
+  ensureFileWatcher,
+  notifyFileChange,
+  notifyFlowDiagramDocumentChange,
+  watchDirectory,
+  unwatchDirectory,
+} from './services/file-watcher';
 import {
   listPhysicalSkills,
   listResolvedSkillViews,
@@ -1261,16 +1267,33 @@ export function registerIpcHandlers() {
     }
   });
 
-  typedHandle('flow-diagram:save-document', async (_, rootPath, filePath, content, expectedContent) => {
+  typedHandle('flow-diagram:load-document', async (_, rootPath, filePath) => {
     if (!isRegisteredProjectRoot(rootPath)) {
       return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
     }
-    const documentStore = createFlowDiagramDocumentStore({
-      projectPath: rootPath,
-      notifyFileChange,
-    });
-    return documentStore.saveDocument(filePath, content, expectedContent);
+    const documentStore = createFlowDiagramDocumentStore({ projectPath: rootPath });
+    return documentStore.readDocument(filePath);
   });
+
+  typedHandle(
+    'flow-diagram:save-document',
+    async (_, rootPath, filePath, content, expectedVersion, mutationId) => {
+      if (!isRegisteredProjectRoot(rootPath)) {
+        return { ok: false, error: { code: 'EACCES', message: 'rootPath is not a registered project root' } };
+      }
+      const documentStore = createFlowDiagramDocumentStore({
+        projectPath: rootPath,
+        notifyFileChange,
+        notifyDocumentChange: notifyFlowDiagramDocumentChange,
+      });
+      return documentStore.saveDocument(
+        filePath,
+        content,
+        expectedVersion,
+        mutationId,
+      );
+    },
+  );
 
   typedHandle('fs:createFile', async (_, rootPath, filePath) => {
     if (!isRegisteredProjectRoot(rootPath)) {

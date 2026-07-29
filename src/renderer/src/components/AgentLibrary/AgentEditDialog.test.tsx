@@ -49,8 +49,8 @@ describe('AgentEditDialog', () => {
 
     fireEvent.click(screen.getByText('Manage Skill preload'));
 
-    expect(screen.getByRole('button', { name: /preload review/i })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /preload project-review/i })).toBeNull();
+    expect(screen.getByRole('checkbox', { name: /preload review/i })).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: /preload project-review/i })).toBeNull();
   });
 
   it('hydrates a new Custom Agent model after sources finish loading without resetting its draft', () => {
@@ -115,7 +115,7 @@ describe('AgentEditDialog', () => {
       target: { value: 'Review Agent' },
     });
     fireEvent.click(screen.getByText('Manage Skill preload'));
-    fireEvent.click(screen.getByRole('button', { name: /preload review/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /preload review/i }));
     fireEvent.click(screen.getByText('Save'));
 
     expect(createCustomAgent).toHaveBeenCalledWith(expect.objectContaining({

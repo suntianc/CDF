@@ -60,16 +60,25 @@ async function openProjectFileFromDisk(
   const isFlowDiagram = isFlowDiagramFile(fileName);
 
   try {
+    if (isFlowDiagram) {
+      const result = await window.electronAPI.flowDiagram.loadDocument(rootPath, filePath);
+      if (!result.ok) return openUnreadableDiagram();
+      const file = {
+        path: filePath,
+        name: fileName,
+        content: result.document.content,
+        documentVersion: result.document.version,
+      };
+      useFileStore.getState().openPreview(file);
+      return { ok: true, file, reused: false };
+    }
+
     const result = await window.electronAPI.fs.readFile(rootPath, filePath);
     if (!result.ok) {
-      return isFlowDiagram
-        ? openUnreadableDiagram()
-        : { ok: false, message: result.error.message };
+      return { ok: false, message: result.error.message };
     }
     if ('binary' in result.data) {
-      return isFlowDiagram
-        ? openUnreadableDiagram()
-        : { ok: false, message: 'Binary files cannot be opened in the editor.' };
+      return { ok: false, message: 'Binary files cannot be opened in the editor.' };
     }
 
     const file = {

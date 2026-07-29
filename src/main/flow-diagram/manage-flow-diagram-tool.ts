@@ -2,7 +2,10 @@ import { app } from 'electron';
 import path from 'path';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { notifyFileChange } from '../services/file-watcher';
+import {
+  notifyFileChange,
+  notifyFlowDiagramDocumentChange,
+} from '../services/file-watcher';
 import {
   createFlowDiagramService,
   type FlowDiagramService,
@@ -76,6 +79,7 @@ export function createManageFlowDiagramTool(
     projectPath,
     stateRoot: options.stateRoot ?? path.join(app.getPath('userData'), 'flow-diagrams'),
     notifyFileChange,
+    notifyDocumentChange: notifyFlowDiagramDocumentChange,
     renderExport: renderFlowDiagramExportAdapter,
   });
 

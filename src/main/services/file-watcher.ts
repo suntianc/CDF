@@ -1,7 +1,11 @@
 import { BrowserWindow } from 'electron';
+import fs from 'fs';
+import path from 'path';
 import { typedSend } from '../typed-ipc';
 import chokidar from 'chokidar';
 import log from '../logger';
+import type { FlowDiagramDocumentChangeEvent } from '../../shared/flow-diagrams';
+import { hashBytes } from '../flow-diagram/flow-diagram-document-store';
 
 const watchers = new Map<string, ReturnType<typeof chokidar.watch>>();
 let currentRootPath: string | null = null;
@@ -18,6 +22,17 @@ const IGNORED = [
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingEvents = new Map<string, string>();
 
+export function notifyFlowDiagramDocumentChange(
+  event: FlowDiagramDocumentChangeEvent,
+): void {
+  const windows = typeof BrowserWindow?.getAllWindows === 'function'
+    ? BrowserWindow.getAllWindows()
+    : [];
+  windows.forEach((window) => {
+    typedSend(window.webContents, 'flow-diagram:document-change', event);
+  });
+}
+
 function flushEvents() {
   for (const [filePath, type] of pendingEvents) {
     const windows = typeof BrowserWindow?.getAllWindows === 'function'
@@ -26,6 +41,15 @@ function flushEvents() {
     windows.forEach((w) => {
       typedSend(w.webContents, 'fs:directoryChange', { type, path: filePath });
     });
+    if (path.extname(filePath).toLowerCase() === '.excalidraw') {
+      let version: FlowDiagramDocumentChangeEvent['version'] = null;
+      try {
+        version = hashBytes(fs.readFileSync(filePath));
+      } catch {
+        version = null;
+      }
+      notifyFlowDiagramDocumentChange({ filePath, version });
+    }
   }
   pendingEvents.clear();
   debounceTimer = null;

@@ -33,6 +33,7 @@ import type { CapabilityJobAction } from '../shared/capability-jobs';
 import {
   FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL,
   FLOW_DIAGRAM_EXPORT_RESPONSE_CHANNEL,
+  type FlowDiagramDocumentVersion,
   type FlowDiagramExportRequest,
   type FlowDiagramExportResponse,
 } from '../shared/flow-diagrams';
@@ -161,8 +162,25 @@ const api = {
     },
   },
   flowDiagram: {
-    saveDocument: (rootPath: string, filePath: string, content: string, expectedContent: string | null) =>
-      typedInvoke('flow-diagram:save-document', rootPath, filePath, content, expectedContent),
+    loadDocument: (rootPath: string, filePath: string) =>
+      typedInvoke('flow-diagram:load-document', rootPath, filePath),
+    saveDocument: (
+      rootPath: string,
+      filePath: string,
+      content: string,
+      expectedVersion: FlowDiagramDocumentVersion,
+      mutationId?: string,
+    ) => typedInvoke(
+      'flow-diagram:save-document',
+      rootPath,
+      filePath,
+      content,
+      expectedVersion,
+      mutationId,
+    ),
+    onDocumentChange: (
+      callback: (data: IpcEventPayload<'flow-diagram:document-change'>) => void,
+    ) => typedOn('flow-diagram:document-change', callback),
     onExportRequest: (callback: (request: FlowDiagramExportRequest) => void) => {
       const listener = (_event: IpcRendererEvent, request: FlowDiagramExportRequest) => callback(request);
       ipcRenderer.on(FLOW_DIAGRAM_EXPORT_REQUEST_CHANNEL, listener);

@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 import {
   contentTypeForPath,
   createCdfFileResponse,
-  isPathWithinRoots,
   parseRangeHeader,
   resolveCdfFilePath,
 } from './cdf-file-protocol';
@@ -33,40 +32,6 @@ describe('resolveCdfFilePath', () => {
 
   it('removes only the URL slash before a Windows drive path', () => {
     expect(resolveCdfFilePath('cdf-file:///C:/Users/s/My%20Video.mp4')).toBe('C:/Users/s/My Video.mp4');
-  });
-});
-
-describe('isPathWithinRoots', () => {
-  // Regression (#204 回归): under standard:true Chromium folds the first path
-  // segment into the URL host and lowercases it, so every macOS request arrives
-  // as /users/... while allowedRoots hold /Users/.... On a case-insensitive
-  // filesystem both address the same file, so containment must not be
-  // case-sensitive — otherwise every historical image/audio 403s.
-  it('accepts a host-casefolded path on a case-insensitive filesystem', () => {
-    expect(isPathWithinRoots(
-      '/users/suntc/Library/Application Support/cdf/default-project/.cdf/artifacts/images/a.png',
-      ['/Users/suntc/Library/Application Support/cdf'],
-      true,
-    )).toBe(true);
-  });
-
-  it('still rejects casing differences in case-sensitive mode', () => {
-    expect(isPathWithinRoots(
-      '/users/suntc/Library/Application Support/cdf/a.png',
-      ['/Users/suntc/Library/Application Support/cdf'],
-      false,
-    )).toBe(false);
-  });
-
-  it('still rejects escapes and unrelated roots regardless of casing mode', () => {
-    expect(isPathWithinRoots('/Users/suntc/other/a.png', ['/Users/suntc/Library'], true)).toBe(false);
-    expect(isPathWithinRoots('/Users/suntc/Library/../.ssh/id_rsa', ['/Users/suntc/Library'], true)).toBe(false);
-    expect(isPathWithinRoots('/Users/suntc/LibraryEvil/a.png', ['/Users/suntc/Library'], true)).toBe(false);
-  });
-
-  it('defaults to case-insensitive containment on macOS/Windows', () => {
-    const expected = process.platform === 'darwin' || process.platform === 'win32';
-    expect(isPathWithinRoots('/users/x/a.png', ['/Users/x'])).toBe(expected);
   });
 });
 
@@ -198,6 +163,73 @@ describe('createCdfFileResponse', () => {
     const res = await createCdfFileResponse({ url: cdfUrl(escape), rangeHeader: null, allowedRoots: [tempDir] });
     expect(res.status).toBe(403);
   });
+
+  it('rejects a sibling directory that differs from the allowed root only by casing when both can exist', async () => {
+    const allowedRoot = path.join(tempDir, 'Allowed');
+    const siblingRoot = path.join(tempDir, 'allowed');
+    fs.mkdirSync(allowedRoot);
+    if (fs.existsSync(siblingRoot)) {
+      // The current volume is case-insensitive; the macOS host-fold regression below
+      // exercises that filesystem identity. Case-sensitive CI/volumes continue here.
+      return;
+    }
+    fs.mkdirSync(siblingRoot);
+    const siblingFile = path.join(siblingRoot, 'clip.mp4');
+    fs.writeFileSync(siblingFile, CONTENT);
+
+    const res = await createCdfFileResponse({
+      url: cdfUrl(siblingFile),
+      rangeHeader: null,
+      allowedRoots: [allowedRoot],
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 for a path whose directory only shares the allowed root prefix', async () => {
+    const allowedRoot = path.join(tempDir, 'Library');
+    const prefixedSibling = path.join(tempDir, 'LibraryEvil');
+    fs.mkdirSync(allowedRoot);
+    fs.mkdirSync(prefixedSibling);
+    const siblingFile = path.join(prefixedSibling, 'clip.mp4');
+    fs.writeFileSync(siblingFile, CONTENT);
+
+    const res = await createCdfFileResponse({
+      url: cdfUrl(siblingFile),
+      rangeHeader: null,
+      allowedRoots: [allowedRoot],
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it.runIf(process.platform !== 'win32')(
+    'returns 403 for ordinary and Range requests through a symlink that points outside the root',
+    async () => {
+      const allowedRoot = path.join(tempDir, 'allowed');
+      const outsidePath = path.join(tempDir, 'outside.mp4');
+      const linkedPath = path.join(allowedRoot, 'linked.mp4');
+      fs.mkdirSync(allowedRoot);
+      fs.writeFileSync(outsidePath, CONTENT);
+      fs.symlinkSync(outsidePath, linkedPath);
+
+      const [ordinaryResponse, rangeResponse] = await Promise.all([
+        createCdfFileResponse({
+          url: cdfUrl(linkedPath),
+          rangeHeader: null,
+          allowedRoots: [allowedRoot],
+        }),
+        createCdfFileResponse({
+          url: cdfUrl(linkedPath),
+          rangeHeader: 'bytes=0-5',
+          allowedRoots: [allowedRoot],
+        }),
+      ]);
+
+      expect(ordinaryResponse.status).toBe(403);
+      expect(rangeResponse.status).toBe(403);
+    },
+  );
 
   // Regression (#204 回归): simulate Chromium's host casefolding — the URL path
   // casing differs from the allowedRoots casing, but the case-insensitive macOS

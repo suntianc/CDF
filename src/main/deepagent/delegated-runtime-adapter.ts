@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { ToolMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
 import { createMiddleware } from 'langchain';
 import { createDeepAgent, CompositeBackend, StateBackend } from 'deepagents';
@@ -17,10 +18,10 @@ import { ProjectConfinedFilesystemBackend } from './project-confined-backend';
 import { DEEPAGENT_CHECKPOINT_NAMESPACE } from './conversation-working-state';
 import { subagentStepStorage } from './subagent-step-storage';
 import type {
-  DelegatedAgentRunCoordinator,
   DelegatedRuntimeAdapter,
   DelegatedRuntimeRequest,
 } from './delegated-agent-run-coordinator';
+import type { DelegatedToolActionInput } from './delegated-tool-approval-scheduler';
 import {
   DELEGATED_TASK_RESULT_SCHEMA,
   type ApprovalMode,
@@ -70,6 +71,10 @@ export type DelegatedResilienceMiddlewareFactory = (
   ...allowedToolSets: Array<string[] | undefined>
 ) => DeepAgentMiddleware;
 
+export type RunDelegatedToolAction = <T>(
+  input: DelegatedToolActionInput<T>,
+) => Promise<T | ToolMessage>;
+
 export interface DelegatedRuntimeExecutionDependencies {
   assembleRuntime: typeof assembleDeepAgentRuntime;
   createAgentGraph: typeof createDeepAgent;
@@ -82,17 +87,17 @@ export interface DelegatedRuntimeExecutionDependencies {
 
 export interface CreateDelegatedRuntimeAdapterOptions {
   /**
-   * 审批门控入口的延迟解析：coordinator 构造时持有 adapter，adapter 仅在
-   * run() 执行期取回 coordinator，二者不再互相捕获。
+   * 审批门控窄能力的延迟解析：coordinator 构造时持有 adapter，adapter 仅在
+   * run() 执行期取回执行单次 tool action 的 callback，不感知 coordinator。
    */
-  resolveApprovalCoordinator: () => DelegatedAgentRunCoordinator;
+  resolveRunDelegatedToolAction: () => RunDelegatedToolAction;
   /** 子运行韧性中间件工厂（工具/模型重试与失败观察归属装配层）。 */
   createResilienceMiddleware: DelegatedResilienceMiddlewareFactory;
   dependencies?: Partial<DelegatedRuntimeExecutionDependencies>;
 }
 
 function createDelegatedToolApprovalMiddleware(
-  coordinator: DelegatedAgentRunCoordinator,
+  runDelegatedToolAction: RunDelegatedToolAction,
   delegatedRunId: string,
   gatedToolNames: Set<string>,
 ) {
@@ -102,7 +107,7 @@ function createDelegatedToolApprovalMiddleware(
       const runtimeTool = request as { tool?: { name?: string } };
       const toolName = request.toolCall?.name || runtimeTool.tool?.name || 'unknown';
       const actionId = request.toolCall?.id || crypto.randomUUID();
-      return coordinator.runToolAction({
+      return runDelegatedToolAction({
         delegatedRunId,
         action: {
           id: actionId,
@@ -281,7 +286,7 @@ export function createDelegatedRuntimeAdapter(
         tools: [...childMcpRuntime.tools, ...childScope.builtInTools],
         middleware: [
           createDelegatedToolApprovalMiddleware(
-            options.resolveApprovalCoordinator(),
+            options.resolveRunDelegatedToolAction(),
             request.delegatedRunId,
             gatedToolNames,
           ),

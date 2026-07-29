@@ -25,6 +25,10 @@ const DIAGRAM_CONTENT = JSON.stringify({
   appState: { viewBackgroundColor: '#f8f9fa' },
   files: {},
 });
+type SaveSuccess = {
+  ok: true;
+  document: { content: string; version: string };
+};
 
 const { excalidrawProps, editCount, loadFromBlob, serializeAsJSON } = vi.hoisted(() => ({
   excalidrawProps: { current: null as Record<string, unknown> | null },
@@ -106,8 +110,10 @@ vi.mock('@excalidraw/excalidraw', () => ({
 
 const readFile = vi.fn();
 const writeFile = vi.fn();
+const fsReadFile = vi.fn();
+const fsWriteFile = vi.fn();
 const directoryChangeListeners: Array<(
-  data: { type: string; path: string },
+  data: { filePath: string; version: string | null; mutationId?: string },
 ) => void> = [];
 
 beforeAll(() => {
@@ -137,26 +143,41 @@ beforeEach(() => {
   serializeAsJSON.mockClear();
   readFile.mockReset().mockResolvedValue({
     ok: true,
-    data: { content: DIAGRAM_CONTENT },
+    document: { content: DIAGRAM_CONTENT, version: 'version-1' },
   });
-  writeFile.mockReset().mockResolvedValue({ ok: true, data: undefined });
+  let savedVersion = 1;
+  writeFile.mockReset().mockImplementation(async (
+    _rootPath: string,
+    _filePath: string,
+    savedContent: string,
+  ) => ({
+    ok: true,
+    document: {
+      content: savedContent,
+      version: `version-${++savedVersion}`,
+    },
+  }));
+  fsReadFile.mockReset();
+  fsWriteFile.mockReset();
   directoryChangeListeners.length = 0;
 
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     store: { get: vi.fn().mockResolvedValue(false) },
-    // 流程图 autosave 走文档存储通道 (#200)；参数形状与 fs.writeFile 的
-    // CAS 版本一致（rootPath, filePath, content, expectedContent），共用断言。
-    flowDiagram: { saveDocument: writeFile },
-    fs: {
-      readDirectory: vi.fn().mockResolvedValue({ ok: true, data: [] }),
-      readFile,
-      writeFile,
-      watchDirectory: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
-      unwatchDirectory: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
-      onDirectoryChange: vi.fn((callback) => {
+    flowDiagram: {
+      loadDocument: readFile,
+      saveDocument: writeFile,
+      onDocumentChange: vi.fn((callback) => {
         directoryChangeListeners.push(callback);
         return vi.fn();
       }),
+    },
+    fs: {
+      readDirectory: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      readFile: fsReadFile,
+      writeFile: fsWriteFile,
+      watchDirectory: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+      unwatchDirectory: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+      onDirectoryChange: vi.fn(() => vi.fn()),
     },
   };
 
@@ -218,6 +239,7 @@ describe('Editable Flow Diagram workspace', () => {
 
     await screen.findByTestId('official-excalidraw');
     expect(readFile).toHaveBeenCalledTimes(1);
+    expect(fsReadFile).not.toHaveBeenCalled();
     expect(useFileStore.getState().openTabs).toHaveLength(1);
     expect(useFileStore.getState().previewFile?.path).toBe(DIAGRAM_PATH);
     await waitFor(() => expect(excalidrawProps.current?.initialData).toMatchObject({
@@ -254,17 +276,20 @@ describe('Editable Flow Diagram workspace', () => {
     loadFromBlob.mockResolvedValue(agentDiagram);
     readFile.mockResolvedValue({
       ok: true,
-      data: { content: JSON.stringify({
-        type: 'excalidraw',
-        version: 2,
-        source: 'https://cdf.local',
-        ...agentDiagram,
-      }) },
+      document: {
+        content: JSON.stringify({
+          type: 'excalidraw',
+          version: 2,
+          source: 'https://cdf.local',
+          ...agentDiagram,
+        }),
+        version: 'version-agent-1',
+      },
     });
 
     await act(async () => {
       for (const listener of directoryChangeListeners) {
-        listener({ type: 'change', path: DIAGRAM_PATH });
+        listener({ filePath: DIAGRAM_PATH, version: 'version-agent-1' });
       }
     });
 
@@ -284,6 +309,7 @@ describe('Editable Flow Diagram workspace', () => {
         path: `${PROJECT_PATH}/diagrams/second.excalidraw`,
         name: 'second.excalidraw',
         content: DIAGRAM_CONTENT,
+        documentVersion: 'version-second' as never,
       });
       useFileStore.getState().setActiveTab(0);
     });
@@ -298,17 +324,20 @@ describe('Editable Flow Diagram workspace', () => {
     loadFromBlob.mockResolvedValue(agentDiagram);
     readFile.mockResolvedValue({
       ok: true,
-      data: { content: JSON.stringify({
-        type: 'excalidraw',
-        version: 2,
-        source: 'https://cdf.local',
-        ...agentDiagram,
-      }) },
+      document: {
+        content: JSON.stringify({
+          type: 'excalidraw',
+          version: 2,
+          source: 'https://cdf.local',
+          ...agentDiagram,
+        }),
+        version: 'version-agent-1',
+      },
     });
 
     await act(async () => {
       for (const listener of directoryChangeListeners) {
-        listener({ type: 'change', path: DIAGRAM_PATH });
+        listener({ filePath: DIAGRAM_PATH, version: 'version-agent-1' });
       }
       await Promise.resolve();
     });
@@ -380,7 +409,8 @@ describe('Editable Flow Diagram workspace', () => {
       PROJECT_PATH,
       DIAGRAM_PATH,
       expect.any(String),
-      DIAGRAM_CONTENT,
+      'version-1',
+      expect.stringMatching(/^flow-diagram-/),
     );
     const savedDocument = JSON.parse(writeFile.mock.calls[0][2]);
     expect(useFileStore.getState().previewFile?.content).toBe(writeFile.mock.calls[0][2]);
@@ -404,8 +434,134 @@ describe('Editable Flow Diagram workspace', () => {
     expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
   });
 
+  it('uses a save conflict snapshot directly and restores against its latest version', async () => {
+    writeFile.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'SOURCE_CHANGED',
+        message: 'changed',
+        currentContent: DIAGRAM_CONTENT,
+        currentVersion: 'version-conflict',
+      },
+    });
+    render(<main><FilePanel /></main>);
+    fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
+    await screen.findByTestId('official-excalidraw');
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Draw in diagram' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('button', {
+      name: /恢复我的编辑|Restore my edits/,
+    })).toBeTruthy();
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(fsReadFile).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', {
+      name: /恢复我的编辑|Restore my edits/,
+    }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(writeFile).toHaveBeenCalledTimes(2);
+    expect(writeFile.mock.calls[1][3]).toBe('version-conflict');
+    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
+  });
+
+  it('ignores the versioned notification produced by its own active save', async () => {
+    writeFile.mockImplementationOnce(async (
+      _rootPath: string,
+      _filePath: string,
+      savedContent: string,
+      _expectedVersion: string,
+      mutationId: string,
+    ) => {
+      for (const listener of directoryChangeListeners) {
+        listener({
+          filePath: DIAGRAM_PATH,
+          version: 'version-2',
+          mutationId,
+        });
+      }
+      return {
+        ok: true,
+        document: { content: savedContent, version: 'version-2' },
+      };
+    });
+    render(<main><FilePanel /></main>);
+    fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
+    await screen.findByTestId('official-excalidraw');
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Draw in diagram' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', {
+      name: /恢复我的编辑|Restore my edits/,
+    })).toBeNull();
+    expect(useFileStore.getState().dirtyTabs[DIAGRAM_PATH]).toBe(false);
+  });
+
+  it('does not regress when versioned external notifications resolve out of order', async () => {
+    let resolveOlder: ((value: unknown) => void) | undefined;
+    let resolveLatest: ((value: unknown) => void) | undefined;
+    render(<main><FilePanel /></main>);
+    fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));
+    await screen.findByTestId('official-excalidraw');
+
+    readFile
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveOlder = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveLatest = resolve;
+      }));
+    const latestContent = DIAGRAM_CONTENT.replace('"elements":[]', '"elements":[{"id":"latest"}]');
+    const olderContent = DIAGRAM_CONTENT.replace('"elements":[]', '"elements":[{"id":"older"}]');
+
+    act(() => {
+      for (const listener of directoryChangeListeners) {
+        listener({ filePath: DIAGRAM_PATH, version: 'version-older' });
+        listener({ filePath: DIAGRAM_PATH, version: 'version-latest' });
+      }
+    });
+    await act(async () => {
+      resolveLatest?.({
+        ok: true,
+        document: { content: latestContent, version: 'version-latest' },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveOlder?.({
+        ok: true,
+        document: { content: olderContent, version: 'version-older' },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(useFileStore.getState().previewFile).toMatchObject({
+        content: latestContent,
+        documentVersion: 'version-latest',
+      });
+    });
+    expect(useFileStore.getState().previewFile?.content).not.toBe(olderContent);
+  });
+
   it('serializes overlapping saves so an older write cannot replace the latest edit', async () => {
-    let resolveFirstWrite: ((value: { ok: true; data: undefined }) => void) | undefined;
+    let resolveFirstWrite: ((value: SaveSuccess) => void) | undefined;
     writeFile.mockImplementationOnce(() => new Promise((resolve) => {
       resolveFirstWrite = resolve;
     }));
@@ -429,7 +585,10 @@ describe('Editable Flow Diagram workspace', () => {
     expect(writeFile).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveFirstWrite?.({ ok: true, data: undefined });
+      resolveFirstWrite?.({
+        ok: true,
+        document: { content: writeFile.mock.calls[0][2], version: 'version-2' },
+      });
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -476,8 +635,8 @@ describe('Editable Flow Diagram workspace', () => {
   });
 
   it('waits for edits made while close-time flush is still in progress', async () => {
-    let resolveFirstWrite: ((value: { ok: true; data: undefined }) => void) | undefined;
-    let resolveSecondWrite: ((value: { ok: true; data: undefined }) => void) | undefined;
+    let resolveFirstWrite: ((value: SaveSuccess) => void) | undefined;
+    let resolveSecondWrite: ((value: SaveSuccess) => void) | undefined;
     writeFile
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveFirstWrite = resolve;
@@ -500,7 +659,10 @@ describe('Editable Flow Diagram workspace', () => {
 
     fireEvent.click(drawButton);
     await act(async () => {
-      resolveFirstWrite?.({ ok: true, data: undefined });
+      resolveFirstWrite?.({
+        ok: true,
+        document: { content: writeFile.mock.calls[0][2], version: 'version-2' },
+      });
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -508,7 +670,10 @@ describe('Editable Flow Diagram workspace', () => {
     expect(useFileStore.getState().openTabs).toHaveLength(1);
 
     await act(async () => {
-      resolveSecondWrite?.({ ok: true, data: undefined });
+      resolveSecondWrite?.({
+        ok: true,
+        document: { content: writeFile.mock.calls[1][2], version: 'version-3' },
+      });
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -537,7 +702,10 @@ describe('Editable Flow Diagram workspace', () => {
 
   it('shows a read-only error without overwriting invalid or unreadable diagrams', async () => {
     loadFromBlob.mockRejectedValueOnce(new Error('invalid document'));
-    readFile.mockResolvedValueOnce({ ok: true, data: { content: '{not-json' } });
+    readFile.mockResolvedValueOnce({
+      ok: true,
+      document: { content: '{not-json', version: 'version-invalid' },
+    });
     const { unmount } = render(<main><FilePanel /></main>);
 
     fireEvent.click(screen.getByRole('button', { name: 'release.excalidraw' }));

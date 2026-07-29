@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import type { DirectoryEntry } from '@shared/types';
+import type { FlowDiagramDocumentVersion } from '@shared/flow-diagrams';
 
 export interface PreviewFile {
   path: string;
   name: string;
   content: string;
+  documentVersion?: FlowDiagramDocumentVersion;
   loadError?: 'unreadable';
 }
 
@@ -25,7 +27,11 @@ interface FileState {
   fileTreeCollapsed: boolean;
   dirtyTabs: Record<string, boolean>;
   setTabDirty: (path: string, dirty: boolean) => void;
-  setTabContent: (path: string, content: string) => void;
+  setTabContent: (
+    path: string,
+    content: string,
+    documentVersion?: FlowDiagramDocumentVersion,
+  ) => void;
 
   setFilePanelOpen: (open: boolean) => void;
   toggleFilePanel: () => void;
@@ -71,12 +77,14 @@ export const useFileStore = create<FileState>((set) => ({
   setFilePanelWidth: (width) => set({ filePanelWidth: width }),
   setRootPath: (path) => set({ rootPath: path, expandedDirs: {}, dirContents: {}, dirErrors: {}, filterQuery: '', openTabs: [], activeTabIndex: -1, previewFile: null, filePanelMode: 'tree', filePanelWidth: 280, selectedPath: null, fileTreeCollapsed: false, dirtyTabs: {} }),
   setTabDirty: (path, dirty) => set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [path]: dirty } })),
-  setTabContent: (path, content) => set((s) => {
+  setTabContent: (path, content, documentVersion) => set((s) => {
     const openTabs = s.openTabs.map((tab) => (
-      tab.path === path ? { ...tab, content, loadError: undefined } : tab
+      tab.path === path
+        ? { ...tab, content, documentVersion, loadError: undefined }
+        : tab
     ));
     const previewFile = s.previewFile?.path === path
-      ? { ...s.previewFile, content, loadError: undefined }
+      ? { ...s.previewFile, content, documentVersion, loadError: undefined }
       : s.previewFile;
     return { openTabs, previewFile };
   }),

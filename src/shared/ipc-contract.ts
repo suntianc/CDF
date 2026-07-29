@@ -32,7 +32,12 @@ import type {
 } from './conversations';
 import type { ContextAggregate } from './context';
 import type { BinaryFileInfo, DirectoryEntry, FileContent, FileError, FileInfo } from './filesystem';
-import type { FlowDiagramDocumentSaveResult } from './flow-diagrams';
+import type {
+  FlowDiagramDocumentChangeEvent,
+  FlowDiagramDocumentReadResult,
+  FlowDiagramDocumentSaveResult,
+  FlowDiagramDocumentVersion,
+} from './flow-diagrams';
 import type {
   KnowledgeEntryCreateInput,
   KnowledgeEntrySearchOptions,
@@ -261,9 +266,19 @@ export interface IpcInvokeContract {
     args: [rootPath: string, filePath: string, content: string];
     result: FsAck;
   };
-  // Flow Diagram 文档写路径走文档存储：原子 CAS + 场景校验 + 冲突结构化返回。
+  // Flow Diagram 一致性路径只暴露版本化文档 API，不经通用 fs read/write。
+  'flow-diagram:load-document': {
+    args: [rootPath: string, filePath: string];
+    result: FlowDiagramDocumentReadResult;
+  };
   'flow-diagram:save-document': {
-    args: [rootPath: string, filePath: string, content: string, expectedContent: string | null];
+    args: [
+      rootPath: string,
+      filePath: string,
+      content: string,
+      expectedVersion: FlowDiagramDocumentVersion,
+      mutationId?: string,
+    ];
     result: FlowDiagramDocumentSaveResult;
   };
   'fs:createFile': { args: [rootPath: string, filePath: string]; result: FsAck };
@@ -448,6 +463,7 @@ export const IPC_INVOKE_CHANNELS = [
   'fs:readFile',
   'fs:getFileInfo',
   'fs:writeFile',
+  'flow-diagram:load-document',
   'flow-diagram:save-document',
   'fs:createFile',
   'fs:createDirectory',
@@ -490,6 +506,7 @@ export interface IpcEventContract {
   'conversation:messages-changed': { sessionId: string };
   'conversation:run-event': ConversationRunStreamEnvelope;
   'fs:directoryChange': { type: string; path: string };
+  'flow-diagram:document-change': FlowDiagramDocumentChangeEvent;
   'commands:changed': { source: string };
   'commands:fallback': { scope: 'system' | 'project'; dir: string; error: string };
   'capability-jobs:changed': CapabilityJobEvent;

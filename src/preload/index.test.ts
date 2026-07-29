@@ -85,6 +85,7 @@ describe('preload bridge', () => {
       [() => api.capabilityJobs.onChanged, 'capability-jobs:changed'],
       [() => api.workflowRun.onProjectionEvent, 'workflow-run:projection-event'],
       [() => api.fs.onDirectoryChange, 'fs:directoryChange'],
+      [() => api.flowDiagram.onDocumentChange, 'flow-diagram:document-change'],
       [() => api.commands.onChanged, 'commands:changed'],
       [() => api.commands.onFallback, 'commands:fallback'],
     ];
@@ -112,6 +113,33 @@ describe('preload bridge', () => {
     const api = await loadApi();
     await api.workflowRun.getTasks('run-1', 'stage-2');
     expect(invokeMock).toHaveBeenCalledWith('workflow-run:get-tasks', 'run-1', 'stage-2');
+  });
+
+  it('exposes only the versioned Flow Diagram load and save invokes', async () => {
+    const api = await loadApi();
+
+    await api.flowDiagram.loadDocument('/project', '/project/diagram.excalidraw');
+    await api.flowDiagram.saveDocument(
+      '/project',
+      '/project/diagram.excalidraw',
+      '{"type":"excalidraw"}',
+      'version-1',
+      'mutation-1',
+    );
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      'flow-diagram:load-document',
+      '/project',
+      '/project/diagram.excalidraw',
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      'flow-diagram:save-document',
+      '/project',
+      '/project/diagram.excalidraw',
+      '{"type":"excalidraw"}',
+      'version-1',
+      'mutation-1',
+    );
   });
 
   it('sends flow-diagram export responses through ipcRenderer.send', async () => {

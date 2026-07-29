@@ -1,12 +1,8 @@
-import fs from 'fs';
 import path from 'path';
 import {
+  createFlowDiagramDocumentStore,
+  type FlowDiagramDocumentStore,
   FlowDiagramOperationError,
-  hashBytes,
-  removeFileAtomicallyIfUnchanged,
-  replaceFileAtomicallyIfUnchanged,
-  resolveProjectOwnedPath,
-  writeNewFileAtomically,
 } from './flow-diagram-document-store';
 import {
   createFlowDiagramScene,
@@ -24,11 +20,7 @@ import {
   type FlowDiagramExportArtifact,
   type FlowDiagramExportFormat,
 } from './flow-diagram-export-renderer';
-import {
-  createFlowDiagramRevisionStore,
-  type FlowDiagramRevisionStore,
-} from './flow-diagram-revision-store';
-import { runProjectFileMutation } from '../services/project-file-mutation';
+import type { FlowDiagramDocumentChangeEvent } from '../../shared/flow-diagrams';
 
 export type FlowDiagramEditOperation =
   | { op: 'add'; elements: Array<Record<string, unknown>> }
@@ -86,18 +78,13 @@ export interface FlowDiagramService {
 export interface CreateFlowDiagramServiceOptions {
   projectPath: string;
   stateRoot: string;
-  revisionStore?: FlowDiagramRevisionStore;
-  replaceFile?: (filePath: string, bytes: Buffer) => Promise<void>;
-  replaceFileIfUnchanged?: (
-    filePath: string,
-    bytes: Buffer,
-    expectedBytes: Buffer | null,
-  ) => Promise<void>;
+  documentStore?: FlowDiagramDocumentStore;
   renderExport?: (
     scene: ExcalidrawScene,
     format: FlowDiagramExportFormat,
   ) => Promise<FlowDiagramExportArtifact>;
   notifyFileChange?: (filePath: string) => void;
+  notifyDocumentChange?: (event: FlowDiagramDocumentChangeEvent) => void;
 }
 
 function safeName(value: string | undefined): string {
@@ -109,20 +96,6 @@ function safeName(value: string | undefined): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 64);
   return normalized || 'flow-diagram';
-}
-
-function collisionSafePath(basePath: string): string {
-  if (!fs.existsSync(basePath)) return basePath;
-  const extension = path.extname(basePath);
-  const stem = basePath.slice(0, -extension.length);
-  for (let suffix = 2; suffix < 10_000; suffix += 1) {
-    const candidate = `${stem}-${suffix}${extension}`;
-    if (!fs.existsSync(candidate)) return candidate;
-  }
-  throw new FlowDiagramOperationError(
-    'PATH_COLLISION',
-    'Could not allocate a collision-safe Flow Diagram path.',
-  );
 }
 
 function artifactFor(projectPath: string, filePath: string): FlowDiagramArtifactDisplay {
@@ -387,52 +360,39 @@ export function createFlowDiagramService(
   options: CreateFlowDiagramServiceOptions,
 ): FlowDiagramService {
   const projectPath = path.resolve(options.projectPath);
-  const revisionStore = options.revisionStore
-    ?? createFlowDiagramRevisionStore(projectPath, options.stateRoot);
-  const replaceFileIfUnchanged = options.replaceFileIfUnchanged ?? (
-    options.replaceFile
-      ? async (filePath: string, bytes: Buffer, expectedBytes: Buffer | null) => {
-          if (
-            (expectedBytes === null && fs.existsSync(filePath))
-            || (expectedBytes !== null && (
-              !fs.existsSync(filePath) || !fs.readFileSync(filePath).equals(expectedBytes)
-            ))
-          ) {
-            throw new FlowDiagramOperationError(
-              'SOURCE_CHANGED',
-              'The Flow Diagram changed before the operation could be applied.',
-            );
-          }
-          await options.replaceFile!(filePath, bytes);
-        }
-      : replaceFileAtomicallyIfUnchanged
-  );
+  const documentStore = options.documentStore ?? createFlowDiagramDocumentStore({
+    projectPath,
+    stateRoot: options.stateRoot,
+    notifyFileChange: options.notifyFileChange,
+    notifyDocumentChange: options.notifyDocumentChange,
+  });
   const renderExport = options.renderExport ?? renderFlowDiagramExport;
-  const notify = (filePath: string) => options.notifyFileChange?.(filePath);
 
-  const executeUnlocked = async (input: FlowDiagramActionInput): Promise<FlowDiagramResult> => {
+  const execute = async (input: FlowDiagramActionInput): Promise<FlowDiagramResult> => {
     const action = input.action;
     if (action === 'read_format') return success(action, formatDescription());
 
     if (action === 'create') {
       try {
-        const target = input.file_path
-          ? resolveProjectOwnedPath(projectPath, input.file_path, '.excalidraw')
-          : collisionSafePath(resolveProjectOwnedPath(
-              projectPath,
-              path.join('diagrams', `${safeName(input.name)}.excalidraw`),
-              '.excalidraw',
-            ));
-        if (input.file_path && fs.existsSync(target)) {
-          throw new FlowDiagramOperationError(
-            'FILE_EXISTS',
-            'The requested Flow Diagram already exists; no file was overwritten.',
+        const created = createFlowDiagramScene(input.elements ?? []);
+        const requestedPath = input.file_path
+          ?? path.join('diagrams', `${safeName(input.name)}.excalidraw`);
+        const result = await documentStore.createDocument(
+          requestedPath,
+          serializeFlowDiagramScene(created).toString('utf-8'),
+          { collisionSafe: !input.file_path },
+        );
+        if (!result.ok) {
+          return failure(
+            action,
+            new FlowDiagramOperationError(result.error.code, result.error.message),
+            'CREATE_FAILED',
           );
         }
-        const created = createFlowDiagramScene(input.elements ?? []);
-        await writeNewFileAtomically(target, serializeFlowDiagramScene(created));
-        notify(target);
-        return success(action, { ...fileData(projectPath, target), scene: created });
+        return success(action, {
+          ...fileData(projectPath, result.filePath),
+          scene: created,
+        });
       } catch (error) {
         return failure(action, error, 'CREATE_FAILED');
       }
@@ -449,155 +409,69 @@ export function createFlowDiagramService(
       );
     }
 
-    let target: string;
-    try {
-      target = resolveProjectOwnedPath(projectPath, input.file_path, '.excalidraw');
-      if (
-        action !== 'rollback'
-        && (!fs.existsSync(target) || !fs.statSync(target).isFile())
-      ) {
-        throw new FlowDiagramOperationError('SOURCE_NOT_FOUND', 'The Flow Diagram source file does not exist.');
+    if (action === 'rollback') {
+      const result = await documentStore.rollbackDocument(input.file_path);
+      if (!result.ok) {
+        return failure(
+          action,
+          new FlowDiagramOperationError(result.error.code, result.error.message),
+          'ROLLBACK_FAILED',
+        );
       }
+      return success(action, fileData(projectPath, result.filePath));
+    }
+
+    const currentResult = await documentStore.readDocument(input.file_path);
+    if (!currentResult.ok) {
+      return failure(
+        action,
+        new FlowDiagramOperationError(
+          currentResult.error.code,
+          currentResult.error.message,
+        ),
+        action === 'export' ? 'EXPORT_FAILED' : 'READ_FAILED',
+      );
+    }
+    const target = path.resolve(projectPath, input.file_path);
+    let current: ExcalidrawScene;
+    try {
+      current = parseFlowDiagramScene(currentResult.document.content);
     } catch (error) {
-      return failure(action, error, 'SOURCE_NOT_FOUND');
+      return failure(action, error, 'INVALID_SCENE');
     }
 
     if (action === 'get') {
-      try {
-        const current = parseFlowDiagramScene(fs.readFileSync(target));
-        return success(action, { ...fileData(projectPath, target), scene: current });
-      } catch (error) {
-        return failure(action, error, 'READ_FAILED');
-      }
+      return success(action, { ...fileData(projectPath, target), scene: current });
     }
 
     if (action === 'edit') {
-      const originalBytes = fs.readFileSync(target);
-      let original: ExcalidrawScene;
-      try {
-        original = parseFlowDiagramScene(originalBytes);
-      } catch (error) {
-        return failure(action, error, 'INVALID_SCENE');
-      }
       let candidate: ReturnType<typeof applyOperations>;
       try {
-        candidate = applyOperations(original, input.operations ?? []);
+        candidate = applyOperations(current, input.operations ?? []);
       } catch (error) {
         return failure(action, error, 'INVALID_OPERATION');
       }
-      const candidateBytes = serializeFlowDiagramScene(candidate.scene);
-      let revisionToken: string;
-      try {
-        revisionToken = await revisionStore.record(target, originalBytes, candidateBytes);
-      } catch (error) {
+      const result = await documentStore.applyAgentEdit(
+        input.file_path,
+        serializeFlowDiagramScene(candidate.scene).toString('utf-8'),
+        currentResult.document.version,
+      );
+      if (!result.ok) {
         return failure(
           action,
-          new FlowDiagramOperationError('REVISION_FAILED', safeMessage(error)),
-          'REVISION_FAILED',
+          new FlowDiagramOperationError(result.error.code, result.error.message),
+          'WRITE_FAILED',
         );
       }
-      try {
-        await replaceFileIfUnchanged(target, candidateBytes, originalBytes);
-        notify(target);
-        return success(action, {
-          ...fileData(projectPath, target),
-          summary: candidate.summary,
-        });
-      } catch (error) {
-        try {
-          await replaceFileIfUnchanged(target, originalBytes, candidateBytes);
-        } catch {
-          // A concurrent source is preserved; default replacement never exposes partial bytes.
-        }
-        try {
-          await revisionStore.consumeLatest(target, revisionToken);
-        } catch (cleanupError) {
-          return failure(
-            action,
-            new FlowDiagramOperationError('REVISION_FAILED', safeMessage(cleanupError)),
-            'REVISION_FAILED',
-          );
-        }
-        return error instanceof FlowDiagramOperationError
-          ? failure(action, error, 'WRITE_FAILED')
-          : failure(
-              action,
-              new FlowDiagramOperationError('WRITE_FAILED', safeMessage(error)),
-              'WRITE_FAILED',
-            );
-      }
-    }
-
-    if (action === 'rollback') {
-      const currentBytes = fs.existsSync(target) ? fs.readFileSync(target) : null;
-      let rollbackBytes: Buffer | null = null;
-      try {
-        const revision = await revisionStore.peekLatest(target);
-        if (!revision) {
-          throw new FlowDiagramOperationError(
-            'NO_REVISION',
-            'No applicable Agent edit revision is available for this Flow Diagram.',
-          );
-        }
-        parseFlowDiagramScene(revision.sourceBytes);
-        if (!currentBytes || hashBytes(currentBytes) !== revision.appliedSourceHash) {
-          throw new FlowDiagramOperationError(
-            'SOURCE_CHANGED',
-            'The Flow Diagram changed after the latest Agent edit; rollback was not applied.',
-          );
-        }
-        rollbackBytes = revision.sourceBytes;
-        await replaceFileIfUnchanged(target, revision.sourceBytes, currentBytes);
-        await revisionStore.consumeLatest(target, revision.token);
-        notify(target);
-        return success(action, fileData(projectPath, target));
-      } catch (error) {
-        if (rollbackBytes) {
-          try {
-            if (currentBytes) {
-              await replaceFileIfUnchanged(target, currentBytes, rollbackBytes);
-            } else {
-              await removeFileAtomicallyIfUnchanged(target, rollbackBytes);
-            }
-          } catch (restoreError) {
-            if (!(restoreError instanceof FlowDiagramOperationError && restoreError.code === 'SOURCE_CHANGED')) {
-              return failure(
-                action,
-                new FlowDiagramOperationError(
-                  'ROLLBACK_RESTORE_FAILED',
-                  'Rollback failed and the previous source could not be restored.',
-                ),
-                'ROLLBACK_RESTORE_FAILED',
-              );
-            }
-          }
-        }
-        return failure(action, error, 'ROLLBACK_FAILED');
-      }
+      return success(action, {
+        ...fileData(projectPath, result.filePath),
+        summary: candidate.summary,
+      });
     }
 
     try {
-      const currentBytes = fs.readFileSync(target);
-      const current = parseFlowDiagramScene(currentBytes);
       if (input.format !== 'svg' && input.format !== 'png') {
         throw new FlowDiagramOperationError('FORMAT_REQUIRED', 'Export format must be png or svg.');
-      }
-      const expectedExtension = `.${input.format}`;
-      const requestedOutput = input.output_path
-        ? resolveProjectOwnedPath(projectPath, input.output_path, expectedExtension)
-        : collisionSafePath(resolveProjectOwnedPath(
-            projectPath,
-            path.join(
-              path.dirname(path.relative(projectPath, target)),
-              `${path.basename(target, '.excalidraw')}${expectedExtension}`,
-            ),
-            expectedExtension,
-          ));
-      if (input.output_path && fs.existsSync(requestedOutput)) {
-        throw new FlowDiagramOperationError(
-          'FILE_EXISTS',
-          'The requested export already exists; no file was overwritten.',
-        );
       }
       let artifact: FlowDiagramExportArtifact;
       try {
@@ -608,21 +482,29 @@ export function createFlowDiagramService(
           'The Flow Diagram could not be rendered for export.',
         );
       }
-      await writeNewFileAtomically(requestedOutput, artifact.bytes);
-      notify(requestedOutput);
-      const relativePath = path.relative(projectPath, requestedOutput).replace(/\\/g, '/');
+      const writeResult = await documentStore.createExport({
+        sourceFilePath: input.file_path,
+        requestedOutputPath: input.output_path,
+        format: input.format,
+        bytes: artifact.bytes,
+      });
+      if (!writeResult.ok) {
+        throw new FlowDiagramOperationError(
+          writeResult.error.code,
+          writeResult.error.message,
+        );
+      }
+      const relativePath = path.relative(projectPath, writeResult.filePath).replace(/\\/g, '/');
       return success(action, {
-        filePath: requestedOutput,
+        filePath: writeResult.filePath,
         relativePath,
         mimeType: artifact.mimeType,
         artifact: {
           kind: 'file',
-          path: requestedOutput,
-          title: path.basename(requestedOutput),
+          path: writeResult.filePath,
+          title: path.basename(writeResult.filePath),
           mimeType: artifact.mimeType,
-          displayMarkdown: input.format === 'svg' || input.format === 'png'
-            ? `![${path.basename(requestedOutput)}](${requestedOutput})`
-            : `[${path.basename(requestedOutput)}](${requestedOutput})`,
+          displayMarkdown: `![${path.basename(writeResult.filePath)}](${writeResult.filePath})`,
         },
       });
     } catch (error) {
@@ -631,9 +513,6 @@ export function createFlowDiagramService(
   };
 
   return {
-    execute: (input) => runProjectFileMutation(
-      projectPath,
-      () => executeUnlocked(input),
-    ),
+    execute,
   };
 }

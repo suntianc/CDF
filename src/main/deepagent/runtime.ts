@@ -532,7 +532,7 @@ async function buildDeepAgentRuntime(
   const delegatedRunRepository = new DelegatedAgentRunRepository(db);
 
   // ADR-0061/0062/0063：隔离运行时构造收敛在 delegated-runtime-adapter，
-  // 父→子继承契约是显式的窄接口；coordinator 经延迟解析注入审批门控。
+  // 父→子继承契约是显式的窄接口；coordinator 经延迟解析只注入单次审批执行 callback。
   const delegatedRuntimeAdapter: DelegatedRuntimeAdapter = createDelegatedRuntimeAdapter(
     {
       approvalMode: currentApprovalMode,
@@ -547,7 +547,9 @@ async function buildDeepAgentRuntime(
       sessionId,
     },
     {
-      resolveApprovalCoordinator: () => delegatedRunCoordinator,
+      resolveRunDelegatedToolAction: () => (
+        (input) => delegatedRunCoordinator.runToolAction(input)
+      ),
       createResilienceMiddleware: createSubagentResilienceMiddleware,
     },
   );
