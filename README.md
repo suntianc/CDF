@@ -1,223 +1,158 @@
-<div align="center">
-  <br />
-  <img src="src/renderer/public/logo.png" alt="CDF logo" width="80" style="border-radius: 8px;" />
-  <br />
-  <br />
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="CDF is an offline-first desktop Agent workstation that keeps projects, scenes, workflows, and artifacts in one local context." />
+</p>
 
-  # CDF
-  
-  ### ── Local Field Desk ──
-  
-  **An offline-first desktop AI workstation designed for long-term creation, research, and professional workflows.**
+<p align="center">
+  <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
-  *Reclaiming the tactile order of a physical desk, replacing fragmented conversations scattered across endless browser tabs.*
+<p align="center">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-C84635?style=flat-square" alt="AGPL-3.0 license" />
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-403934?style=flat-square" alt="macOS, Windows, and Linux" />
+  <img src="https://img.shields.io/badge/Node.js-%3E%3D22-756A61?style=flat-square" alt="Node.js 22 or newer" />
+</p>
 
-  <p>
-    <a href="README.zh-CN.md">简体中文</a> • <strong>English</strong>
-  </p>
+CDF is an **offline-first desktop Agent workstation** for work that should outlive a chat tab. It keeps a local Project, its conversations, scene-specific Skills, Agent activity, workflows, files, and artifacts in one durable working context.
 
-  <p>
-    <a href="#design-philosophy-local-field-desk">Design Philosophy</a> •
-    <a href="#core-features">Core Features</a> •
-    <a href="#interface-tour">Interface Tour</a> •
-    <a href="#tech-stack">Tech Stack</a> •
-    <a href="#quick-start">Quick Start</a> •
-    <a href="#roadmap">Roadmap</a>
-  </p>
-  
-  <p align="center">
-    <img src="https://img.shields.io/badge/License-AGPL%203.0-b83b22?style=flat-square&logo=git&logoColor=white" alt="License" />
-    <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-333333?style=flat-square" alt="Platform" />
-    <img src="https://img.shields.io/badge/Node-%3E%3D22-6b5d54?style=flat-square" alt="Node" />
-  </p>
-</div>
+Today, CDF ships two complete Scene foundations—**General** and **Research**—with more specialized professional desks planned.
 
----
+## The desk, in one frame
 
-## Design Philosophy: Local Field Desk
+The interface has three stable zones: **Project Ledger** on the left, **Scene Desk** in the center, and an on-demand **Auxiliary Bay** for files and activity on the right. The current Project stays visible while the work changes.
 
-CDF does not position itself as a narrow Coding Agent, nor does it compete in the all-in-one Hermes/Openclaw Agent track. Instead, it redefines the physical boundaries of human-AI collaboration through "Scenes".
+<p align="center">
+  <img src="./assets/readme/workbench.webp" width="100%" alt="CDF project workbench with the project ledger, conversation workspace, generated artifact, and local file panel visible together." />
+</p>
 
-> **Cinnabar Ink and Geometrical Order.**  
-> CDF uses **Cinnabar Red** (Vermilion) as its sole global accent color to guide your focus toward critical decisions. We intentionally reject superficial purple-blue AI gradients, neon glows, and glassmorphism, offering instead a sober and respectful visual rhythm for high-intensity professional work.
+## Why CDF
 
----
+### Work by Scene, not by model
 
-## Core Features
+A Project is created for a professional context, not for a provider. The General Scene handles everyday multimodal work. The Research Scene adds a Paper Library and a focused set of Skills for paper search, collection, reading, local PDF parsing, manuscript review, and academic revision.
 
-### Scene Workspaces (Scenes) — Switched by Profession, Not by LLMs
+### Connect capabilities without turning a provider into the product
 
-AI shouldn't bundle writing, coding, image generation, and literature research into a single generic text box. In CDF, every specialized workflow is assigned its own dedicated Scene Desk:
+**AI Subscriptions** exposes supported routes from accounts you already use:
 
-*   **General Workspace**  
-    Accommodates daily multimodal tasks spanning brainstorming, copywriting, coding, illustration, and media production. Project files, conversations, and generated artifacts are naturally gathered under a single local directory.
-*   **Research Scene**  
-    Provides a unified local context for reading, literature search, experimentation logs, and academic writing. Features an integrated **Paper Library** supporting scholarly search, one-click collection, local PDF parsing, and academic style revision.
-*   **Expanding Scenes (Coming Soon)**  
-    Dedicated creative, design, and analysis workspaces are on the way. There is no need to switch applications—you get native interfaces tailored to different professions on the exact same desk.
+- **MiniMax Token Plan** for text reasoning plus image, video, speech, and music workflows.
+- **Codex OAuth** for supported text, code, and image workflows.
+- **xAI Grok OAuth** for supported text and media workflows.
 
----
+Connections and capability switches are explicit. CDF selects from enabled routes instead of forcing every task through one model vendor.
 
-### Single Connection: Bring Your Own AI Subscriptions
+<p align="center">
+  <img src="./assets/readme/subscriptions.webp" width="100%" alt="CDF AI Subscriptions screen showing connected MiniMax Token Plan, Codex OAuth, and xAI Grok OAuth capability controls." />
+</p>
 
-You don't need to purchase yet another proprietary API plan. Centralized account connection serves as an entry point, not a product silo:
+### Keep long work inspectable
 
-*   <img src="assets/readme/minimax-color.svg" width="18" /> **MiniMax Token Plan**: Powers text reasoning, multimodal chat, and high-quality image, video, voice, and music generation.
-*   <img src="assets/readme/openai-color.svg" width="18" /> **Codex / GPT OAuth**: Authorizes text reasoning, coding, and image generation using your logged-in accounts.
-*   <img src="assets/readme/xai-color.svg" width="18" /> **xAI Grok OAuth**: Utilizes long-context reasoning and multimodal analysis for complex data extraction and generation.
+Workflow Runs turn a complex task into named Stages. A selected model drives the Master Agent, Stage Gates pause at decision boundaries, and the run record preserves progress, approvals, failures, and outputs instead of hiding them inside an autonomous loop.
 
-> **Capabilities as Routing**: Centralized account connection serves as an entry point, not a product silo. You never have to bounce between different web pages or applications to write a prompt, generate a diagram, compose audio, or compile research.
+<p align="center">
+  <img src="./assets/readme/workflow.webp" width="100%" alt="CDF workflow run graph showing one active research stage, parallel tasks, a consolidation task, and the run detail panel." />
+</p>
 
----
+### Give research its own working surface
 
-### Task Orchestration: Workflow Skeleton & Gate Approvals
+The Research Scene keeps conversation and literature work in the same Project context. Its Paper Library supports searchable local entries, paper metadata, collection, PDF opening, and the built-in research Skill chain.
 
-When a task exceeds the capability of a single conversation, CDF's Workflow Skeleton structures complex processes into predictable **Stages** and acceptance criteria:
-*   **Gate-based Approvals**: Critical execution nodes pause and await human confirmation or correction, preventing the illusion of a fragile "autonomous loop."
-*   **Ledger Edge**: Pending approvals, runtime failures, and primary artifacts are pinned with a vertical Cinnabar Red stripe, ensuring high-priority items are instantly visible.
+<p align="center">
+  <img src="./assets/readme/research.webp" width="100%" alt="CDF Research Scene Paper Library showing searchable local paper entries, metadata, tags, and PDF actions." />
+</p>
 
-> Currently, the workflow system is in an early stage and has not yet been integrated with the main Agent; it is temporarily triggered manually.
+## Local by default, network by choice
 
----
+CDF stores application state in local SQLite-backed storage and roots each Project in a directory selected by the user. Filesystem, shell, MCP, browser, and model-provider operations stay in the Electron main process and cross a minimal preload IPC boundary.
 
-## Interface Tour
+External AI providers, scholarly search, and browser-assisted reading still require network access when invoked. Those connections are visible, configurable, and allowed to fail without redefining the local Project as a cloud workspace.
 
-> [!TIP]
-> The CDF layout consists of three primary functional zones: the **Project Ledger** (left) tracks project contexts, the **Scene Desk** (center) hosts the main workspace canvas, and the **Auxiliary Bay** (right) opens files and task activities on demand.
+## Quick start
 
-| The Local Project Desk | Multimodal Subscription Center |
-| :---: | :---: |
-| ![CDF Project Workbench](assets/readme/workbench.webp) | ![CDF Subscriptions & Media](assets/readme/subscriptions.webp) |
-| *Project ledger, main workspace, and auxiliary bay co-exist cleanly.* | *Centrally manage MiniMax, Codex, and Grok; media generation is one click away.* |
+### Requirements
 
-| Complex Task Workflows | Long-term Academic Research |
-| :---: | :---: |
-| ![CDF Workflow Execution](assets/readme/workflow.webp) | ![CDF Research Workspace](assets/readme/research.webp) |
-| *Workflow stage progression and gate-based approvals.* | *Integrated scholarly search, paper database, and paper parsing.* |
+- Node.js `>=22`
+- pnpm `11.5.1`
+- macOS, Windows, or Linux desktop environment
 
----
-
-## Tech Stack
-
-CDF adheres strictly to **offline-first** architecture and secure desktop sandboxing practices.
-
-```text
- ┌────────────────────────────────────────────────────────────────────────┐
- │                          CDF DESKTOP SYSTEM                            │
- ├───────────────────┬────────────────────────┬───────────────────────────┤
- │ PRESENTATION      │ AGENT RUNTIME          │ LOCAL STORAGE & VISUAL    │
- ├───────────────────┼────────────────────────┼───────────────────────────┤
- │ • Electron & Vite │ • LangChain & LangGraph│ • better-sqlite3 (SQLite) │
- │ • React 19        │ • deepagents           │ • Zustand State Store     │
- │ • Tailwind CSS v4 │ • Model Context        │ • React Flow Canvas       │
- │ • Radix UI        │   Protocol (MCP)       │ • Monaco & Excalidraw     │
- └───────────────────┴────────────────────────┴───────────────────────────┘
-```
-
-> **Quality Assurance**: Our end-to-end testing suite is driven by [Vitest](https://vitest.dev/) and [Testing Library](https://testing-library.com/), guarding Electron main IPC boundaries and React renderer actions.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-*   **Node.js** `>= 22.0.0`
-*   **Package Manager** `pnpm` `@11.5.1`
-*   **OS Support** macOS / Windows / Linux (desktop environments)
-
-### Packaged Capability Support
-
-CDF packages are available for the platforms below, but the optional **Obscura browser-assisted page reader** is bundled only where a matching native binary exists:
-
-| Package | CDF application | Bundled Obscura |
-| :--- | :---: | :---: |
-| macOS x86_64 DMG | ✓ | ✓ |
-| macOS ARM64 DMG | ✓ | ✓ |
-| Windows x86_64 NSIS / MSI | ✓ | ✓ |
-| Windows ARM64 NSIS / MSI | ✓ | Not bundled |
-| Linux x86_64 DEB / RPM | ✓ | Not bundled |
-
-> On Windows ARM64 and Linux x86_64, CDF remains available, but invoking Obscura reports that no binary is bundled for the current platform. Other application capabilities are unaffected.
-
-### Build & Run Locally
-
-Because CDF depends on native database modules (`better-sqlite3`), running tests and development environments requires rebuilding modules for target runtimes:
+### Run from source
 
 ```bash
-# 1. Clone and install dependencies
+git clone https://github.com/suntianc/CDF.git
+cd CDF
 pnpm install
-
-# 2. Launch the Electron app (rebuilds sqlite for the Electron ABI automatically)
 pnpm run dev:electron
 ```
 
-### Common Commands
-
-| Command | Description | ABI State / Notes |
-| :--- | :--- | :--- |
-| `pnpm run dev:electron` | **Run App (Development)** | Automatically rebuilds native modules to the **Electron ABI** *(Recommended)* |
-| `pnpm test` | **Run Unit Tests (Vitest)** | Rebuilds native modules to the **Node ABI** before running tests |
-| `pnpm run build` | **Build App Packages** | Compiles main/preload/renderer targets with type-safety checks |
-| `pnpm run preview` | **Preview Local Build** | Validates the compiled Electron application locally |
+`dev:electron` is the recommended start command because it rebuilds `better-sqlite3` for the Electron ABI before launching the app.
 
 > [!WARNING]
-> **Native ABI Conflicts**: After running `pnpm test`, starting the app might crash due to SQL module mismatches. Always run `pnpm run dev:electron` to restore the correct Electron ABI. **Do not** delete the package lockfile or force-reinstall dependencies.
+> `pnpm test` rebuilds `better-sqlite3` for the Node.js ABI. After testing, use `pnpm run dev:electron` before launching the desktop app again. Do not delete the lockfile to work around an ABI mismatch.
 
----
+### Common commands
 
-## Project Structure
+| Command | Purpose |
+| --- | --- |
+| `pnpm run dev:electron` | Rebuild the native database module for Electron and start development |
+| `pnpm test` | Run the Vitest suite in the Node.js environment |
+| `pnpm run typecheck` | Type-check the main/preload and renderer targets |
+| `pnpm run build` | Build the Electron main, preload, renderer, and paper-search runtime |
+| `pnpm run preview` | Preview the compiled Electron application |
 
-Following Electron security guidelines, CDF isolates high-privilege capabilities from the UI layer:
+## Build targets
+
+CDF can be built for the targets below. The optional **Obscura** browser-assisted reader is included only where this repository carries a matching native binary.
+
+| Target | Application | Bundled Obscura |
+| --- | :---: | :---: |
+| macOS x86_64 DMG | Yes | Yes |
+| macOS ARM64 DMG | Yes | Yes |
+| Windows x86_64 NSIS / MSI | Yes | Yes |
+| Windows ARM64 NSIS / MSI | Yes | No |
+| Linux x86_64 DEB / RPM | Yes | No |
+
+Missing Obscura support does not disable the rest of CDF; invoking that optional route reports that no matching binary is bundled.
+
+## Architecture
 
 ```text
-CDF/
-├── src/
-│   ├── main/        # Electron Main Process (IPC, SQLite, Agent & Workflow execution)
-│   ├── preload/     # contextBridge API exposing safe boundaries to the Renderer
-│   ├── renderer/    # React Renderer Process (Scene Workspaces, Zustand, i18n)
-│   └── shared/      # Shared TypeScript types and constants across processes
-├── docs/            # Domain architecture guidelines and ADRs
-├── resources/       # Static app resources and installer icons
-└── patches/         # Local dependency patches via patch-package
+Renderer                 Preload boundary             Main process
+React 19                 contextBridge                Electron + IPC
+Scene workspaces   ───▶  minimal typed APIs    ───▶  Agent / Workflow runtime
+Zustand projections                                  SQLite / filesystem / MCP
+                                                     provider connections
 ```
 
-> **Security Policy**: Maintain `contextIsolation: true` and `nodeIntegration: false`. File systems, shell command execution, MCP servers, and LLM providers reside strictly in the [main process](file:///Users/suntc/project/CDF/src/main/) and are requested via [preload](file:///Users/suntc/project/CDF/src/preload/) IPC channels.
+- [`src/renderer/`](./src/renderer/) contains the React workbench and user-visible projections.
+- [`src/preload/`](./src/preload/) exposes the smallest renderer-safe API surface.
+- [`src/main/`](./src/main/) owns high-privilege operations, persistence, Agents, capabilities, and Workflow Runs.
+- [`src/shared/`](./src/shared/) holds types and constants shared across process boundaries.
 
----
+The Electron window keeps `contextIsolation: true` and `nodeIntegration: false`.
 
-## Contribution & License
+## Current scope and roadmap
 
-We highly welcome proposals, design ideas, and pull requests for custom Scenes and Skills:
-*   Before submitting code, please carefully read our [AGENTS.md](file:///Users/suntc/project/CDF/AGENTS.md) guidelines.
-*   CDF is licensed under the [AGPL-3.0 License](https://www.gnu.org/licenses/agpl-3.0.html).
+- [x] General Scene and local Project workbench
+- [x] Research Scene, Paper Library, and built-in research Skills
+- [x] MiniMax Token Plan, Codex OAuth, and xAI Grok OAuth connections
+- [x] Stage-based Workflow Runs with Gate decisions
+- [ ] Additional creative, design, and analysis Scenes
 
----
+Roadmap items describe direction, not a compatibility promise or release date.
 
-## Roadmap
+## Contributing and license
 
-- [x] **General Agent Scene**
-- [x] **Basic Research Scene**
-- [x] **v1.0 Capabilities Refinement & Polishing**
-- [ ] **Design Scenes (In Progress)**
-- [ ] **To Be Planned...**
+Issues, design proposals, and pull requests are welcome. Before changing the codebase, read [AGENTS.md](./AGENTS.md) for repository rules, test expectations, and Electron security boundaries.
 
----
+CDF is licensed under the [GNU Affero General Public License v3.0](./LICENSE).
 
-## Credits
+## Acknowledgements
 
-CDF stands on the shoulders of the open-source community. Our deepest gratitude goes out to the creators of these foundational projects:
+CDF is built with and informed by open-source work across several layers:
 
-*   **Application Shell**: [`Electron`](https://www.electronjs.org/) and [`electron-vite`](https://electron-vite.org/) for multi-platform desktop sandboxing.
-*   **Tactile Interfaces**: [`React`](https://react.dev/), [`TypeScript`](https://www.typescriptlang.org/), [`Tailwind CSS`](https://tailwindcss.com/), [`Radix UI`](https://www.radix-ui.com/), and [`Lucide Icons`](https://lucide.dev/).
-*   **Agent Runtime**: [`LangChain`](https://js.langchain.com/), [`LangGraph`](https://langchain-ai.github.io/langgraphjs/), [`deepagents`](https://github.com/langchain-ai/deepagentsjs), and the [`Model Context Protocol (MCP)`](https://modelcontextprotocol.io/).
-*   **Local Engine**: [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) for native DB queries, [`Zustand`](https://zustand.docs.pmnd.rs/) for state syncing, and [`React Flow`](https://reactflow.dev/) for canvas visualizations.
-*   **Integrated Capabilities**:
-    *   [`paper-search-cli`](https://github.com/dr-dumpling/paper-search-cli) for scholarly queries and academic metadata ingestion.
-    *   [`Obscura`](https://github.com/h4ckf0r0day/obscura) for structurizing browser navigation under crawler skills.
-    *   [`Marker`](https://github.com/VikParuchuri/marker) for robust local PDF markdown extraction.
-    *   [`scientific-agent-skills`](https://github.com/K-Dense-AI/scientific-agent-skills) and [`humanizer`](https://github.com/blader/humanizer) for inspiring manuscript review techniques.
+- **Desktop and interface:** [Electron](https://www.electronjs.org/), [electron-vite](https://electron-vite.org/), [React](https://react.dev/), [Tailwind CSS](https://tailwindcss.com/), [Radix UI](https://www.radix-ui.com/), and [Lucide](https://lucide.dev/).
+- **Agent runtime:** [LangChain](https://js.langchain.com/), [LangGraph](https://langchain-ai.github.io/langgraphjs/), [deepagents](https://github.com/langchain-ai/deepagentsjs), and the [Model Context Protocol](https://modelcontextprotocol.io/).
+- **Local workbench:** [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), [Zustand](https://zustand.docs.pmnd.rs/), [React Flow](https://reactflow.dev/), [Monaco Editor](https://microsoft.github.io/monaco-editor/), and [Excalidraw](https://excalidraw.com/).
+- **Integrated research capabilities:** [paper-search-cli](https://github.com/dr-dumpling/paper-search-cli), [Obscura](https://github.com/h4ckf0r0day/obscura), and [Marker](https://github.com/VikParuchuri/marker).
+- **Skill references:** [scientific-agent-skills](https://github.com/K-Dense-AI/scientific-agent-skills) and [humanizer](https://github.com/blader/humanizer) informed parts of CDF's research writing and review workflows.
 
-<p align="center">
-  <b>CDF • Local Field Desk AI Workspace</b>
-</p>
+<p align="center"><strong>CDF · Local Field Desk</strong></p>
